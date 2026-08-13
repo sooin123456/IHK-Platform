@@ -1,0 +1,2 @@
+product_version,exported_at_utc,revit_version,document_title,ifc_configuration,ifc_file,ifc_sha256,qto_file,qto_sha256,qto_row_count,element_count,element_ledger_file,element_ledger_sha256,element_ledger_row_count,status,failure_reason
+2.0.0,2026-08-13T00:00:00.0000000Z,2026,Lukas QTO concrete demo,default,model.ifc,1ce5be02fa6015847934fac2059ea56eb96ee373f3122d8b9b88a583824a4e46,qto.csv,186de3ea946ac00c536ac31783596be91f6c9af7e0d6ba49fa0df11dd0f392d1,1,2,element-ledger.csv,9636a8bd846969d4ec3b55c6a9639bac0f7006fee04484e9e28698bd3e914f5f,2,COMPLETE,

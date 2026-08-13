@@ -1,0 +1,5 @@
+source_id,path,sha256,slot,scope_id,revision,status,related_source_id
+sample-ifc-r1,sample.ifc,30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93,ifc,SAMPLE-WALL-01,1,ACTIVE,
+sample-qto-r1,qto.csv,186de3ea946ac00c536ac31783596be91f6c9af7e0d6ba49fa0df11dd0f392d1,qto,SAMPLE-WALL-01,1,ACTIVE,sample-ifc-r1
+sample-estimate-r1,estimate.csv,785ba1be6dccd51cfb763b71dd7b1e3e626fc0df79e56c3bc56daef0cea0a653,estimate,SAMPLE-WALL-01,1,ACTIVE,
+sample-mapping-r1,mapping.csv,ff8a188bb33b96901aafe32a679f26f429a155449942f14814a8f1276f41e40b,mapping,SAMPLE-WALL-01,1,ACTIVE,

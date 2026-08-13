@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RevitStubVersion Condition="'$(RevitStubVersion)' == ''">2026</RevitStubVersion>
+    <IntermediateOutputPath>obj\$(Configuration)\$(RevitStubVersion)\</IntermediateOutputPath>
+    <DefineConstants>REVIT$(RevitStubVersion)</DefineConstants>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RevitApiStub\RevitAPI.csproj" />
+    <ProjectReference Include="..\RevitApiStub\UI\RevitAPIUI.csproj" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\Csv.cs" Link="Preflight\Csv.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\ElementQuantityLedger.cs" Link="ElementQuantityLedger.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\StructuralQuantity.cs" Link="StructuralQuantity.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\FormworkTakeoff.cs" Link="FormworkTakeoff.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\Input.cs" Link="Preflight\Input.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\Models.cs" Link="Preflight\Models.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto.Core\Xlsx.cs" Link="Preflight\Xlsx.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\QtoRow.cs" Link="QtoRow.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\RevitExtractionScope.cs" Link="RevitExtractionScope.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\QuantityExtractor.cs" Link="QuantityExtractor.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\ElementQuantityExtractor.cs" Link="ElementQuantityExtractor.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\FormworkFaceExtractor.cs" Link="FormworkFaceExtractor.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Core\CsvWriter.cs" Link="CsvWriter.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Compat\RevitCompat.cs" Link="RevitCompat.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Commands\ExportIfcCommand.cs" Link="ExportIfcCommand.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Commands\OpenDesktopCommand.cs" Link="OpenDesktopCommand.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Commands\ExportElementPropertiesCommand.cs" Link="ExportElementPropertiesCommand.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Commands\ExportIfcQtoPackageCommand.cs" Link="ExportIfcQtoPackageCommand.cs" />
+    <Compile Include="..\..\src\THEKIE.Qto\Commands\ExportFormworkFaceLedgerCommand.cs" Link="ExportFormworkFaceLedgerCommand.cs" />
+  </ItemGroup>
+</Project>

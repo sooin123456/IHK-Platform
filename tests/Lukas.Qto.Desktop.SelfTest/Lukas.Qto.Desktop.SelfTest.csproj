@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/THEKIE.Qto.Core/THEKIE.Qto.Core.csproj" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/DesktopPreflightRunner.cs" Link="DesktopPreflightRunner.cs" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/DesktopConcreteTakeoffRunner.cs" Link="DesktopConcreteTakeoffRunner.cs" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/DesktopRebarTakeoffRunner.cs" Link="DesktopRebarTakeoffRunner.cs" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/ProjectManifestBuilder.cs" Link="ProjectManifestBuilder.cs" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/RevisionRegistration.cs" Link="RevisionRegistration.cs" />
+    <Compile Include="../../src/Lukas.Qto.Desktop/RunComparer.cs" Link="RunComparer.cs" />
+  </ItemGroup>
+</Project>

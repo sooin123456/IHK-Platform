@@ -1,0 +1,3 @@
+element_id,category,family,type,element_name,level,volume_state,volume_m3,volume_source_parameter,length_state,length_m,length_source_parameter,height_state,height_m,height_source_parameter
+1001,벽,기본 벽,콘크리트 벽,콘크리트 벽 1001,L1,COMPUTED,5,HOST_VOLUME_COMPUTED,MISSING,,,MISSING,,
+1002,벽,기본 벽,콘크리트 벽,콘크리트 벽 1002,L1,COMPUTED,5,HOST_VOLUME_COMPUTED,MISSING,,,MISSING,,

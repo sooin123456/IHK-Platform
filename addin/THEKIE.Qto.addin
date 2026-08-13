@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Lukas QTO</Name>
+    <!-- install.bat writes the version-specific absolute DLL path on Windows. -->
+    <Assembly>__INSTALL_DIRECTORY__\Lukas.Qto\THEKIE.Qto.dll</Assembly>
+    <AddInId>e36671a8-0944-465c-919e-1006dfd3610e</AddInId>
+    <FullClassName>THEKIE.Qto.App</FullClassName>
+    <VendorId>LUKS</VendorId>
+    <VendorDescription>Lukas</VendorDescription>
+  </AddIn>
+</RevitAddIns>

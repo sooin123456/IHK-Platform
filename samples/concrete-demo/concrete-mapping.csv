@@ -1,0 +1,2 @@
+bundle_id,version,bundle_sha256,source_ref,category,family,type,decision,building,member,spec
+DEMO-REVIT-CONCRETE,1,121290FC1288461AAFA5F6EFB7AD5C3AF141AB61195AEF2F91F120F50E3B9EEA,samples/concrete-demo/concrete-mapping.csv,벽,기본 벽,콘크리트 벽,Include,데모동,벽,25-270-15

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <StubTargetFramework Condition="'$(StubTargetFramework)' == ''">netstandard2.0</StubTargetFramework>
+    <TargetFramework>$(StubTargetFramework)</TargetFramework>
+    <AssemblyName>RevitAPIUI</AssemblyName>
+    <RevitStubVersion Condition="'$(RevitStubVersion)' == ''">2026</RevitStubVersion>
+    <OutputPath>..\bin\$(Configuration)\$(RevitStubVersion)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\$(RevitStubVersion)\</IntermediateOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\RevitAPIUI.cs" Link="RevitAPIUI.cs" />
+    <ProjectReference Include="..\RevitAPI.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net46'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net46" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

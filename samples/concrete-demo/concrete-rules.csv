@@ -1,0 +1,2 @@
+bundle_id,version,bundle_sha256,source_ref,spec,allowance_rate,application_basis,deduction_timing,rounding_mode,rounding_scale
+DEMO-CONCRETE-RULES,1,DBD23D0670BE326FFA7C4B8486C7439FF8D52CCC91C83E2A634C0ABDF852DC31,samples/concrete-demo/concrete-rules.csv,25-270-15,0,Subtotal,BeforeAllowance,None,

@@ -1,0 +1,159 @@
+<Window x:Class="Lukas.Qto.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Lukas QTO 검산기" Width="1280" Height="860" MinWidth="980" MinHeight="700"
+        FontFamily="Malgun Gothic" Background="#F4F6F8">
+  <Grid Margin="20">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="230" />
+    </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="150" />
+      <ColumnDefinition Width="*" />
+      <ColumnDefinition Width="100" />
+    </Grid.ColumnDefinitions>
+
+    <StackPanel Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,16">
+      <TextBlock Text="Lukas QTO 검산기" FontSize="28" FontWeight="SemiBold" Foreground="#162233" />
+      <TextBlock Text="승인된 소스와 매핑을 같은 규칙으로 검산합니다. 규칙 L1.4.3 · 로컬 실행" Foreground="#536273" Margin="0,5,0,0" />
+      <TextBlock Text="로컬 승인표의 해시 일관성만 확인합니다. 독립 관리자 신뢰·전자서명 없이 운영 승인으로 해석하지 마십시오." Foreground="#8A5A00" Margin="0,3,0,0" />
+      <WrapPanel Margin="0,10,0,0">
+        <TextBlock Text="콘크리트 승인파일" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <TextBox x:Name="ConcreteMappingBox" Width="240" Margin="0,0,6,0" ToolTip="Revit concrete mapping CSV" />
+        <Button Content="매핑" Margin="0,0,8,0" Click="BrowseConcreteMapping" />
+        <TextBox x:Name="ConcreteRulesBox" Width="240" Margin="0,0,6,0" ToolTip="Concrete rules CSV" />
+        <Button Content="규칙" Margin="0,0,8,0" Click="BrowseConcreteRules" />
+        <TextBox x:Name="ConcreteRegistryBox" Width="240" Margin="0,0,6,0" ToolTip="Approval registry CSV" />
+        <Button Content="승인표" Click="BrowseConcreteRegistry" />
+      </WrapPanel>
+      <WrapPanel Margin="0,6,0,0">
+        <TextBlock Text="철근 승인파일" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <TextBox x:Name="RebarLengthBox" Width="210" Margin="0,0,6,0" ToolTip="Rebar length CSV" /><Button Content="길이" Margin="0,0,8,0" Click="BrowseRebarLength" />
+        <TextBox x:Name="RebarRulesBox" Width="210" Margin="0,0,6,0" ToolTip="Rebar rule CSV" /><Button Content="규칙" Margin="0,0,8,0" Click="BrowseRebarRules" />
+        <TextBox x:Name="RebarOfficialBox" Width="210" Margin="0,0,6,0" ToolTip="Independent official target CSV (optional)" /><Button Content="공식 kg" Margin="0,0,8,0" Click="BrowseRebarOfficial" />
+        <TextBox x:Name="RebarRegistryBox" Width="210" Margin="0,0,6,0" ToolTip="Rebar registry CSV" /><Button Content="승인표" Click="BrowseRebarRegistry" />
+      </WrapPanel>
+      <WrapPanel Margin="0,6,0,0">
+        <TextBlock Text="거푸집 Face 원장" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <TextBox x:Name="FormworkLedgerBox" Width="210" Margin="0,0,6,0" ToolTip="Revit formwork-face-ledger.csv" /><Button Content="원장" Margin="0,0,8,0" Click="BrowseFormworkLedger" />
+        <TextBox x:Name="FormworkApprovalBox" Width="210" Margin="0,0,6,0" ToolTip="사용자 승인 CSV" /><Button Content="승인 CSV" Margin="0,0,8,0" Click="BrowseFormworkApproval" />
+        <TextBox x:Name="FormworkRegistryBox" Width="210" Margin="0,0,6,0" ToolTip="관리자 승인 registry CSV" /><Button Content="승인표" Margin="0,0,8,0" Click="BrowseFormworkRegistry" />
+        <Button x:Name="InspectFormworkButton" Content="원장 검토" Margin="0,0,8,0" Click="InspectFormworkLedger" />
+        <Button x:Name="RunFormworkButton" Content="거푸집 산출" Click="RunFormworkTakeoff" />
+      </WrapPanel>
+    </StackPanel>
+
+    <TextBlock Grid.Row="1" Text="Revit 내보내기" VerticalAlignment="Center" />
+    <TextBox x:Name="ExportManifestBox" Grid.Row="1" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="1" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseExportManifest" />
+
+    <TextBlock Grid.Row="2" Text="소스 매니페스트" VerticalAlignment="Center" />
+    <TextBox x:Name="SourceManifestBox" Grid.Row="2" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="2" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseSourceManifest" />
+
+    <TextBlock Grid.Row="3" Text="IFC (선택)" VerticalAlignment="Center" />
+    <TextBox x:Name="IfcBox" Grid.Row="3" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="3" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseIfc" />
+
+    <TextBlock Grid.Row="4" Text="QTO" VerticalAlignment="Center" />
+    <TextBox x:Name="QtoBox" Grid.Row="4" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="4" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseQto" />
+
+    <TextBlock Grid.Row="5" Text="내역서" VerticalAlignment="Center" />
+    <TextBox x:Name="EstimateBox" Grid.Row="5" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="5" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseEstimate" />
+
+    <TextBlock Grid.Row="6" Text="승인 매핑" VerticalAlignment="Center" />
+    <TextBox x:Name="MappingBox" Grid.Row="6" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="6" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowseMapping" />
+
+    <TextBlock Grid.Row="7" Text="결과 CSV" VerticalAlignment="Center" />
+    <TextBox x:Name="ReportBox" Grid.Row="7" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="7" Grid.Column="2" Content="저장 위치" Margin="8,4" Click="BrowseReport" />
+
+    <TextBlock Grid.Row="8" Text="이전 결과 (선택)" VerticalAlignment="Center" />
+    <TextBox x:Name="PreviousReportBox" Grid.Row="8" Grid.Column="1" Margin="8,4" Padding="7" />
+    <Button Grid.Row="8" Grid.Column="2" Content="찾아보기" Margin="8,4" Click="BrowsePreviousReport" />
+
+    <Border Grid.Row="9" Grid.ColumnSpan="3" Background="White" BorderBrush="#D7DDE5" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,10">
+      <DockPanel LastChildFill="False">
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+          <TextBlock Text="수량 허용오차" VerticalAlignment="Center" />
+          <TextBox x:Name="QuantityToleranceBox" Text="0" Width="80" Margin="8,0,20,0" Padding="6" />
+          <TextBlock Text="KRW 허용오차" VerticalAlignment="Center" />
+          <TextBox x:Name="KrwToleranceBox" Text="0" Width="80" Margin="8,0,20,0" Padding="6" />
+          <TextBlock x:Name="StatusText" Text="입력 파일을 선택하십시오." VerticalAlignment="Center" Foreground="#536273" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+          <Button x:Name="CreateProjectButton" Content="프로젝트 만들기" Padding="16,8" Margin="0,0,8,0" Click="CreateProject" />
+          <Button x:Name="RegisterEstimateRevisionButton" Content="내역 새 개정" Padding="12,8" Margin="0,0,8,0" Click="RegisterEstimateRevision" />
+          <Button x:Name="RegisterMappingRevisionButton" Content="매핑 새 개정" Padding="12,8" Margin="0,0,8,0" Click="RegisterMappingRevision" />
+          <Button x:Name="RunConcreteButton" Content="콘크리트 산출" Padding="12,8" Margin="0,0,8,0" Click="RunConcreteTakeoff" />
+          <Button x:Name="RunRebarButton" Content="철근 산출" Padding="12,8" Margin="0,0,8,0" Click="RunRebarTakeoff" />
+          <Button x:Name="OpenFolderButton" Content="결과 폴더" Padding="16,8" Margin="0,0,8,0" IsEnabled="False" Click="OpenResultFolder" />
+          <Button x:Name="RunButton" Content="검산 실행" Padding="24,8" Background="#1769E0" Foreground="White" FontWeight="SemiBold" Click="RunPreflight" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <TabControl Grid.Row="10" Grid.ColumnSpan="3" Background="White" BorderBrush="#D7DDE5">
+      <TabItem Header="현재 검산">
+        <DataGrid x:Name="FindingsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                  SelectionMode="Single" SelectionChanged="FindingSelected" Background="White" BorderBrush="#D7DDE5"
+                  CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="상태" Binding="{Binding Status}" Width="100" />
+            <DataGridTextColumn Header="규칙" Binding="{Binding Rule}" Width="80" />
+            <DataGridTextColumn Header="심각도" Binding="{Binding Severity}" Width="90" />
+            <DataGridTextColumn Header="내역 ID" Binding="{Binding LineId}" Width="140" />
+            <DataGridTextColumn Header="기대값" Binding="{Binding Expected}" Width="110" />
+            <DataGridTextColumn Header="실제값" Binding="{Binding Actual}" Width="110" />
+            <DataGridTextColumn Header="차이" Binding="{Binding Delta}" Width="110" />
+            <DataGridTextColumn Header="설명" Binding="{Binding Message}" Width="*" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </TabItem>
+      <TabItem Header="이전 결과와 비교">
+        <DockPanel>
+          <TextBlock x:Name="ComparisonStatusText" DockPanel.Dock="Top" Text="이전 결과 CSV를 선택하면 검산 뒤 비교합니다." Margin="8" Foreground="#536273" />
+          <DataGrid x:Name="ComparisonGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="비교 상태" Binding="{Binding Status}" Width="150" />
+              <DataGridTextColumn Header="규칙" Binding="{Binding Rule}" Width="80" />
+              <DataGridTextColumn Header="내역 ID" Binding="{Binding LineId}" Width="130" />
+              <DataGridTextColumn Header="검산키" Binding="{Binding QtoId}" Width="130" />
+              <DataGridTextColumn Header="단위" Binding="{Binding Unit}" Width="80" />
+              <DataGridTextColumn Header="이전" Binding="{Binding PreviousStatus}" Width="90" />
+              <DataGridTextColumn Header="현재" Binding="{Binding CurrentStatus}" Width="90" />
+              <DataGridTextColumn Header="설명" Binding="{Binding Message}" Width="*" />
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+    </TabControl>
+
+    <Border Grid.Row="11" Grid.ColumnSpan="3" Background="White" BorderBrush="#D7DDE5" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,10,0,0">
+      <Grid DataContext="{Binding SelectedItem, ElementName=FindingsGrid}">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <TextBlock Grid.ColumnSpan="4" Text="선택 항목 근거 상세" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
+        <TextBlock Grid.Row="1" Text="상태 / 규칙" FontWeight="SemiBold"/><TextBlock Grid.Row="1" Grid.Column="1"><Run Text="{Binding Status}"/><Run Text=" / "/><Run Text="{Binding Rule}"/></TextBlock>
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="내역 ID" FontWeight="SemiBold"/><TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding LineId}"/>
+        <TextBlock Grid.Row="2" Text="값" FontWeight="SemiBold"/><TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3"><Run Text="expected="/><Run Text="{Binding Expected}"/><Run Text="   actual="/><Run Text="{Binding Actual}"/><Run Text="   delta="/><Run Text="{Binding Delta}"/></TextBlock>
+        <TextBlock Grid.Row="3" Text="근거" FontWeight="SemiBold"/><TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Evidence}" IsReadOnly="True" BorderThickness="0" TextWrapping="Wrap" Background="Transparent"/>
+        <TextBlock Grid.Row="4" Text="설명" FontWeight="SemiBold"/><TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Message}" IsReadOnly="True" BorderThickness="0" TextWrapping="Wrap" Background="Transparent" VerticalScrollBarVisibility="Auto"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
