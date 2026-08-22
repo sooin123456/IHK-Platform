@@ -4,8 +4,8 @@
 
 - 운영 URL: `https://lukas-qto-platform.vercel.app`
 - 운영 Supabase project ref: `naubrijesaqnnbfaehpy`
-- 배포 commit: `4354117`
-- Vercel deployment: `dpl_Cx2GgqQFNgRAuWhM64purxSerxRM`
+- 배포 commit: `7c2033e`
+- Vercel deployment: `dpl_FXhJ6o34AnubqSKoDDM17EomggCP`
 - 상태: **코드·DB 운영 배포 완료 / 실제 2인 현장 검증 대기**
 
 이 문서는 완료 선언을 위한 증거 양식이다. 고객 도면 원본, 이메일, 사용자 UUID,
@@ -14,9 +14,14 @@
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공
-- `node --test tests/*.test.mjs`: 86/86 성공
-- `npm run test:ifc -- /tmp/thatopen-example.ifc`: 120개 요소, 115개 형상,
-  14,694 triangles 파싱 성공
+- `node --test tests/*.test.mjs`: 99/99 성공
+- `npm run typecheck`, `npm run build`: 성공
+- 권한 있는 실제 Revit IFC smoke: 2,207,379 bytes, 560개 IFC 요소,
+  385개 형상 요소, 441 placements, 7,904 triangles 파싱 성공
+- 이슈 목록은 서버에서 50건 단위로 조회하며, 오래된 이슈 직접 링크와 IFC
+  객체 선택 query를 페이지 이동 뒤에도 보존한다.
+- Realtime 재연결 시 loader를 한 번 갱신하고, 숨긴 브라우저 탭에서는 IFC
+  WebGL render와 first-frame 측정을 함께 보류한다.
 - 운영 테이블 5개 RLS 활성화 확인
 - Realtime publication: `lukas_drawing_issues`,
   `lukas_drawing_issue_comments`, `lukas_drawing_issue_events`
@@ -37,6 +42,10 @@
 운영 환경 실행에는 마스킹되지 않은 `SUPABASE_SERVICE_ROLE_KEY`가 필요하다.
 Vercel의 `[SENSITIVE]` 표시값은 실제 키가 아니므로 테스트가 명확히 실패한다.
 실제 비밀값을 Git, 로그, Playwright report에 기록하지 않는다.
+
+2026-08-23 운영 URL을 대상으로 Vercel production env pull을 사용한 실행은
+테스트 데이터 생성 전에 위 마스킹 게이트에서 중단됐다. 따라서 운영 데이터
+잔여물은 없고, 이를 E2E 성공으로 기록하지 않는다.
 
 ```sh
 cd platform

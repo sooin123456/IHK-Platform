@@ -14,6 +14,14 @@
   끝내기 전에는 최종 완성으로 표시하지 않는다.
 - 고정 검증 기준과 비식별 증거 양식은
   `docs/DRAWING_COLLABORATION_FIELD_CHECK.md`에 기록한다.
+- 최신 운영 commit은 `7c2033e`, Vercel deployment는
+  `dpl_FXhJ6o34AnubqSKoDDM17EomggCP`이다. 도면 이슈를 50건 단위로 서버
+  조회하고 오래된 이슈 직접 링크·IFC 객체 선택을 보존하며, 동일 갱신 시각의
+  행도 고유 ID로 안정 정렬한다.
+- 최신 플랫폼 검증은 Node 계약 99/99, TypeScript, production build와 실제
+  Revit IFC(560요소·7,904 triangles) geometry smoke를 통과했다. 운영
+  Playwright는 Vercel CLI가 Sensitive 값을 `[SENSITIVE]`로 내보내는 보안
+  경계에서 테스트 데이터 생성 전에 중단됐으며 성공으로 간주하지 않는다.
 
 ## 현재 완성된 범위
 
