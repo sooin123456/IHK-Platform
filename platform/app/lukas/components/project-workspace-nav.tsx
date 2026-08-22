@@ -1,6 +1,6 @@
 import {
   Calculator,
-  FileUp,
+  Files,
   Home,
   ListChecks,
   PackageCheck,
@@ -11,6 +11,7 @@ import { cn } from "~/core/lib/utils";
 
 export type ProjectWorkspaceView =
   | "overview"
+  | "drawings"
   | "files"
   | "quantities"
   | "reviews"
@@ -18,7 +19,7 @@ export type ProjectWorkspaceView =
 
 const items = [
   { key: "overview", label: "개요", icon: Home, suffix: "" },
-  { key: "files", label: "파일", icon: FileUp, suffix: "/files" },
+  { key: "drawings", label: "도면", icon: Files, suffix: "/drawings" },
   {
     key: "quantities",
     label: "물량",

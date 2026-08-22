@@ -12,6 +12,7 @@ import {
   DrawingAnchorSchema,
 } from "../app/lukas/lib/drawing-collaboration.types.ts";
 import { parseDrawingMutationForm } from "../app/lukas/lib/drawing-collaboration.server.ts";
+import routes from "../app/routes.ts";
 
 test("only review roles can assign a drawing issue", () => {
   for (const role of ["owner", "staff", "reviewer"])
@@ -208,4 +209,10 @@ test("drawing mutation parser covers comments, assignment, due date, priority, a
     for (const [key, value] of Object.entries(item.fields)) form.set(key, value);
     assert.deepEqual(parseDrawingMutationForm(form), item.expected);
   }
+});
+
+test("React Router exposes the drawing library and collaboration room", () => {
+  const registered = JSON.stringify(routes);
+  assert.match(registered, /\/projects\/:projectId\/drawings/);
+  assert.match(registered, /\/projects\/:projectId\/drawings\/:fileId/);
 });

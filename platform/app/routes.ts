@@ -32,6 +32,14 @@ export default [
       route("/workspace", "lukas/screens/workspace.tsx"),
       route("/staff/inquiries", "lukas/screens/staff-inquiries.tsx"),
       route("/projects/:projectId", "lukas/screens/project.tsx"),
+      route(
+        "/projects/:projectId/drawings",
+        "lukas/screens/project-drawings.tsx",
+      ),
+      route(
+        "/projects/:projectId/drawings/:fileId",
+        "lukas/screens/drawing-room.tsx",
+      ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(
         "/projects/:projectId/quantities",
