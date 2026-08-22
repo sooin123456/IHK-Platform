@@ -13,6 +13,7 @@ import {
   mutateDrawingIssue,
   parseDrawingMutationForm,
 } from "~/lukas/lib/drawing-collaboration.server";
+import { loadDrawingRevisionReview } from "~/lukas/lib/drawing-revision.server";
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
@@ -27,9 +28,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const [room, files] = await Promise.all([
+  const [room, files, revisionReview] = await Promise.all([
     loadDrawingRoom(client, project.id, params.fileId!),
     listDrawingFiles(client, project.id),
+    loadDrawingRevisionReview(client, project.id, params.fileId!),
   ]);
   const { data: signed, error } = await client.storage
     .from("lukas-qto")
@@ -37,7 +39,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (error || !signed?.signedUrl)
     throw new Response("도면 열기 링크를 만들지 못했습니다.", { status: 500 });
   return data(
-    { project, role, room, files, signedUrl: signed.signedUrl },
+    {
+      project,
+      role,
+      room,
+      files,
+      revisionReview,
+      initialGlobalId: new URL(request.url).searchParams.get("globalId"),
+      initialIssueId: new URL(request.url).searchParams.get("issue"),
+      signedUrl: signed.signedUrl,
+    },
     { headers },
   );
 }
@@ -89,7 +100,10 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
         file={room.file}
         files={files}
         issues={room.issues}
+        initialGlobalId={loaderData.initialGlobalId}
+        initialIssueId={loaderData.initialIssueId}
         projectId={project.id}
+        revisionReview={loaderData.revisionReview}
         role={loaderData.role as DrawingProjectRole}
         signedUrl={loaderData.signedUrl}
       />

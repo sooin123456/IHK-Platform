@@ -8,6 +8,7 @@ import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
 import type { DrawingFile, DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
+import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 
 type Comment = {
   id: string;
@@ -25,6 +26,9 @@ export default function DrawingRoomClient({
   issues,
   comments,
   role,
+  initialGlobalId,
+  initialIssueId,
+  revisionReview,
 }: {
   projectId: string;
   file: DrawingFile;
@@ -33,10 +37,15 @@ export default function DrawingRoomClient({
   issues: DrawingIssue[];
   comments: Comment[];
   role: DrawingProjectRole;
+  initialGlobalId: string | null;
+  initialIssueId: string | null;
+  revisionReview: DrawingRevisionReviewItem[];
 }) {
   const [mobileTab, setMobileTab] = useState<"drawing" | "issues">("drawing");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
-    issues[0]?.id ?? null,
+    issues.some((issue) => issue.id === initialIssueId)
+      ? initialIssueId
+      : (issues[0]?.id ?? null),
   );
   const [pendingAnchor, setPendingAnchor] = useState<object | null>(null);
 
@@ -88,6 +97,7 @@ export default function DrawingRoomClient({
             <IfcPropertyBrowser
               byteSize={file.byte_size}
               fileName={file.original_filename}
+              initialGlobalId={initialGlobalId}
               onAnchorSelected={(anchor) => {
                 setPendingAnchor({
                   kind: "ifc_element",
@@ -122,6 +132,9 @@ export default function DrawingRoomClient({
             issues={issues}
             onSelectIssue={setSelectedIssueId}
             pendingAnchor={pendingAnchor}
+            projectId={projectId}
+            currentFileId={file.id}
+            revisionReview={revisionReview}
             role={role}
             selectedIssueId={selectedIssueId}
           />

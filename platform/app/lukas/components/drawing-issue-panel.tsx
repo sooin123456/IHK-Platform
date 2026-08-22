@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
-import { CheckCircle2, Link2, MessageSquarePlus, UserRound } from "lucide-react";
-import { Form } from "react-router";
+import { CheckCircle2, Link2, MessageSquarePlus, RefreshCw, UserRound } from "lucide-react";
+import { Form, Link } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
@@ -13,6 +13,7 @@ import {
   type DrawingProjectRole,
 } from "~/lukas/lib/drawing-collaboration-policy";
 import type { DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
+import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 
 type Comment = {
   id: string;
@@ -36,6 +37,9 @@ export default function DrawingIssuePanel({
   selectedIssueId,
   onSelectIssue,
   pendingAnchor,
+  projectId,
+  currentFileId,
+  revisionReview,
 }: {
   issues: DrawingIssue[];
   comments: Comment[];
@@ -43,6 +47,9 @@ export default function DrawingIssuePanel({
   selectedIssueId: string | null;
   onSelectIssue: (issueId: string) => void;
   pendingAnchor: object | null;
+  projectId: string;
+  currentFileId: string;
+  revisionReview: DrawingRevisionReviewItem[];
 }) {
   const selected = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const selectedComments = useMemo(
@@ -59,6 +66,35 @@ export default function DrawingIssuePanel({
           {issues.length}건
         </span>
       </div>
+
+      {revisionReview.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+          <p className="flex items-center gap-2 text-sm font-bold">
+            <RefreshCw className="size-4" /> 개정 도면 재검토 {revisionReview.length}건
+          </p>
+          <p className="mt-1 text-xs opacity-80">
+            이전 근거는 보존됩니다. 새 도면에서 위치를 확인한 뒤 다시 연결하세요.
+          </p>
+          <div className="mt-3 space-y-2">
+            {revisionReview.map((item) => (
+              <div className="rounded-lg bg-background/80 p-2" key={item.previousAnchorId}>
+                <p className="text-xs font-semibold">{item.issueTitle}</p>
+                {item.kind === "ifc_candidate" && item.ifcGlobalId ? (
+                  <Link
+                    className="mt-2 inline-flex min-h-10 items-center text-xs font-semibold text-primary underline underline-offset-4"
+                    onClick={() => onSelectIssue(item.issueId)}
+                    to={`/projects/${projectId}/drawings/${currentFileId}?globalId=${encodeURIComponent(item.ifcGlobalId)}&issue=${encodeURIComponent(item.issueId)}`}
+                  >
+                    같은 IFC 객체 후보 확인
+                  </Link>
+                ) : (
+                  <p className="mt-2 text-xs">PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {mayWrite ? (
         <Form className="mt-4 space-y-3 rounded-xl border p-3" method="post">

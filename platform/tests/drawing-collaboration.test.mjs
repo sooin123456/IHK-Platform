@@ -256,3 +256,14 @@ test("drawing issue panel exposes labeled operational controls", async () => {
   assert.match(source, /expected_version/);
   assert.match(source, /aria-live/);
 });
+
+test("PDF anchors are never copied and IFC candidates require one exact identity", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../app/lukas/lib/drawing-revision.server.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /matches\.length === 1/);
+  assert.doesNotMatch(source, /anchor_kind === "pdf_region"[\s\S]+candidate:/);
+  assert.match(source, /manual_reanchor_required/);
+});
