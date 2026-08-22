@@ -1,7 +1,7 @@
 import type { Route } from "./+types/navigation.layout";
 
 import { Suspense } from "react";
-import { Await, Outlet } from "react-router";
+import { Await, Outlet, useLocation } from "react-router";
 
 import Footer from "../components/footer";
 import { NavigationBar } from "../components/navigation-bar";
@@ -17,6 +17,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function NavigationLayout({ loaderData }: Route.ComponentProps) {
   const { userPromise } = loaderData;
+  const location = useLocation();
+
+  // The authenticated project home is a full-screen creation workspace. The
+  // public marketing header/footer would duplicate its own navigation shell.
+  if (location.pathname === "/workspace") {
+    return <Outlet />;
+  }
+
   return (
     <div className="flex min-h-screen flex-col justify-between">
       <Suspense fallback={<NavigationBar loading={true} />}>

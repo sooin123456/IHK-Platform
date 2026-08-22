@@ -195,22 +195,24 @@ test("project overview leads with one next action, four progress stages and pend
   assert.doesNotMatch(project, /프로젝트 설명이 없습니다/);
 });
 
-test("returning customers see projects before the optional new-project form", async () => {
+test("returning customers enter a functional drawing-project workspace", async () => {
   const workspace = await read("app/lukas/screens/workspace.tsx");
+  const dashboard = await read("app/lukas/components/workspace-dashboard.tsx");
   const themeSwitcher = await read("app/core/components/theme-switcher.tsx");
 
-  assert.match(workspace, /새 프로젝트 시작/);
-  assert.match(
-    workspace,
-    /loaderData\.projects\.length === 0 \|\|\s+Boolean\(actionData && "error" in actionData\)/,
-  );
-  assert.match(workspace, /도면과 산출 자료를 한 작업공간에서 관리합니다/);
-  assert.match(workspace, /1HK Platform/);
-  assert.match(workspace, /도면 작업공간 열기/);
+  assert.match(dashboard, /새 도면 프로젝트/);
+  assert.match(dashboard, /프로젝트 만들고 작업공간 열기/);
+  assert.match(dashboard, /프로젝트 또는 도면 검색/);
+  assert.match(dashboard, /검토가 필요한 프로젝트/);
+  assert.match(dashboard, /최근 작업/);
+  assert.match(dashboard, /3D IFC/);
+  assert.match(dashboard, /\/ifc\/\$\{metric\.latestIfcId\}/);
+  assert.match(dashboard, /\/projects\/\$\{project\.id\}\/members/);
+  assert.match(dashboard, /1HK Platform/);
   assert.match(workspace, /projectMetrics/);
-  assert.match(workspace, /확인 필요/);
-  assert.match(workspace, /workflowProgress/);
-  assert.doesNotMatch(workspace, /설명 없음/);
+  assert.match(workspace, /lukas_qto_project_members/);
+  assert.match(workspace, /original_filename/);
+  assert.doesNotMatch(dashboard, /설명 없음/);
   assert.match(themeSwitcher, /aria-label="화면 테마 변경"/);
   assert.match(themeSwitcher, /기기 설정 사용/);
 });

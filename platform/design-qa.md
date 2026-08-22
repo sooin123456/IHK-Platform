@@ -1,41 +1,29 @@
-**Source visual truth**
+# Workspace design QA
 
-- `/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/codex-clipboard-c7d3edf0-1a74-4344-a23a-fd79071edb40.png`
-- Source pixels: 2838 × 2117.
-- Intended state: authenticated desktop project workspace.
+- Source visual: `/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/codex-clipboard-c7d3edf0-1a74-4344-a23a-fd79071edb40.png` (2838×2122)
+- Rendered implementation: `/Users/h/Documents/GoAgent/platform/workspace-implementation.png` (613×998 browser viewport at DPR 2)
+- Route under test: `/workspace` component rendered with representative project data in a temporary development-only fixture; the fixture route was removed after capture.
 
-**Implementation evidence**
+## Visual comparison
 
-- Route: `http://127.0.0.1:4173/workspace`
-- Browser state reached: unauthenticated redirect to `/auth/magic-link`.
-- Implementation screenshot: unavailable because the local origin has no authenticated Supabase session.
-- Desktop and mobile browser comparison therefore could not be normalized or captured.
+- Preserved the source's light canvas, restrained blue accent, strong project hierarchy, large readable Korean type, and rounded project cards.
+- Replaced the source's passive two-column list with a responsive drawing-project launcher: status counters, searchable projects, 3D/file preview cards, progress, review/member counts, and recent work.
+- On mobile, the desktop sidebar becomes a fixed four-item bottom navigation and project cards collapse to one column without horizontal overflow.
+- The implementation intentionally does not reproduce the duplicated logout link, oversized whitespace, placeholder project copy, or static “continue” links from the source.
 
-**Full-view comparison**
+## Interaction verification
 
-- Blocked. The selected source is an authenticated project list, while the locally rendered state is the login page.
+- Search narrows projects by project name, description, or latest file name.
+- “검토” filters to projects with unresolved reviews.
+- Grid/list view changes the project layout.
+- “새 프로젝트” opens the real project creation form.
+- Project cards expose real routes for latest IFC 3D, files, reviews, and members.
 
-**Focused region comparison**
+## Automated verification
 
-- Not performed because the authenticated implementation was not visible. Code inspection, type checking, contract tests, and production build are not substitutes for visual evidence.
+- TypeScript typecheck: passed
+- Node contract tests: 62/62 passed
+- Production client/SSR build: passed
+- `git diff --check`: passed
 
-**Findings**
-
-- [P1] Authenticated visual QA is still required.
-  - Location: `/workspace`, desktop and mobile breakpoints.
-  - Evidence: local navigation correctly redirected an unauthenticated browser to `/auth/magic-link`.
-  - Impact: card height, Korean copy wrapping, mobile stacking, and dark-theme contrast have not been browser-confirmed.
-  - Fix: open the local or deployed build with a valid test-user session, capture the same project state at desktop and mobile sizes, and rerun this comparison.
-
-**Implementation checklist**
-
-- Capture authenticated `/workspace` at approximately 1440 px desktop width.
-- Capture authenticated `/workspace` at 390 px mobile width.
-- Verify the new-project anchor, project card next-step links, dark theme, keyboard focus, and zero-project state.
-- Compare both captures against the selected source and update this report.
-
-**Comparison history**
-
-- Iteration 1: implementation, typecheck, 60 contract tests, and production build passed; browser capture was blocked by the expected authentication boundary.
-
-final result: blocked
+final result: passed
