@@ -16,6 +16,7 @@ import {
 import wasmUrl from "web-ifc/web-ifc.wasm?url";
 
 import type { IfcModelViewer } from "./ifc-model-viewer.client";
+import type { IfcCameraState } from "~/lukas/lib/ifc-anchor";
 
 type IfcElement = {
   expressId: number;
@@ -35,6 +36,15 @@ type Props = {
   fileName: string;
   initialGlobalId?: string | null;
   signedUrl: string;
+  activeAnchor?: {
+    elementId: string;
+    camera: IfcCameraState;
+  } | null;
+  onAnchorSelected?: (anchor: {
+    elementId: string;
+    ifcGlobalId: string | null;
+    camera: IfcCameraState;
+  }) => void;
 };
 
 type ViewerPhase = "loading" | "ready" | "skipped" | "empty" | "error";
@@ -100,6 +110,8 @@ export default function IfcPropertyBrowser({
   fileName,
   initialGlobalId,
   signedUrl,
+  activeAnchor = null,
+  onAnchorSelected,
 }: Props) {
   const [elements, setElements] = useState<IfcElement[]>([]);
   const [selected, setSelected] = useState<IfcElement | null>(null);
@@ -241,6 +253,15 @@ export default function IfcPropertyBrowser({
               setViewerReady(true);
               setViewerPhase("ready");
               viewer.selectElement(selectedIdRef.current);
+              if (activeAnchor) {
+                const expressId = Number(activeAnchor.elementId);
+                if (Number.isInteger(expressId) && byId.has(expressId)) {
+                  viewer.restoreViewState(activeAnchor.camera);
+                  viewer.selectElement(expressId);
+                } else {
+                  setViewerStatus("근거 열기 실패: 이 IFC에서 해당 요소를 찾지 못했습니다.");
+                }
+              }
             } else {
               setViewerPhase("empty");
               setViewerStatus(
@@ -288,7 +309,7 @@ export default function IfcPropertyBrowser({
       apiRef.current = null;
       modelRef.current = null;
     };
-  }, [byteSize, initialGlobalId, signedUrl]);
+  }, [activeAnchor, byteSize, initialGlobalId, signedUrl]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
@@ -533,6 +554,26 @@ export default function IfcPropertyBrowser({
                   </p>
                 </div>
               </div>
+              {onAnchorSelected ? (
+                <button
+                  className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                  disabled={!viewerReady}
+                  onClick={() => {
+                    const viewer = viewerRef.current;
+                    if (!viewer) return;
+                    onAnchorSelected({
+                      elementId: String(selected.expressId),
+                      ifcGlobalId: /^[0-9A-Za-z_$]{22}$/.test(selected.globalId)
+                        ? selected.globalId
+                        : null,
+                      camera: viewer.getViewState(),
+                    });
+                  }}
+                  type="button"
+                >
+                  <LocateFixed className="size-4" /> 이 요소를 이슈 근거로 사용
+                </button>
+              ) : null}
               <dl className="mt-5 divide-y rounded-xl border">
                 {properties.length ? (
                   properties.map((property) => (

@@ -3,6 +3,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import type { FlatMesh, IfcAPI, PlacedGeometry } from "web-ifc";
 
+import {
+  canonicalIfcCameraState,
+  type IfcCameraState,
+} from "~/lukas/lib/ifc-anchor";
+
 export type IfcModelViewerStatus = {
   phase: "loading" | "ready" | "error" | "disposed";
   message: string;
@@ -23,6 +28,8 @@ export type IfcModelViewer = {
   fitModel(): void;
   focusElement(expressId: number): void;
   selectElement(expressId: number | null): void;
+  getViewState(): IfcCameraState;
+  restoreViewState(state: IfcCameraState): void;
   dispose(): void;
   readonly renderedElementCount: number;
 };
@@ -232,6 +239,23 @@ export function createIfcModelViewer({
     frameObjects(meshes, 1.8);
   }
 
+  function getViewState(): IfcCameraState {
+    return canonicalIfcCameraState({
+      position: [camera.position.x, camera.position.y, camera.position.z],
+      target: [controls.target.x, controls.target.y, controls.target.z],
+    });
+  }
+
+  function restoreViewState(state: IfcCameraState) {
+    if (disposed) return;
+    const canonical = canonicalIfcCameraState(state);
+    camera.position.fromArray(canonical.position);
+    controls.target.fromArray(canonical.target);
+    camera.updateProjectionMatrix();
+    controls.update();
+    render();
+  }
+
   function materialFor(placed: PlacedGeometry) {
     const key = materialKey(placed.color);
     let material = materialCache.get(key);
@@ -395,6 +419,8 @@ export function createIfcModelViewer({
   return {
     fitModel,
     focusElement,
+    getViewState,
+    restoreViewState,
     selectElement,
     dispose,
     get renderedElementCount() {

@@ -13,6 +13,7 @@ import {
 } from "../app/lukas/lib/drawing-collaboration.types.ts";
 import { parseDrawingMutationForm } from "../app/lukas/lib/drawing-collaboration.server.ts";
 import routes from "../app/routes.ts";
+import { canonicalIfcCameraState } from "../app/lukas/lib/ifc-anchor.ts";
 
 test("only review roles can assign a drawing issue", () => {
   for (const role of ["owner", "staff", "reviewer"])
@@ -215,4 +216,31 @@ test("React Router exposes the drawing library and collaboration room", () => {
   const registered = JSON.stringify(routes);
   assert.match(registered, /\/projects\/:projectId\/drawings/);
   assert.match(registered, /\/projects\/:projectId\/drawings\/:fileId/);
+});
+
+test("IFC viewer exposes deterministic camera capture and restore", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(
+      new URL(
+        "../app/lukas/components/ifc-model-viewer.client.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.match(source, /getViewState/);
+  assert.match(source, /restoreViewState/);
+  assert.deepEqual(
+    canonicalIfcCameraState({
+      position: [1.123456789, -2.0000004, 3],
+      target: [0, 0, 0],
+    }),
+    { position: [1.123457, -2, 3], target: [0, 0, 0] },
+  );
+  assert.throws(() =>
+    canonicalIfcCameraState({
+      position: [Number.NaN, 0, 0],
+      target: [0, 0, 0],
+    }),
+  );
 });
