@@ -102,7 +102,7 @@ type DrawingDatabase = Omit<Database, "public"> & {
   };
 };
 
-type DrawingClient = SupabaseClient<DrawingDatabase>;
+export type DrawingClient = SupabaseClient<DrawingDatabase>;
 
 const SetStatusMutationSchema = z.object({
   intent: z.literal("set_status"),
@@ -282,6 +282,36 @@ export async function listDrawingFiles(client: DrawingClient, projectId: string)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`도면 파일을 불러오지 못했습니다: ${error.message}`);
   return (data ?? []) as DrawingFile[];
+}
+
+export async function listDrawingIssueMetrics(
+  client: DrawingClient,
+  projectIds: string[],
+  userId: string,
+): Promise<
+  Record<string, { unresolvedCount: number; assignedToMeCount: number }>
+> {
+  if (projectIds.length === 0) return {};
+  const { data, error } = await client
+    .from("lukas_drawing_issues")
+    .select("project_id,status,assignee_user_id")
+    .in("project_id", projectIds)
+    .neq("status", "closed");
+  if (error) throw new Error(`도면 협업 현황을 불러오지 못했습니다: ${error.message}`);
+  return Object.fromEntries(
+    projectIds.map((projectId) => {
+      const open = (data ?? []).filter((issue) => issue.project_id === projectId);
+      return [
+        projectId,
+        {
+          unresolvedCount: open.length,
+          assignedToMeCount: open.filter(
+            (issue) => issue.assignee_user_id === userId,
+          ).length,
+        },
+      ];
+    }),
+  );
 }
 
 export async function loadDrawingRoom(

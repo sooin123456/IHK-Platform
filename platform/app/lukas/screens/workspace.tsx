@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import makeServerClient from "~/core/lib/supa-client.server";
 import { WorkspaceDashboard } from "~/lukas/components/workspace-dashboard";
+import {
+  listDrawingIssueMetrics,
+  type DrawingClient,
+} from "~/lukas/lib/drawing-collaboration.server";
 
 const newProjectSchema = z.object({
   name: z.string().trim().min(1, "프로젝트명을 입력하세요.").max(160),
@@ -76,12 +80,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   const files = filesResult.data ?? [];
   const reviews = reviewsResult.data ?? [];
   const members = membersResult.data ?? [];
+  const drawingMetrics = await listDrawingIssueMetrics(
+    client as unknown as DrawingClient,
+    projectIds,
+    user.id,
+  );
   const projectMetrics = Object.fromEntries(
     projectIds.map((projectId) => {
       const projectFiles = files.filter(
         (file) => file.project_id === projectId,
       );
       const latestIfc = projectFiles.find((file) => file.kind === "ifc");
+      const latestDrawing = projectFiles.find(
+        (file) => file.kind === "ifc" || file.kind === "pdf",
+      );
       return [
         projectId,
         {
@@ -95,6 +107,11 @@ export async function loader({ request }: Route.LoaderArgs) {
             (member) => member.project_id === projectId,
           ).length,
           latestIfcId: latestIfc?.id ?? null,
+          latestDrawingId: latestDrawing?.id ?? null,
+          unresolvedDrawingCount:
+            drawingMetrics[projectId]?.unresolvedCount ?? 0,
+          assignedToMeCount:
+            drawingMetrics[projectId]?.assignedToMeCount ?? 0,
           latestFilename: projectFiles[0]?.original_filename ?? null,
         },
       ];

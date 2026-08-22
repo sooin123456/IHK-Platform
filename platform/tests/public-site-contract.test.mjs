@@ -207,7 +207,7 @@ test("returning customers enter a functional drawing-project workspace", async (
   assert.match(dashboard, /검토가 필요한 프로젝트/);
   assert.match(dashboard, /최근 작업/);
   assert.match(dashboard, /3D IFC/);
-  assert.match(dashboard, /\/ifc\/\$\{metric\.latestIfcId\}/);
+  assert.match(dashboard, /\/drawings\/\$\{metric\.latestDrawingId\}/);
   assert.match(dashboard, /\/projects\/\$\{project\.id\}\/members/);
   assert.match(dashboard, /1HK Platform/);
   assert.match(workspace, /projectMetrics/);
@@ -216,4 +216,14 @@ test("returning customers enter a functional drawing-project workspace", async (
   assert.doesNotMatch(dashboard, /설명 없음/);
   assert.match(themeSwitcher, /aria-label="화면 테마 변경"/);
   assert.match(themeSwitcher, /기기 설정 사용/);
+});
+
+test("workspace cards lead to the drawing collaboration room with honest work counts", async () => {
+  const screen = await read("app/lukas/components/workspace-dashboard.tsx");
+  const loader = await read("app/lukas/screens/workspace.tsx");
+  assert.match(screen, /도면 협업실/);
+  assert.match(screen, /미해결/);
+  assert.match(screen, /내 담당/);
+  assert.match(screen, /drawings\/\$\{metric\.latestDrawingId\}/);
+  assert.match(loader, /listDrawingIssueMetrics/);
 });

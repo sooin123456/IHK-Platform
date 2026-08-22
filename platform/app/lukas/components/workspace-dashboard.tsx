@@ -11,6 +11,7 @@ import {
   MessageSquareText,
   Plus,
   Search,
+  UserRound,
   Users,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -35,6 +36,9 @@ type ProjectMetric = {
   openReviewCount: number;
   memberCount: number;
   latestIfcId: string | null;
+  latestDrawingId: string | null;
+  unresolvedDrawingCount: number;
+  assignedToMeCount: number;
   latestFilename: string | null;
 };
 
@@ -101,10 +105,9 @@ function formatDate(value: string) {
 }
 
 function projectHref(projectId: string, metric: ProjectMetric | undefined) {
-  if (!metric || metric.fileCount === 0) return `/projects/${projectId}/files`;
-  if (metric.latestIfcId)
-    return `/projects/${projectId}/ifc/${metric.latestIfcId}`;
-  return `/projects/${projectId}`;
+  if (metric?.latestDrawingId)
+    return `/projects/${projectId}/drawings/${metric.latestDrawingId}`;
+  return `/projects/${projectId}/files?kind=ifc#upload`;
 }
 
 function NewProjectDialog({ actionError }: { actionError?: string }) {
@@ -392,8 +395,7 @@ export function WorkspaceDashboard({
                         : "최근 프로젝트"}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    프로젝트를 열면 가장 최근 IFC 모델 또는 파일 화면으로
-                    이동합니다.
+                    프로젝트를 열면 가장 최근 도면 협업실로 이동합니다.
                   </p>
                 </div>
                 <div className="flex items-center gap-1 rounded-xl border bg-white p-1 dark:border-white/10 dark:bg-white/5">
@@ -512,10 +514,17 @@ export function WorkspaceDashboard({
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={`/projects/${project.id}/reviews`}
+                              to={`/projects/${project.id}/drawings`}
                             >
-                              <MessageSquareText className="size-3.5" /> 검토{" "}
-                              {metric?.openReviewCount ?? 0}
+                              <MessageSquareText className="size-3.5" /> 미해결{" "}
+                              {metric?.unresolvedDrawingCount ?? 0}
+                            </Link>
+                            <Link
+                              className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
+                              to={`/projects/${project.id}/drawings`}
+                            >
+                              <UserRound className="size-3.5" /> 내 담당{" "}
+                              {metric?.assignedToMeCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
