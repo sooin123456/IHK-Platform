@@ -24,7 +24,7 @@ type ProjectMemberRow = {
   role: string;
   created_at: string;
 };
-type DrawingAnchorRow = {
+export type DrawingAnchorRow = {
   id: string;
   issue_id: string;
   project_id: string;
@@ -54,7 +54,7 @@ type DrawingCommentRow = {
   body: string;
   created_at: string;
 };
-type DrawingEventRow = {
+export type DrawingEventRow = {
   id: string;
   issue_id: string;
   project_id: string;

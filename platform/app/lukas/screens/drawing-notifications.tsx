@@ -17,6 +17,7 @@ type NotificationRow = {
 };
 type IssueRow = { id: string; title: string; status: string };
 type EventRow = { id: string; event_type: string; note: string };
+type AnchorRow = { issue_id: string; file_id: string; created_at: string };
 
 export const meta: Route.MetaFunction = () => [
   { title: "알림 작업함 | 1HK Platform" },
@@ -43,24 +44,31 @@ export async function loader({ request }: Route.LoaderArgs) {
   const rows = (notifications ?? []) as NotificationRow[];
   const issueIds = [...new Set(rows.map((row) => row.issue_id))];
   const eventIds = [...new Set(rows.map((row) => row.event_id))];
-  const [issuesResult, eventsResult] = await Promise.all([
+  const [issuesResult, eventsResult, anchorsResult] = await Promise.all([
     issueIds.length
       ? notificationClient.from("lukas_drawing_issues").select("id,title,status").in("id", issueIds)
       : Promise.resolve({ data: [], error: null }),
     eventIds.length
       ? notificationClient.from("lukas_drawing_issue_events").select("id,event_type,note").in("id", eventIds)
       : Promise.resolve({ data: [], error: null }),
+    issueIds.length
+      ? notificationClient.from("lukas_drawing_issue_anchors").select("issue_id,file_id,created_at").in("issue_id", issueIds).eq("active", true).order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const relatedError = issuesResult.error ?? eventsResult.error;
+  const relatedError = issuesResult.error ?? eventsResult.error ?? anchorsResult.error;
   if (relatedError) throw new Error(`알림 상세를 불러오지 못했습니다: ${relatedError.message}`);
   const issues = new Map(((issuesResult.data ?? []) as IssueRow[]).map((row) => [row.id, row]));
   const events = new Map(((eventsResult.data ?? []) as EventRow[]).map((row) => [row.id, row]));
+  const fileByIssue = new Map<string, string>();
+  for (const anchor of (anchorsResult.data ?? []) as AnchorRow[])
+    if (!fileByIssue.has(anchor.issue_id)) fileByIssue.set(anchor.issue_id, anchor.file_id);
   return data(
     {
       notifications: rows.map((row) => ({
         ...row,
         issue: issues.get(row.issue_id) ?? null,
         event: events.get(row.event_id) ?? null,
+        fileId: fileByIssue.get(row.issue_id) ?? null,
       })),
     },
     { headers },
@@ -128,7 +136,7 @@ export default function DrawingNotifications({ loaderData, actionData }: Route.C
               ) : null}
             </div>
             <Button asChild className="mt-3 min-h-11" variant="ghost">
-              <Link to={`/projects/${item.project_id}/drawings`}><ExternalLink className="size-4" /> 프로젝트 도면 열기</Link>
+              <Link to={item.fileId ? `/projects/${item.project_id}/drawings/${item.fileId}?issue=${item.issue_id}` : `/projects/${item.project_id}/drawings`}><ExternalLink className="size-4" /> 프로젝트 도면 열기</Link>
             </Button>
           </article>
         ))}

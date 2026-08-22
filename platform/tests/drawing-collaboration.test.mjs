@@ -253,10 +253,28 @@ test("drawing issue panel exposes labeled operational controls", async () => {
   );
   for (const label of ["이슈 제목", "담당자", "기한", "상태", "댓글"])
     assert.match(source, new RegExp(label));
+  for (const label of ["연결된 도면 근거", "변경 기록", "근거 해제"])
+    assert.match(source, new RegExp(label));
   assert.match(source, /expected_version/);
   assert.match(source, /aria-live/);
   assert.match(source, /assignees\.map/);
   assert.doesNotMatch(source, /placeholder="구성원 ID/);
+});
+
+test("drawing room exposes persisted anchors and append-only events", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const route = await readFile(
+    new URL("../app/lukas/screens/drawing-room.tsx", import.meta.url),
+    "utf8",
+  );
+  const client = await readFile(
+    new URL("../app/lukas/components/drawing-room.client.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /anchors=\{room\.anchors\}/);
+  assert.match(route, /events=\{room\.events\}/);
+  assert.match(client, /anchors=\{anchors\}/);
+  assert.match(client, /events=\{events\}/);
 });
 
 test("PDF anchors are never copied and IFC candidates require one exact identity", async () => {

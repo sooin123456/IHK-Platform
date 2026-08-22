@@ -100,7 +100,9 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
       ) : null}
       <DrawingRoomClient
         assignees={loaderData.assignees}
+        anchors={room.anchors}
         comments={room.comments}
+        events={room.events}
         file={room.file}
         files={files}
         issues={room.issues}

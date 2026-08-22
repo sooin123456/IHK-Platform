@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { CheckCircle2, Link2, MessageSquarePlus, RefreshCw, UserRound } from "lucide-react";
+import { CheckCircle2, History, Link2, MessageSquarePlus, RefreshCw, UserRound } from "lucide-react";
 import { Form, Link } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
@@ -13,7 +13,11 @@ import {
   type DrawingProjectRole,
 } from "~/lukas/lib/drawing-collaboration-policy";
 import type { DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
-import type { DrawingAssignee } from "~/lukas/lib/drawing-collaboration.server";
+import type {
+  DrawingAnchorRow,
+  DrawingAssignee,
+  DrawingEventRow,
+} from "~/lukas/lib/drawing-collaboration.server";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 
 type Comment = {
@@ -39,6 +43,16 @@ const roleLabels: Record<string, string> = {
   procurement: "구매 담당",
   viewer: "조회 전용",
 };
+const eventLabels: Record<string, string> = {
+  created: "이슈 생성",
+  status_changed: "상태 변경",
+  assignee_changed: "담당자 변경",
+  due_changed: "기한 변경",
+  priority_changed: "우선순위 변경",
+  anchor_added: "도면 근거 연결",
+  anchor_deactivated: "도면 근거 해제",
+  comment_added: "댓글 등록",
+};
 
 function assigneeLabel(assignee: DrawingAssignee) {
   return `${roleLabels[assignee.role] ?? assignee.role} · ${assignee.userId.slice(0, 8)}`;
@@ -55,6 +69,8 @@ export default function DrawingIssuePanel({
   currentFileId,
   revisionReview,
   assignees,
+  anchors,
+  events,
 }: {
   issues: DrawingIssue[];
   comments: Comment[];
@@ -66,11 +82,21 @@ export default function DrawingIssuePanel({
   currentFileId: string;
   revisionReview: DrawingRevisionReviewItem[];
   assignees: DrawingAssignee[];
+  anchors: DrawingAnchorRow[];
+  events: DrawingEventRow[];
 }) {
   const selected = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const selectedComments = useMemo(
     () => comments.filter((comment) => comment.issue_id === selected?.id),
     [comments, selected?.id],
+  );
+  const selectedAnchors = useMemo(
+    () => anchors.filter((anchor) => anchor.issue_id === selected?.id),
+    [anchors, selected?.id],
+  );
+  const selectedEvents = useMemo(
+    () => events.filter((event) => event.issue_id === selected?.id),
+    [events, selected?.id],
   );
   const mayWrite = role !== "viewer";
 
@@ -214,6 +240,40 @@ export default function DrawingIssuePanel({
             </Form>
           ) : null}
 
+          <section className="mt-5" aria-label="연결된 도면 근거">
+            <h4 className="text-sm font-bold">연결된 도면 근거</h4>
+            <div className="mt-2 space-y-2">
+              {selectedAnchors.map((anchor) => (
+                <div className={`rounded-xl border p-3 text-sm ${anchor.active ? "" : "opacity-60"}`} key={anchor.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{anchor.label || (anchor.anchor_kind === "ifc_element" ? `IFC 객체 #${anchor.element_id}` : `PDF ${anchor.page_number}쪽`)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{anchor.anchor_kind === "ifc_element" ? "IFC 객체 근거" : "PDF 영역 근거"} · {anchor.active ? "사용 중" : "해제됨"}</p>
+                    </div>
+                    <Link
+                      className="shrink-0 text-xs font-semibold text-primary underline underline-offset-4"
+                      to={`/projects/${projectId}/drawings/${anchor.file_id}${anchor.ifc_global_id ? `?globalId=${encodeURIComponent(anchor.ifc_global_id)}&issue=${encodeURIComponent(selected.id)}` : `?issue=${encodeURIComponent(selected.id)}`}`}
+                    >
+                      열기
+                    </Link>
+                  </div>
+                  {anchor.active && mayWrite ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-muted-foreground">근거 해제</summary>
+                      <Form className="mt-2 flex gap-2" method="post">
+                        <input name="intent" type="hidden" value="deactivate_anchor" />
+                        <input name="anchor_id" type="hidden" value={anchor.id} />
+                        <Input className="min-h-11" name="note" placeholder="해제 사유" required />
+                        <Button className="min-h-11" type="submit" variant="outline">해제</Button>
+                      </Form>
+                    </details>
+                  ) : null}
+                </div>
+              ))}
+              {selectedAnchors.length === 0 ? <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">아직 연결된 도면 근거가 없습니다.</p> : null}
+            </div>
+          </section>
+
           {mayWrite ? (
             <div className="mt-4 grid gap-3">
               <Form method="post">
@@ -279,6 +339,19 @@ export default function DrawingIssuePanel({
               </Form>
             ) : null}
           </div>
+
+          <section className="mt-5 border-t pt-4" aria-label="변경 기록">
+            <h4 className="flex items-center gap-2 text-sm font-bold"><History className="size-4" /> 변경 기록</h4>
+            <ol className="mt-2 space-y-2">
+              {selectedEvents.map((event) => (
+                <li className="rounded-lg bg-muted/50 p-2 text-xs" key={event.id}>
+                  <p className="font-semibold">{eventLabels[event.event_type] ?? event.event_type}</p>
+                  {event.note ? <p className="mt-1 text-muted-foreground">{event.note}</p> : null}
+                  <p className="mt-1 text-[11px] text-muted-foreground">{new Date(event.created_at).toLocaleString("ko-KR")} · {event.actor_id ? event.actor_id.slice(0, 8) : "시스템"}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
         </div>
       ) : null}
 

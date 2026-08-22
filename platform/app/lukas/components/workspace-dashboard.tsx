@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  Bell,
   Box,
   CheckCircle2,
   Clock3,
@@ -305,6 +306,12 @@ export function WorkspaceDashboard({
             ))}
           </div>
           <div className="mt-auto space-y-2">
+            <Link
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+              to="/notifications"
+            >
+              <Bell className="size-4" /> 알림 작업함
+            </Link>
             {isStaff ? (
               <Link
                 className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
@@ -619,7 +626,7 @@ export function WorkspaceDashboard({
       </div>
       <nav
         aria-label="모바일 작업공간 메뉴"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden dark:border-white/10 dark:bg-[#19191c]/95"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden dark:border-white/10 dark:bg-[#19191c]/95"
       >
         {[
           { label: "프로젝트", icon: FolderKanban, filter: "all" as const },
@@ -639,6 +646,13 @@ export function WorkspaceDashboard({
             </button>
           );
         })}
+        <Link
+          className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted-foreground"
+          to="/notifications"
+        >
+          <Bell className="size-4" />
+          알림
+        </Link>
         <Link
           className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted-foreground"
           to="/logout"
