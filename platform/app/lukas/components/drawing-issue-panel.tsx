@@ -8,7 +8,7 @@ import {
   RefreshCw,
   UserRound,
 } from "lucide-react";
-import { Form, Link } from "react-router";
+import { Form, Link, useLocation } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
@@ -20,6 +20,10 @@ import {
   type DrawingProjectRole,
 } from "~/lukas/lib/drawing-collaboration-policy";
 import type { DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
+import {
+  drawingIssuePageHref,
+  type DrawingIssuePageInfo,
+} from "~/lukas/lib/drawing-pagination";
 import type {
   DrawingAnchorRow,
   DrawingAssignee,
@@ -67,6 +71,7 @@ function assigneeLabel(assignee: DrawingAssignee) {
 
 export default function DrawingIssuePanel({
   issues,
+  issuePage,
   comments,
   role,
   selectedIssueId,
@@ -80,6 +85,7 @@ export default function DrawingIssuePanel({
   events,
 }: {
   issues: DrawingIssue[];
+  issuePage: DrawingIssuePageInfo;
   comments: Comment[];
   role: DrawingProjectRole;
   selectedIssueId: string | null;
@@ -92,6 +98,7 @@ export default function DrawingIssuePanel({
   anchors: DrawingAnchorRow[];
   events: DrawingEventRow[];
 }) {
+  const location = useLocation();
   const selected = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const selectedComments = useMemo(
     () => comments.filter((comment) => comment.issue_id === selected?.id),
@@ -112,7 +119,7 @@ export default function DrawingIssuePanel({
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-bold">도면 이슈</h2>
         <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold">
-          {issues.length}건
+          전체 {issuePage.totalCount}건
         </span>
       </div>
 
@@ -258,6 +265,37 @@ export default function DrawingIssuePanel({
           </p>
         ) : null}
       </div>
+
+      {issuePage.totalPages > 1 ? (
+        <nav
+          aria-label="도면 이슈 페이지"
+          className="mt-4 flex items-center justify-between gap-3 border-t pt-4 text-sm"
+        >
+          {issuePage.page > 1 ? (
+            <Link
+              className="inline-flex min-h-11 items-center px-2 font-semibold text-primary underline underline-offset-4"
+              to={drawingIssuePageHref(location.search, issuePage.page - 1)}
+            >
+              이전 50건
+            </Link>
+          ) : (
+            <span />
+          )}
+          <span className="text-xs text-muted-foreground">
+            {issuePage.page} / {issuePage.totalPages}쪽
+          </span>
+          {issuePage.page < issuePage.totalPages ? (
+            <Link
+              className="inline-flex min-h-11 items-center px-2 font-semibold text-primary underline underline-offset-4"
+              to={drawingIssuePageHref(location.search, issuePage.page + 1)}
+            >
+              다음 50건
+            </Link>
+          ) : (
+            <span />
+          )}
+        </nav>
+      ) : null}
 
       {selected ? (
         <div className="mt-5 border-t pt-4">

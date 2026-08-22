@@ -8,6 +8,10 @@ import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
 import {
+  reconcileDrawingIssueSelection,
+  type DrawingIssuePageInfo,
+} from "~/lukas/lib/drawing-pagination";
+import {
   drawingRealtimeState,
   drawingRealtimeTransition,
   type DrawingRealtimeState,
@@ -37,6 +41,7 @@ export default function DrawingRoomClient({
   files,
   signedUrl,
   issues,
+  issuePage,
   comments,
   role,
   initialGlobalId,
@@ -51,6 +56,7 @@ export default function DrawingRoomClient({
   files: DrawingFile[];
   signedUrl: string;
   issues: DrawingIssue[];
+  issuePage: DrawingIssuePageInfo;
   comments: Comment[];
   role: DrawingProjectRole;
   initialGlobalId: string | null;
@@ -62,6 +68,7 @@ export default function DrawingRoomClient({
 }) {
   const revalidator = useRevalidator();
   const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousInitialIssueId = useRef(initialIssueId);
   const [mobileTab, setMobileTab] = useState<"drawing" | "issues">("drawing");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
     issues.some((issue) => issue.id === initialIssueId)
@@ -71,6 +78,17 @@ export default function DrawingRoomClient({
   const [pendingAnchor, setPendingAnchor] = useState<object | null>(null);
   const [realtimeState, setRealtimeState] =
     useState<DrawingRealtimeState | null>(null);
+
+  useEffect(() => {
+    const next = reconcileDrawingIssueSelection(
+      issues,
+      selectedIssueId,
+      initialIssueId,
+      previousInitialIssueId.current,
+    );
+    previousInitialIssueId.current = initialIssueId;
+    if (next !== selectedIssueId) setSelectedIssueId(next);
+  }, [initialIssueId, issues, selectedIssueId]);
 
   useEffect(() => {
     const url = import.meta.env.VITE_SUPABASE_URL;
@@ -236,6 +254,7 @@ export default function DrawingRoomClient({
             anchors={anchors}
             comments={comments}
             issues={issues}
+            issuePage={issuePage}
             onSelectIssue={setSelectedIssueId}
             pendingAnchor={pendingAnchor}
             projectId={projectId}

@@ -6,6 +6,12 @@ import { z } from "zod";
 import makeServerClient from "../../core/lib/supa-client.server.ts";
 
 import {
+  drawingIssuePageInfo,
+  drawingIssueRange,
+  mergeFocusedIssue,
+} from "./drawing-pagination.ts";
+
+import {
   DrawingAnchorSchema,
   DrawingCommentSchema,
   DrawingIssueCreateSchema,
@@ -81,15 +87,31 @@ type DrawingDatabase = Omit<Database, "public"> & {
       >;
       lukas_drawing_issues: TableDefinition<
         DrawingIssue,
-        Pick<DrawingIssue, "project_id" | "title" | "description" | "priority" | "created_by"> & {
+        Pick<
+          DrawingIssue,
+          "project_id" | "title" | "description" | "priority" | "created_by"
+        > & {
           assignee_user_id?: string | null;
           due_at?: string | null;
         },
-        Partial<Pick<DrawingIssue, "status" | "priority" | "assignee_user_id" | "due_at">>
+        Partial<
+          Pick<
+            DrawingIssue,
+            "status" | "priority" | "assignee_user_id" | "due_at"
+          >
+        >
       >;
       lukas_drawing_issue_anchors: TableDefinition<
         DrawingAnchorRow,
-        Omit<DrawingAnchorRow, "id" | "created_at" | "active" | "deactivated_by" | "deactivated_at" | "deactivation_note">,
+        Omit<
+          DrawingAnchorRow,
+          | "id"
+          | "created_at"
+          | "active"
+          | "deactivated_by"
+          | "deactivated_at"
+          | "deactivation_note"
+        >,
         { active?: boolean; deactivation_note?: string }
       >;
       lukas_drawing_issue_comments: TableDefinition<
@@ -97,7 +119,11 @@ type DrawingDatabase = Omit<Database, "public"> & {
         Omit<DrawingCommentRow, "id" | "created_at">,
         never
       >;
-      lukas_drawing_issue_events: TableDefinition<DrawingEventRow, never, never>;
+      lukas_drawing_issue_events: TableDefinition<
+        DrawingEventRow,
+        never,
+        never
+      >;
     };
   };
 };
@@ -185,7 +211,8 @@ export function parseDrawingMutationForm(form: FormData): DrawingMutation {
     });
   if (intent === "add_anchor") {
     const anchorJson = form.get("anchor_json");
-    if (typeof anchorJson !== "string") throw new Error("앵커 근거가 없습니다.");
+    if (typeof anchorJson !== "string")
+      throw new Error("앵커 근거가 없습니다.");
     let anchor: unknown;
     try {
       anchor = JSON.parse(anchorJson);
@@ -267,11 +294,15 @@ export async function drawingContext(request: Request, projectId: string) {
       .maybeSingle();
     role = membership?.role ?? null;
   }
-  if (!role) throw new Response("프로젝트 접근 권한이 없습니다.", { status: 403 });
+  if (!role)
+    throw new Response("프로젝트 접근 권한이 없습니다.", { status: 403 });
   return { client, headers, project, role, user };
 }
 
-export async function listDrawingFiles(client: DrawingClient, projectId: string) {
+export async function listDrawingFiles(
+  client: DrawingClient,
+  projectId: string,
+) {
   const { data, error } = await client
     .from("lukas_qto_files")
     .select(
@@ -280,7 +311,8 @@ export async function listDrawingFiles(client: DrawingClient, projectId: string)
     .eq("project_id", projectId)
     .in("kind", ["ifc", "pdf"])
     .order("created_at", { ascending: false });
-  if (error) throw new Error(`도면 파일을 불러오지 못했습니다: ${error.message}`);
+  if (error)
+    throw new Error(`도면 파일을 불러오지 못했습니다: ${error.message}`);
   return (data ?? []) as DrawingFile[];
 }
 
@@ -297,10 +329,15 @@ export async function listDrawingAssignees(
     .eq("project_id", projectId)
     .order("created_at");
   if (error)
-    throw new Error(`프로젝트 담당자 목록을 불러오지 못했습니다: ${error.message}`);
+    throw new Error(
+      `프로젝트 담당자 목록을 불러오지 못했습니다: ${error.message}`,
+    );
   return [
     { userId: ownerId, role: "owner" },
-    ...(data ?? []).map((member) => ({ userId: member.user_id, role: member.role })),
+    ...(data ?? []).map((member) => ({
+      userId: member.user_id,
+      role: member.role,
+    })),
   ];
 }
 
@@ -317,10 +354,13 @@ export async function listDrawingIssueMetrics(
     .select("project_id,status,assignee_user_id")
     .in("project_id", projectIds)
     .neq("status", "closed");
-  if (error) throw new Error(`도면 협업 현황을 불러오지 못했습니다: ${error.message}`);
+  if (error)
+    throw new Error(`도면 협업 현황을 불러오지 못했습니다: ${error.message}`);
   return Object.fromEntries(
     projectIds.map((projectId) => {
-      const open = (data ?? []).filter((issue) => issue.project_id === projectId);
+      const open = (data ?? []).filter(
+        (issue) => issue.project_id === projectId,
+      );
       return [
         projectId,
         {
@@ -338,6 +378,7 @@ export async function loadDrawingRoom(
   client: DrawingClient,
   projectId: string,
   fileId: string,
+  options: { page?: number; focusIssueId?: string | null } = {},
 ) {
   const { data: file, error: fileError } = await client
     .from("lukas_qto_files")
@@ -351,17 +392,46 @@ export async function loadDrawingRoom(
   if (fileError || !file)
     throw new Response("도면 원본을 찾을 수 없습니다.", { status: 404 });
 
-  const { data: issues, error: issueError } = await client
+  const requestedPage = options.page ?? 1;
+  const range = drawingIssueRange(requestedPage);
+  const {
+    data: issues,
+    error: issueError,
+    count,
+  } = await client
     .from("lukas_drawing_issues")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("project_id", projectId)
-    .order("updated_at", { ascending: false });
-  if (issueError) throw new Error(`도면 이슈를 불러오지 못했습니다: ${issueError.message}`);
-  const issueIds = (issues ?? []).map((issue) => issue.id);
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(range.from, range.to);
+  if (issueError)
+    throw new Error(`도면 이슈를 불러오지 못했습니다: ${issueError.message}`);
+  const pageInfo = drawingIssuePageInfo(requestedPage, count ?? 0);
+  let focusedIssue: DrawingIssue | null = null;
+  if (
+    options.focusIssueId &&
+    !(issues ?? []).some((issue) => issue.id === options.focusIssueId)
+  ) {
+    const { data: focused, error: focusedError } = await client
+      .from("lukas_drawing_issues")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("id", options.focusIssueId)
+      .maybeSingle();
+    if (focusedError)
+      throw new Error(
+        `선택한 도면 이슈를 불러오지 못했습니다: ${focusedError.message}`,
+      );
+    focusedIssue = focused;
+  }
+  const visibleIssues = mergeFocusedIssue(issues ?? [], focusedIssue);
+  const issueIds = visibleIssues.map((issue) => issue.id);
   if (issueIds.length === 0)
     return {
       file: file as DrawingFile,
       issues: [] as DrawingIssue[],
+      issuePage: pageInfo,
       anchors: [] as DrawingAnchorRow[],
       comments: [] as DrawingCommentRow[],
       events: [] as DrawingEventRow[],
@@ -384,11 +454,14 @@ export async function loadDrawingRoom(
       .in("issue_id", issueIds)
       .order("created_at"),
   ]);
-  const error = anchorsResult.error ?? commentsResult.error ?? eventsResult.error;
-  if (error) throw new Error(`도면 이슈 근거를 불러오지 못했습니다: ${error.message}`);
+  const error =
+    anchorsResult.error ?? commentsResult.error ?? eventsResult.error;
+  if (error)
+    throw new Error(`도면 이슈 근거를 불러오지 못했습니다: ${error.message}`);
   return {
     file: file as DrawingFile,
-    issues: issues ?? [],
+    issues: visibleIssues,
+    issuePage: pageInfo,
     anchors: anchorsResult.data ?? [],
     comments: commentsResult.data ?? [],
     events: eventsResult.data ?? [],
@@ -492,7 +565,10 @@ export async function mutateDrawingIssue(
       .select()
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) throw new Response("앵커가 이미 비활성화됐거나 존재하지 않습니다.", { status: 409 });
+    if (!data)
+      throw new Response("앵커가 이미 비활성화됐거나 존재하지 않습니다.", {
+        status: 409,
+      });
     return data;
   }
   const update =
@@ -513,8 +589,11 @@ export async function mutateDrawingIssue(
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data)
-    throw new Response("다른 사용자가 먼저 이슈를 변경했습니다. 새로고침 후 다시 시도하세요.", {
-      status: 409,
-    });
+    throw new Response(
+      "다른 사용자가 먼저 이슈를 변경했습니다. 새로고침 후 다시 시도하세요.",
+      {
+        status: 409,
+      },
+    );
   return data;
 }

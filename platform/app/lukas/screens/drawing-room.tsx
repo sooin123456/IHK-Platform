@@ -1,7 +1,7 @@
 import type { Route } from "./+types/drawing-room";
 
 import { ArrowLeft } from "lucide-react";
-import { Link, data } from "react-router";
+import { Link, data, redirect } from "react-router";
 
 import DrawingRoomClient from "~/lukas/components/drawing-room.client";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
@@ -15,6 +15,10 @@ import {
   parseDrawingMutationForm,
 } from "~/lukas/lib/drawing-collaboration.server";
 import { loadDrawingRevisionReview } from "~/lukas/lib/drawing-revision.server";
+import {
+  parseDrawingIssueId,
+  parseDrawingIssuePage,
+} from "~/lukas/lib/drawing-pagination";
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
@@ -29,12 +33,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
+  const url = new URL(request.url);
+  const requestedIssuePage = parseDrawingIssuePage(
+    url.searchParams.get("page"),
+  );
+  const initialIssueId = parseDrawingIssueId(url.searchParams.get("issue"));
   const [room, files, revisionReview, assignees] = await Promise.all([
-    loadDrawingRoom(client, project.id, params.fileId!),
+    loadDrawingRoom(client, project.id, params.fileId!, {
+      page: requestedIssuePage,
+      focusIssueId: initialIssueId,
+    }),
     listDrawingFiles(client, project.id),
     loadDrawingRevisionReview(client, project.id, params.fileId!),
     listDrawingAssignees(client, project.id, project.owner_id),
   ]);
+  if (room.issuePage.page !== requestedIssuePage) {
+    url.searchParams.set("page", String(room.issuePage.page));
+    throw redirect(`${url.pathname}${url.search}`, { headers });
+  }
   const { data: signed, error } = await client.storage
     .from("lukas-qto")
     .createSignedUrl(room.file.storage_path, 300);
@@ -47,8 +63,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       room,
       files,
       revisionReview,
-      initialGlobalId: new URL(request.url).searchParams.get("globalId"),
-      initialIssueId: new URL(request.url).searchParams.get("issue"),
+      initialGlobalId: url.searchParams.get("globalId"),
+      initialIssueId,
       assignees,
       signedUrl: signed.signedUrl,
     },
@@ -70,14 +86,20 @@ export async function action({ request, params }: Route.ActionArgs) {
     return data(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "요청을 저장하지 못했습니다.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "요청을 저장하지 못했습니다.",
       },
       { status: 400, headers },
     );
   }
 }
 
-export default function DrawingRoom({ loaderData, actionData }: Route.ComponentProps) {
+export default function DrawingRoom({
+  loaderData,
+  actionData,
+}: Route.ComponentProps) {
   const { project, room, files } = loaderData;
   return (
     <main className="mx-auto w-full max-w-[1600px] px-4 pb-28 pt-6 sm:px-6 sm:pb-10">
@@ -88,13 +110,20 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
         <ArrowLeft className="size-4" /> 도면 파일함
       </Link>
       <header className="mt-3 border-b pb-5">
-        <p className="text-sm font-semibold text-primary">{project.name} · 도면 작업실</p>
-        <h1 className="mt-2 truncate text-2xl font-bold">{room.file.original_filename}</h1>
+        <p className="text-sm font-semibold text-primary">
+          {project.name} · 도면 작업실
+        </p>
+        <h1 className="mt-2 truncate text-2xl font-bold">
+          {room.file.original_filename}
+        </h1>
       </header>
       <ProjectWorkspaceNav current="drawings" projectId={project.id} />
 
       {actionData?.error ? (
-        <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+        <p
+          className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive"
+          role="alert"
+        >
           {actionData.error}
         </p>
       ) : null}
@@ -106,6 +135,7 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
         file={room.file}
         files={files}
         issues={room.issues}
+        issuePage={room.issuePage}
         initialGlobalId={loaderData.initialGlobalId}
         initialIssueId={loaderData.initialIssueId}
         projectId={project.id}
