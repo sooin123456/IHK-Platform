@@ -157,13 +157,14 @@ test("project workspace defaults to a readable light theme and separates the fiv
 
   assert.match(rootScreen, /specifiedTheme=\{data\?\.theme \?\? "light"\}/);
   assert.match(navigation, /label: "개요"/);
-  assert.match(navigation, /label: "파일"/);
+  assert.match(navigation, /label: "도면"/);
   assert.match(navigation, /label: "물량"/);
   assert.match(navigation, /label: "검토"/);
   assert.match(navigation, /label: "자재"/);
   assert.match(navigation, /fixed inset-x-0 bottom-0/);
   assert.match(navigation, /min-h-14/);
   assert.match(routes, /projects\/:projectId\/files/);
+  assert.match(routes, /projects\/:projectId\/drawings/);
   assert.match(routes, /projects\/:projectId\/quantities/);
   assert.match(routes, /projects\/:projectId\/reviews/);
 });

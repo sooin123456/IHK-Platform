@@ -7,6 +7,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
+import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import {
   drawingContext,
@@ -118,15 +119,10 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
               signedUrl={loaderData.signedUrl}
             />
           ) : (
-            <div className="grid min-h-[55vh] place-items-center rounded-xl bg-muted/50 p-8 text-center">
-              <div>
-                <FileText className="mx-auto size-10 text-primary" />
-                <h2 className="mt-4 text-xl font-bold">PDF 도면 뷰어 연결 중</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  다음 단계에서 페이지 렌더링과 영역 지정 도구가 이 자리에 연결됩니다.
-                </p>
-              </div>
-            </div>
+            <PdfDrawingViewer
+              fileName={room.file.original_filename}
+              signedUrl={loaderData.signedUrl}
+            />
           )}
         </section>
 
