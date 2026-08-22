@@ -22,8 +22,9 @@ export function NavigationBar({
   loading: boolean;
 }) {
   const links = email
-    ? [
+      ? [
         { to: "/workspace", label: "프로젝트" },
+        { to: "/notifications", label: "알림" },
         { to: "/logout", label: "로그아웃" },
       ]
     : [

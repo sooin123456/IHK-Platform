@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { createBrowserClient } from "@supabase/ssr";
 import { Box, FileText } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useRevalidator } from "react-router";
 
 import DrawingIssuePanel from "~/lukas/components/drawing-issue-panel";
 import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
@@ -41,6 +42,8 @@ export default function DrawingRoomClient({
   initialIssueId: string | null;
   revisionReview: DrawingRevisionReviewItem[];
 }) {
+  const revalidator = useRevalidator();
+  const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mobileTab, setMobileTab] = useState<"drawing" | "issues">("drawing");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
     issues.some((issue) => issue.id === initialIssueId)
@@ -48,6 +51,39 @@ export default function DrawingRoomClient({
       : (issues[0]?.id ?? null),
   );
   const [pendingAnchor, setPendingAnchor] = useState<object | null>(null);
+
+  useEffect(() => {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) return;
+    const client = createBrowserClient(url, key);
+    const refresh = () => {
+      if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
+      revalidateTimer.current = setTimeout(() => revalidator.revalidate(), 250);
+    };
+    const channel = client
+      .channel(`drawing-room:${projectId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "lukas_drawing_issues", filter: `project_id=eq.${projectId}` },
+        refresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "lukas_drawing_issue_comments", filter: `project_id=eq.${projectId}` },
+        refresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "lukas_drawing_issue_events", filter: `project_id=eq.${projectId}` },
+        refresh,
+      )
+      .subscribe();
+    return () => {
+      if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
+      void client.removeChannel(channel);
+    };
+  }, [projectId, revalidator]);
 
   return (
     <>
