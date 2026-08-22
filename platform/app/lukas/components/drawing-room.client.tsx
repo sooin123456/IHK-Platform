@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createBrowserClient } from "@supabase/ssr";
 import { Box, FileText } from "lucide-react";
 import { Link, useRevalidator } from "react-router";
 
@@ -56,32 +55,39 @@ export default function DrawingRoomClient({
     const url = import.meta.env.VITE_SUPABASE_URL;
     const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (!url || !key) return;
-    const client = createBrowserClient(url, key);
+    let cancelled = false;
+    let cleanupChannel: (() => void) | null = null;
     const refresh = () => {
       if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
       revalidateTimer.current = setTimeout(() => revalidator.revalidate(), 250);
     };
-    const channel = client
-      .channel(`drawing-room:${projectId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "lukas_drawing_issues", filter: `project_id=eq.${projectId}` },
-        refresh,
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "lukas_drawing_issue_comments", filter: `project_id=eq.${projectId}` },
-        refresh,
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "lukas_drawing_issue_events", filter: `project_id=eq.${projectId}` },
-        refresh,
-      )
-      .subscribe();
+    void import("@supabase/ssr").then(({ createBrowserClient }) => {
+      if (cancelled) return;
+      const client = createBrowserClient(url, key);
+      const channel = client
+        .channel(`drawing-room:${projectId}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "lukas_drawing_issues", filter: `project_id=eq.${projectId}` },
+          refresh,
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "lukas_drawing_issue_comments", filter: `project_id=eq.${projectId}` },
+          refresh,
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "lukas_drawing_issue_events", filter: `project_id=eq.${projectId}` },
+          refresh,
+        )
+        .subscribe();
+      cleanupChannel = () => void client.removeChannel(channel);
+    });
     return () => {
+      cancelled = true;
       if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
-      void client.removeChannel(channel);
+      cleanupChannel?.();
     };
   }, [projectId, revalidator]);
 

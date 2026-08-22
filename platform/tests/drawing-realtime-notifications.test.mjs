@@ -8,6 +8,8 @@ test("drawing room subscribes to project-scoped realtime changes", async () => {
     "utf8",
   );
   assert.match(source, /createBrowserClient/);
+  assert.doesNotMatch(source, /^import .*createBrowserClient/m);
+  assert.match(source, /import\("@supabase\/ssr"\)/);
   assert.match(source, /project_id=eq\./);
   assert.match(source, /useRevalidator/);
   assert.match(source, /removeChannel/);
