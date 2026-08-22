@@ -26,6 +26,9 @@
   마스킹하고, 현재 GitHub OAuth/App은 workflow 파일 쓰기 권한이 없다.
   권한을 우회해 비밀값을 노출하지 않으며, 마스킹되지 않은 service-role을
   안전한 실행 환경에 주입한 실제 성공 run은 아직 남았다.
+- 최신 운영 배포의 최근 24시간 Vercel error 로그는 0건이었다. 실제 2인
+  사용 중 renderer 오류·서명 URL 반복·Realtime 재연결 횟수는 현장 run에서
+  별도로 기록해야 한다.
 
 ## 현재 완성된 범위
 

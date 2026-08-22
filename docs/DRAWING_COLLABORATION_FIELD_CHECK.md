@@ -31,6 +31,9 @@
   `SELECT, INSERT`, 이벤트 `SELECT`, 알림 `SELECT, UPDATE`로 제한
 - 공개 `/`, `/auth/magic-link`, `/robots.txt`는 HTTP 200, 보호된
   `/workspace`, `/notifications`는 비로그인 요청을 `/login`으로 이동
+- 최신 운영 배포 기준 최근 24시간 Vercel `error` 로그 집계는 0건이다.
+  이는 관측된 서버 오류가 없다는 뜻이며, 아직 실행하지 못한 실제 2인
+  renderer·Realtime 현장 흐름을 대신하지 않는다.
 
 ## 역할별 브라우저 자동 검증
 
