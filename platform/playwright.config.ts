@@ -2,7 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 import "dotenv/config";
 
 const PORT = process.env.PORT || 4000;
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const remote = Boolean(process.env.E2E_BASE_URL);
 
 export default defineConfig({
   timeout: 60000 * 10,
@@ -48,12 +49,14 @@ export default defineConfig({
   ],
 
   /* Run the local dev server before starting the tests */
-  webServer: {
-    command: `npm run dev -- --port ${PORT}`,
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    env: {
-      ...(process.env as Record<string, string>),
-    },
-  },
+  webServer: remote
+    ? undefined
+    : {
+        command: `npm run dev -- --port ${PORT}`,
+        url: BASE_URL,
+        reuseExistingServer: !process.env.CI,
+        env: {
+          ...(process.env as Record<string, string>),
+        },
+      },
 });

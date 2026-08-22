@@ -78,7 +78,10 @@ Apply the drawing collaboration release in this order:
 5. Run `node --test tests/*.test.mjs`, `npm run build`, and the IFC geometry smoke.
 6. Deploy to Vercel production and verify public 200 responses plus protected-route
    redirects.
-7. Complete the two-user desktop/mobile checklist in
+7. Run the disposable four-role Playwright flow against production with a real,
+   non-logged `SUPABASE_SERVICE_ROLE_KEY`:
+   `E2E_BASE_URL=https://lukas-qto-platform.vercel.app npx playwright test e2e/drawing-collaboration.spec.ts --project=chromium`.
+8. Complete the two-user desktop/mobile checklist in
    `../docs/DRAWING_COLLABORATION_FIELD_CHECK.md`.
 
 Useful verification queries:

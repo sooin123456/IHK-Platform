@@ -14,7 +14,7 @@
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공
-- `node --test tests/*.test.mjs`: 85/85 성공
+- `node --test tests/*.test.mjs`: 86/86 성공
 - `npm run test:ifc -- /tmp/thatopen-example.ifc`: 120개 요소, 115개 형상,
   14,694 triangles 파싱 성공
 - 운영 테이블 5개 RLS 활성화 확인
@@ -26,6 +26,26 @@
   `SELECT, INSERT`, 이벤트 `SELECT`, 알림 `SELECT, UPDATE`로 제한
 - 공개 `/`, `/auth/magic-link`, `/robots.txt`는 HTTP 200, 보호된
   `/workspace`, `/notifications`는 비로그인 요청을 `/login`으로 이동
+
+## 역할별 브라우저 자동 검증
+
+`platform/e2e/drawing-collaboration.spec.ts`는 실행할 때마다 임시 소유자,
+검토자, 조회자, 비멤버 계정과 프로젝트를 만들고 종료 시 모두 삭제한다. PDF
+영역 이슈 생성, 담당자 배정, 다른 브라우저의 댓글·종료, 소유자 화면의 실시간
+반영, 조회자 쓰기 차단, 비멤버 404, 390px 모바일 전환을 검사한다.
+
+운영 환경 실행에는 마스킹되지 않은 `SUPABASE_SERVICE_ROLE_KEY`가 필요하다.
+Vercel의 `[SENSITIVE]` 표시값은 실제 키가 아니므로 테스트가 명확히 실패한다.
+실제 비밀값을 Git, 로그, Playwright report에 기록하지 않는다.
+
+```sh
+cd platform
+E2E_BASE_URL=https://lukas-qto-platform.vercel.app \
+SUPABASE_URL=https://PROJECT.supabase.co \
+SUPABASE_ANON_KEY=... \
+SUPABASE_SERVICE_ROLE_KEY=... \
+npx playwright test e2e/drawing-collaboration.spec.ts --project=chromium
+```
 
 ## 실제 2인 현장 검증
 
