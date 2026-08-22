@@ -25,6 +25,26 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
+function isLoopbackHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+export function resolveAuthOrigin(requestUrl: string, configuredAppUrl = process.env.APP_URL) {
+  const requestOrigin = new URL(requestUrl);
+
+  // Local development frequently runs on a port selected by the dev server.
+  // Returning to a fixed APP_URL such as localhost:3000 would make a link
+  // requested on 127.0.0.1:4173 open a server that is not running.
+  if (isLoopbackHost(requestOrigin.hostname)) return requestOrigin.origin;
+
+  if (!configuredAppUrl) return requestOrigin.origin;
+  const configuredOrigin = new URL(configuredAppUrl);
+  if (configuredOrigin.protocol !== "https:") {
+    throw new Error("APP_URL must use HTTPS outside local development");
+  }
+  return configuredOrigin.origin;
+}
+
 function stateKey() {
   const secret = requiredEnvironment("AUTH_LINK_STATE_SECRET");
   if (secret.length < 32)

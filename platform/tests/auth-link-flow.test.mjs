@@ -6,9 +6,41 @@ process.env.AUTH_LINK_STATE_SECRET =
 process.env.SUPABASE_ANON_KEY = "test-anon-key";
 process.env.SUPABASE_URL = "https://example.supabase.co";
 
-const { exchangeCrossBrowserCode, sendCrossBrowserMagicLink } = await import(
+const {
+  exchangeCrossBrowserCode,
+  resolveAuthOrigin,
+  sendCrossBrowserMagicLink,
+} = await import(
   "../app/features/auth/lib/auth-link.server.ts"
 );
+
+test("local magic links return to the active development origin", () => {
+  assert.equal(
+    resolveAuthOrigin(
+      "http://127.0.0.1:4173/auth/magic-link",
+      "http://localhost:3000",
+    ),
+    "http://127.0.0.1:4173",
+  );
+});
+
+test("production magic links use the configured canonical HTTPS origin", () => {
+  assert.equal(
+    resolveAuthOrigin(
+      "https://preview-123.vercel.app/auth/magic-link",
+      "https://lukas-qto-platform.vercel.app/some/path",
+    ),
+    "https://lukas-qto-platform.vercel.app",
+  );
+  assert.throws(
+    () =>
+      resolveAuthOrigin(
+        "https://preview-123.vercel.app/auth/magic-link",
+        "http://lukas-qto-platform.vercel.app",
+      ),
+    /HTTPS/,
+  );
+});
 
 test("cross-browser PKCE state survives an email browser without exposing the verifier", async () => {
   const originalFetch = globalThis.fetch;

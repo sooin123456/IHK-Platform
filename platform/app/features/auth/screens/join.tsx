@@ -16,7 +16,10 @@ import {
 } from "~/core/components/ui/card";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
-import { sendCrossBrowserMagicLink } from "~/features/auth/lib/auth-link.server";
+import {
+  resolveAuthOrigin,
+  sendCrossBrowserMagicLink,
+} from "~/features/auth/lib/auth-link.server";
 
 const schema = z.object({
   email: z.string().trim().email("이메일 주소를 확인하세요."),
@@ -34,7 +37,7 @@ export async function action({ request }: Route.ActionArgs) {
       { status: 400 },
     );
 
-  const origin = process.env.APP_URL || new URL(request.url).origin;
+  const origin = resolveAuthOrigin(request.url);
   const { error } = await sendCrossBrowserMagicLink({
     email: parsed.data.email,
     origin,

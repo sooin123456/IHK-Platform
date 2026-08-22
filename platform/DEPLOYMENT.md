@@ -37,7 +37,10 @@ platform domain and add this redirect URL:
 https://<platform-domain>/auth/confirm
 ```
 
-Keep `http://localhost:3000/auth/confirm` for local development. Test one
+Keep the exact callback for every local port used by the development server,
+for example `http://localhost:3000/auth/confirm` and
+`http://127.0.0.1:4173/auth/confirm`. Local login links return to the origin
+where they were requested; production links always use `APP_URL`. Test one
 passwordless email sign-in after the domain is configured: it must finish at
 `/workspace`.
 
