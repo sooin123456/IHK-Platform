@@ -69,6 +69,7 @@ type WorkspaceDashboardProps = {
   email: string;
   isStaff: boolean;
   actionError?: string;
+  previewMode?: boolean;
 };
 
 const workflowLabels: Record<string, string> = {
@@ -186,6 +187,7 @@ export function WorkspaceDashboard({
   email,
   isStaff,
   actionError,
+  previewMode = false,
 }: WorkspaceDashboardProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "review">("all");
@@ -224,6 +226,8 @@ export function WorkspaceDashboard({
     0,
   );
   const userInitial = (email[0] ?? "H").toUpperCase();
+  const workspaceHref = previewMode ? "/workspace-preview" : "/workspace";
+  const linkTo = (target: string) => (previewMode ? workspaceHref : target);
   const sidebarItems = [
     {
       id: "all" as const,
@@ -249,7 +253,7 @@ export function WorkspaceDashboard({
     <div className="min-h-screen bg-[#f7f7f8] text-[#17171a] dark:bg-[#121214] dark:text-white">
       <div className="flex min-h-screen">
         <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-black/10 bg-white px-4 py-5 dark:border-white/10 dark:bg-[#19191c] lg:flex">
-          <Link className="flex items-center gap-3 px-2" to="/workspace">
+          <Link className="flex items-center gap-3 px-2" to={workspaceHref}>
             <span className="grid size-9 place-items-center rounded-xl bg-[#2925d9] text-sm font-black text-white">
               1H
             </span>
@@ -293,7 +297,7 @@ export function WorkspaceDashboard({
               <Link
                 className="flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/5"
                 key={project.id}
-                to={projectHref(project.id, projectMetrics[project.id])}
+                to={linkTo(projectHref(project.id, projectMetrics[project.id]))}
               >
                 <span
                   className={cn(
@@ -308,14 +312,14 @@ export function WorkspaceDashboard({
           <div className="mt-auto space-y-2">
             <Link
               className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
-              to="/notifications"
+              to={linkTo("/notifications")}
             >
               <Bell className="size-4" /> 알림 작업함
             </Link>
             {isStaff ? (
               <Link
                 className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
-                to="/staff/inquiries"
+                to={linkTo("/staff/inquiries")}
               >
                 <MessageSquareText className="size-4" /> 문의함
               </Link>
@@ -328,7 +332,10 @@ export function WorkspaceDashboard({
                 <p className="truncate text-xs font-semibold">{email}</p>
                 <p className="text-[11px] text-muted-foreground">내 계정</p>
               </div>
-              <Link aria-label="로그아웃" to="/logout">
+              <Link
+                aria-label={previewMode ? "미리보기" : "로그아웃"}
+                to={linkTo("/logout")}
+              >
                 <LogOut className="size-4 text-muted-foreground" />
               </Link>
             </div>
@@ -337,7 +344,10 @@ export function WorkspaceDashboard({
 
         <main className="min-w-0 flex-1 pb-24 lg:ml-64 lg:pb-10">
           <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center gap-3 border-b border-black/10 bg-white/95 px-4 py-3 backdrop-blur sm:px-7 lg:h-16 lg:flex-nowrap lg:px-10 lg:py-0 dark:border-white/10 dark:bg-[#19191c]/95">
-            <Link className="flex items-center gap-2 lg:hidden" to="/workspace">
+            <Link
+              className="flex items-center gap-2 lg:hidden"
+              to={workspaceHref}
+            >
               <span className="grid size-8 place-items-center rounded-lg bg-[#2925d9] text-xs font-black text-white">
                 1H
               </span>
@@ -353,7 +363,13 @@ export function WorkspaceDashboard({
                 value={query}
               />
             </div>
-            <NewProjectDialog actionError={actionError} />
+            {previewMode ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">
+                로컬 미리보기
+              </span>
+            ) : (
+              <NewProjectDialog actionError={actionError} />
+            )}
           </header>
 
           <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-7 lg:px-10 lg:py-10">
@@ -451,7 +467,7 @@ export function WorkspaceDashboard({
                 >
                   {filteredProjects.map((project, index) => {
                     const metric = projectMetrics[project.id];
-                    const openHref = projectHref(project.id, metric);
+                    const openHref = linkTo(projectHref(project.id, metric));
                     return (
                       <li
                         className={cn(
@@ -514,28 +530,28 @@ export function WorkspaceDashboard({
                           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={`/projects/${project.id}/files`}
+                              to={linkTo(`/projects/${project.id}/files`)}
                             >
                               <FileBox className="size-3.5" /> 파일{" "}
                               {metric?.fileCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={`/projects/${project.id}/drawings`}
+                              to={linkTo(`/projects/${project.id}/drawings`)}
                             >
                               <MessageSquareText className="size-3.5" /> 미해결{" "}
                               {metric?.unresolvedDrawingCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={`/projects/${project.id}/drawings`}
+                              to={linkTo(`/projects/${project.id}/drawings`)}
                             >
                               <UserRound className="size-3.5" /> 내 담당{" "}
                               {metric?.assignedToMeCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={`/projects/${project.id}/members`}
+                              to={linkTo(`/projects/${project.id}/members`)}
                             >
                               <Users className="size-3.5" /> 참여{" "}
                               {metric?.memberCount ?? 0}
@@ -612,7 +628,7 @@ export function WorkspaceDashboard({
                       <Link
                         aria-label={`${activity.projectName} 열기`}
                         className="grid size-9 place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
-                        to={`/projects/${activity.projectId}`}
+                        to={linkTo(`/projects/${activity.projectId}`)}
                       >
                         <ArrowUpRight className="size-4" />
                       </Link>
@@ -648,14 +664,14 @@ export function WorkspaceDashboard({
         })}
         <Link
           className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted-foreground"
-          to="/notifications"
+          to={linkTo("/notifications")}
         >
           <Bell className="size-4" />
           알림
         </Link>
         <Link
           className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted-foreground"
-          to="/logout"
+          to={linkTo("/logout")}
         >
           <LogOut className="size-4" />
           로그아웃

@@ -1,7 +1,7 @@
 import type { Route } from "./+types/magic-link";
 
 import { useEffect, useRef } from "react";
-import { Form, Link, data } from "react-router";
+import { Form, Link, data, redirect } from "react-router";
 import { z } from "zod";
 
 import FormButton from "~/core/components/form-button";
@@ -20,6 +20,7 @@ import {
   resolveAuthOrigin,
   sendCrossBrowserMagicLink,
 } from "~/features/auth/lib/auth-link.server";
+import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
 
 const magicLinkSchema = z.object({
   email: z.string().trim().email("이메일 주소를 확인하세요."),
@@ -28,6 +29,12 @@ const magicLinkSchema = z.object({
 export const meta: Route.MetaFunction = () => [
   { title: "로그인 | 한길시스템" },
 ];
+
+export function loader({ request }: Route.LoaderArgs) {
+  const target = localWorkspacePreviewTarget(request.url);
+  if (target) throw redirect(target);
+  return null;
+}
 
 export async function action({ request }: Route.ActionArgs) {
   const { success, data: validData } = magicLinkSchema.safeParse(

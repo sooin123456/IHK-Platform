@@ -20,6 +20,7 @@ export default [
     route("/news", "features/blog/screens/posts.tsx"),
     route("/news/:slug", "features/blog/screens/post.tsx"),
     route("/share/:token", "lukas/screens/shared-project.tsx"),
+    route("/workspace-preview", "lukas/screens/workspace-preview.tsx"),
     layout("core/layouts/public.layout.tsx", [
       route("/login", "features/auth/screens/login-redirect.tsx"),
       route("/join", "features/auth/screens/join.tsx"),
@@ -46,10 +47,7 @@ export default [
         "/projects/:projectId/quantities",
         "lukas/screens/project-quantities.tsx",
       ),
-      route(
-        "/projects/:projectId/boq",
-        "lukas/screens/verified-boq.tsx",
-      ),
+      route("/projects/:projectId/boq", "lukas/screens/verified-boq.tsx"),
       route(
         "/projects/:projectId/reviews",
         "lukas/screens/project-reviews.tsx",
