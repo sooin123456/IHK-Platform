@@ -284,6 +284,26 @@ export async function listDrawingFiles(client: DrawingClient, projectId: string)
   return (data ?? []) as DrawingFile[];
 }
 
+export type DrawingAssignee = { userId: string; role: string };
+
+export async function listDrawingAssignees(
+  client: DrawingClient,
+  projectId: string,
+  ownerId: string,
+): Promise<DrawingAssignee[]> {
+  const { data, error } = await client
+    .from("lukas_qto_project_members")
+    .select("user_id,role")
+    .eq("project_id", projectId)
+    .order("created_at");
+  if (error)
+    throw new Error(`프로젝트 담당자 목록을 불러오지 못했습니다: ${error.message}`);
+  return [
+    { userId: ownerId, role: "owner" },
+    ...(data ?? []).map((member) => ({ userId: member.user_id, role: member.role })),
+  ];
+}
+
 export async function listDrawingIssueMetrics(
   client: DrawingClient,
   projectIds: string[],

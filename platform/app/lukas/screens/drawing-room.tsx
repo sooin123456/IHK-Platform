@@ -8,6 +8,7 @@ import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
 import {
   drawingContext,
+  listDrawingAssignees,
   listDrawingFiles,
   loadDrawingRoom,
   mutateDrawingIssue,
@@ -28,10 +29,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const [room, files, revisionReview] = await Promise.all([
+  const [room, files, revisionReview, assignees] = await Promise.all([
     loadDrawingRoom(client, project.id, params.fileId!),
     listDrawingFiles(client, project.id),
     loadDrawingRevisionReview(client, project.id, params.fileId!),
+    listDrawingAssignees(client, project.id, project.owner_id),
   ]);
   const { data: signed, error } = await client.storage
     .from("lukas-qto")
@@ -47,6 +49,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       revisionReview,
       initialGlobalId: new URL(request.url).searchParams.get("globalId"),
       initialIssueId: new URL(request.url).searchParams.get("issue"),
+      assignees,
       signedUrl: signed.signedUrl,
     },
     { headers },
@@ -96,6 +99,7 @@ export default function DrawingRoom({ loaderData, actionData }: Route.ComponentP
         </p>
       ) : null}
       <DrawingRoomClient
+        assignees={loaderData.assignees}
         comments={room.comments}
         file={room.file}
         files={files}

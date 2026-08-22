@@ -13,6 +13,7 @@ import {
   type DrawingProjectRole,
 } from "~/lukas/lib/drawing-collaboration-policy";
 import type { DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
+import type { DrawingAssignee } from "~/lukas/lib/drawing-collaboration.server";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 
 type Comment = {
@@ -29,6 +30,19 @@ const statusLabels: Record<string, string> = {
   resolution_requested: "확인 요청",
   closed: "완료",
 };
+const roleLabels: Record<string, string> = {
+  owner: "프로젝트 소유자",
+  staff: "운영 담당",
+  reviewer: "검토·승인",
+  estimator: "적산 담당",
+  site: "현장 담당",
+  procurement: "구매 담당",
+  viewer: "조회 전용",
+};
+
+function assigneeLabel(assignee: DrawingAssignee) {
+  return `${roleLabels[assignee.role] ?? assignee.role} · ${assignee.userId.slice(0, 8)}`;
+}
 
 export default function DrawingIssuePanel({
   issues,
@@ -40,6 +54,7 @@ export default function DrawingIssuePanel({
   projectId,
   currentFileId,
   revisionReview,
+  assignees,
 }: {
   issues: DrawingIssue[];
   comments: Comment[];
@@ -50,6 +65,7 @@ export default function DrawingIssuePanel({
   projectId: string;
   currentFileId: string;
   revisionReview: DrawingRevisionReviewItem[];
+  assignees: DrawingAssignee[];
 }) {
   const selected = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const selectedComments = useMemo(
@@ -133,6 +149,17 @@ export default function DrawingIssuePanel({
               <Input className="mt-1 min-h-11" id="issue-create-due" name="due_at" type="date" />
             </div>
           </div>
+          {canAssignDrawingIssue(role) ? (
+            <div>
+              <Label htmlFor="issue-create-assignee">담당자</Label>
+              <select className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm" defaultValue="" id="issue-create-assignee" name="assignee_user_id">
+                <option value="">나중에 지정</option>
+                {assignees.map((assignee) => (
+                  <option key={assignee.userId} value={assignee.userId}>{assigneeLabel(assignee)}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <Button className="min-h-11 w-full" type="submit">
             <MessageSquarePlus className="size-4" /> 이슈 만들기
           </Button>
@@ -210,7 +237,12 @@ export default function DrawingIssuePanel({
                   <input name="expected_version" type="hidden" value={selected.version} />
                   <Label htmlFor={`assignee-${selected.id}`}>담당자</Label>
                   <div className="mt-1 flex gap-2">
-                    <Input className="min-h-11" id={`assignee-${selected.id}`} name="assignee_user_id" placeholder="구성원 ID (비우면 해제)" defaultValue={selected.assignee_user_id ?? ""} />
+                    <select className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm" defaultValue={selected.assignee_user_id ?? ""} id={`assignee-${selected.id}`} name="assignee_user_id">
+                      <option value="">담당자 해제</option>
+                      {assignees.map((assignee) => (
+                        <option key={assignee.userId} value={assignee.userId}>{assigneeLabel(assignee)}</option>
+                      ))}
+                    </select>
                     <Button className="min-h-11" type="submit" variant="outline">지정</Button>
                   </div>
                 </Form>

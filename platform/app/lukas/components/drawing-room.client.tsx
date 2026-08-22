@@ -7,6 +7,7 @@ import DrawingIssuePanel from "~/lukas/components/drawing-issue-panel";
 import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
+import type { DrawingAssignee } from "~/lukas/lib/drawing-collaboration.server";
 import type { DrawingFile, DrawingIssue } from "~/lukas/lib/drawing-collaboration.types";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 
@@ -29,6 +30,7 @@ export default function DrawingRoomClient({
   initialGlobalId,
   initialIssueId,
   revisionReview,
+  assignees,
 }: {
   projectId: string;
   file: DrawingFile;
@@ -40,6 +42,7 @@ export default function DrawingRoomClient({
   initialGlobalId: string | null;
   initialIssueId: string | null;
   revisionReview: DrawingRevisionReviewItem[];
+  assignees: DrawingAssignee[];
 }) {
   const revalidator = useRevalidator();
   const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,6 +173,7 @@ export default function DrawingRoomClient({
 
         <aside className={`${mobileTab === "issues" ? "block" : "hidden"} order-3 lg:block`}>
           <DrawingIssuePanel
+            assignees={assignees}
             comments={comments}
             issues={issues}
             onSelectIssue={setSelectedIssueId}

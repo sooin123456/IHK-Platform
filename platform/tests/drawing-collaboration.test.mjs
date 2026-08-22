@@ -255,6 +255,8 @@ test("drawing issue panel exposes labeled operational controls", async () => {
     assert.match(source, new RegExp(label));
   assert.match(source, /expected_version/);
   assert.match(source, /aria-live/);
+  assert.match(source, /assignees\.map/);
+  assert.doesNotMatch(source, /placeholder="구성원 ID/);
 });
 
 test("PDF anchors are never copied and IFC candidates require one exact identity", async () => {
