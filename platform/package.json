@@ -14,6 +14,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:typegen": "test -n \"$SUPABASE_PROJECT_REF\" || (echo 'Set SUPABASE_PROJECT_REF before generating database types.' >&2; exit 1); supabase gen types typescript --project-id \"$SUPABASE_PROJECT_REF\" > database.types.ts",
     "test:e2e": "npx playwright test",
+    "test:e2e:drawing:production": "npx playwright test e2e/drawing-collaboration.spec.ts --project=chromium",
     "test:e2e:ui": "npx playwright test --ui",
     "test:ifc": "node tests/ifc-geometry-smoke.mjs",
     "test:public": "node --test tests/public-site-contract.test.mjs",

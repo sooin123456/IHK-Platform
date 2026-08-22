@@ -31,3 +31,12 @@ test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", as
   assert.match(spec, /toBeVisible\(\{\s*timeout: 15_000,?\s*\}\)/);
   assert.match(spec, /status\(\)\)\.toBe\(404\)/);
 });
+
+test("production drawing E2E has one deterministic npm entrypoint", async () => {
+  const packageJson = JSON.parse(await read("package.json"));
+
+  assert.equal(
+    packageJson.scripts["test:e2e:drawing:production"],
+    "npx playwright test e2e/drawing-collaboration.spec.ts --project=chromium",
+  );
+});
