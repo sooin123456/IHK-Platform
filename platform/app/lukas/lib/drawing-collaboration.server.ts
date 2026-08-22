@@ -166,6 +166,12 @@ function optionalFormString(value: FormDataEntryValue | null): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+function optionalDueAt(value: FormDataEntryValue | null): string | null {
+  const due = optionalFormString(value);
+  if (!due) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(due) ? `${due}T23:59:59+09:00` : due;
+}
+
 export function parseDrawingMutationForm(form: FormData): DrawingMutation {
   const intent = form.get("intent");
   if (intent === "create_issue")
@@ -175,7 +181,7 @@ export function parseDrawingMutationForm(form: FormData): DrawingMutation {
       description: form.get("description") ?? "",
       priority: form.get("priority") ?? "normal",
       assigneeUserId: optionalFormString(form.get("assignee_user_id")),
-      dueAt: optionalFormString(form.get("due_at")),
+      dueAt: optionalDueAt(form.get("due_at")),
     });
   if (intent === "add_anchor") {
     const anchorJson = form.get("anchor_json");
@@ -210,7 +216,7 @@ export function parseDrawingMutationForm(form: FormData): DrawingMutation {
       intent,
       issueId: form.get("issue_id"),
       expectedVersion: Number(form.get("expected_version")),
-      dueAt: optionalFormString(form.get("due_at")),
+      dueAt: optionalDueAt(form.get("due_at")),
     });
   if (intent === "set_priority")
     return DrawingMutationSchema.parse({

@@ -244,3 +244,15 @@ test("IFC viewer exposes deterministic camera capture and restore", async () => 
     }),
   );
 });
+
+test("drawing issue panel exposes labeled operational controls", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-issue-panel.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const label of ["이슈 제목", "담당자", "기한", "상태", "댓글"])
+    assert.match(source, new RegExp(label));
+  assert.match(source, /expected_version/);
+  assert.match(source, /aria-live/);
+});
