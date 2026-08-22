@@ -47,6 +47,11 @@ Vercel의 `[SENSITIVE]` 표시값은 실제 키가 아니므로 테스트가 명
 테스트 데이터 생성 전에 위 마스킹 게이트에서 중단됐다. 따라서 운영 데이터
 잔여물은 없고, 이를 E2E 성공으로 기록하지 않는다.
 
+GitHub Actions 수동 게이트도 검토했으나 현재 저장소 OAuth와 GitHub App에는
+workflow 파일 쓰기 권한이 없어 공개 push가 403으로 거부됐다. 권한을 우회해
+비밀값을 코드나 일반 환경변수로 옮기지 않는다. 현재 재현 가능한 명령은 아래
+로컬 명령이며, 마스킹되지 않은 세 값은 실행 프로세스에만 주입한다.
+
 ```sh
 cd platform
 E2E_BASE_URL=https://lukas-qto-platform.vercel.app \

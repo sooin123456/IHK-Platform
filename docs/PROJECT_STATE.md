@@ -22,6 +22,10 @@
   Revit IFC(560요소·7,904 triangles) geometry smoke를 통과했다. 운영
   Playwright는 Vercel CLI가 Sensitive 값을 `[SENSITIVE]`로 내보내는 보안
   경계에서 테스트 데이터 생성 전에 중단됐으며 성공으로 간주하지 않는다.
+- 운영 4역할 Playwright 코드는 준비됐지만 Vercel CLI는 Sensitive 값을
+  마스킹하고, 현재 GitHub OAuth/App은 workflow 파일 쓰기 권한이 없다.
+  권한을 우회해 비밀값을 노출하지 않으며, 마스킹되지 않은 service-role을
+  안전한 실행 환경에 주입한 실제 성공 run은 아직 남았다.
 
 ## 현재 완성된 범위
 
