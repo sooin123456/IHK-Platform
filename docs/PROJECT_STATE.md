@@ -1,5 +1,20 @@
 # 프로젝트 상태
 
+## 1HK 도면 협업 플랫폼 진행 상태 (2026-08-23)
+
+- 목표는 축소하지 않는다. IFC 3D와 PDF 2D를 같은 프로젝트에서 열고,
+  객체·페이지 위치 근거에 이슈, 댓글, 담당자, 기한, 상태, 개정 재검토,
+  알림, 승인, 감사 이력을 연결하는 완성형 도면 협업 플랫폼이 최종 기준이다.
+- 도면 목록·IFC/PDF 협업실·공통 이슈·담당자·감사 이력·개정 재검토·Realtime
+  알림을 구현했고 운영 Supabase와 Vercel에 배포했다.
+- 운영 DB는 5개 도면 테이블의 RLS, 최소 권한, Realtime 3개 테이블,
+  외래키 인덱스와 rollback 기반 owner/viewer 권한 검사를 통과했다.
+- 현재 상태는 **코드·DB 운영 배포 완료 / 실제 2인 현장 검증 대기**다.
+  서로 다른 소유자·검토자가 실제 IFC/PDF로 데스크톱과 모바일 전체 흐름을
+  끝내기 전에는 최종 완성으로 표시하지 않는다.
+- 고정 검증 기준과 비식별 증거 양식은
+  `docs/DRAWING_COLLABORATION_FIELD_CHECK.md`에 기록한다.
+
 ## 현재 완성된 범위
 
 - 제품 우선순위는 **실무 물량추출 → 내역 집계 → 근거 검산** 순서로 고정했다. 검산·해시·리비전은 추출 결과를 증명하는 계층이다.
@@ -80,6 +95,8 @@
 - 거푸집 face extractor와 원장 출력은 구현됐으나 실제 Revit에서 stable reference·중첩 geometry·면적을 확인하고, 사람이 승인한 접촉·개구부 판정을 Desktop 산출로 연결하는 작업이 남았다.
 - 요소별 Properties ledger V2는 독립 `Properties 추출` CSV와 IFC·QTO 원자 패키지에 포함됐다. 실제 Revit 모델로 이름·체적·길이·높이와 요소 역추적을 확인하는 현장 증거가 남았다.
 - 철근 official kg를 재현할 MDB/ACCDB 규격별 단위중량·손율·절사/반올림 테이블의 필드 근거를 아직 읽지 못했다. ZJ raw에 일반 단위중량과 일괄 3%를 적용한 결과는 official보다 330.388651kg 작아 임의 계수를 쓰지 않는다.
-- Supabase의 제안·결정 migration 0006, 결정론적 산출 artifact migration 0007, 파일 개정 그래프 migration 0008, L1 내역·QTO 검산 artifact migration 0009는 코드·RLS·명시적 Data API GRANT 계약까지 작성했지만 운영 DB 적용은 명시적 승인 대기 중이며 적용 후 인증·RLS·Storage 브라우저 실사용 확인이 남았다.
+- Supabase의 제안·결정, 결정론적 산출 artifact, 파일 개정 그래프, L1 검산,
+  도면 협업 migration은 운영 DB에 적용됐다. 운영 브라우저에서 파일 업로드와
+  실제 2인 maker/reviewer 전체 흐름을 완료하는 현장 증거는 아직 남았다.
 
 전체 요구사항별 완료 증거와 미충족 조건은 `docs/COMPLETION_AUDIT.md`에 정리한다.

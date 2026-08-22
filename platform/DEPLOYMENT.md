@@ -66,6 +66,43 @@ passwordless email sign-in after the domain is configured: it must finish at
 12. Confirm receipt/invoice insertion fails without an immutable evidence file and
     another customer cannot read the material plan, transaction or carbon-factor rows.
 
+## Drawing collaboration deployment order
+
+Apply the drawing collaboration release in this order:
+
+1. Record the current schema and production deployment ID.
+2. Apply the additive drawing migrations in filename order.
+3. Confirm all `lukas_drawing_*` tables have RLS enabled and authenticated grants
+   match the least-privilege migration.
+4. Confirm only issues, comments, and events are members of `supabase_realtime`.
+5. Run `node --test tests/*.test.mjs`, `npm run build`, and the IFC geometry smoke.
+6. Deploy to Vercel production and verify public 200 responses plus protected-route
+   redirects.
+7. Complete the two-user desktop/mobile checklist in
+   `../docs/DRAWING_COLLABORATION_FIELD_CHECK.md`.
+
+Useful verification queries:
+
+```sql
+select tablename
+from pg_publication_tables
+where pubname = 'supabase_realtime'
+  and tablename like 'lukas_drawing_%'
+order by tablename;
+
+select c.relname, c.relrowsecurity, c.relacl
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname like 'lukas_drawing_%'
+  and c.relkind = 'r'
+order by c.relname;
+```
+
+Do not mark the drawing room complete from build output alone. Production maker,
+reviewer, viewer, and non-member behavior must be verified by database enforcement,
+and two real users must complete the field flow.
+
 ## Commercial boundary
 
 The current Revit field beta is a free download, not a zero-value card charge.
