@@ -1,6 +1,13 @@
 import { useMemo } from "react";
 
-import { CheckCircle2, History, Link2, MessageSquarePlus, RefreshCw, UserRound } from "lucide-react";
+import {
+  CheckCircle2,
+  History,
+  Link2,
+  MessageSquarePlus,
+  RefreshCw,
+  UserRound,
+} from "lucide-react";
 import { Form, Link } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
@@ -112,14 +119,19 @@ export default function DrawingIssuePanel({
       {revisionReview.length > 0 ? (
         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           <p className="flex items-center gap-2 text-sm font-bold">
-            <RefreshCw className="size-4" /> 개정 도면 재검토 {revisionReview.length}건
+            <RefreshCw className="size-4" /> 개정 도면 재검토{" "}
+            {revisionReview.length}건
           </p>
           <p className="mt-1 text-xs opacity-80">
-            이전 근거는 보존됩니다. 새 도면에서 위치를 확인한 뒤 다시 연결하세요.
+            이전 근거는 보존됩니다. 새 도면에서 위치를 확인한 뒤 다시
+            연결하세요.
           </p>
           <div className="mt-3 space-y-2">
             {revisionReview.map((item) => (
-              <div className="rounded-lg bg-background/80 p-2" key={item.previousAnchorId}>
+              <div
+                className="rounded-lg bg-background/80 p-2"
+                key={item.previousAnchorId}
+              >
                 <p className="text-xs font-semibold">{item.issueTitle}</p>
                 {item.kind === "ifc_candidate" && item.ifcGlobalId ? (
                   <Link
@@ -130,7 +142,11 @@ export default function DrawingIssuePanel({
                     같은 IFC 객체 후보 확인
                   </Link>
                 ) : (
-                  <p className="mt-2 text-xs">PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.</p>
+                  <p className="mt-2 text-xs">
+                    {item.sourceKind === "ifc_element"
+                      ? "같은 IFC 객체가 확인되지 않았습니다. 새 도면에서 객체를 다시 선택하세요."
+                      : "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요."}
+                  </p>
                 )}
               </div>
             ))}
@@ -163,7 +179,12 @@ export default function DrawingIssuePanel({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label htmlFor="issue-priority">우선순위</Label>
-              <select className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm" defaultValue="normal" id="issue-priority" name="priority">
+              <select
+                className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm"
+                defaultValue="normal"
+                id="issue-priority"
+                name="priority"
+              >
                 <option value="low">낮음</option>
                 <option value="normal">보통</option>
                 <option value="high">높음</option>
@@ -172,16 +193,28 @@ export default function DrawingIssuePanel({
             </div>
             <div>
               <Label htmlFor="issue-create-due">기한</Label>
-              <Input className="mt-1 min-h-11" id="issue-create-due" name="due_at" type="date" />
+              <Input
+                className="mt-1 min-h-11"
+                id="issue-create-due"
+                name="due_at"
+                type="date"
+              />
             </div>
           </div>
           {canAssignDrawingIssue(role) ? (
             <div>
               <Label htmlFor="issue-create-assignee">담당자</Label>
-              <select className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm" defaultValue="" id="issue-create-assignee" name="assignee_user_id">
+              <select
+                className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm"
+                defaultValue=""
+                id="issue-create-assignee"
+                name="assignee_user_id"
+              >
                 <option value="">나중에 지정</option>
                 {assignees.map((assignee) => (
-                  <option key={assignee.userId} value={assignee.userId}>{assigneeLabel(assignee)}</option>
+                  <option key={assignee.userId} value={assignee.userId}>
+                    {assigneeLabel(assignee)}
+                  </option>
                 ))}
               </select>
             </div>
@@ -213,7 +246,9 @@ export default function DrawingIssuePanel({
             </div>
             <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
               <UserRound className="size-3.5" />
-              {issue.assignee_user_id ? `담당 ${issue.assignee_user_id.slice(0, 8)}` : "담당자 없음"}
+              {issue.assignee_user_id
+                ? `담당 ${issue.assignee_user_id.slice(0, 8)}`
+                : "담당자 없음"}
             </p>
           </button>
         ))}
@@ -227,14 +262,26 @@ export default function DrawingIssuePanel({
       {selected ? (
         <div className="mt-5 border-t pt-4">
           <h3 className="font-bold">{selected.title}</h3>
-          {selected.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p> : null}
+          {selected.description ? (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+              {selected.description}
+            </p>
+          ) : null}
 
           {pendingAnchor && mayWrite ? (
             <Form className="mt-4" method="post">
               <input name="intent" type="hidden" value="add_anchor" />
               <input name="issue_id" type="hidden" value={selected.id} />
-              <input name="anchor_json" type="hidden" value={JSON.stringify(pendingAnchor)} />
-              <Button className="min-h-11 w-full" type="submit" variant="outline">
+              <input
+                name="anchor_json"
+                type="hidden"
+                value={JSON.stringify(pendingAnchor)}
+              />
+              <Button
+                className="min-h-11 w-full"
+                type="submit"
+                variant="outline"
+              >
                 <Link2 className="size-4" /> 선택한 도면 근거 연결
               </Button>
             </Form>
@@ -244,11 +291,24 @@ export default function DrawingIssuePanel({
             <h4 className="text-sm font-bold">연결된 도면 근거</h4>
             <div className="mt-2 space-y-2">
               {selectedAnchors.map((anchor) => (
-                <div className={`rounded-xl border p-3 text-sm ${anchor.active ? "" : "opacity-60"}`} key={anchor.id}>
+                <div
+                  className={`rounded-xl border p-3 text-sm ${anchor.active ? "" : "opacity-60"}`}
+                  key={anchor.id}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-semibold">{anchor.label || (anchor.anchor_kind === "ifc_element" ? `IFC 객체 #${anchor.element_id}` : `PDF ${anchor.page_number}쪽`)}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{anchor.anchor_kind === "ifc_element" ? "IFC 객체 근거" : "PDF 영역 근거"} · {anchor.active ? "사용 중" : "해제됨"}</p>
+                      <p className="font-semibold">
+                        {anchor.label ||
+                          (anchor.anchor_kind === "ifc_element"
+                            ? `IFC 객체 #${anchor.element_id}`
+                            : `PDF ${anchor.page_number}쪽`)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {anchor.anchor_kind === "ifc_element"
+                          ? "IFC 객체 근거"
+                          : "PDF 영역 근거"}{" "}
+                        · {anchor.active ? "사용 중" : "해제됨"}
+                      </p>
                     </div>
                     <Link
                       className="shrink-0 text-xs font-semibold text-primary underline underline-offset-4"
@@ -259,18 +319,43 @@ export default function DrawingIssuePanel({
                   </div>
                   {anchor.active && mayWrite ? (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-muted-foreground">근거 해제</summary>
+                      <summary className="cursor-pointer text-xs text-muted-foreground">
+                        근거 해제
+                      </summary>
                       <Form className="mt-2 flex gap-2" method="post">
-                        <input name="intent" type="hidden" value="deactivate_anchor" />
-                        <input name="anchor_id" type="hidden" value={anchor.id} />
-                        <Input className="min-h-11" name="note" placeholder="해제 사유" required />
-                        <Button className="min-h-11" type="submit" variant="outline">해제</Button>
+                        <input
+                          name="intent"
+                          type="hidden"
+                          value="deactivate_anchor"
+                        />
+                        <input
+                          name="anchor_id"
+                          type="hidden"
+                          value={anchor.id}
+                        />
+                        <Input
+                          className="min-h-11"
+                          name="note"
+                          placeholder="해제 사유"
+                          required
+                        />
+                        <Button
+                          className="min-h-11"
+                          type="submit"
+                          variant="outline"
+                        >
+                          해제
+                        </Button>
                       </Form>
                     </details>
                   ) : null}
                 </div>
               ))}
-              {selectedAnchors.length === 0 ? <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">아직 연결된 도면 근거가 없습니다.</p> : null}
+              {selectedAnchors.length === 0 ? (
+                <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
+                  아직 연결된 도면 근거가 없습니다.
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -279,42 +364,92 @@ export default function DrawingIssuePanel({
               <Form method="post">
                 <input name="intent" type="hidden" value="set_status" />
                 <input name="issue_id" type="hidden" value={selected.id} />
-                <input name="expected_version" type="hidden" value={selected.version} />
+                <input
+                  name="expected_version"
+                  type="hidden"
+                  value={selected.version}
+                />
                 <Label htmlFor={`status-${selected.id}`}>상태</Label>
                 <div className="mt-1 flex gap-2">
-                  <select className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm" defaultValue={selected.status} id={`status-${selected.id}`} name="status">
-                    {drawingIssueStatuses.filter((status) => canTransitionDrawingIssue(role, selected.status, status)).map((status) => (
-                      <option key={status} value={status}>{statusLabels[status]}</option>
-                    ))}
+                  <select
+                    className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
+                    defaultValue={selected.status}
+                    id={`status-${selected.id}`}
+                    name="status"
+                  >
+                    {drawingIssueStatuses
+                      .filter((status) =>
+                        canTransitionDrawingIssue(
+                          role,
+                          selected.status,
+                          status,
+                        ),
+                      )
+                      .map((status) => (
+                        <option key={status} value={status}>
+                          {statusLabels[status]}
+                        </option>
+                      ))}
                   </select>
-                  <Button className="min-h-11" type="submit"><CheckCircle2 className="size-4" /> 저장</Button>
+                  <Button className="min-h-11" type="submit">
+                    <CheckCircle2 className="size-4" /> 저장
+                  </Button>
                 </div>
               </Form>
               {canAssignDrawingIssue(role) ? (
                 <Form method="post">
                   <input name="intent" type="hidden" value="set_assignee" />
                   <input name="issue_id" type="hidden" value={selected.id} />
-                  <input name="expected_version" type="hidden" value={selected.version} />
+                  <input
+                    name="expected_version"
+                    type="hidden"
+                    value={selected.version}
+                  />
                   <Label htmlFor={`assignee-${selected.id}`}>담당자</Label>
                   <div className="mt-1 flex gap-2">
-                    <select className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm" defaultValue={selected.assignee_user_id ?? ""} id={`assignee-${selected.id}`} name="assignee_user_id">
+                    <select
+                      className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
+                      defaultValue={selected.assignee_user_id ?? ""}
+                      id={`assignee-${selected.id}`}
+                      name="assignee_user_id"
+                    >
                       <option value="">담당자 해제</option>
                       {assignees.map((assignee) => (
-                        <option key={assignee.userId} value={assignee.userId}>{assigneeLabel(assignee)}</option>
+                        <option key={assignee.userId} value={assignee.userId}>
+                          {assigneeLabel(assignee)}
+                        </option>
                       ))}
                     </select>
-                    <Button className="min-h-11" type="submit" variant="outline">지정</Button>
+                    <Button
+                      className="min-h-11"
+                      type="submit"
+                      variant="outline"
+                    >
+                      지정
+                    </Button>
                   </div>
                 </Form>
               ) : null}
               <Form method="post">
                 <input name="intent" type="hidden" value="set_due" />
                 <input name="issue_id" type="hidden" value={selected.id} />
-                <input name="expected_version" type="hidden" value={selected.version} />
+                <input
+                  name="expected_version"
+                  type="hidden"
+                  value={selected.version}
+                />
                 <Label htmlFor={`due-${selected.id}`}>기한</Label>
                 <div className="mt-1 flex gap-2">
-                  <Input className="min-h-11" id={`due-${selected.id}`} name="due_at" type="date" defaultValue={selected.due_at?.slice(0, 10) ?? ""} />
-                  <Button className="min-h-11" type="submit" variant="outline">저장</Button>
+                  <Input
+                    className="min-h-11"
+                    id={`due-${selected.id}`}
+                    name="due_at"
+                    type="date"
+                    defaultValue={selected.due_at?.slice(0, 10) ?? ""}
+                  />
+                  <Button className="min-h-11" type="submit" variant="outline">
+                    저장
+                  </Button>
                 </div>
               </Form>
             </div>
@@ -324,9 +459,14 @@ export default function DrawingIssuePanel({
             <Label htmlFor={`comment-${selected.id}`}>댓글</Label>
             <div className="mt-2 space-y-2">
               {selectedComments.map((comment) => (
-                <div className="rounded-xl bg-muted/60 p-3 text-sm" key={comment.id}>
+                <div
+                  className="rounded-xl bg-muted/60 p-3 text-sm"
+                  key={comment.id}
+                >
                   <p className="whitespace-pre-wrap">{comment.body}</p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">{new Date(comment.created_at).toLocaleString("ko-KR")}</p>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {new Date(comment.created_at).toLocaleString("ko-KR")}
+                  </p>
                 </div>
               ))}
             </div>
@@ -334,20 +474,40 @@ export default function DrawingIssuePanel({
               <Form className="mt-2 flex gap-2" method="post">
                 <input name="intent" type="hidden" value="comment" />
                 <input name="issue_id" type="hidden" value={selected.id} />
-                <Input className="min-h-11" id={`comment-${selected.id}`} name="body" placeholder="댓글을 입력하세요" required />
-                <Button className="min-h-11" type="submit">등록</Button>
+                <Input
+                  className="min-h-11"
+                  id={`comment-${selected.id}`}
+                  name="body"
+                  placeholder="댓글을 입력하세요"
+                  required
+                />
+                <Button className="min-h-11" type="submit">
+                  등록
+                </Button>
               </Form>
             ) : null}
           </div>
 
           <section className="mt-5 border-t pt-4" aria-label="변경 기록">
-            <h4 className="flex items-center gap-2 text-sm font-bold"><History className="size-4" /> 변경 기록</h4>
+            <h4 className="flex items-center gap-2 text-sm font-bold">
+              <History className="size-4" /> 변경 기록
+            </h4>
             <ol className="mt-2 space-y-2">
               {selectedEvents.map((event) => (
-                <li className="rounded-lg bg-muted/50 p-2 text-xs" key={event.id}>
-                  <p className="font-semibold">{eventLabels[event.event_type] ?? event.event_type}</p>
-                  {event.note ? <p className="mt-1 text-muted-foreground">{event.note}</p> : null}
-                  <p className="mt-1 text-[11px] text-muted-foreground">{new Date(event.created_at).toLocaleString("ko-KR")} · {event.actor_id ? event.actor_id.slice(0, 8) : "시스템"}</p>
+                <li
+                  className="rounded-lg bg-muted/50 p-2 text-xs"
+                  key={event.id}
+                >
+                  <p className="font-semibold">
+                    {eventLabels[event.event_type] ?? event.event_type}
+                  </p>
+                  {event.note ? (
+                    <p className="mt-1 text-muted-foreground">{event.note}</p>
+                  ) : null}
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {new Date(event.created_at).toLocaleString("ko-KR")} ·{" "}
+                    {event.actor_id ? event.actor_id.slice(0, 8) : "시스템"}
+                  </p>
                 </li>
               ))}
             </ol>

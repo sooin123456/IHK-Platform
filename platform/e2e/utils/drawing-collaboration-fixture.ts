@@ -19,8 +19,65 @@ export type DrawingFixture = {
   projectId: string;
   pdfFileId: string;
   ifcFileId: string;
+  revisedPdfFileId: string;
+  revisedIfcFileId: string;
   storagePaths: string[];
 };
+
+async function cleanupDrawingResources(
+  admin: DrawingFixture["admin"],
+  storagePaths: string[],
+  projectId: string | null | undefined,
+  users: TestUser[],
+) {
+  const errors: Error[] = [];
+  const attempt = async (
+    label: string,
+    operation: () => Promise<{ error: unknown }>,
+  ) => {
+    try {
+      const result = await operation();
+      if (result.error) {
+        errors.push(
+          new Error(
+            `${label}: ${String((result.error as Error).message ?? result.error)}`,
+          ),
+        );
+      }
+    } catch (error) {
+      errors.push(
+        new Error(
+          `${label}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
+  if (storagePaths.length > 0) {
+    await attempt("storage cleanup", () =>
+      admin.storage.from("lukas-qto").remove(storagePaths),
+    );
+  }
+  if (projectId) {
+    await attempt(
+      "project cleanup",
+      async () =>
+        await admin.from("lukas_qto_projects").delete().eq("id", projectId),
+    );
+  }
+  for (const user of users) {
+    await attempt(`user cleanup (${user.id})`, () =>
+      admin.auth.admin.deleteUser(user.id),
+    );
+  }
+
+  if (errors.length > 0) {
+    throw new AggregateError(
+      errors,
+      "Drawing E2E cleanup left possible residue",
+    );
+  }
+}
 
 function required(name: string) {
   const value = process.env[name];
@@ -32,7 +89,7 @@ function required(name: string) {
 }
 
 function sha256(bytes: Uint8Array) {
-  return createHash("sha256").update(bytes).digest("hex").toUpperCase();
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function twoPagePdf() {
@@ -147,10 +204,14 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     storagePaths.push(
       `${owner.id}/${project.id}/${randomUUID()}.pdf`,
       `${owner.id}/${project.id}/${randomUUID()}.ifc`,
+      `${owner.id}/${project.id}/${randomUUID()}.pdf`,
+      `${owner.id}/${project.id}/${randomUUID()}.ifc`,
     );
     for (const [path, bytes, contentType] of [
       [storagePaths[0], pdf, "application/pdf"],
       [storagePaths[1], ifc, "application/octet-stream"],
+      [storagePaths[2], pdf, "application/pdf"],
+      [storagePaths[3], ifc, "application/octet-stream"],
     ] as const) {
       const { error } = await ownerAuth.storage
         .from("lukas-qto")
@@ -186,14 +247,64 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
           sha256: sha256(ifc),
           immutable: true,
         },
+        {
+          project_id: project.id,
+          uploaded_by: owner.id,
+          kind: "pdf",
+          storage_path: storagePaths[2],
+          original_filename: "1HK-test-drawing-r2.pdf",
+          content_type: "application/pdf",
+          byte_size: pdf.byteLength,
+          sha256: sha256(pdf),
+          immutable: true,
+        },
+        {
+          project_id: project.id,
+          uploaded_by: owner.id,
+          kind: "ifc",
+          storage_path: storagePaths[3],
+          original_filename: "1HK-test-model-r2.ifc",
+          content_type: "application/octet-stream",
+          byte_size: ifc.byteLength,
+          sha256: sha256(ifc),
+          immutable: true,
+        },
       ])
-      .select("id,kind");
+      .select("id,kind,original_filename");
     if (fileError || !files)
       throw fileError ?? new Error("File metadata setup failed");
-    const pdfFileId = files.find((file) => file.kind === "pdf")?.id;
-    const ifcFileId = files.find((file) => file.kind === "ifc")?.id;
-    if (!pdfFileId || !ifcFileId)
+    const fileId = (name: string) =>
+      files.find((file) => file.original_filename === name)?.id;
+    const pdfFileId = fileId("1HK-test-drawing.pdf");
+    const ifcFileId = fileId("1HK-test-model.ifc");
+    const revisedPdfFileId = fileId("1HK-test-drawing-r2.pdf");
+    const revisedIfcFileId = fileId("1HK-test-model-r2.ifc");
+    if (!pdfFileId || !ifcFileId || !revisedPdfFileId || !revisedIfcFileId)
       throw new Error("Drawing IDs missing after setup");
+
+    const { error: revisionError } = await admin
+      .from("lukas_qto_file_revisions")
+      .insert([
+        {
+          project_id: project.id,
+          previous_file_id: pdfFileId,
+          previous_sha256: sha256(pdf),
+          current_file_id: revisedPdfFileId,
+          current_sha256: sha256(pdf),
+          relation_kind: "supersedes",
+          created_by: owner.id,
+        },
+        {
+          project_id: project.id,
+          previous_file_id: ifcFileId,
+          previous_sha256: sha256(ifc),
+          current_file_id: revisedIfcFileId,
+          current_sha256: sha256(ifc),
+          relation_kind: "supersedes",
+          created_by: owner.id,
+        },
+      ]);
+    if (revisionError) throw revisionError;
 
     return {
       admin,
@@ -204,17 +315,24 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
       projectId: project.id,
       pdfFileId,
       ifcFileId,
+      revisedPdfFileId,
+      revisedIfcFileId,
       storagePaths,
     };
   } catch (error) {
-    if (storagePaths.length > 0)
-      await admin.storage.from("lukas-qto").remove(storagePaths);
-    if (createdProjectId)
-      await admin
-        .from("lukas_qto_projects")
-        .delete()
-        .eq("id", createdProjectId);
-    for (const user of createdUsers) await admin.auth.admin.deleteUser(user.id);
+    try {
+      await cleanupDrawingResources(
+        admin,
+        storagePaths,
+        createdProjectId,
+        createdUsers,
+      );
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Drawing E2E setup failed and cleanup left possible residue",
+      );
+    }
     throw error;
   }
 }
@@ -245,16 +363,10 @@ export async function destroyDrawingFixture(
   fixture: DrawingFixture | undefined,
 ) {
   if (!fixture) return;
-  await fixture.admin.storage.from("lukas-qto").remove(fixture.storagePaths);
-  await fixture.admin
-    .from("lukas_qto_projects")
-    .delete()
-    .eq("id", fixture.projectId);
-  for (const user of [
-    fixture.owner,
-    fixture.reviewer,
-    fixture.viewer,
-    fixture.nonMember,
-  ])
-    await fixture.admin.auth.admin.deleteUser(user.id);
+  await cleanupDrawingResources(
+    fixture.admin,
+    fixture.storagePaths,
+    fixture.projectId,
+    [fixture.owner, fixture.reviewer, fixture.viewer, fixture.nonMember],
+  );
 }

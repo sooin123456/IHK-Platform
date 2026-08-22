@@ -51,6 +51,7 @@ test.describe.serial("1HK drawing collaboration", () => {
     await expect(ownerPage.getByText("1쪽 영역을 선택했습니다.")).toBeVisible();
 
     await ownerPage.getByLabel("이슈 제목").fill("창호 치수 확인 E2E");
+    await ownerPage.getByLabel("기한").first().fill("2099-12-31");
     await ownerPage.getByLabel("담당자").selectOption(fixture.reviewer.id);
     await ownerPage.getByRole("button", { name: "이슈 만들기" }).click();
     await ownerPage.getByRole("button", { name: /창호 치수 확인 E2E/ }).click();
@@ -58,6 +59,18 @@ test.describe.serial("1HK drawing collaboration", () => {
       .getByRole("button", { name: "선택한 도면 근거 연결" })
       .click();
     await expect(ownerPage.getByText("PDF 영역 근거")).toBeVisible();
+    await expect(ownerPage.locator('input[id^="due-"]')).toHaveValue(
+      "2099-12-31",
+    );
+    await ownerPage.goto(
+      `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`,
+    );
+    await expect(ownerPage.getByText("개정 도면 재검토 1건")).toBeVisible();
+    await expect(
+      ownerPage.getByText(
+        "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
+      ),
+    ).toBeVisible();
 
     const reviewerPage = await authenticateContext(
       fixture,
@@ -66,6 +79,22 @@ test.describe.serial("1HK drawing collaboration", () => {
       baseUrl,
       path,
     );
+    await reviewerPage.goto(`${baseUrl}/notifications`);
+    await expect(reviewerPage.getByText("창호 치수 확인 E2E")).toBeVisible();
+    await expect(reviewerPage.getByText(/안 읽음 [1-9]/)).toBeVisible();
+    const unreadButtons = reviewerPage.getByRole("button", {
+      name: "읽음 처리",
+    });
+    for (
+      let remaining = await unreadButtons.count();
+      remaining > 0;
+      remaining--
+    ) {
+      await unreadButtons.first().click();
+      await expect(unreadButtons).toHaveCount(remaining - 1);
+    }
+    await expect(reviewerPage.getByText("안 읽음 0")).toBeVisible();
+    await reviewerPage.goto(`${baseUrl}${path}`);
     await reviewerPage
       .getByRole("button", { name: /창호 치수 확인 E2E/ })
       .click();
@@ -86,6 +115,42 @@ test.describe.serial("1HK drawing collaboration", () => {
 
     await ownerContext.close();
     await reviewerContext.close();
+  });
+
+  test("maker binds a real IFC element and camera to an issue", async ({
+    browser,
+  }) => {
+    const path = `/projects/${fixture.projectId}/drawings/${fixture.ifcFileId}`;
+    const context = await browser.newContext();
+    const page = await authenticateContext(
+      fixture,
+      context,
+      fixture.owner,
+      baseUrl,
+      path,
+    );
+
+    const useElement = page.getByRole("button", {
+      name: "이 요소를 이슈 근거로 사용",
+    });
+    await expect(useElement).toBeEnabled({ timeout: 30_000 });
+    await useElement.click();
+    await page.getByLabel("이슈 제목").fill("IFC 객체 근거 E2E");
+    await page.getByRole("button", { name: "이슈 만들기" }).click();
+    await page.getByRole("button", { name: /IFC 객체 근거 E2E/ }).click();
+    await page.getByRole("button", { name: "선택한 도면 근거 연결" }).click();
+    await expect(page.getByText("IFC 객체 근거")).toBeVisible();
+    await page.goto(
+      `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedIfcFileId}`,
+    );
+    await expect(page.getByText("개정 도면 재검토 1건")).toBeVisible();
+    await expect(
+      page.getByText(
+        "같은 IFC 객체가 확인되지 않았습니다. 새 도면에서 객체를 다시 선택하세요.",
+      ),
+    ).toBeVisible();
+
+    await context.close();
   });
 
   test("viewer is read-only and non-member cannot enter", async ({
