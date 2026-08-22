@@ -7,6 +7,10 @@ import {
   canonicalIfcCameraState,
   type IfcCameraState,
 } from "~/lukas/lib/ifc-anchor";
+import {
+  createVisibilityRenderGate,
+  markDrawingFirstUsable,
+} from "~/lukas/lib/drawing-runtime";
 
 export type IfcModelViewerStatus = {
   phase: "loading" | "ready" | "error" | "disposed";
@@ -146,6 +150,7 @@ export function createIfcModelViewer({
   const elementMeshes = new Map<number, RenderedIfcMesh[]>();
   const geometryCache = new Map<number, THREE.BufferGeometry>();
   const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+  let firstUsableFrameMarked = false;
   const highlightMaterial = new THREE.MeshStandardMaterial({
     color: HIGHLIGHT_COLOR,
     emissive: HIGHLIGHT_COLOR,
@@ -162,9 +167,21 @@ export function createIfcModelViewer({
     if (!disposed) onStatus?.(status.message, status);
   }
 
-  function render() {
-    if (!disposed) renderer.render(scene, camera);
-  }
+  const renderGate = createVisibilityRenderGate({
+    isHidden: () => document.visibilityState === "hidden",
+    render: () => {
+      if (!disposed) {
+        renderer.render(scene, camera);
+        if (!firstUsableFrameMarked && elementMeshes.size > 0) {
+          firstUsableFrameMarked = true;
+          markDrawingFirstUsable("ifc");
+        }
+      }
+    },
+  });
+  const render = () => renderGate.request();
+  const handleVisibilityChange = () => renderGate.visibilityChanged();
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   function resize() {
     if (disposed) return;
@@ -391,6 +408,7 @@ export function createIfcModelViewer({
   function dispose(notify = true) {
     if (disposed) return;
     disposed = true;
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
     resizeObserver.disconnect();
     renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
     renderer.domElement.removeEventListener("pointerup", handlePointerUp);

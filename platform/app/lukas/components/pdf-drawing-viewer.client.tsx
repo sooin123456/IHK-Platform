@@ -23,6 +23,7 @@ import {
   normalizeDragRegion,
   type PdfNormalizedRegion,
 } from "~/lukas/lib/pdf-anchor";
+import { markDrawingFirstUsable } from "~/lukas/lib/drawing-runtime";
 
 type Props = {
   signedUrl: string;
@@ -58,9 +59,10 @@ export default function PdfDrawingViewer({
   const [regionMode, setRegionMode] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [dragCurrent, setDragCurrent] = useState<Point | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<PdfNormalizedRegion | null>(
-    activeRegion?.pageNumber === pageNumber ? activeRegion : null,
-  );
+  const [selectedRegion, setSelectedRegion] =
+    useState<PdfNormalizedRegion | null>(
+      activeRegion?.pageNumber === pageNumber ? activeRegion : null,
+    );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -136,20 +138,30 @@ export default function PdfDrawingViewer({
           canvas,
           canvasContext: context,
           viewport,
-          transform: deviceScale === 1 ? undefined : [deviceScale, 0, 0, deviceScale, 0, 0],
+          transform:
+            deviceScale === 1
+              ? undefined
+              : [deviceScale, 0, 0, deviceScale, 0, 0],
         });
         renderTaskRef.current = task;
         await task.promise;
         if (!alive) return;
+        markDrawingFirstUsable("pdf");
         setPhase("ready");
         setMessage(`${pageNumber}/${pageCount}쪽을 열었습니다.`);
       })
       .catch((error: unknown) => {
-        if (!alive || (error instanceof Error && error.name === "RenderingCancelledException"))
+        if (
+          !alive ||
+          (error instanceof Error &&
+            error.name === "RenderingCancelledException")
+        )
           return;
         setPhase("error");
         setMessage(
-          error instanceof Error ? error.message : "PDF 페이지를 그리지 못했습니다.",
+          error instanceof Error
+            ? error.message
+            : "PDF 페이지를 그리지 못했습니다.",
         );
       });
     return () => {
@@ -159,7 +171,8 @@ export default function PdfDrawingViewer({
   }, [hostWidth, pageCount, pageNumber, zoom]);
 
   useEffect(() => {
-    if (activeRegion?.pageNumber === pageNumber) setSelectedRegion(activeRegion);
+    if (activeRegion?.pageNumber === pageNumber)
+      setSelectedRegion(activeRegion);
     else setSelectedRegion(null);
   }, [activeRegion, pageNumber]);
 
@@ -193,7 +206,10 @@ export default function PdfDrawingViewer({
       : null;
 
   return (
-    <section aria-label={`${fileName} PDF 도면`} className="overflow-hidden rounded-xl border bg-slate-950">
+    <section
+      aria-label={`${fileName} PDF 도면`}
+      className="overflow-hidden rounded-xl border bg-slate-950"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-slate-900 p-2 text-white">
         <div className="flex items-center gap-1">
           <Button
@@ -213,7 +229,9 @@ export default function PdfDrawingViewer({
             aria-label="다음 페이지"
             className="text-white hover:bg-white/10"
             disabled={pageCount === 0 || pageNumber >= pageCount}
-            onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}
+            onClick={() =>
+              setPageNumber((value) => Math.min(pageCount, value + 1))
+            }
             size="icon"
             variant="ghost"
           >
@@ -221,19 +239,43 @@ export default function PdfDrawingViewer({
           </Button>
         </div>
         <div className="flex items-center gap-1">
-          <Button aria-label="축소" className="text-white hover:bg-white/10" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))} size="icon" variant="ghost">
+          <Button
+            aria-label="축소"
+            className="text-white hover:bg-white/10"
+            onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
+            size="icon"
+            variant="ghost"
+          >
             <Minus className="size-4" />
           </Button>
-          <span className="w-12 text-center text-xs">{Math.round(zoom * 100)}%</span>
-          <Button aria-label="확대" className="text-white hover:bg-white/10" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} size="icon" variant="ghost">
+          <span className="w-12 text-center text-xs">
+            {Math.round(zoom * 100)}%
+          </span>
+          <Button
+            aria-label="확대"
+            className="text-white hover:bg-white/10"
+            onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
+            size="icon"
+            variant="ghost"
+          >
             <Plus className="size-4" />
           </Button>
-          <Button aria-label="너비 맞춤" className="text-white hover:bg-white/10" onClick={() => setZoom(1)} size="icon" variant="ghost">
+          <Button
+            aria-label="너비 맞춤"
+            className="text-white hover:bg-white/10"
+            onClick={() => setZoom(1)}
+            size="icon"
+            variant="ghost"
+          >
             <Focus className="size-4" />
           </Button>
           <Button
             aria-pressed={regionMode}
-            className={regionMode ? "bg-primary text-primary-foreground" : "text-white hover:bg-white/10"}
+            className={
+              regionMode
+                ? "bg-primary text-primary-foreground"
+                : "text-white hover:bg-white/10"
+            }
             onClick={() => setRegionMode((value) => !value)}
             size="sm"
             type="button"
@@ -244,7 +286,10 @@ export default function PdfDrawingViewer({
         </div>
       </div>
 
-      <div className="relative min-h-[55vh] overflow-auto bg-slate-800 p-3" ref={hostRef}>
+      <div
+        className="relative min-h-[55vh] overflow-auto bg-slate-800 p-3"
+        ref={hostRef}
+      >
         <div
           className={`relative mx-auto w-fit shadow-2xl ${regionMode ? "cursor-crosshair touch-none" : ""}`}
           data-testid="pdf-canvas"
@@ -264,7 +309,11 @@ export default function PdfDrawingViewer({
           }}
           onPointerUp={finishDrag}
         >
-          <canvas aria-label={`${pageNumber}쪽 PDF`} className="block bg-white" ref={canvasRef} />
+          <canvas
+            aria-label={`${pageNumber}쪽 PDF`}
+            className="block bg-white"
+            ref={canvasRef}
+          />
           {overlay ? (
             <span
               aria-label="선택한 PDF 영역"
