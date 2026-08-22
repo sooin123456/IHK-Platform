@@ -105,7 +105,7 @@
 
 ## 5. 권한
 
-- `owner`: 생성·배정·기한·상태·최종 종료·재개 가능.
+- `owner`, `staff`: 생성·배정·기한·상태·최종 종료·재개 가능.
 - `reviewer`: 생성·배정·검토·최종 종료·재개 가능.
 - `estimator`, `site`, `procurement`: 생성·댓글·담당 작업의 `resolution_requested` 전환 가능.
 - `viewer`: 조회만 가능.

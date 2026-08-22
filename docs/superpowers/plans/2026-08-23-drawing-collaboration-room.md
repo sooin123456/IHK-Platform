@@ -28,6 +28,7 @@
 
 - `platform/supabase/migrations/20260823090000_drawing_collaboration_room.sql`: 이슈·앵커·댓글·이벤트·알림 계약, 상태 전이 함수, 인덱스, RLS, Realtime publication.
 - `platform/app/lukas/lib/drawing-collaboration.types.ts`: 서버와 UI가 공유하는 좁은 타입·Zod schema.
+- `platform/app/lukas/lib/drawing-collaboration-policy.ts`: UI와 테스트가 공유하는 역할별 상태 전이·PDF 좌표 불변식.
 - `platform/app/lukas/lib/drawing-collaboration.server.ts`: 프로젝트 컨텍스트, 조회, mutation, 낙관적 잠금, signed URL 생성.
 - `platform/app/lukas/screens/project-drawings.tsx`: 도면 파일함 route.
 - `platform/app/lukas/screens/drawing-room.tsx`: 협업실 loader/action과 shell.
