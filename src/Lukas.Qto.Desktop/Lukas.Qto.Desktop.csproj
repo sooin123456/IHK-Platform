@@ -10,6 +10,6 @@
     <RootNamespace>Lukas.Qto.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../THEKIE.Qto.Core/THEKIE.Qto.Core.csproj" />
+    <ProjectReference Include="../Lukas.Qto.Core/Lukas.Qto.Core.csproj" />
   </ItemGroup>
 </Project>

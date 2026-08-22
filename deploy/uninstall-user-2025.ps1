@@ -19,7 +19,7 @@ try {
     if ($hasManifest) {
         [xml]$xml = Get-Content -LiteralPath $manifestTarget -Raw -Encoding UTF8
         $node = $xml.RevitAddIns.AddIn | Select-Object -First 1
-        Assert-Field ($node.Name -eq 'Lukas QTO' -and $node.FullClassName -eq 'THEKIE.Qto.App' -and $node.Assembly -ceq (Join-Path $addinTarget 'THEKIE.Qto.dll')) '대상 manifest가 Lukas QTO 2025 사용자 설치본이 아니므로 제거하지 않습니다.'
+        Assert-Field (@('Lukas QTO','Hangil System') -contains [string]$node.Name -and $node.FullClassName -eq 'Lukas.Qto.App' -and $node.Assembly -ceq (Join-Path $addinTarget 'Lukas.Qto.dll')) '대상 manifest가 이 제품의 Revit 2025 사용자 설치본이 아니므로 제거하지 않습니다.'
     }
     if (Test-Path -LiteralPath $desktopTarget) { Assert-Field (Test-Path -LiteralPath (Join-Path $desktopTarget 'Lukas.Qto.Desktop.publish.ok')) 'Desktop 소유 표식이 없으므로 제거하지 않습니다.' }
     if ($hasManifest) { Remove-Item -LiteralPath $manifestTarget -Force }

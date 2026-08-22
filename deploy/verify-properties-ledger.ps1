@@ -107,17 +107,21 @@ Add-Check 'extraction_evidence' {
     $exportEvidencePath = $LedgerPath + '.evidence.json'
     Assert-Field ([IO.File]::Exists($exportEvidencePath)) "Properties 추출 evidence JSON이 없습니다: $exportEvidencePath"
     $export = Get-Content -LiteralPath $exportEvidencePath -Raw -Encoding UTF8 | ConvertFrom-Json
-    Assert-Field ($export.schema_version -eq 'revit-properties-evidence-v1') 'Properties 추출 evidence schema_version이 다릅니다.'
+    Assert-Field ($export.schema_version -eq 'revit-properties-evidence-v2') 'Properties 추출 evidence schema_version이 다릅니다. 물리 객체 필터가 적용된 최신 추출본을 사용하십시오.'
+    Assert-Field ($export.physical_category_filter -eq 'built-in-category-physical-v1') 'Properties 추출 evidence의 물리 객체 필터가 올바르지 않습니다.'
     Assert-Field ($export.csv_file -ceq [IO.Path]::GetFileName($LedgerPath)) 'Properties 추출 evidence CSV 파일명이 다릅니다.'
     Assert-Field ($export.csv_sha256 -match '^[0-9A-F]{64}$' -and $export.csv_sha256 -ceq $ledgerHash) 'Properties 추출 evidence CSV SHA-256이 다릅니다.'
     Assert-Field ($export.scope -in @('Selection', 'ActiveView', 'EntireHostModel')) 'Properties 추출 evidence scope이 올바르지 않습니다.'
     Assert-Field (-not [string]::IsNullOrWhiteSpace([string]$export.revit_version) -and -not [string]::IsNullOrWhiteSpace([string]$export.revit_build)) 'Properties 추출 evidence Revit version/build가 없습니다.'
     Assert-Field ($null -ne $export.counts) 'Properties 추출 evidence counts가 없습니다.'
-    foreach ($key in @('candidate', 'eligible_host_model', 'excluded_link_instances', 'excluded_non_model', 'missing_selection_ids', 'csv_rows')) {
+    foreach ($key in @('candidate', 'eligible_host_model', 'excluded_link_instances', 'excluded_non_model', 'excluded_non_quantity', 'missing_selection_ids', 'csv_rows')) {
         Assert-Field ($export.counts.PSObject.Properties.Name -contains $key) "Properties 추출 evidence count가 없습니다: $key"
         Assert-Field ([int]$export.counts.$key -ge 0) "Properties 추출 evidence count가 올바르지 않습니다: $key"
     }
     Assert-Field ([int]$export.counts.csv_rows -eq $rowCount) 'Properties 추출 evidence CSV 행 수가 다릅니다.'
+    Assert-Field ([int]$export.counts.eligible_host_model -eq $rowCount) 'Properties 추출 evidence의 물리 요소 수와 CSV 행 수가 다릅니다.'
+    $accounted = [int]$export.counts.eligible_host_model + [int]$export.counts.excluded_link_instances + [int]$export.counts.excluded_non_model + [int]$export.counts.excluded_non_quantity
+    Assert-Field ([int]$export.counts.candidate -eq $accounted) 'Properties 추출 evidence의 후보/포함/제외 수가 닫히지 않습니다.'
     "scope=$($export.scope), Revit $($export.revit_version) build $($export.revit_build)"
 }
 

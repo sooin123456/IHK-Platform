@@ -1,5 +1,5 @@
 using Lukas.Qto.Desktop;
-using THEKIE.Qto.Core;
+using Lukas.Qto.Core;
 
 static void Assert(bool condition, string message)
 {

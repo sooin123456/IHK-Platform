@@ -4,7 +4,7 @@
 
 ```text
 당신은 Lukas QTO의 총괄 구현 책임자다. 작업 경로는
-`/Users/h/Documents/GoAgent`이다. 사용자는 Lukas이며 THEKIE가 아니다.
+`/Users/h/Documents/GoAgent`이다. 사용자는 Lukas이며 Lukas가 아니다.
 
 이번 목표는 UCF Exporter 전체를 복제하거나 적산 계산식을 추측하는 것이
 아니다. Revit 요소마다 실무자가 즉시 확인할 수 있는 최소 원시 Properties를
@@ -107,12 +107,12 @@ UCF 내부 계산식을 추정하거나 숫자가 맞도록 역산하지 않는�
 
 먼저 아래 파일과 모든 호출자를 읽고 실제 흐름을 확인한다.
 
-- `src/THEKIE.Qto/Core/ElementQuantityExtractor.cs`
-- `src/THEKIE.Qto.Core/ElementQuantityLedger.cs`
-- `src/THEKIE.Qto/Commands/ExportIfcQtoPackageCommand.cs`
-- `src/THEKIE.Qto/Compat/RevitCompat.cs`
+- `src/Lukas.Qto/Core/ElementQuantityExtractor.cs`
+- `src/Lukas.Qto.Core/ElementQuantityLedger.cs`
+- `src/Lukas.Qto/Commands/ExportIfcQtoPackageCommand.cs`
+- `src/Lukas.Qto/Compat/RevitCompat.cs`
 - `tests/RevitApiStub/RevitAPI.cs`
-- `tests/THEKIE.Qto.RevitStubTest/Program.cs`
+- `tests/Lukas.Qto.RevitStubTest/Program.cs`
 - `deploy/verify-field-package.ps1`
 - `deploy/build-all.bat`
 - `deploy/install.bat`
@@ -193,7 +193,7 @@ CSV 수식 주입 방어를 그대로 유지한다. 출력 파일을 덮어쓰�
 
 권장 검증 명령:
 
-- `dotnet run --project tests/THEKIE.Qto.Core.SelfTest -c Release`
+- `dotnet run --project tests/Lukas.Qto.Core.SelfTest -c Release`
 - `tests/run-revit-stubs.sh`
 - 관련 패키지/CLI self-test
 - Windows에서는 `deploy/verify-field-package.ps1`로 실제 패키지 검증

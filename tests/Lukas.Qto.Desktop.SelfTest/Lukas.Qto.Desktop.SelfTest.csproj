@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/THEKIE.Qto.Core/THEKIE.Qto.Core.csproj" />
+    <ProjectReference Include="../../src/Lukas.Qto.Core/Lukas.Qto.Core.csproj" />
     <Compile Include="../../src/Lukas.Qto.Desktop/DesktopPreflightRunner.cs" Link="DesktopPreflightRunner.cs" />
     <Compile Include="../../src/Lukas.Qto.Desktop/DesktopConcreteTakeoffRunner.cs" Link="DesktopConcreteTakeoffRunner.cs" />
     <Compile Include="../../src/Lukas.Qto.Desktop/DesktopRebarTakeoffRunner.cs" Link="DesktopRebarTakeoffRunner.cs" />

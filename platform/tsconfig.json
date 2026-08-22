@@ -1,0 +1,44 @@
+{
+  "include": [
+    "**/*",
+    "**/.server/**/*",
+    "**/.client/**/*",
+    ".react-router/types/**/*"
+  ],
+  "exclude": [
+    "app/debug/**",
+    "app/features/contact/**",
+    "app/features/cron/**",
+    "app/features/legal/**",
+    "app/features/users/**",
+    "app/core/screens/error.tsx",
+    "app/features/auth/screens/email-verified.tsx",
+    "app/features/auth/screens/forgot-password.tsx",
+    "app/features/auth/screens/new-password.tsx",
+    "app/features/auth/screens/otp/**",
+    "app/features/auth/screens/social/**",
+    "supabase/**",
+    "transactional-emails/**"
+  ],
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["node", "vite/client"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "rootDirs": [".", "./.react-router/types"],
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./app/*"],
+      "@rr/*": ["./.react-router/types/*"]
+    },
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true
+  }
+}

@@ -4,11 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT="$REPO_ROOT/tests/THEKIE.Qto.RevitStubTest/THEKIE.Qto.RevitStubTest.csproj"
-TEST_DLL="$REPO_ROOT/tests/THEKIE.Qto.RevitStubTest/bin/Release/net8.0/THEKIE.Qto.RevitStubTest.dll"
+PROJECT="$REPO_ROOT/tests/Lukas.Qto.RevitStubTest/Lukas.Qto.RevitStubTest.csproj"
+TEST_DLL="$REPO_ROOT/tests/Lukas.Qto.RevitStubTest/bin/Release/net8.0/Lukas.Qto.RevitStubTest.dll"
 
-if [ -x /private/tmp/thekie-dotnet/dotnet ]; then
-    DOTNET_BIN=/private/tmp/thekie-dotnet/dotnet
+if [ -x /private/tmp/lukas-dotnet/dotnet ]; then
+    DOTNET_BIN=/private/tmp/lukas-dotnet/dotnet
 elif command -v dotnet >/dev/null 2>&1; then
     DOTNET_BIN="$(command -v dotnet)"
 else

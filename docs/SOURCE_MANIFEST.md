@@ -47,17 +47,17 @@ source_id,path,sha256,slot,scope_id,revision,status,related_source_id
 IFC 프로젝트 실행은 네 slot을 사용한다.
 
 ```sh
-dotnet run --project src/THEKIE.Qto.Preflight -- \
+dotnet run --project src/Lukas.Qto.Preflight -- \
   --sources samples/source-manifest.csv --ifc samples/sample.ifc \
   samples/qto.csv samples/estimate.csv samples/mapping.csv samples/project-report.csv
 ```
 
 ```sh
-dotnet run --project src/THEKIE.Qto.Preflight -- \
+dotnet run --project src/Lukas.Qto.Preflight -- \
   --sources samples/source-manifest.csv \
   samples/qto.csv samples/estimate.csv samples/mapping.csv samples/report.csv
 
-dotnet run --project src/THEKIE.Qto.Preflight -- \
+dotnet run --project src/Lukas.Qto.Preflight -- \
   --sources samples/source-manifest.csv --mapping-template \
   samples/qto.csv samples/estimate.csv mapping-template.xlsx qto-index.xlsx
 ```

@@ -1,4 +1,4 @@
-using THEKIE.Qto.Core;
+using Lukas.Qto.Core;
 
 namespace Lukas.Qto.Desktop;
 

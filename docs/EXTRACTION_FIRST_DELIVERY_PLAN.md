@@ -142,7 +142,7 @@ height_state,height_m,height_source_parameter
 - `.addin`과 DLL 설치 성공
 - Revit 재시작 후 `Lukas QTO` 탭 표시
 - 애드인 관리자에서 활성 상태 확인
-- 기존 THEKIE manifest 충돌 없음
+- 기존 Lukas manifest 충돌 없음
 - 재설치·제거·롤백 시험 성공
 
 ### G4 — 실제 모델 추출 검증

@@ -19,6 +19,12 @@ namespace Autodesk.Revit.DB
         HOST_VOLUME_COMPUTED, HOST_AREA_COMPUTED,
         CURVE_ELEM_LENGTH, INSTANCE_LENGTH_PARAM, WALL_USER_HEIGHT_PARAM
     }
+    public enum BuiltInCategory {
+        OST_Walls = -2000011, OST_Floors = -2000032, OST_Roofs = -2000035, OST_Ceilings = -2000038,
+        OST_Doors = -2000023, OST_Windows = -2000014, OST_StructuralColumns = -2001330,
+        OST_StructuralFraming = -2001320, OST_StructuralFoundation = -2001300, OST_GenericModel = -2000151,
+        OST_Lines = -2000051, OST_Materials = -2000700, OST_LegendComponents = -2000573
+    }
 #if !REVIT2017
     public sealed class ForgeTypeId { }
     public static class UnitTypeId { public static ForgeTypeId CubicMeters { get; } = new ForgeTypeId(); public static ForgeTypeId SquareMeters { get; } = new ForgeTypeId(); public static ForgeTypeId Meters { get; } = new ForgeTypeId(); }
@@ -33,7 +39,7 @@ namespace Autodesk.Revit.DB
     }
     public class ElementId { public static ElementId InvalidElementId { get; } = new ElementId(); public int IntegerValue { get; set; } public long Value { get; set; } }
     public class Parameter { public bool HasValue { get; set; } public StorageType StorageType { get; set; } public double Value { get; set; } public double AsDouble() { return Value; } }
-    public class Category { public string Name { get; set; } public CategoryType CategoryType { get; set; } }
+    public class Category { public ElementId Id { get; set; } public string Name { get; set; } public CategoryType CategoryType { get; set; } }
     public enum ViewDetailLevel { Fine }
     public sealed class Options { public bool ComputeReferences { get; set; } public bool IncludeNonVisibleObjects { get; set; } public ViewDetailLevel DetailLevel { get; set; } }
     public abstract class GeometryObject { }

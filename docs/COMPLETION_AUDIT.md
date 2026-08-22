@@ -4,9 +4,9 @@
 
 | 인수인계 요구 | 상태 | 현재 증거 또는 미충족 사유 |
 |---|---|---|
-| 숫자에 LLM을 쓰지 않는 결정론적 L1 | 완료 | `THEKIE.Qto.Core`와 self-test가 R010·R011·R012·R020·R021·R022·R023·R030을 실행한다. LLM·외부 패키지 의존성이 없다. |
+| 숫자에 LLM을 쓰지 않는 결정론적 L1 | 완료 | `Lukas.Qto.Core`와 self-test가 R010·R011·R012·R020·R021·R022·R023·R030을 실행한다. LLM·외부 패키지 의존성이 없다. |
 | IFC·QTO 동일 실행 패키지 | 부분 완료 | Revit 명령이 `model.ifc`, `qto.csv`, `element-ledger.csv`, 16열 `export-manifest.csv`를 GUID staging에서 만들고 세 파일 SHA·행 수·QTO/ledger 요소ID 집합을 검증한 뒤에만 최종 폴더로 이동한다. 실제 Autodesk DLL·Revit에서 IFC 재개방은 미검증이다. |
-| Revit 원시 Properties 추출 | 부분 완료 | `Properties 추출` 리본 명령이 요소 하나당 V2 15열 CSV를 만들도록 구현했다. 이름, 체적·길이·높이, 각 `COMPUTED/ZERO/MISSING` 상태와 선택된 Revit built-in parameter를 보존하며 값을 추정하지 않는다. `deploy/verify-properties-ledger.ps1`가 독립 CSV의 계약·SHA JSON 증거를 남긴다. Core self-test는 통과했지만 실제 Revit 2025에서 요소 5개를 Properties 창과 대조하는 현장 증거와 설치 파일은 아직 없다. |
+| Revit 원시 Properties 추출 | 부분 완료 | `Properties 추출` 리본 명령이 요소 하나당 V2 15열 CSV를 만들도록 구현했다. 이름, 체적·길이·높이, 각 `COMPUTED/ZERO/MISSING` 상태와 선택된 Revit built-in parameter를 보존하며 값을 추정하지 않는다. QTO·Properties·패키지는 같은 built-in physical category 필터를 사용해 `<Sketch>`, Materials, Legend Components 같은 보조 객체를 제외한다. evidence V2와 `deploy/verify-properties-ledger.ps1`는 필터 버전·제외 수·CSV SHA를 함께 확인한다. 자동 테스트는 통과했지만 실제 Revit 2025에서 요소 5개를 Properties 창과 대조하는 현장 증거와 이 변경을 포함한 설치 파일은 아직 없다. |
 | IFC-QTO provenance 연결 | 완료(로컬 계약) | 4-slot source manifest와 S006이 IFC/QTO의 scope·revision·관계 선언을 검사한다. Desktop `프로젝트 만들기`는 COMPLETE export manifest의 IFC/QTO SHA를 다시 확인한 뒤 복사·등록한다. 수기 source manifest의 S006 PASS는 같은 export run의 독립 증명이 아니라 선언 일치이며, 문서에 한계를 명시했다. |
 | 설치형 검산기·재검산 | 완료(비-UI 로컬 범위) | .NET 8 WPF 화면과 같은 runner가 source gate hard-block, CSV·HTML·실행 manifest 원자 출력을 수행한다. 프로젝트 생성, 결과 SHA 결합, `RESOLVED`·`UNCHANGED_FAIL`·`NEW_FAIL`·조건 변경 비교를 Desktop self-test에서 검증했다. 실제 Windows WPF 렌더링·파일 대화상자·설치 실행은 미검증이다. |
 | Windows 현장 패키지 검증 | 구현 완료, 실기 미검증 | `deploy/verify-field-package.ps1`가 COMPLETE package의 16열 manifest·IFC/QTO/Properties ledger SHA·QTO 검산키·요소ID·행/요소 수를 독립 검사해 증거 JSON을 남긴다. 실제 Revit/IFC 뷰어에서의 재개방과 요소 선택은 수동 게이트로 남는다. |

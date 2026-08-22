@@ -4,3 +4,15 @@ build/
 *.user
 *.suo
 samples/report.csv
+
+# Lukas QTO platform (Supaplate-derived private SaaS source).
+platform/node_modules/
+platform/build/
+platform/.react-router/
+platform/.vercel/
+platform/.env
+platform/.env.*
+!platform/.env.example
+platform/test-results/
+platform/playwright-report/
+.DS_Store

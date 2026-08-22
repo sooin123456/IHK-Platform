@@ -11,8 +11,8 @@ setlocal EnableDelayedExpansion
 pushd "%~dp0"
 
 set VERSIONS=2017 2022 2023 2024 2025 2026
-set PROJ=..\src\THEKIE.Qto\THEKIE.Qto.csproj
-set PREFLIGHT=..\src\THEKIE.Qto.Preflight\THEKIE.Qto.Preflight.csproj
+set PROJ=..\src\Lukas.Qto\Lukas.Qto.csproj
+set PREFLIGHT=..\src\Lukas.Qto.Preflight\Lukas.Qto.Preflight.csproj
 set DESKTOP=..\src\Lukas.Qto.Desktop\Lukas.Qto.Desktop.csproj
 set DESKTOP_OUT=..\build\desktop
 set DESKTOP_MARKER=..\build\desktop\Lukas.Qto.Desktop.publish.ok
@@ -67,7 +67,7 @@ for %%V in (%VERSIONS%) do (
     if %%V GEQ 2025 set TFM=net8.0-windows
     echo.
     echo [BUILD] Revit %%V
-    del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+    del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
     dotnet build "%PROJ%" -c Release -p:RevitVersion=%%V -p:TargetFramework=!TFM! -p:IsRevitStubBuild=false -p:RevitApiDir="%ProgramW6432%\Autodesk\Revit %%V"
     if errorlevel 1 (
         echo [FAIL] Revit %%V build failed - SDK or Revit API not found
@@ -76,32 +76,38 @@ for %%V in (%VERSIONS%) do (
         call :validateBuildMarker %%V !TFM!
         if errorlevel 1 (
             echo [FAIL] Revit %%V build marker is incomplete or invalid
-            del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+            del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
             set FAILED=1
         ) else (
             set BUILDHASH=
-            for /F "skip=1 tokens=*" %%H in ('certutil -hashfile "..\build\Release\%%V\THEKIE.Qto.dll" SHA256 2^>nul') do if not defined BUILDHASH set BUILDHASH=%%H
+            for /F "skip=1 tokens=*" %%H in ('certutil -hashfile "..\build\Release\%%V\Lukas.Qto.dll" SHA256 2^>nul') do if not defined BUILDHASH set BUILDHASH=%%H
             set BUILDHASH=!BUILDHASH: =!
+            set BUILDHASH=!BUILDHASH:a=A!
+            set BUILDHASH=!BUILDHASH:b=B!
+            set BUILDHASH=!BUILDHASH:c=C!
+            set BUILDHASH=!BUILDHASH:d=D!
+            set BUILDHASH=!BUILDHASH:e=E!
+            set BUILDHASH=!BUILDHASH:f=F!
             if "!BUILDHASH:~63,1!"=="" (
                 echo [FAIL] Revit %%V DLL SHA-256 could not be computed
-                del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+                del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
                 set FAILED=1
             ) else if not "!BUILDHASH:~64,1!"=="" (
                 echo [FAIL] Revit %%V DLL SHA-256 is invalid
-                del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+                del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
                 set FAILED=1
             ) else (
-                echo AssemblySha256=!BUILDHASH!>> "..\build\Release\%%V\THEKIE.Qto.build.ok"
+                echo AssemblySha256=!BUILDHASH!>> "..\build\Release\%%V\Lukas.Qto.build.ok"
                 set MARKERLINES=
-                for /F %%C in ('find /V /C "" ^< "..\build\Release\%%V\THEKIE.Qto.build.ok"') do set MARKERLINES=%%C
-                findstr /X /C:"AssemblySha256=!BUILDHASH!" "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+                for /F %%C in ('find /V /C "" ^< "..\build\Release\%%V\Lukas.Qto.build.ok"') do set MARKERLINES=%%C
+                findstr /X /C:"AssemblySha256=!BUILDHASH!" "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
                 if errorlevel 1 (
                     echo [FAIL] Revit %%V assembly hash marker is invalid
-                    del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+                    del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
                     set FAILED=1
                 ) else if not "!MARKERLINES!"=="5" (
                     echo [FAIL] Revit %%V build marker must contain exactly five lines
-                    del /Q "..\build\Release\%%V\THEKIE.Qto.build.ok" >nul 2>nul
+                    del /Q "..\build\Release\%%V\Lukas.Qto.build.ok" >nul 2>nul
                     set FAILED=1
                 ) else (
                     echo [OK] Revit %%V
@@ -120,11 +126,11 @@ dotnet publish "%PREFLIGHT%" -c Release -o ..\build\preflight
 if errorlevel 1 (
     echo [FAIL] Preflight publish failed - .NET 8 SDK required
     set FAILED=1
-) else if not exist "..\build\preflight\THEKIE.Qto.Preflight.exe" (
+) else if not exist "..\build\preflight\Lukas.Qto.Preflight.exe" (
     echo [FAIL] Preflight executable is missing
     set FAILED=1
 ) else (
-    echo [OK] Preflight: ..\build\preflight\THEKIE.Qto.Preflight.exe
+    echo [OK] Preflight: ..\build\preflight\Lukas.Qto.Preflight.exe
 )
 
 echo.
@@ -148,6 +154,12 @@ if errorlevel 1 (
         set DESKTOP_HASH=
         for /F "skip=1 tokens=*" %%H in ('certutil -hashfile "%DESKTOP_OUT%\%%F" SHA256 2^>nul') do if not defined DESKTOP_HASH set DESKTOP_HASH=%%H
         set DESKTOP_HASH=!DESKTOP_HASH: =!
+        set DESKTOP_HASH=!DESKTOP_HASH:a=A!
+        set DESKTOP_HASH=!DESKTOP_HASH:b=B!
+        set DESKTOP_HASH=!DESKTOP_HASH:c=C!
+        set DESKTOP_HASH=!DESKTOP_HASH:d=D!
+        set DESKTOP_HASH=!DESKTOP_HASH:e=E!
+        set DESKTOP_HASH=!DESKTOP_HASH:f=F!
         if "!DESKTOP_HASH:~63,1!"=="" set DESKTOP_HASH_FAILED=1
         if not "!DESKTOP_HASH:~64,1!"=="" set DESKTOP_HASH_FAILED=1
         if !DESKTOP_HASH_FAILED! EQU 0 (
@@ -183,7 +195,7 @@ endlocal & exit /B %EXITCODE%
 :validateBuildMarker
 set CHECK_VERSION=%1
 set CHECK_TFM=%2
-set CHECK_MARKER=..\build\Release\%CHECK_VERSION%\THEKIE.Qto.build.ok
+set CHECK_MARKER=..\build\Release\%CHECK_VERSION%\Lukas.Qto.build.ok
 set CHECK_API=%ProgramW6432%\Autodesk\Revit %CHECK_VERSION%
 if not exist "%CHECK_MARKER%" exit /B 1
 set CHECK_LINES=

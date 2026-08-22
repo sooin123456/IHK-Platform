@@ -1,0 +1,190 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Lukas QTO 다음 제품 전략",
+    "description": "현재 구현, Supabase 운영 상태, 경쟁 제품, 오픈소스와 국제 표준을 함께 검토한 개발 우선순위 보고서입니다.",
+    "generatedAt": "2026-08-15T04:30:00Z",
+    "charts": [
+      {
+        "id": "dependency_severity",
+        "title": "설치 의존성 보안 경고",
+        "subtitle": "platform/ 설치 트리, npm audit --omit=dev, 2026년 8월 15일",
+        "type": "bar",
+        "dataset": "audit_severity",
+        "sourceId": "dependency_audit",
+        "valueFormat": "number",
+        "encodings": {
+          "x": { "field": "severity", "type": "nominal", "label": "심각도" },
+          "y": { "field": "count", "type": "quantitative", "label": "경고 수" },
+          "tooltip": [
+            { "field": "meaning", "type": "nominal", "label": "해석" }
+          ]
+        }
+      }
+    ],
+    "sources": [
+      { "id": "repo_current_state", "label": "Lukas QTO local product documentation and code", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+      { "id": "dependency_audit", "label": "Platform npm audit snapshot, August 15 2026", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+      { "id": "supabase_review", "label": "Supabase changelog and local schema review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+      { "id": "market_research", "label": "Official competitor product-page review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+      { "id": "open_standards", "label": "Open-source and standards review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+      { "id": "strategy_synthesis", "label": "Strategy synthesis from reviewed product, market and standards evidence", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Lukas QTO 다음 제품 전략"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **제품의 중심은 ‘자동 적산 AI’가 아니라 ‘근거가 끊기지 않는 적산 운영’이어야 합니다.** Revit 요소와 원본 파일, 계산 규칙, 승인, 주문·수령·청구, 탄소 근거를 하나의 흐름으로 연결하는 것이 가장 방어력 있는 위치입니다.\n- **추출 정확성은 입구이고, 차별점은 이후의 증명입니다.** IFC 뷰어, 로그인, 파일 해시, 일반적인 2D·3D 물량산출은 이미 보편 기능입니다. Lukas QTO는 Element ID와 수량 상태, 승인된 산식, 개정 차이, 현장 증빙을 함께 남겨야 합니다.\n- **새 기능보다 먼저 웹 공급망 보안을 정리해야 합니다.** 현재 설치 의존성 감사에서 치명 7건과 높음 25건을 포함한 71건이 보고됐습니다. React Router·Supabase JS·Vite 등을 강제 일괄 수정이 아니라 단계별로 올리고 인증·업로드·다운로드·SSR 회귀를 확인해야 합니다.\n- **AI는 마지막 단계가 맞습니다.** 공종 분류·내역 매핑·누락·이상치 추천에만 쓰고, 최종 수량·금액·탄소 결과는 승인된 규칙과 사람 승인으로 확정해야 합니다."
+      },
+      {
+        "id": "market_takeaway",
+        "type": "markdown",
+        "body": "## 시장의 빈자리는 ‘더 빠른 자동 측정’보다 ‘현장까지 닫히는 근거’입니다\n\nAutodesk Forma Takeoff와 CostX는 2D·3D 수량, 공식, 분류, 개정 비교와 보고서에 강합니다. Kreo와 Togal은 도면 인식과 자동 측정을 앞세웁니다. Solibri와 BIMcollab은 모델 요구사항·검증·이슈 관리에, Procore는 구매·납품·청구 연결에, One Click LCA는 탄소 데이터에 강합니다.\n\n**Lukas QTO가 이 기능을 모두 복제하면 무겁고 늦어집니다.** 대신 각 강점 사이에서 끊기는 지점—모델 요소가 어떤 계산을 거쳐 어떤 주문·수령·청구·탄소 근거로 확정됐는지—를 연결해야 합니다."
+      },
+      {
+        "id": "market_table",
+        "type": "markdown",
+        "sourceId": "market_research",
+        "body": "### 시장 기능 지도\n\n| 영역 | 대표 제품 | 이미 강한 기능 | Lukas QTO 대응 |\n|---|---|---|---|\n| 2D·3D 물량산출 | Autodesk Forma Takeoff, RIB CostX | 도면·BIM 수량, 공식, 분류, 개정 비교, 보고서 | 기본 호환성만 확보하고 전면 복제하지 않음 |\n| AI 도면 인식 | Kreo, Togal.AI | 자동 측정·카운트·분류와 협업 | 최종 단계의 추천 기능으로 제한 |\n| 모델 품질·이슈 | Solibri, BIMcollab | IDS·IFC·BCF 검증과 이슈 추적 | IDS 입구검사와 BCF 반환을 연동 |\n| 자재 운영 | Procore Materials | 발주·납품·현장비용·청구 대조 | 적산 근거와 3-way match만 제공하고 ERP는 만들지 않음 |\n| 탄소 데이터 | One Click LCA | 대규모 EPD·탄소 데이터와 BIM 연동 | 데이터베이스를 복제하지 않고 EPD 근거를 연결 |\n| 건설 데이터 영업 | 산군 | 기업·현장·수주 데이터의 검색·CRM·구독 | 장기적으로 검증된 적산·자재 데이터 상품화를 참고 |"
+      },
+      {
+        "id": "positioning",
+        "type": "markdown",
+        "body": "## Lukas QTO의 특장점은 ‘숫자’가 아니라 ‘숫자가 확정된 경로’입니다\n\n**첫째, Revit 공식 API에서 원시 Properties와 요소 식별자를 보존합니다.** 계산된 0과 값 없음(MISSING)을 구분하는 것은 단순 CSV 추출기보다 높은 신뢰 수준을 만듭니다.\n\n**둘째, 계산과 AI를 분리합니다.** 수량·금액·탄소는 버전이 있는 결정론적 규칙으로 계산하고, AI는 후보 제안만 담당합니다.\n\n**셋째, 국내 적산 파일과 현장 프로세스를 잇습니다.** EMS, ZG/ZJ, 내역서와 Revit/IFC 사이를 한국 실무 단위로 대조하고, 이후 발주·검수·청구로 연결할 수 있습니다.\n\n**넷째, 근거를 변경 불가능한 사건 흐름으로 남깁니다.** SHA-256은 블록체인이 아니라 ‘파일 지문’입니다. 파일 지문, 개정, 승인자, 시각, 증빙을 함께 저장할 때 실제 감사 가치가 생깁니다."
+      },
+      {
+        "id": "differentiation_table",
+        "type": "markdown",
+        "sourceId": "strategy_synthesis",
+        "body": "### 차별화 판정\n\n| 순위 | 제품 능력 | 판정 | 이유 |\n|---|---|---|---|\n| 1 | Element ID·원본 SHA·수량 상태·계산 규칙·승인 연결 | 핵심 차별점 | 결과 수치의 역추적과 분쟁 근거를 함께 제공 |\n| 2 | 국내 EMS/ZG/ZJ·내역서와 Revit/IFC 교차검산 | 지역 특화 차별점 | 해외 범용 도구가 바로 대체하기 어려운 실무 연결 |\n| 3 | 설계수량→발주→수령→청구→탄소 폐쇄루프 | 확장 차별점 | 적산 회사가 현장 데이터 서비스로 확장할 수 있는 경로 |\n| 4 | IFC 뷰어·로그인·파일 업로드·SHA-256 표시 | 필수 기반 기능 | 고객이 기대하지만 단독으로는 경쟁 우위가 아님 |\n| 5 | 완전 자동 AI 적산 | 현재 보류 | 데이터 품질과 책임 경계가 부족하며 경쟁이 이미 치열함 |"
+      },
+      {
+        "id": "supabase_direction",
+        "type": "markdown",
+        "sourceId": "supabase_review",
+        "body": "## Supabase는 웹 백엔드이고, 제품의 신뢰는 권한 설계에서 나옵니다\n\n현재 로컬 스키마는 RLS, 명시적 권한, 비공개 저장소, app metadata 기반 역할, 추가·승인 이력을 보존하는 방향이 맞습니다. 특히 Supabase의 2026년 Data API 변경에 대비해 새 테이블을 자동 공개한다고 가정하지 않고 필요한 권한만 명시해야 합니다.\n\n다만 로컬 CLI가 인증되지 않아 운영 프로젝트의 실제 마이그레이션 상태, RLS Advisor, SMTP, 저장소 정책은 확인하지 못했습니다. **운영 Supabase 연결 검증 전에는 로그인과 자료 보관 기능을 ‘배포 완료’로 판정하면 안 됩니다.**"
+      },
+      {
+        "id": "security_gate",
+        "type": "markdown",
+        "sourceId": "dependency_audit",
+        "body": "## P0는 기능 추가가 아니라 보안·릴리스 안정화입니다\n\n2026년 8월 15일 설치 의존성 기준으로 총 71건의 보안 경고가 확인됐습니다. 이 수치는 중복·간접 의존성을 포함하므로 곧바로 71개의 실제 공격경로를 뜻하지는 않지만, 치명 7건과 높음 25건이 있는 상태에서 로그인·파일 업로드·다운로드를 넓히는 것은 위험합니다.\n\nReact Router 7.18 계열, Supabase JS 2.112 계열, 패치된 Vite 5.4 계열로 먼저 올리고, 이후 Sentry·Drizzle·i18next·메일·테스트 도구를 분리해 처리해야 합니다. 각 묶음마다 로그인, 매직링크, RLS, 비공개 다운로드, SSR, 파일명·CSV 안전성 테스트를 통과시켜야 합니다."
+      },
+      { "id": "dependency_chart", "type": "chart", "chartId": "dependency_severity" },
+      {
+        "id": "roadmap_takeaway",
+        "type": "markdown",
+        "body": "## 다음 개발은 ‘콘크리트 한 공종의 폐쇄루프’부터 완성합니다\n\n여러 공종을 동시에 넓히기보다 한 프로젝트의 콘크리트에서 **설계수량 → 승인수량 → 필요자재 → 발주 → 수령 → 청구 → 탄소**가 끝까지 맞는지 먼저 증명하는 것이 좋습니다. 이 흐름이 실제 현장에서 닫히면 같은 데이터 계약을 철근과 거푸집으로 확장할 수 있습니다."
+      },
+      {
+        "id": "roadmap_table",
+        "type": "markdown",
+        "sourceId": "strategy_synthesis",
+        "body": "### 개발 우선순위\n\n| 단계 | 목표 | 완료 산출물 | 출시 조건 |\n|---|---|---|---|\n| P0 | 보안·운영 기반 | 의존성 단계 업그레이드, 운영 Supabase 연결·RLS/Advisor/SMTP 검증, 릴리스 체크리스트 | 치명·높음 경로 해소 또는 문서화된 수용, 인증·업로드·다운로드 회귀 통과 |\n| P1 | 콘크리트 현장 폐쇄루프 | 추출 패키지에서 자재계획 자동 생성, PO·수령·청구 증빙, 3-way 차이 화면, CSV 내보내기 | 실제 3개 프로젝트에서 수량과 증빙이 끝까지 연결 |\n| P2 | 정보 요구·분류 표준 | IDS 검사, BCF 이슈 반환, bSDD/사내 분류 ID, IFC GlobalId 연결 | 필수 속성 누락이 PASS가 되지 않고 Revit 담당자에게 반환 가능 |\n| P3 | 자재·탄소 근거 확장 | 제품별 EPD/OpenEPD, EPCIS형 수령·설치·반품·폐기 사건, 탄소 커버리지 | 일반계수와 제품별 EPD를 분리하고 만료·지역 근거 보존 |\n| P4 | 조직·수익화 | 회사·프로젝트 역할, 승인 권한, 규칙 템플릿, API/Webhook, 무료→유료 라이선스 | 권한 분리·감사로그·다운로드 자격·결제 실패 복구 검증 |\n| P5 | AI 추천 | 공종 분류, 내역 매핑, 누락·중복·이상치, 개정 영향 추천 | 사람 승인 데이터셋과 오탐·미탐 기준 확보, AI가 최종 숫자를 확정하지 않음 |"
+      },
+      {
+        "id": "standards_direction",
+        "type": "markdown",
+        "sourceId": "open_standards",
+        "body": "## 표준은 새 엔진을 만들기보다 연결 규격으로 사용합니다\n\nIfcOpenShell과 web-ifc는 IFC 읽기·표시·변환에 활용할 수 있지만 Revit 공식 추출 결과를 대체하는 권위 원본으로 삼지 않습니다. IDS 1.0으로 필요한 Properties가 모델에 있는지 입구에서 확인하고, BCF로 누락 이슈를 돌려보내며, bSDD 식별자로 자유문자 분류를 줄이는 방향이 적합합니다.\n\n자재 단계에서는 GS1 EPCIS의 ‘무엇을·언제·어디서·왜·어떻게’ 사건 구조를 참고하고, 탄소는 openEPD 같은 기계판독 가능한 EPD를 연결합니다. 이는 장기적으로 EU 건설제품 디지털 제품여권 흐름과도 맞지만, 당장 블록체인이나 영지식증명으로 표현할 이유는 없습니다."
+      },
+      {
+        "id": "metrics_takeaway",
+        "type": "markdown",
+        "body": "## 지속 개발은 기능 개수보다 ‘근거가 닫히는 비율’로 관리합니다\n\n다운로드 수나 등록 프로젝트 수만 보면 제품의 실무 가치를 알 수 없습니다. 추출 성공률, 승인 산식 적용률, 개정 차이 처리시간, 발주·수령·청구 일치율, 제품별 EPD 연결률을 함께 봐야 합니다. 이 지표가 높아질수록 고객은 재검토 시간을 줄이고 분쟁 때 근거를 바로 제시할 수 있습니다."
+      },
+      {
+        "id": "kpi_table",
+        "type": "markdown",
+        "sourceId": "strategy_synthesis",
+        "body": "### 지속 개발 KPI\n\n| 흐름 | 측정 지표 | 현장 의미 |\n|---|---|---|\n| 추출 | 검증 가능한 요소 비율 | 전체 후보 중 Element ID와 수량 상태·원본 파라미터가 보존된 비율 |\n| 산출 | 승인 규칙 적용률 | 최종 수량 행 중 승인된 규칙 ID·버전·근거가 있는 비율 |\n| 개정 | 차이 처리시간 | 새 모델 수신부터 증감 원인 승인까지 걸린 시간 |\n| 자재 | 3-way match 비율 | 계획·수령·청구 수량과 금액이 허용범위 안에서 닫힌 비율 |\n| 증빙 | 근거 완결률 | 수령자 확인, 영수증·거래명세·세금계산 근거가 연결된 거래 비율 |\n| 탄소 | 제품별 EPD 커버리지 | 총 산정량 중 일반계수가 아닌 제품별 유효 EPD가 연결된 비율 |\n| 운영 | 검토 재작업률 | 승인 후 규칙·범위·근거 누락으로 다시 열린 결과의 비율 |"
+      },
+      {
+        "id": "next_decisions",
+        "type": "markdown",
+        "body": "## 지금 결정할 것\n\n1. **첫 유료 전환 전까지는 콘크리트 폐쇄루프를 대표 시나리오로 고정합니다.** 철근·거푸집은 같은 계약이 검증된 뒤 확장합니다.\n2. **웹과 설치형 프로그램의 역할을 분리합니다.** Revit add-in은 원본 추출, 웹은 프로젝트·검토·승인·증빙·공유를 담당합니다.\n3. **ERP를 만들지 않습니다.** 발주·수령·청구의 근거와 차이만 관리하고 회계·재고·세금계산서는 CSV/API로 기존 시스템에 넘깁니다.\n4. **AI 전에 평가 데이터부터 쌓습니다.** 사람이 승인한 분류·매핑·예외·개정 결과가 충분히 누적된 뒤 추천 모델을 붙입니다.\n5. **운영 Supabase와 Windows/Revit 현장 검증을 출시 게이트로 둡니다.** 코드 통과와 실제 배포 성공을 같은 뜻으로 사용하지 않습니다."
+      },
+      {
+        "id": "open_questions",
+        "type": "markdown",
+        "body": "## 추가로 확인할 질문\n\n- 첫 현장 사용자는 적산 담당자, BIM 담당자, 자재 담당자 중 누구이며 최종 승인 권한은 누가 가집니까?\n- 콘크리트 폐쇄루프에서 기존 ERP·엑셀로 반드시 내보내야 하는 열은 무엇입니까?\n- 수량 차이를 허용할 기준은 회사 표준, 프로젝트 특기조건, 발주처 기준 중 무엇이 우선합니까?\n- 탄소계수는 초기에는 일반계수로 시작할지, 제품별 EPD가 있는 자재만 공식 결과로 인정할지 결정해야 합니다.\n- 무료 다운로드 이후 과금 단위는 사용자, 회사, 프로젝트, 검증 패키지 중 무엇이 고객의 구매 방식과 가장 맞습니까?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## 전제와 한계\n\n이 보고서는 현재 로컬 저장소와 공개된 공식 제품·표준 페이지를 기준으로 한 제품 전략입니다. 경쟁 제품의 비공개 기능, 실제 고객 사용량, 가격 경쟁력은 확인하지 않았습니다. 운영 Supabase는 인증 부재로 직접 감사하지 못했고, 실제 Windows/Revit 설치·리본·추출은 별도 현장 검증이 필요합니다. 시장 적합성은 최소 3개 실제 프로젝트에서 적산·BIM·자재 담당자가 함께 사용한 결과로 다시 판단해야 합니다."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-15T04:30:00Z",
+    "status": "ready",
+    "datasets": {
+      "audit_severity": [
+        { "severity": "치명", "count": 7, "meaning": "출시 전 우선 확인" },
+        { "severity": "높음", "count": 25, "meaning": "출시 전 우선 확인" },
+        { "severity": "보통", "count": 34, "meaning": "단계별 보완" },
+        { "severity": "낮음", "count": 5, "meaning": "계획 반영" }
+      ],
+      "market_map": [
+        { "group": "2D·3D 물량산출", "examples": "Autodesk Forma Takeoff, RIB CostX", "strength": "도면·BIM 수량, 공식, 분류, 개정 비교, 보고서", "lukas_action": "기본 호환성만 확보하고 전면 복제하지 않음" },
+        { "group": "AI 도면 인식", "examples": "Kreo, Togal.AI", "strength": "자동 측정·카운트·분류와 협업", "lukas_action": "최종 단계의 추천 기능으로 제한" },
+        { "group": "모델 품질·이슈", "examples": "Solibri, BIMcollab", "strength": "IDS·IFC·BCF 검증과 이슈 추적", "lukas_action": "IDS 입구검사와 BCF 반환을 연동" },
+        { "group": "자재 운영", "examples": "Procore Materials", "strength": "발주·납품·현장비용·청구 대조", "lukas_action": "적산 근거와 3-way match만 제공하고 ERP는 만들지 않음" },
+        { "group": "탄소 데이터", "examples": "One Click LCA", "strength": "대규모 EPD·탄소 데이터와 BIM 연동", "lukas_action": "데이터베이스를 복제하지 않고 EPD 근거를 연결" },
+        { "group": "건설 데이터 영업", "examples": "산군", "strength": "기업·현장·수주 데이터의 검색·CRM·구독", "lukas_action": "장기적으로 검증된 적산·자재 데이터 상품화를 참고" }
+      ],
+      "differentiation": [
+        { "priority": "1", "capability": "Element ID·원본 SHA·수량 상태·계산 규칙·승인 연결", "position": "핵심 차별점", "reason": "결과 수치의 역추적과 분쟁 근거를 함께 제공" },
+        { "priority": "2", "capability": "국내 EMS/ZG/ZJ·내역서와 Revit/IFC 교차검산", "position": "지역 특화 차별점", "reason": "해외 범용 도구가 바로 대체하기 어려운 실무 연결" },
+        { "priority": "3", "capability": "설계수량→발주→수령→청구→탄소 폐쇄루프", "position": "확장 차별점", "reason": "적산 회사가 현장 데이터 서비스로 확장할 수 있는 경로" },
+        { "priority": "4", "capability": "IFC 뷰어·로그인·파일 업로드·SHA-256 표시", "position": "필수 기반 기능", "reason": "고객이 기대하지만 단독으로는 경쟁 우위가 아님" },
+        { "priority": "5", "capability": "완전 자동 AI 적산", "position": "현재 보류", "reason": "데이터 품질과 책임 경계가 부족하며 경쟁이 이미 치열함" }
+      ],
+      "roadmap": [
+        { "phase": "P0", "goal": "보안·운영 기반", "deliverables": "의존성 단계 업그레이드, 운영 Supabase 연결·RLS/Advisor/SMTP 검증, 릴리스 체크리스트", "release_gate": "치명·높음 경로 해소 또는 문서화된 수용, 인증·업로드·다운로드 회귀 통과" },
+        { "phase": "P1", "goal": "콘크리트 현장 폐쇄루프", "deliverables": "추출 패키지에서 자재계획 자동 생성, PO·수령·청구 증빙, 3-way 차이 화면, CSV 내보내기", "release_gate": "실제 3개 프로젝트에서 수량과 증빙이 끝까지 연결" },
+        { "phase": "P2", "goal": "정보 요구·분류 표준", "deliverables": "IDS 검사, BCF 이슈 반환, bSDD/사내 분류 ID, IFC GlobalId 연결", "release_gate": "필수 속성 누락이 PASS가 되지 않고 Revit 담당자에게 반환 가능" },
+        { "phase": "P3", "goal": "자재·탄소 근거 확장", "deliverables": "제품별 EPD/OpenEPD, EPCIS형 수령·설치·반품·폐기 사건, 탄소 커버리지", "release_gate": "일반계수와 제품별 EPD를 명확히 분리하고 만료·지역 근거 보존" },
+        { "phase": "P4", "goal": "조직·수익화", "deliverables": "회사·프로젝트 역할, 승인 권한, 규칙 템플릿, API/Webhook, 무료→유료 라이선스", "release_gate": "권한 분리·감사로그·다운로드 자격·결제 실패 복구 검증" },
+        { "phase": "P5", "goal": "AI 추천", "deliverables": "공종 분류, 내역 매핑, 누락·중복·이상치, 개정 영향 추천", "release_gate": "사람 승인 데이터셋과 오탐·미탐 기준 확보, AI가 최종 숫자를 확정하지 않음" }
+      ],
+      "kpis": [
+        { "stage": "추출", "metric": "검증 가능한 요소 비율", "definition": "전체 후보 중 Element ID와 수량 상태·원본 파라미터가 보존된 비율" },
+        { "stage": "산출", "metric": "승인 규칙 적용률", "definition": "최종 수량 행 중 승인된 규칙 ID·버전·근거가 있는 비율" },
+        { "stage": "개정", "metric": "차이 처리시간", "definition": "새 모델 수신부터 증감 원인 승인까지 걸린 시간" },
+        { "stage": "자재", "metric": "3-way match 비율", "definition": "계획·수령·청구 수량과 금액이 허용범위 안에서 닫힌 비율" },
+        { "stage": "증빙", "metric": "근거 완결률", "definition": "수령자 확인, 영수증·거래명세·세금계산 근거가 연결된 거래 비율" },
+        { "stage": "탄소", "metric": "제품별 EPD 커버리지", "definition": "총 산정량 중 일반계수가 아닌 제품별 유효 EPD가 연결된 비율" },
+        { "stage": "운영", "metric": "검토 재작업률", "definition": "승인 후 규칙·범위·근거 누락으로 다시 열린 결과의 비율" }
+      ]
+    }
+  },
+  "sources": [
+    { "id": "repo_current_state", "label": "Lukas QTO local product documentation and code", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+    {
+      "id": "dependency_audit",
+      "label": "Platform npm audit snapshot, August 15 2026",
+      "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT '치명' AS severity, 7 AS count, '출시 전 우선 확인' AS meaning UNION ALL SELECT '높음', 25, '출시 전 우선 확인' UNION ALL SELECT '보통', 34, '단계별 보완' UNION ALL SELECT '낮음', 5, '계획 반영'",
+        "description": "Materializes the reviewed npm-audit severity totals used by the report chart.",
+        "executed_at": "2026-08-15T04:30:00Z"
+      }
+    },
+    { "id": "supabase_review", "label": "Supabase changelog and local schema review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+    { "id": "market_research", "label": "Official competitor product-page review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+    { "id": "open_standards", "label": "Open-source and standards review", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" },
+    { "id": "strategy_synthesis", "label": "Strategy synthesis from reviewed product, market and standards evidence", "path": "reports/lukas-qto-next-product-strategy-2026-08-15/source-notes.md" }
+  ]
+}

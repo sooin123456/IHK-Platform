@@ -31,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File deploy\diagnose-revit-addin.ps1 -RevitV
    deploy\install.bat 2017
    ```
 
-   빌드 뒤 `build\Release\2017\THEKIE.Qto.dll`과 `THEKIE.Qto.build.ok`가 모두 있는지 확인한다. 표식에는 정확히 `RevitVersion`, `TargetFramework`, `IsRevitStubBuild`, `RevitApiDir`, `AssemblySha256` 5행이 있어야 한다. 설치 뒤 `%ProgramData%\Autodesk\Revit\Addins\2017\Lukas.Qto.addin`을 열어 `Assembly` 값이 실제 `Lukas.Qto\THEKIE.Qto.dll`의 **절대 경로**인지 확인한다. 같은 폴더의 예전 `THEKIE.Qto.addin`은 활성 상태로 남아 있으면 안 되며, 설치기가 이전 파일을 `.disabled`로 보존한다.
+   빌드 뒤 `build\Release\2017\Lukas.Qto.dll`과 `Lukas.Qto.build.ok`가 모두 있는지 확인한다. 표식에는 정확히 `RevitVersion`, `TargetFramework`, `IsRevitStubBuild`, `RevitApiDir`, `AssemblySha256` 5행이 있어야 한다. 설치 뒤 `%ProgramData%\Autodesk\Revit\Addins\2017\Lukas.Qto.addin`을 열어 `Assembly` 값이 실제 `Lukas.Qto\Lukas.Qto.dll`의 **절대 경로**인지 확인한다. 같은 폴더의 예전 `Lukas.Qto.addin`은 활성 상태로 남아 있으면 안 되며, 설치기가 이전 파일을 `.disabled`로 보존한다.
 
    리본에 `Lukas QTO` 탭이 보이지 않으면 추출 기능을 시험하지 말고 Revit을 완전히 종료한 뒤 아래 명령을 먼저 실행한다. 생성된 JSON에는 manifest, DLL 경로, SHA, legacy 충돌, 재시작 상태가 들어 있다.
 
@@ -39,8 +39,8 @@ powershell -ExecutionPolicy Bypass -File deploy\diagnose-revit-addin.ps1 -RevitV
    powershell -ExecutionPolicy Bypass -File deploy\diagnose-revit-addin.ps1 -RevitVersion 2017
    ```
 
-2. Revit을 재시작한 뒤 `Lukas QTO > 수량·검산 > Properties 추출`을 실행해 `현재 선택`, `활성 뷰`, `전체 host 모델` 중 하나를 고르고 임의의 빈 폴더에 CSV를 만든다. 링크 모델은 어떤 선택에서도 자동 제외되며, `element-ledger.csv.evidence.json`에 Revit version/build, 범위, 후보·제외·행 수, CSV SHA-256이 기록되어야 한다. 이어서 `IFC·QTO 내보내기`를 실행해 완료 폴더에 `model.ifc`, `qto.csv`, `element-ledger.csv`, `export-manifest.csv`가 있는지 확인한다. Properties CSV와 패키지의 element ledger는 요소당 한 행이며 이름, 체적(m3), 길이(m), 높이(m), 각 상태와 원본 내장 파라미터를 보존해야 한다. 이 명령은 현재 `IFCExportOptions` 기본값을 사용하며, manifest의 `ifc_configuration`도 사용자 선택 구성이 아님을 명시한다. 버전별 승인 IFC 구성은 아직 실제 Revit에서 검증되지 않았다.
-3. Revit과 독립적으로 완료 패키지를 검증하고 증거 JSON을 남긴다. 이 검증기는 `model.ifc`, `qto.csv`, `element-ledger.csv`, `export-manifest.csv`를 수정하지 않으며, 실패해도 JSON을 남기고 1로 종료한다.
+2. Revit을 재시작한 뒤 `Lukas QTO > 수량·검산 > Properties 추출`을 실행해 `현재 선택`, `활성 뷰`, `전체 host 모델` 중 하나를 고르고 임의의 빈 폴더에 CSV를 만든다. 링크 모델은 어떤 선택에서도 자동 제외되며, `element-ledger.csv.evidence.json` V2에 Revit version/build, 범위, `built-in-category-physical-v1` 필터, 후보·제외·행 수, CSV SHA-256이 기록되어야 한다. 검증기는 `candidate = eligible_host_model + excluded_link_instances + excluded_non_model + excluded_non_quantity`와 `eligible_host_model = CSV 행 수`도 확인한다. `<Sketch>`, Materials, Legend Components 같은 작성 보조 객체는 CSV에 남지 않아야 하고 `excluded_non_quantity` 수에 기록되어야 한다. 이어서 `IFC·QTO 내보내기`를 실행해 완료 폴더에 `model.ifc`, `qto.csv`, `element-ledger.csv`, `export-manifest.csv`가 있는지 확인한다. Properties CSV와 패키지의 element ledger는 요소당 한 행이며 이름, 체적(m3), 길이(m), 높이(m), 각 상태와 원본 내장 파라미터를 보존해야 한다. 이 명령은 현재 `IFCExportOptions` 기본값을 사용하며, manifest의 `ifc_configuration`도 사용자 선택 구성이 아님을 명시한다. 버전별 승인 IFC 구성은 아직 실제 Revit에서 검증되지 않았다.
+3. Revit과 독립적으로 완료 패키지를 검증하고 증거 JSON을 남긴다. 가장 쉬운 방법은 최종 패키지 폴더를 루트의 `3-VERIFY-EXTRACTION-2025.bat` 위로 끌어다 놓는 것이다. 이 검증기는 `model.ifc`, `qto.csv`, `element-ledger.csv`, `export-manifest.csv`를 수정하지 않으며, 실패해도 JSON을 남기고 1로 종료한다.
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File deploy\verify-field-package.ps1 -PackageDirectory 'D:\QTO\MyExport_20260812_101500' -ExpectedRevitVersion 2017
@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File deploy\diagnose-revit-addin.ps1 -RevitV
 7. 권장 경로는 아래 Desktop에서 `프로젝트 만들기`를 사용해 export manifest·IFC·QTO 해시가 연결된 source manifest를 생성하는 것이다. CLI를 직접 쓸 경우 IFC·QTO·내역·매핑의 SHA-256을 같은 `scope_id`에 등록하고, QTO의 `related_source_id`가 IFC source ID를 가리키도록 [IFC 프로젝트 실행 계약](IFC_PROJECT_CONTRACT.md)을 따라야 한다. 이 CLI는 .NET 8 Desktop Runtime이 필요하다.
 
    ```bat
-   build\preflight\THEKIE.Qto.Preflight.exe --sources source-manifest.csv --ifc model.ifc qto.csv estimate.csv mapping.csv report.csv
+   build\preflight\Lukas.Qto.Preflight.exe --sources source-manifest.csv --ifc model.ifc qto.csv estimate.csv mapping.csv report.csv
    ```
 
 검증 담당자는 Revit 버전·모델 파일명·생성 시각과 승인한 `scope_id`·`source_id`를 작업 기록에 남긴다. CLI 실행 manifest에는 입력과 소스 매니페스트 SHA-256·규칙 버전·선택 ID가 자동 기록되고, 결과 CSV·HTML·manifest를 함께 보관한다.

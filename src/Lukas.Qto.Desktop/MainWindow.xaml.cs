@@ -4,7 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
-using THEKIE.Qto.Core;
+using Lukas.Qto.Core;
 
 namespace Lukas.Qto.Desktop;
 

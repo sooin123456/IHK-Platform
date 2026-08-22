@@ -20,13 +20,21 @@
 - SHA 기반 소스 매니페스트가 QTO·내역·매핑의 slot·scope·최신 ACTIVE 개정을 계산 전에 확인한다.
 - 외부 패키지 없이 self-test 프로젝트를 제공한다.
 - ZG/ZJ 구조수량 파일은 확장자가 아닌 OOXML 시트·표제 스키마로 인식하고, 공식 anchor·signed ledger·복합 bucket·철근 kg 근거를 분리한다.
+- 웹 프로젝트에 증거 기반 자동 검토 흐름을 추가했다. 요소 원장 업로드 시 원본 SHA·규칙 버전에 묶인 중복 Element ID·수량 상태·분류·속성 누락 제안만 생성하고, 원본 수량은 변경하지 않는다. 같은 프로젝트의 직전 요소 원장과 안정 Element ID로 비교해 추가·삭제·분류·물량 속성 변경을 두 원본 SHA가 포함된 개정 제안으로 남긴다. 사용자의 승인·기각·보류와 근거 메모는 제안과 분리된 append-only 이력으로 보존한다. 향후 AI는 같은 제안 계약을 사용하며 최종 계산 권한을 갖지 않는다.
+- 한길시스템 담당자는 제안 근거와 시간순 사람 결정 라벨을 `LUKAS_SUGGESTION_FEEDBACK_V1` JSON으로 내보낼 수 있다. 평가 데이터에는 사용자 ID와 자유서술 결정 메모를 제외하며, AI 평가셋으로만 사용하고 계산·승인 권한을 부여하지 않는다.
+- 담당자 전용 `LUKAS_AI_SUGGESTIONS_V1` 가져오기는 선택한 원본 SHA와 일치하는 오프라인 AI 제안만 허용한다. 알 수 없는 필드와 수량·금액·판정 확장 필드는 거부하고, AI JSON 원본도 별도 SHA의 비공개 파일로 보존한다. AI 제안은 동일한 사람 승인·기각 흐름에만 들어가며 계산 결과를 수정하지 않는다.
+- 프로젝트 화면은 생성기 종류·버전·제안 유형별 총 제안, 최신 사람 결정의 승인·기각·보류·미결정, 검토율과 승인률을 표시한다. 승인/기각 표본이 없으면 승인률은 `판정 불가`이며, 아직 어떤 임계값이나 자동 승격도 적용하지 않는다.
+- 웹 프로젝트는 Core의 `CONCRETE_TAKEOFF_CSV_V1` report·manifest 쌍을 등록 전에 다시 검증한다. report/manifest SHA-256, 무손실 decimal, PASS 행의 계산식·규칙 해시·원본 근거·Element ID와 export manifest·IFC·QTO·element ledger·Revit mapping·concrete rule·registry 7개 입력 SHA를 하나의 산출 artifact로 묶는다. 각 입력은 같은 프로젝트에 보관된 예상 kind의 불변 파일 ID·SHA와 복합 외래키로 연결되어야 하므로 임의 SHA만 적은 manifest는 승인 흐름에 들어오지 못한다. 상세 화면은 원본 파일을 다시 읽어 동일 검증을 통과한 경우에만 기본수량·공제·보정·최종수량·계산식·승인 규칙·요소 근거와 전체 사람 결정 이력을 표시한다. 사람의 승인·기각·보류는 원본과 분리된 append-only 이력이며 AI가 작성할 수 없다.
+- 동일 프로젝트·자료 종류의 새 파일은 직전 파일 ID·SHA와 새 파일 ID·SHA를 명시적인 `supersedes` 간선으로 연결한다. DB trigger가 같은 kind·시간 방향을 확인하고 predecessor/current 양쪽 unique 제약으로 동시 업로드 분기를 차단한다. 파일명이나 수정시각만으로 개정을 추정하지 않으며, 같은 최신 SHA 재업로드도 거부한다.
+- CLI/Desktop의 L1 사전검토 report·실행 manifest도 별도 웹 artifact로 연결한다. 소스 게이트 PASS·공사범위·엔진 해시·허용오차·report SHA를 검증하고 QTO·내역서·매핑·소스 manifest·선택 IFC가 같은 프로젝트의 예상 kind·파일명·SHA와 정확히 일치해야 등록된다. 상세 화면은 bundle을 다시 검증해 규칙별 기대값·실제값·차이·근거와 append-only 사람 승인 이력을 보여준다.
+- 공개 웹은 `/news` 회사 소식·현장 검증·제품 업데이트, `/news.xml` RSS와 `/download` Revit 2025 무료 베타 상품 흐름을 제공한다. 현재 가격은 0원이며 카드·결제정보를 받지 않는다. HTTPS 배포 URL과 64자리 SHA-256이 모두 설정된 경우에만 다운로드 버튼이 활성화된다. 오해 가능성이 있는 Toss/NFT 데모 결제 코드와 의존성은 제거했다. 향후 유료 전환은 서버 발급 주문·서명된 결제 확인·릴리스 SHA에 결합된 다운로드 권한·환불 계약을 별도 구현한 뒤에만 허용한다.
 
 ## 마지막 검증
 
-- `dotnet build src/THEKIE.Qto.Preflight/THEKIE.Qto.Preflight.csproj -c Release --no-restore` 성공 (경고 0, 오류 0)
-- `dotnet run --no-restore --project tests/THEKIE.Qto.Core.SelfTest/THEKIE.Qto.Core.SelfTest.csproj -c Release` 성공
+- `dotnet build src/Lukas.Qto.Preflight/Lukas.Qto.Preflight.csproj -c Release --no-restore` 성공 (경고 0, 오류 0)
+- `dotnet run --no-restore --project tests/Lukas.Qto.Core.SelfTest/Lukas.Qto.Core.SelfTest.csproj -c Release` 성공
 - `tests/run-cli-integration.sh` 성공: 안전·우회·빈 내역·위험 기계 ID·manifest CSV 수식 방어·기존 결과 덮어쓰기·심볼릭 방지·slot 오용·바이너리 해시를 프로세스 단위로 검증
-- 과거 `tests/run-revit-stubs.sh`에서 2017·2022~2026 스텁을 순차 검증했다. 최신 face 추출 변경 후 이 macOS의 MSBuild 복원 단계가 멈춰 전체 재실행은 완료하지 못했으며 Windows 게이트로 다시 확인해야 한다.
+- `tests/run-revit-stubs.sh`는 물리 객체 필터 변경 직후 2017·2022~2026을 순차 빌드·실행해 모두 통과했다. evidence V2 변경 뒤에는 호환성 경계인 2017·2025·2026을 다시 빌드·실행해 경고·오류 없이 통과했다. 이는 Revit API 스텁 검증이며 실제 Windows/Revit 실행을 대체하지 않는다.
 - 샘플 QTO·내역·매핑 CSV로 결과 보고서 생성 성공 (R011 PASS, R021 PASS)
 - EMS 구성단가 합계(R010)가 총단가 불일치를 별도로 검출하며, 매핑 오류 시 R021을 NOT_EVALUATED로 남기는 self-test를 통과함.
 - XLSX 첫 워크시트의 공유 문자열, inline 문자열, 수치, 저장된 수식값을 읽는 self-test 통과. EMS의 `공종별내역서`는 우선 선택한다. 실제 0910과 동일한 EMS7에서 각각 R010 96개가 PASS했고, R011은 명시 수량이 있는 94개가 PASS·빈 수량 2개가 NOT_EVALUATED다. 음수 고철 공제 2개는 계산 검증 후 BIM 대조에서 제외한다.
@@ -54,13 +62,14 @@
 - CLI·HTML 보고서·입력 오류 문구를 한국어로 통일했고, 새 빌드 결과에 반영됨을 확인함.
 - 실제 Autodesk DLL을 찾지 못하면 Revit 프로젝트가 빌드 전에 중단되며, 스텁 빌드는 명시적 `IsRevitStubBuild=true`일 때만 `build/stub/<Configuration>/<버전>`으로 격리된다. 실제 Windows/Revit 검증 절차는 `docs/WINDOWS_REVIT_VERIFICATION.md`에 기록함.
 - Windows 배포 스크립트는 자신의 `deploy` 폴더를 기준으로 실행하도록 보정했고, ASCII·CRLF 인코딩을 확인함. `build-all.bat`는 성공한 Release DLL에만 표식을 남기고 L1 CLI를 `build\preflight`에 publish한다.
-- `build-all.bat`은 버전·TFM·실제 Revit API 경로·비-스텁 여부·DLL SHA-256의 정확한 5행 표식을 만든다. `install.bat`은 source/stage/installed DLL 해시를 모두 확인하고 Revit 실행 중 설치를 막으며, 기존 DLL·Lukas 매니페스트를 복구 파일로 보존한다. 이전 `THEKIE.Qto.addin`은 삭제하지 않고 `.disabled`로 이동해 중복 로딩을 차단한다. 복구 실패 파일이나 active/disabled legacy 충돌이 있으면 자동 덮어쓰기하지 않는다. Windows cmd·Revit 실기 검증은 아직 남아 있다.
+- `build-all.bat`은 버전·TFM·실제 Revit API 경로·비-스텁 여부·DLL SHA-256의 정확한 5행 표식을 만든다. `install.bat`은 source/stage/installed DLL 해시를 모두 확인하고 Revit 실행 중 설치를 막으며, 기존 DLL·Lukas 매니페스트를 복구 파일로 보존한다. 이전 `Lukas.Qto.addin`은 삭제하지 않고 `.disabled`로 이동해 중복 로딩을 차단한다. 복구 실패 파일이나 active/disabled legacy 충돌이 있으면 자동 덮어쓰기하지 않는다. Windows cmd·Revit 실기 검증은 아직 남아 있다.
 - publish된 L1 CLI DLL로 샘플 QTO·내역·매핑 실행과 CSV·HTML·manifest 생성을 확인함. Windows 앱 호스트 실행은 실제 .NET 8 Runtime 환경에서 검증해야 한다.
 - Revit API 스텁으로 2017·2022~2026 조건부 컴파일을 점검했고, 2017 스텁은 최신 `UnitTypeId`를 제공하지 않는 상태에서도 통과했다. 스텁 모델에서 수량 집계·요소ID 추적·2017 정수 ID 및 2026 64비트 ID 실행 테스트를 통과함. 실제 Revit 검증을 대체하지 않음.
 - Revit 2017 애드인 소스를 실제 `net46` 대상으로 끝까지 링크했으며 산출물이 Windows x64 .NET Framework 4.6 DLL임을 확인했다. 스텁 참조 산출물은 `build/stub/Release/2017`로 격리되어 설치 대상이 아니다.
 - Revit 스텁 테스트는 추출 결과를 실제 QTO CSV로 저장한 뒤 L1 `Input.ReadQto`로 다시 읽어, 요소ID·수량·체적·면적을 보존하는 종단 간 경로도 검증한다.
 - Core·Desktop self-test와 CLI integration은 IFC source slot/S006, export manifest 해시 검증, 원자 결과 publish, 변조 결과 SHA 차단, 재검산 상태 분류와 CLI 동시 실행 결과 bundle을 검증한다.
 - `deploy/verify-field-package.ps1`는 Revit 외부에서 COMPLETE 패키지의 manifest/QTO schema·SHA·수량·요소ID를 검사하고 증거 JSON을 남긴다. Windows PowerShell 실행은 아직 남아 있다.
+- 웹 production build가 `/news`, 세 개의 회사 소식 상세, `/download` 라우트와 sitemap을 포함해 성공했고, 기존 적산 제안·산출 artifact Node 테스트 10건이 모두 통과했다. 로컬 HTTP 서버 실행은 현재 샌드박스의 포트 권한 제한으로 별도 브라우저에서 확인해야 한다.
 
 ## 미검증·외부 blocker
 
@@ -71,5 +80,6 @@
 - 거푸집 face extractor와 원장 출력은 구현됐으나 실제 Revit에서 stable reference·중첩 geometry·면적을 확인하고, 사람이 승인한 접촉·개구부 판정을 Desktop 산출로 연결하는 작업이 남았다.
 - 요소별 Properties ledger V2는 독립 `Properties 추출` CSV와 IFC·QTO 원자 패키지에 포함됐다. 실제 Revit 모델로 이름·체적·길이·높이와 요소 역추적을 확인하는 현장 증거가 남았다.
 - 철근 official kg를 재현할 MDB/ACCDB 규격별 단위중량·손율·절사/반올림 테이블의 필드 근거를 아직 읽지 못했다. ZJ raw에 일반 단위중량과 일괄 3%를 적용한 결과는 official보다 330.388651kg 작아 임의 계수를 쓰지 않는다.
+- Supabase의 제안·결정 migration 0006, 결정론적 산출 artifact migration 0007, 파일 개정 그래프 migration 0008, L1 내역·QTO 검산 artifact migration 0009는 코드·RLS·명시적 Data API GRANT 계약까지 작성했지만 운영 DB 적용은 명시적 승인 대기 중이며 적용 후 인증·RLS·Storage 브라우저 실사용 확인이 남았다.
 
 전체 요구사항별 완료 증거와 미충족 조건은 `docs/COMPLETION_AUDIT.md`에 정리한다.

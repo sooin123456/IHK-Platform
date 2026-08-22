@@ -4,7 +4,7 @@
 
 ```sh
 dotnet build tests/RevitApiStub/UI/RevitAPIUI.csproj -c Release
-dotnet run --project tests/THEKIE.Qto.RevitStubTest -c Release
+dotnet run --project tests/Lukas.Qto.RevitStubTest -c Release
 tests/run-revit-stubs.sh
 ```
 
@@ -14,10 +14,10 @@ tests/run-revit-stubs.sh
 
 ```sh
 stub_dir="$PWD/tests/RevitApiStub/bin/Release/2017/netstandard2.0"
-dotnet restore src/THEKIE.Qto/THEKIE.Qto.csproj -p:RevitVersion=2017 -p:TargetFramework=net8.0
+dotnet restore src/Lukas.Qto/Lukas.Qto.csproj -p:RevitVersion=2017 -p:TargetFramework=net8.0
 dotnet build tests/RevitApiStub/UI/RevitAPIUI.csproj -c Release -p:RevitStubVersion=2017
-dotnet build src/THEKIE.Qto/THEKIE.Qto.csproj -c Release -p:IsRevitStubBuild=true -p:RevitApiDir="$stub_dir" -p:RevitVersion=2017 -p:TargetFramework=net8.0 --no-restore
-dotnet run --project tests/THEKIE.Qto.RevitStubTest -c Release -p:RevitStubVersion=2017
+dotnet build src/Lukas.Qto/Lukas.Qto.csproj -c Release -p:IsRevitStubBuild=true -p:RevitApiDir="$stub_dir" -p:RevitVersion=2017 -p:TargetFramework=net8.0 --no-restore
+dotnet run --project tests/Lukas.Qto.RevitStubTest -c Release -p:RevitStubVersion=2017
 ```
 
 `RevitVersion`과 `RevitStubVersion`, `stub_dir`의 버전 디렉터리를 2022, 2023, 2024, 2025, 2026으로 함께 바꾸어 각각 반복한다. 버전별 `bin/obj`가 분리되므로 순차 실행이나 병렬 에이전트 실행에서도 다른 Revit API 모양이 섞이지 않는다.
@@ -37,6 +37,6 @@ dotnet run --project tests/THEKIE.Qto.RevitStubTest -c Release -p:RevitStubVersi
 dotnet restore tests/RevitApiStub/UI/RevitAPIUI.csproj -p:RevitStubVersion=2017 -p:StubTargetFramework=net46
 dotnet build tests/RevitApiStub/UI/RevitAPIUI.csproj -c Release -p:RevitStubVersion=2017 -p:StubTargetFramework=net46 --no-restore
 stub_dir="$PWD/tests/RevitApiStub/bin/Release/2017/net46"
-dotnet restore src/THEKIE.Qto/THEKIE.Qto.csproj -p:IsRevitStubBuild=true -p:RevitVersion=2017 -p:RevitApiDir="$stub_dir"
-dotnet build src/THEKIE.Qto/THEKIE.Qto.csproj -c Release -p:IsRevitStubBuild=true -p:RevitVersion=2017 -p:RevitApiDir="$stub_dir" --no-restore
+dotnet restore src/Lukas.Qto/Lukas.Qto.csproj -p:IsRevitStubBuild=true -p:RevitVersion=2017 -p:RevitApiDir="$stub_dir"
+dotnet build src/Lukas.Qto/Lukas.Qto.csproj -c Release -p:IsRevitStubBuild=true -p:RevitVersion=2017 -p:RevitApiDir="$stub_dir" --no-restore
 ```

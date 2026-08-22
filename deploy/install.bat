@@ -66,13 +66,16 @@ goto :finish
 set VERSION=%1
 set TARGET=%ProgramData%\Autodesk\Revit\Addins\%VERSION%
 set SOURCE=%SRCROOT%\%VERSION%
-set MARKER=%SOURCE%\THEKIE.Qto.build.ok
-set SOURCE_DLL=%SOURCE%\THEKIE.Qto.dll
+set MARKER=%SOURCE%\Lukas.Qto.build.ok
+set SOURCE_DLL=%SOURCE%\Lukas.Qto.dll
 set INSTALL_DIR=!TARGET!\Lukas.Qto
-set TARGET_DLL=!INSTALL_DIR!\THEKIE.Qto.dll
+set TARGET_DLL=!INSTALL_DIR!\Lukas.Qto.dll
 set TARGET_MANIFEST=!TARGET!\Lukas.Qto.addin
 set LEGACY_MANIFEST=!TARGET!\THEKIE.Qto.addin
 set LEGACY_DISABLED=!TARGET!\THEKIE.Qto.addin.disabled
+set USER_TARGET=%APPDATA%\Autodesk\Revit\Addins\%VERSION%
+set USER_MANIFEST=!USER_TARGET!\Lukas.Qto.addin
+set USER_LEGACY_MANIFEST=!USER_TARGET!\THEKIE.Qto.addin
 set TFM=net48
 if %VERSION% EQU 2017 set TFM=net46
 if %VERSION% GEQ 2025 set TFM=net8.0-windows
@@ -95,6 +98,16 @@ if not exist "!TARGET!" (
 )
 
 echo [INSTALL] Revit %VERSION%
+if exist "!USER_MANIFEST!" (
+    echo [FAIL] Revit %VERSION% already has a per-user Lukas.Qto.addin. Remove the per-user beta before a machine install: !USER_MANIFEST!
+    set FAILED=1
+    exit /B 0
+)
+if exist "!USER_LEGACY_MANIFEST!" (
+    echo [FAIL] Revit %VERSION% already has a per-user THEKIE.Qto.addin. Remove the per-user legacy add-in before a machine install: !USER_LEGACY_MANIFEST!
+    set FAILED=1
+    exit /B 0
+)
 if not exist "!SOURCE_DLL!" (
     echo [FAIL] Revit %VERSION% production DLL is missing
     set FAILED=1
@@ -181,7 +194,7 @@ if /I not "!STAGEHASH!"=="!EXPECTEDHASH!" (
     echo     ^<Name^>Lukas QTO^</Name^>
     echo     ^<Assembly^>!TARGET_DLL!^</Assembly^>
     echo     ^<AddInId^>e36671a8-0944-465c-919e-1006dfd3610e^</AddInId^>
-    echo     ^<FullClassName^>THEKIE.Qto.App^</FullClassName^>
+    echo     ^<FullClassName^>Lukas.Qto.App^</FullClassName^>
     echo     ^<VendorId^>LUKS^</VendorId^>
     echo     ^<VendorDescription^>Lukas^</VendorDescription^>
     echo   ^</AddIn^>
@@ -224,7 +237,7 @@ set INSTALLEDHASH=!INSTALLEDHASH: =!
 if /I not "!INSTALLEDHASH!"=="!EXPECTEDHASH!" goto :rollback
 
 del /Q "!TARGET_DLL!.rollback" "!TARGET_MANIFEST!.rollback" >nul 2>nul
-if exist "!SOURCE!\THEKIE.Qto.pdb" copy /Y "!SOURCE!\THEKIE.Qto.pdb" "!INSTALL_DIR!\" >nul
+if exist "!SOURCE!\Lukas.Qto.pdb" copy /Y "!SOURCE!\Lukas.Qto.pdb" "!INSTALL_DIR!\" >nul
 set /A INSTALLED+=1
 echo [OK] Revit %VERSION% -^> !TARGET!
 if !DISABLED_LEGACY! EQU 1 echo [INFO] Legacy manifest retained as !LEGACY_DISABLED!

@@ -26,7 +26,7 @@ project-mapping-r1,mapping.csv,<sha256>,mapping,PROJECT-01,1,ACTIVE,
 ## 실행
 
 ```sh
-dotnet run --project src/THEKIE.Qto.Preflight -- \
+dotnet run --project src/Lukas.Qto.Preflight -- \
   --sources samples/source-manifest.csv --ifc samples/sample.ifc \
   samples/qto.csv samples/estimate.csv samples/mapping.csv samples/project-report.csv
 ```

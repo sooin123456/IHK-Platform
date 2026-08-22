@@ -1,0 +1,21 @@
+{
+  "contract": "LUKAS_AI_SUGGESTIONS_V1",
+  "producer_version": "provider/model/prompt-v1",
+  "generated_at_utc": "2026-08-14T00:00:00Z",
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "suggestions": [
+    {
+      "suggestion_kind": "mapping",
+      "subject_key": "walls-basic-wall",
+      "title": "벽 요소의 공종 매핑 검토",
+      "detail": "동일 패밀리의 승인 이력을 참고한 평가용 제안입니다.",
+      "confidence": 0.82,
+      "evidence": {
+        "affected_count": 2,
+        "sample_element_ids": ["1001", "1002"],
+        "recommendation": "철근콘크리트 벽체",
+        "model_run_id": "offline-eval-run-001"
+      }
+    }
+  ]
+}

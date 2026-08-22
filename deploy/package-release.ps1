@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
 
-    [string[]]$RevitVersions = @('2017', '2022', '2023', '2024', '2025', '2026'),
+    [string[]]$RevitVersions = @('2025'),
+
+    [switch]$IncludeDesktop,
 
     [string]$ReleaseVersion
 )
@@ -39,15 +41,16 @@ function Read-Marker([string]$Path, [bool]$AllowFileLines = $false) {
 
 function Verify-RevitBuild([string]$Version) {
     Assert-Field ($validVersions -contains $Version) "지원하지 않는 Revit 버전: $Version"
-    $source = Join-Path $buildRoot ('Release\' + $Version)
-    $dll = Join-Path $source 'THEKIE.Qto.dll'
-    $marker = Read-Marker (Join-Path $source 'THEKIE.Qto.build.ok')
+    $source = Join-Path (Join-Path $buildRoot 'Release') $Version
+    $dll = Join-Path $source 'Lukas.Qto.dll'
+    $marker = Read-Marker (Join-Path $source 'Lukas.Qto.build.ok')
     Assert-Field ($marker.Count -eq 5) "Revit $Version 표식은 5행이어야 합니다."
     Assert-Field ($marker['RevitVersion'] -ceq $Version) "Revit $Version 표식 버전이 다릅니다."
     Assert-Field ($marker['IsRevitStubBuild'] -ceq 'false') "Revit $Version 스텁 산출물은 배포할 수 없습니다."
     Assert-Field ($marker['TargetFramework'] -ceq $(if ($Version -eq '2017') { 'net46' } elseif ([int]$Version -ge 2025) { 'net8.0-windows' } else { 'net48' })) "Revit $Version TFM 표식이 다릅니다."
-    Assert-Field ($marker['AssemblySha256'] -match '^[0-9A-F]{64}$') "Revit $Version DLL SHA-256 표식이 올바르지 않습니다."
-    Assert-Field ((Get-Sha256 $dll) -ceq $marker['AssemblySha256']) "Revit $Version DLL SHA-256이 표식과 다릅니다."
+    $expectedHash = ([string]$marker['AssemblySha256']).ToUpperInvariant()
+    Assert-Field ($expectedHash -match '^[0-9A-F]{64}$') "Revit $Version DLL SHA-256 표식이 올바르지 않습니다."
+    Assert-Field ((Get-Sha256 $dll) -ceq $expectedHash) "Revit $Version DLL SHA-256이 표식과 다릅니다."
     return $source
 }
 
@@ -66,6 +69,7 @@ function Verify-DesktopBuild {
         $matches = @($fileLines | Where-Object { $_.StartsWith(('File=' + $file.Name + '|'), [StringComparison]::Ordinal) })
         Assert-Field ($matches.Count -eq 1) "Desktop 파일 표식이 정확히 하나가 아닙니다: $($file.Name)"
         $expected = $matches[0].Substring(('File=' + $file.Name + '|').Length)
+        $expected = $expected.ToUpperInvariant()
         Assert-Field ($expected -match '^[0-9A-F]{64}$') "Desktop 파일 SHA-256 표식이 올바르지 않습니다: $($file.Name)"
         Assert-Field ((Get-Sha256 $file.FullName) -ceq $expected) "Desktop 파일 SHA-256이 표식과 다릅니다: $($file.Name)"
     }
@@ -78,9 +82,13 @@ try {
     Assert-Field ($RevitVersions.Count -gt 0) '하나 이상의 Revit 버전이 필요합니다.'
     $RevitVersions = @($RevitVersions | Select-Object -Unique)
     $revitSources = @($RevitVersions | ForEach-Object { Verify-RevitBuild $_ })
-    $desktopSource = Verify-DesktopBuild
-    $preflightSource = Join-Path $buildRoot 'preflight'
-    Assert-Field ([IO.File]::Exists((Join-Path $preflightSource 'THEKIE.Qto.Preflight.exe'))) 'Preflight 실행 파일이 없습니다.'
+    $desktopSource = $null
+    $preflightSource = $null
+    if ($IncludeDesktop) {
+        $desktopSource = Verify-DesktopBuild
+        $preflightSource = Join-Path $buildRoot 'preflight'
+        Assert-Field ([IO.File]::Exists((Join-Path $preflightSource 'Lukas.Qto.Preflight.exe'))) 'Preflight 실행 파일이 없습니다.'
+    }
     if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) { $ReleaseVersion = 'field-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') }
     Assert-Field ($ReleaseVersion -match '^[A-Za-z0-9][A-Za-z0-9._-]*$') 'ReleaseVersion에는 영문·숫자·점·밑줄·하이픈만 사용할 수 있습니다.'
 
@@ -94,27 +102,29 @@ try {
         $root = Join-Path $stage $leaf
         [IO.Directory]::CreateDirectory($root) | Out-Null
         [IO.Directory]::CreateDirectory((Join-Path $root 'deploy')) | Out-Null
-        [IO.Directory]::CreateDirectory((Join-Path $root 'build\Release')) | Out-Null
-        foreach ($document in @('README.md', 'FIELD_TEST_README.md', '1-BUILD-INSTALL-2025.bat', '2-DIAGNOSE-2025.bat')) {
+        [IO.Directory]::CreateDirectory((Join-Path (Join-Path $root 'build') 'Release')) | Out-Null
+        foreach ($document in @('README.md', 'FIELD_TEST_README.md', '1-INSTALL-2025.bat', '1-BUILD-INSTALL-2025.bat', '2-DIAGNOSE-2025.bat', '3-VERIFY-EXTRACTION-2025.bat')) {
             Copy-Item -LiteralPath (Join-Path $repoRoot $document) -Destination (Join-Path $root $document) -Force
         }
         foreach ($script in @('install.bat', 'install-user-2025.bat', 'uninstall-user-2025.bat', 'install-user-2025.ps1', 'uninstall-user-2025.ps1', 'diagnose-revit-addin.ps1', 'verify-field-package.ps1', 'verify-properties-ledger.ps1')) {
-            Copy-Item -LiteralPath (Join-Path $scriptRoot $script) -Destination (Join-Path $root ('deploy\' + $script)) -Force
+            Copy-Item -LiteralPath (Join-Path $scriptRoot $script) -Destination (Join-Path (Join-Path $root 'deploy') $script) -Force
         }
         foreach ($version in $RevitVersions) {
-            Copy-Item -LiteralPath (Join-Path $buildRoot ('Release\' + $version)) -Destination (Join-Path $root 'build\Release') -Recurse
+            Copy-Item -LiteralPath (Join-Path (Join-Path $buildRoot 'Release') $version) -Destination (Join-Path (Join-Path $root 'build') 'Release') -Recurse
         }
-        Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $root 'build') -Recurse
-        Copy-Item -LiteralPath $preflightSource -Destination (Join-Path $root 'build') -Recurse
+        if ($IncludeDesktop) {
+            Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $root 'build') -Recurse
+            Copy-Item -LiteralPath $preflightSource -Destination (Join-Path $root 'build') -Recurse
+        }
         $files = @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName | ForEach-Object {
             [pscustomobject]@{ path = $_.FullName.Substring($root.Length + 1).Replace('\', '/'); sha256 = Get-Sha256 $_.FullName; bytes = $_.Length }
         })
         $manifest = [pscustomobject]@{
-            product = 'Lukas QTO'
+            product = 'Hangil System BIM quantity takeoff'
             release_version = $ReleaseVersion
             created_at_utc = [DateTime]::UtcNow.ToString('o')
             revit_versions = $RevitVersions
-            desktop_runtime = 'net8.0-windows win-x64 framework-dependent'
+            package_mode = $(if ($IncludeDesktop) { 'Revit 2025 add-in plus desktop' } else { 'Revit 2025 add-in only; prebuilt no-SDK install' })
             files = $files
         }
         [IO.File]::WriteAllText((Join-Path $root 'release-manifest.json'), ($manifest | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))

@@ -4,11 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT="$REPO_ROOT/src/THEKIE.Qto.Preflight/THEKIE.Qto.Preflight.csproj"
-CLI_DLL="$REPO_ROOT/src/THEKIE.Qto.Preflight/bin/Release/net8.0/THEKIE.Qto.Preflight.dll"
+PROJECT="$REPO_ROOT/src/Lukas.Qto.Preflight/Lukas.Qto.Preflight.csproj"
+CLI_DLL="$REPO_ROOT/src/Lukas.Qto.Preflight/bin/Release/net8.0/Lukas.Qto.Preflight.dll"
 
-if [ -x /private/tmp/thekie-dotnet/dotnet ]; then
-    DOTNET_BIN=/private/tmp/thekie-dotnet/dotnet
+if [ -x /private/tmp/lukas-dotnet/dotnet ]; then
+    DOTNET_BIN=/private/tmp/lukas-dotnet/dotnet
 elif command -v dotnet >/dev/null 2>&1; then
     DOTNET_BIN="$(command -v dotnet)"
 else
@@ -21,12 +21,12 @@ TEMP_PARENT="$(CDPATH= cd "$TEMP_PARENT" && pwd -P)"
 if [ "$TEMP_PARENT" != / ]; then
     TEMP_PARENT="${TEMP_PARENT%/}"
 fi
-WORK_DIR="$(mktemp -d "$TEMP_PARENT/thekie-cli-integration.XXXXXX")"
+WORK_DIR="$(mktemp -d "$TEMP_PARENT/lukas-cli-integration.XXXXXX")"
 
 cleanup() {
     if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
         case "$WORK_DIR" in
-            "$TEMP_PARENT"/thekie-cli-integration.*) rm -rf "$WORK_DIR" ;;
+            "$TEMP_PARENT"/lukas-cli-integration.*) rm -rf "$WORK_DIR" ;;
             *) printf 'WARNING: refusing to clean unexpected path: %s\n' "$WORK_DIR" >&2 ;;
         esac
     fi

@@ -1,66 +1,61 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)"
-ZIP="$REPO_ROOT/site/public/downloads/Lukas-QTO-0.1.0-field-test.zip"
-SHA_FILE="$ZIP.sha256"
-PREFIX="Lukas-QTO-0.1.0-field-test"
-
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 
-test -f "$ZIP" || fail "field-test ZIP is missing"
-test -f "$SHA_FILE" || fail "field-test SHA file is missing"
-unzip -t "$ZIP" >/dev/null || fail "field-test ZIP is corrupt"
+launcher="$REPO_ROOT/1-BUILD-INSTALL-2025.bat"
+friendly="$REPO_ROOT/1-INSTALL-2025.bat"
+diagnostic="$REPO_ROOT/deploy/diagnose-revit-addin.ps1"
+packager="$REPO_ROOT/deploy/package-release.ps1"
+addin_template="$REPO_ROOT/addin/Lukas.Qto.addin"
+user_installer="$REPO_ROOT/deploy/install-user-2025.ps1"
+machine_installer="$REPO_ROOT/deploy/install.bat"
+diagnostic_launcher="$REPO_ROOT/2-DIAGNOSE-2025.bat"
 
-expected="$(awk 'NR==1 { print $1 }' "$SHA_FILE")"
-actual="$(shasum -a 256 "$ZIP" | awk '{ print $1 }')"
-test "$expected" = "$actual" || fail "field-test ZIP SHA mismatch"
-
-listing="$(unzip -Z1 "$ZIP")"
-for required in \
-    "$PREFIX/1-BUILD-INSTALL-2025.bat" \
-    "$PREFIX/2-DIAGNOSE-2025.bat" \
-    "$PREFIX/deploy/build-all.bat" \
-    "$PREFIX/deploy/install.bat" \
-    "$PREFIX/deploy/diagnose-revit-addin.ps1" \
-    "$PREFIX/deploy/verify-properties-ledger.ps1" \
-    "$PREFIX/src/THEKIE.Qto/THEKIE.Qto.csproj" \
-    "$PREFIX/FIELD_TEST_README.md"; do
-    printf '%s\n' "$listing" | grep -Fqx "$required" || fail "missing ZIP entry: $required"
+for path in "$launcher" "$friendly" "$diagnostic" "$packager" "$addin_template" "$user_installer" "$machine_installer" "$diagnostic_launcher"; do
+  test -f "$path" || fail "missing release contract file: $path"
 done
 
-if printf '%s\n' "$listing" | grep -Eq '(^|/)(__MACOSX|bin|obj)(/|$)'; then
-    fail "ZIP contains generated or macOS metadata"
+launcher_text="$(tr -d '\r' < "$launcher")"
+printf '%s\n' "$launcher_text" | grep -Fq 'build\Release\2025\Lukas.Qto.dll' || fail 'installer does not require the prebuilt DLL'
+printf '%s\n' "$launcher_text" | grep -Fq 'install-user-2025.bat" addin-only' || fail 'installer does not use the isolated per-user add-in path'
+printf '%s\n' "$launcher_text" | grep -Fq -- '-Scope Auto' || fail 'installer diagnostic does not inspect User and Machine locations'
+if printf '%s\n' "$launcher_text" | grep -Eq 'dotnet --list-sdks|build-all\.bat|dotnet\.microsoft\.com/download'; then
+  fail 'tester launcher still asks for an SDK or source build'
 fi
 
-launcher="$(unzip -p "$ZIP" "$PREFIX/1-BUILD-INSTALL-2025.bat" | tr -d '\r')"
-printf '%s\n' "$launcher" | grep -Fq 'pushd "%~dp0"' || fail "launcher is not path-independent"
-printf '%s\n' "$launcher" | grep -Fq 'deploy\build-all.bat" 2025' || fail "launcher does not build Revit 2025"
-printf '%s\n' "$launcher" | grep -Fq 'deploy\install.bat" 2025' || fail "launcher does not install Revit 2025"
-printf '%s\n' "$launcher" | grep -Fq 'build-all.bat" 2025 addin-only' || fail "field launcher lets unrelated Desktop errors block the add-in build"
-printf '%s\n' "$launcher" | grep -Fq 'install.bat" 2025 addin-only' || fail "field launcher installs unrelated Desktop components"
-printf '%s\n' "$launcher" | grep -Fq 'dotnet --list-sdks' || fail "launcher does not detect the .NET 8 SDK"
-printf '%s\n' "$launcher" | grep -Fq 'https://dotnet.microsoft.com/download/dotnet/8.0' || fail "launcher does not provide the official SDK download page"
-
-builder="$(unzip -p "$ZIP" "$PREFIX/deploy/build-all.bat" | tr -d '\r')"
-printf '%s\n' "$builder" | grep -Fq 'dotnet --list-sdks' || fail "builder does not detect the .NET 8 SDK"
-printf '%s\n' "$builder" | grep -Fq 'Preflight executable is missing' || fail "builder can falsely report a missing Preflight executable as OK"
-printf '%s\n' "$builder" | grep -Fq 'if !ADDIN_ONLY! EQU 1 goto :buildFinish' || fail "builder does not isolate the add-in field test"
-
-installer="$(unzip -p "$ZIP" "$PREFIX/deploy/install.bat" | tr -d '\r')"
-printf '%s\n' "$installer" | grep -Fq 'set REVIT_EXE=%ProgramW6432%\Autodesk\Revit %VERSION%\Revit.exe' || fail "installer does not check Revit.exe"
-printf '%s\n' "$installer" | grep -Fq 'if not exist "!TARGET!" mkdir "!TARGET!"' || fail "installer does not create add-in folder"
-printf '%s\n' "$installer" | grep -Fq 'if !ADDIN_ONLY! EQU 0 call :installDesktop' || fail "installer does not isolate the add-in field test"
-
-element_extractor="$(unzip -p "$ZIP" "$PREFIX/src/THEKIE.Qto/Core/ElementQuantityExtractor.cs")"
-quantity_extractor="$(unzip -p "$ZIP" "$PREFIX/src/THEKIE.Qto/Core/QuantityExtractor.cs")"
-if printf '%s\n%s\n' "$element_extractor" "$quantity_extractor" | grep -Eq 'PROPERTY_(VOLUME|AREA)_PARAM'; then
-    fail "add-in references BuiltInParameter names absent from the real Revit 2025 API"
+grep -Fq '1-BUILD-INSTALL-2025.bat' "$friendly" || fail 'friendly installer does not delegate to the compatible entry point'
+grep -Fq "ValidateSet('Auto', 'Machine', 'User')" "$diagnostic" || fail 'diagnostic has no Auto scope'
+grep -Fq 'ProductVersion' "$diagnostic" || fail 'diagnostic does not record the Revit point build'
+grep -Fq 'Duplicate valid add-ins' "$diagnostic" || fail 'diagnostic does not reject duplicate User/Machine installs'
+if grep -Fq '@($candidates)' "$diagnostic" || grep -Fq '@($checks)' "$diagnostic"; then
+  fail 'diagnostic uses a Windows PowerShell 5.1-incompatible generic-list array expression'
 fi
+grep -Fq '$candidates.ToArray()' "$diagnostic" || fail 'diagnostic does not materialize candidate manifests safely'
+grep -Fq '$checks.ToArray()' "$diagnostic" || fail 'diagnostic does not materialize check results safely'
 
-page_hash="$(sed -n 's/.*sha256: "\([0-9a-f]\{64\}\)".*/\1/p' "$REPO_ROOT/site/app/page.tsx")"
-test "$page_hash" = "$actual" || fail "website SHA does not match downloadable ZIP"
+canonical_addin_id='e36671a8-0944-465c-919e-1006dfd3610e'
+grep -Fqi "<AddInId>$canonical_addin_id</AddInId>" "$addin_template" || fail 'addin template does not use the canonical AddInId'
+grep -Fqi "\$canonicalAddInId = '$canonical_addin_id'" "$user_installer" || fail 'per-user installer does not declare the canonical AddInId'
+grep -Fq '<AddInId>$canonicalAddInId</AddInId>' "$user_installer" || fail 'per-user manifest does not use the canonical AddInId variable'
+grep -Fqi "^<AddInId^>$canonical_addin_id^</AddInId^>" "$machine_installer" || fail 'machine installer does not use the canonical AddInId'
 
-printf 'Field Test Kit contract passed: %s\n' "$actual"
+grep -Fq 'THEKIE.Qto.addin' "$diagnostic" || fail 'diagnostic does not inspect the legacy THEKIE manifest name'
+grep -Fq 'THEKIE.Qto.addin' "$user_installer" || fail 'per-user installer does not handle the legacy THEKIE manifest name'
+grep -Fq 'THEKIE.Qto.addin' "$machine_installer" || fail 'machine installer does not handle the legacy THEKIE manifest name'
+grep -Fq 'Assert-NoActiveConflict (Join-Path $machineAddinRoot' "$user_installer" || fail 'per-user installer does not reject an active machine installation'
+if grep -Fq 'Disable-KnownConflict' "$user_installer"; then
+  fail 'per-user installer must not mutate a machine-wide installation'
+fi
+grep -Fq 'USER_MANIFEST' "$machine_installer" || fail 'machine installer does not reject a per-user duplicate'
+grep -Fq "Add-Check 'installation_receipt'" "$diagnostic" || fail 'diagnostic does not bind the installed DLL to its receipt hash'
+
+grep -Fq 'chcp 65001' "$launcher" || fail 'installer launcher does not select UTF-8 before writing field logs'
+grep -Fq 'chcp 65001' "$diagnostic_launcher" || fail 'diagnostic launcher does not select UTF-8 before printing non-ASCII paths'
+grep -Fq "[string[]]\$RevitVersions = @('2025')" "$packager" || fail 'official beta is not limited to Revit 2025 by default'
+grep -Fq "'1-INSTALL-2025.bat'" "$packager" || fail 'release ZIP omits the friendly installer'
+grep -Fq "prebuilt no-SDK install" "$packager" || fail 'release manifest does not identify the no-build package mode'
+
+printf 'Field Test Kit contract passed: prebuilt Revit 2025 installer, Auto diagnostic, no tester SDK.\n'

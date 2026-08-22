@@ -43,7 +43,7 @@ XLSX 매핑의 내역ID·검산키는 수식이나 숫자 셀이 아닌 명시�
 ## 매핑 템플릿
 
 ```sh
-dotnet run --project src/THEKIE.Qto.Preflight -- --sources samples/source-manifest.csv --mapping-template samples/qto.csv samples/estimate.csv mapping-template.xlsx qto-index.xlsx
+dotnet run --project src/Lukas.Qto.Preflight -- --sources samples/source-manifest.csv --mapping-template samples/qto.csv samples/estimate.csv mapping-template.xlsx qto-index.xlsx
 ```
 
 템플릿에서 검산키를 `qto-index.xlsx`에서 복사하고 `승인`을 `Y`로 바꾸면 그대로 매핑 XLSX로 사용할 수 있다. 템플릿과 인덱스는 모든 셀을 OOXML 텍스트 타입으로 저장하므로 `001` 같은 기계 ID가 스프레드시트에서 `1`로 바뀌지 않는다. CSV 템플릿 출력은 자동 형변환 위험 때문에 제공하지 않는다.
@@ -51,8 +51,8 @@ dotnet run --project src/THEKIE.Qto.Preflight -- --sources samples/source-manife
 ## 실행
 
 ```sh
-dotnet run --project src/THEKIE.Qto.Preflight -- --sources samples/source-manifest.csv samples/qto.csv samples/estimate.csv samples/mapping.csv samples/report.csv
-dotnet run --project tests/THEKIE.Qto.Core.SelfTest
+dotnet run --project src/Lukas.Qto.Preflight -- --sources samples/source-manifest.csv samples/qto.csv samples/estimate.csv samples/mapping.csv samples/report.csv
+dotnet run --project tests/Lukas.Qto.Core.SelfTest
 ```
 
 종료 코드 0은 소스 게이트를 통과한 실행에 FAIL 없음, 1은 FAIL 있음, 2는 입력 또는 실행 오류, 3은 결과는 만들었지만 소스 게이트를 건너뛴 진단 실행이다. 따라서 자동화는 코드 3을 승인 결과로 취급하면 안 된다.

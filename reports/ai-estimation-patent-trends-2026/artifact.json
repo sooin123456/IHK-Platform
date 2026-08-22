@@ -1,0 +1,345 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "AI 적산의 미래 데이터와 특허 방향",
+    "description": "해외 제품, 표준, 특허를 바탕으로 Lukas QTO의 데이터·AI·특허 전략을 제안하는 2026 리서치",
+    "generatedAt": "2026-08-14T18:00:00+09:00",
+    "sources": [
+      {
+        "id": "rics-2025",
+        "label": "RICS AI in Construction Report 2025",
+        "href": "https://www.rics.org/news-insights/artificial-intelligence-in-construction-report",
+        "query": {
+          "sql": "SELECT * FROM (VALUES ('AI가 더 큰 가치를 제공할 것이라 본 QS·건설 전문가',0.67,'수요 기대는 높지만 신뢰·업무설계가 필요'),('AI 미사용 조직',0.45,'대부분은 아직 도입 전 또는 실험 단계'),('인력·역량 부족을 장벽으로 본 응답',0.46,'전문가 승인 UX와 교육이 제품 일부여야 함'),('시스템 통합을 장벽으로 본 응답',0.37,'기존 Revit·Excel·원가 DB 연결이 핵심'),('데이터 품질을 장벽으로 본 응답',0.30,'원본·수정·정답 provenance가 경쟁력'),('전 프로젝트로 AI를 확장한 조직',0.01,'완전 자동 주장보다 좁은 성공 사례가 중요')) AS rics(metric,value,meaning)",
+          "description": "RICS 2025 공개 보고서의 비율과 제품 시사점을 고정 스냅샷으로 전사했다.",
+          "tables_used": ["RICS AI in Construction Report 2025"]
+        }
+      },
+      {
+        "id": "autodesk-takeoff",
+        "label": "Autodesk Takeoff documentation",
+        "href": "https://help.autodesk.com/cloudhelp/ENU/Takeoff-Takeoff/files/Symbol_Detect.html"
+      },
+      {
+        "id": "kreo",
+        "label": "Kreo AI Takeoff product",
+        "href": "https://www.kreo.net/"
+      },
+      {
+        "id": "togal",
+        "label": "Togal AI Takeoff product",
+        "href": "https://www.togal.ai/"
+      },
+      {
+        "id": "rib-costx",
+        "label": "RIB CostX product",
+        "href": "https://www.rib-software.com/en/rib-costx"
+      },
+      {
+        "id": "nplan",
+        "label": "nPlan AI dataset and product",
+        "href": "https://www.nplan.io/our-ai"
+      },
+      {
+        "id": "icms",
+        "label": "International Cost Management Standard 3",
+        "href": "https://icms-coalition.org/the-standard/"
+      },
+      {
+        "id": "ifc-cost",
+        "label": "buildingSMART IfcCostQuantity",
+        "href": "https://standards.buildingsmart.org/IFC/RELEASE/IFC2x/FINAL/HTML/ifccostresource/lexical/ifccostquantity.html"
+      },
+      {
+        "id": "case-synthesis",
+        "label": "해외 제품 1차 자료 종합",
+        "query": {
+          "engine": "web research",
+          "language": "English",
+          "sql": "SELECT * FROM (VALUES ('Autodesk Takeoff','2D·3D 수량과 사람 확인','분류·수량·단가·탄소·개정'),('Kreo Caddie','AI takeoff와 반복 작업 스킬','품목·조립식·공식·사용자 피드백'),('Togal.AI','도면 객체·영역 검출과 비교','경계·재료·노무·수정 이력'),('RIB CostX','2D·BIM 수량과 live-linked estimate','도면·워크북·단가·개정 감사'),('nPlan','과거 일정 기반 위험 예측','as-planned/as-built 일정 그래프'),('Tangible','Revit·PDF·시방·EPD AI takeoff','가족·조립식·문서·EPD')) AS cases(company,current,data_moat)",
+          "description": "Autodesk, Kreo, Togal, RIB CostX, nPlan 및 Autodesk App Store의 공식 제품 자료를 비교했다.",
+          "tables_used": [
+            "autodesk.com",
+            "kreo.net",
+            "togal.ai",
+            "rib-software.com",
+            "nplan.io",
+            "apps.autodesk.com"
+          ]
+        }
+      },
+      {
+        "id": "patent-synthesis",
+        "label": "AI 적산 핵심 특허군",
+        "query": {
+          "engine": "Google Patents",
+          "language": "English/Korean",
+          "sql": "SELECT * FROM (VALUES ('US9208264B2','Autodesk','2007-09-10','Active'),('US11625553B2','BuildingEstimates.com','2021-06-01','Active'),('US12124772B2','Togal AI','2021-03-09','Active'),('EP3921771B1','Matrak Shield','2019-02-07','Active'),('WO2023064387A1','Procore','2021-10-12','PCT ceased 표시'),('WO2026005337A1','Fobecon','2024-06-28','Pending')) AS patents(publication,assignee,priority,status)",
+          "description": "2026년 8월 14일 기준 공개 공보의 서지·청구항·법적 상태 표시를 비교했다. 법적 상태는 관할 특허청과 전문가 확인이 필요하다.",
+          "tables_used": [
+            "US9208264B2",
+            "US11625553B2",
+            "US12124772B2",
+            "EP3921771B1",
+            "WO2023064387A1",
+            "WO2026005337A1"
+          ]
+        }
+      },
+      {
+        "id": "standards-synthesis",
+        "label": "미래 적산 데이터 구조 종합",
+        "query": {
+          "engine": "standards and product research",
+          "language": "English/Korean",
+          "sql": "SELECT * FROM (VALUES (1,'원본·개정'),(2,'추출·판정'),(3,'사람 승인'),(4,'원가·탄소'),(5,'실제 결과')) AS layers(order_no,layer)",
+          "description": "ICMS, IFC cost entities, Autodesk Takeoff data fields, 해외 제품 데이터 루프 및 Lukas QTO 저장소 감사를 종합했다.",
+          "tables_used": [
+            "ICMS 3",
+            "IfcCostQuantity",
+            "Autodesk Takeoff Data Connector",
+            "Lukas QTO repository audit"
+          ]
+        }
+      }
+    ],
+    "charts": [
+      {
+        "id": "rics-adoption-chart",
+        "title": "건설 AI 도입 기대와 현실",
+        "subtitle": "RICS 2025 글로벌 조사, 응답 비율",
+        "dataset": "adoption",
+        "type": "horizontalBar",
+        "intent": "comparison",
+        "question": "건설 AI에 대한 기대, 실제 도입 수준, 주요 장애물은 어느 정도인가?",
+        "rationale": "여섯 개의 긴 범주명을 한 단위의 응답 비율로 비교하므로 수평 막대가 가장 직접적이다.",
+        "comparisonContext": {
+          "unit": "응답 비율",
+          "denominator": "RICS 2025 조사 응답자 또는 응답 조직",
+          "grain": "설문 지표"
+        },
+        "encodings": {
+          "x": { "field": "metric", "type": "nominal", "label": "지표" },
+          "y": { "field": "value", "type": "quantitative", "label": "응답 비율", "format": "percent" },
+          "label": { "field": "value", "type": "quantitative", "format": "percent" }
+        },
+        "source": {
+          "label": "RICS AI in Construction Report 2025",
+          "href": "https://www.rics.org/news-insights/artificial-intelligence-in-construction-report",
+          "query": {
+            "sql": "SELECT 'AI가 더 큰 가치를 제공할 것이라 본 QS·건설 전문가' AS metric, 0.67 AS value UNION ALL SELECT 'AI 미사용 조직', 0.45 UNION ALL SELECT '인력·역량 부족을 장벽으로 본 응답', 0.46 UNION ALL SELECT '시스템 통합을 장벽으로 본 응답', 0.37 UNION ALL SELECT '데이터 품질을 장벽으로 본 응답', 0.30 UNION ALL SELECT '전 프로젝트로 AI를 확장한 조직', 0.01",
+            "description": "RICS 2025 보고서에 공개된 설문 비율을 차트용 스냅샷으로 전사했다.",
+            "tables_used": ["RICS AI in Construction Report 2025"],
+            "metric_definitions": { "value": "공개 보고서의 응답 비율(0~1)" }
+          }
+        },
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "adoption-table",
+        "title": "건설 AI 도입 신호",
+        "subtitle": "RICS 2025 글로벌 조사, 조직 응답 기준",
+        "dataset": "adoption",
+        "density": "spacious",
+        "layout": "full",
+        "sourceId": "rics-2025",
+        "defaultSort": { "field": "value", "direction": "desc" },
+        "columns": [
+          { "field": "metric", "label": "지표", "type": "text" },
+          { "field": "value", "label": "비율", "format": "percent" },
+          { "field": "meaning", "label": "제품 의미", "type": "text" }
+        ]
+      },
+      {
+        "id": "cases-table",
+        "title": "해외 AI 적산·인접 제품 사례",
+        "subtitle": "제품이 축적하는 데이터와 Lukas QTO에 주는 시사점",
+        "dataset": "cases",
+        "density": "spacious",
+        "layout": "full",
+        "sourceId": "case-synthesis",
+        "defaultSort": { "field": "company", "direction": "asc" },
+        "columns": [
+          { "field": "company", "label": "회사·제품", "type": "text" },
+          { "field": "current", "label": "현재 자동화", "type": "text" },
+          { "field": "data_moat", "label": "축적 데이터", "type": "text" },
+          { "field": "implication", "label": "Lukas 시사점", "type": "text" }
+        ]
+      },
+      {
+        "id": "patents-table",
+        "title": "핵심 특허·출원 지도",
+        "subtitle": "2026년 8월 14일 공개 정보 기준, 법률상 FTO 의견 아님",
+        "dataset": "patents",
+        "density": "spacious",
+        "layout": "full",
+        "sourceId": "patent-synthesis",
+        "defaultSort": { "field": "priority", "direction": "desc" },
+        "columns": [
+          { "field": "publication", "label": "공개번호", "type": "text" },
+          { "field": "assignee", "label": "권리자·출원인", "type": "text" },
+          { "field": "priority", "label": "우선일", "type": "date" },
+          { "field": "status", "label": "표시 상태", "type": "text" },
+          { "field": "claim_area", "label": "핵심 영역", "type": "text" },
+          { "field": "risk", "label": "Lukas 관점", "type": "text" }
+        ]
+      },
+      {
+        "id": "data-layers-table",
+        "title": "미래 적산 데이터 계층",
+        "subtitle": "AI 모델보다 먼저 축적해야 할 운영 데이터 계약",
+        "dataset": "data_layers",
+        "density": "spacious",
+        "layout": "full",
+        "sourceId": "standards-synthesis",
+        "defaultSort": { "field": "layer", "direction": "asc" },
+        "columns": [
+          { "field": "layer", "label": "계층", "type": "text" },
+          { "field": "must_store", "label": "필수 저장값", "type": "text" },
+          { "field": "future_use", "label": "향후 AI 활용", "type": "text" }
+        ]
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "layout": "full",
+        "body": "# AI 적산의 미래 데이터와 특허 방향"
+      },
+      {
+        "id": "executive-summary",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Executive Summary\n\n- **승부처는 단일 AI 모델이 아니라 학습 가능한 적산 데이터 루프다.** 해외 선두 제품은 도면·BIM 추출, 사람 검토, 품목·조립식, 단가, 개정, 탄소, 실제 결과를 한 흐름에 연결하고 있다.\n- **시장은 아직 초기다.** RICS 2025 조사에서 조직의 45%는 AI를 사용하지 않았고 전 프로젝트 규모로 확장한 곳은 1%에 불과했다. 기술 선점보다 데이터 품질·업무 통합·책임 있는 승인 구조가 상용화의 병목이다.\n- **2D 도면 자동 인식은 특허가 밀집한 영역이다.** Autodesk, Togal, BuildingEstimates.com, Matrak 계열의 등록 특허와 한국 Fobecon의 PCT 출원이 도면 인식→영역·물량→비용·내역서 흐름을 넓게 다룬다.\n- **Lukas QTO는 검증 데이터 계층을 우선해야 한다.** Revit 공식 API 추출, 요소·파일 SHA, 규칙 버전, 사람 승인, 개정 차이, 최종 정산을 묶고 AI는 우선 분류·매핑·이상치 제안에만 사용한다."
+      },
+      {
+        "id": "market-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 시장은 완전 자동보다 검토 가능한 AI를 먼저 채택한다\n\nRICS의 글로벌 조사에서는 기대와 실제 도입 사이의 간극이 크다. 데이터 품질과 시스템 통합이 기술 자체만큼 큰 장애물이며, Autodesk의 심벌 검출도 자동 결과를 사람이 확인한 후 수량으로 저장하도록 설계되어 있다. 따라서 초기 제품의 성공 기준은 ‘AI가 몇 개를 자동 계산했는가’보다 ‘근거와 신뢰도를 보여주고 사람이 빠르게 승인했는가’여야 한다."
+      },
+      {
+        "id": "adoption-chart-block",
+        "type": "chart",
+        "layout": "full",
+        "chartId": "rics-adoption-chart"
+      },
+      {
+        "id": "adoption-block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "adoption-table"
+      },
+      {
+        "id": "cases-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 해외 경쟁력은 과거 프로젝트를 재사용 가능한 지식으로 바꾸는 데서 나온다\n\nAutodesk와 RIB는 2D·3D 수량을 분류·단가·개정·탄소 데이터에 연결한다. Kreo는 사용자의 품목·조립식·공식과 반복 작업을 재사용 가능한 데이터베이스와 스킬로 만들고, nPlan은 대규모 과거 프로젝트 일정 자체를 경쟁 자산으로 삼는다. 공통점은 결과 CSV 한 장이 아니라 프로젝트 간 재사용 가능한 데이터 구조를 만든다는 점이다."
+      },
+      {
+        "id": "cases-block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "cases-table"
+      },
+      {
+        "id": "patent-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 특허 밀집 구간은 2D 도면 인식에서 비용 내역서까지의 직선형 자동화다\n\n활성 특허군은 객체·영역 검출, 도면 스케일, 폴리곤 경계, 자재·노무비 연결, 사람 수정 UI, 프로젝트 지식 재사용을 서로 다른 조합으로 청구한다. 특히 2026년 공개된 Fobecon PCT 출원은 도면 좌표의 원시 데이터, 공간 인식, 특기시방 예외, 근거 라인, 산출내역서까지 포함해 한국 적산 제품과 직접 가까운 범위를 다룬다. Lukas가 2D AI 자동 적산을 개발하려면 기능 구현 전에 청구항별 FTO 검토가 필요하다."
+      },
+      {
+        "id": "patents-block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "patents-table"
+      },
+      {
+        "id": "data-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Lukas가 먼저 소유해야 할 것은 ‘정답 데이터’가 아니라 ‘정답이 확정되는 과정’이다\n\n원본 도면·모델, 추출값, 계산 규칙, 사람 수정, 계약·정산 결과를 같은 식별자와 개정 체계로 연결해야 한다. ICMS는 비용과 탄소를 일관되게 분류하는 틀을 제공하고, IFC는 기본수량·최종수량·손실률·반올림 근거를 구분할 수 있다. 이 구조가 쌓이면 AI는 검증 가능한 추천을 만들 수 있지만, 최종 숫자만 저장하면 왜 틀렸는지 학습할 수 없다."
+      },
+      {
+        "id": "data-block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "data-layers-table"
+      },
+      {
+        "id": "next-steps",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 권고 실행 순서\n\n1. **0~6개월: 데이터 기반을 완성한다.** Revit·IFC·도면·QTO·내역서·규칙·사람 승인·개정을 하나의 프로젝트 그래프로 저장하고, 산출물마다 원본 좌표 또는 Element ID와 SHA를 유지한다.\n2. **6~12개월: AI는 제안 기능부터 도입한다.** 공종·품목 매핑 추천, 누락·중복·이상치 탐지, 유사 과거 항목 검색, 변경 영향 요약을 제공하되 수량과 금액 판정은 결정론적 엔진과 승인자가 확정한다.\n3. **12~24개월: 실제 결과로 학습한다.** 견적→계약→변경→기성→정산의 차이를 수집하고 지역·시점·규격별 단가와 생산성 범위를 학습한다. 대표성 있는 승인 데이터와 별도 검증 세트가 확보된 뒤에만 예측 모델을 제품 판정에 사용한다.\n4. **특허 전략은 검출 모델이 아니라 근거 결합 구조에 둔다.** ‘AI로 도면을 읽는다’는 넓은 주제보다 Revit/IFC/내역/규칙/승인/정산을 암호학적 출처와 개정 그래프로 연결해 재검증하는 구체적 시스템을 발명 포인트로 검토한다."
+      },
+      {
+        "id": "further-questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 다음 의사결정 전에 답해야 할 질문\n\n- 첫 학습 범위를 콘크리트·철근·거푸집 중 어디로 제한할 것인가?\n- 한길시스템의 과거 프로젝트에서 견적·계약·변경·정산을 같은 품목 코드로 연결할 수 있는가?\n- 고객 데이터의 학습 사용 동의, 익명화, 보존 기간, 모델 개선 권리는 어떻게 계약할 것인가?\n- 한국 품셈·시장단가·자재가격 데이터의 저장·가공·재배포 권리를 확보할 수 있는가?\n- Fobecon 및 미국·유럽 등록 특허군과 대비한 청구항별 회피 설계를 어느 관할부터 검토할 것인가?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 전제와 한계\n\n이 리서치는 2026년 8월 14일 공개된 회사 자료, 표준 문서, 특허 공개공보를 바탕으로 한 제품 전략 조사다. 회사가 제시한 정확도·시간 절감 수치는 독립 벤치마크가 아니라 자사 주장으로 취급했다. Google Patents의 법적 상태 표시는 참고값이며 특허 유효성, 침해 여부, 자유실시 가능성에 대한 법률 의견이 아니다. 실제 개발 착수 전 한국·미국·유럽 관할의 변리사 검토가 필요하다."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-14T18:00:00+09:00",
+    "status": "ready",
+    "datasets": {
+      "adoption": [
+        { "metric": "AI가 더 큰 가치를 제공할 것이라 본 QS·건설 전문가", "value": 0.67, "meaning": "수요 기대는 높지만 신뢰·업무설계가 필요" },
+        { "metric": "AI 미사용 조직", "value": 0.45, "meaning": "대부분은 아직 도입 전 또는 실험 단계" },
+        { "metric": "인력·역량 부족을 장벽으로 본 응답", "value": 0.46, "meaning": "전문가 승인 UX와 교육이 제품 일부여야 함" },
+        { "metric": "시스템 통합을 장벽으로 본 응답", "value": 0.37, "meaning": "기존 Revit·Excel·원가 DB 연결이 핵심" },
+        { "metric": "데이터 품질을 장벽으로 본 응답", "value": 0.30, "meaning": "원본·수정·정답 provenance가 경쟁력" },
+        { "metric": "전 프로젝트로 AI를 확장한 조직", "value": 0.01, "meaning": "완전 자동 주장보다 좁은 성공 사례가 중요" }
+      ],
+      "cases": [
+        { "company": "Autodesk Takeoff", "current": "2D 심벌 검출과 사람 확인, 3D 모델 수량, Estimate 연결", "data_moat": "분류·수량·단가·탄소·패키지·개정·문서 ID", "implication": "수량과 비용·탄소·개정을 같은 데이터 모델로 연결" },
+        { "company": "Kreo Caddie", "current": "도면 영역·개수·분류, 대화형 에이전트, 반복 작업 스킬", "data_moat": "품목·조립식·공식·사용자 피드백·과거 견적", "implication": "사람 수정과 회사별 규칙을 재사용 자산으로 축적" },
+        { "company": "Togal.AI", "current": "도면 객체·영역 검출, 측정·비교, 클라우드 협업", "data_moat": "도면 경계·영역·재료·노무·사용자 수정·프로젝트 지식", "implication": "2D 자동 검출은 강한 특허 경쟁 영역" },
+        { "company": "RIB CostX", "current": "2D·BIM 수량, 단가 라이브러리, 자동 개정, 비용·탄소 추적", "data_moat": "도면-측정-워크북-단가-개정의 live link와 감사 이력", "implication": "Excel 내보내기보다 원본으로 되돌아가는 양방향 근거가 중요" },
+        { "company": "nPlan", "current": "과거 일정 기반 지연·위험 예측", "data_moat": "75만 개 이상 as-planned/as-built 일정과 관계 그래프", "implication": "장기 경쟁력은 모델보다 정규화된 실제 프로젝트 결과 데이터" },
+        { "company": "Tangible", "current": "Revit·PDF·시방·EPD를 읽는 AI takeoff와 비용·탄소 분석", "data_moat": "모델 가족-조립식 매핑, 문서 의도, EPD, 설계 마일스톤", "implication": "도면 한 종류가 아니라 모델·시방·환경 데이터를 결합" }
+      ],
+      "patents": [
+        { "publication": "US9208264B2", "assignee": "Autodesk", "priority": "2007-09-10", "status": "Active; 표시 만료 2029-11-15", "claim_area": "CAD 객체 GUID를 takeoff 객체·측정방식·원가·분류와 매핑", "risk": "BIM 객체→수량·원가 매핑 UI를 미국에서 구현할 때 검토" },
+        { "publication": "US11625553B2", "assignee": "BuildingEstimates.com", "priority": "2021-06-01", "status": "Active", "claim_area": "다중 2D 도면의 AI 객체 인식, 신뢰도, 수량·BOM·견적·BIM·비교", "risk": "범용 2D AI 적산 전체 파이프라인과 겹침 가능" },
+        { "publication": "US12124772B2", "assignee": "Togal AI", "priority": "2021-03-09", "status": "Active", "claim_area": "2D 경계·인접 영역·우선순위로 자재·노무 수량과 bid 생성, 사용자 수정", "risk": "방·벽 경계 자동화와 대화형 수정 UI에서 핵심 검토" },
+        { "publication": "EP3921771B1", "assignee": "Matrak Shield", "priority": "2019-02-07", "status": "Active", "claim_area": "CNN 도면 분류, 확률 행렬, 특징 좌표·고유 ID로 material takeoff", "risk": "유럽 2D CNN takeoff 구현 시 청구항 대비 필요" },
+        { "publication": "WO2023064387A1", "assignee": "Procore", "priority": "2021-10-12", "status": "PCT ceased 표시; 국가단계 별도 확인", "claim_area": "복수 영상처리 결과를 합쳐 방·영역 폴리곤 자동 검출", "risk": "PCT 상태만 보고 안전하다고 판단하면 안 됨" },
+        { "publication": "WO2026005337A1", "assignee": "Fobecon", "priority": "2024-06-28", "status": "Pending", "claim_area": "2D CAD AI 물량·내역서, 공간·특기시방 예외, 도면 근거 라인·원시 좌표", "risk": "한국 적산 서비스와 가장 직접적으로 가까운 신규 출원" }
+      ],
+      "data_layers": [
+        { "order": 1, "layer": "원본·개정", "must_store": "프로젝트·문서·시트·RVT/IFC 버전·파일 SHA·Element/Global ID·도면 좌표·스케일", "future_use": "재현, 개정 비교, 멀티모달 정합" },
+        { "order": 2, "layer": "추출·판정", "must_store": "객체/공종/재료 분류, 기본수량, 단위, 산출 basis, 신뢰도, 모델 버전, 누락 사유", "future_use": "분류 추천, 이상치 탐지, 불확실성 보정" },
+        { "order": 3, "layer": "사람 승인", "must_store": "AI 제안 전후 값, 승인·기각, 수정 이유, 승인자 역할, 시각, 근거 위치", "future_use": "회사별 규칙 학습, human-in-the-loop 평가" },
+        { "order": 4, "layer": "원가·탄소", "must_store": "품목·분류 코드, 조립식·공식 버전, 재료·노무·장비 단가, 지역·시점·통화, 손율·반올림, EPD", "future_use": "시점·지역 보정, 대안 설계, 비용-탄소 최적화" },
+        { "order": 5, "layer": "실제 결과", "must_store": "견적·입찰·계약·변경·기성·정산, 실제 소비량·생산성·공기, 차이 원인", "future_use": "예측 오차 학습, 리스크 범위, 유사 프로젝트 벤치마크" }
+      ]
+    }
+  },
+  "sources": [
+    { "id": "rics-2025", "label": "RICS AI in Construction Report 2025", "href": "https://www.rics.org/news-insights/artificial-intelligence-in-construction-report" },
+    { "id": "autodesk-takeoff", "label": "Autodesk Takeoff documentation", "href": "https://help.autodesk.com/cloudhelp/ENU/Takeoff-Takeoff/files/Symbol_Detect.html" },
+    { "id": "kreo", "label": "Kreo AI Takeoff product", "href": "https://www.kreo.net/" },
+    { "id": "togal", "label": "Togal AI Takeoff product", "href": "https://www.togal.ai/" },
+    { "id": "rib-costx", "label": "RIB CostX product", "href": "https://www.rib-software.com/en/rib-costx" },
+    { "id": "nplan", "label": "nPlan AI dataset and product", "href": "https://www.nplan.io/our-ai" },
+    { "id": "icms", "label": "International Cost Management Standard 3", "href": "https://icms-coalition.org/the-standard/" },
+    { "id": "ifc-cost", "label": "buildingSMART IfcCostQuantity", "href": "https://standards.buildingsmart.org/IFC/RELEASE/IFC2x/FINAL/HTML/ifccostresource/lexical/ifccostquantity.html" },
+    { "id": "case-synthesis", "label": "해외 제품 1차 자료 종합", "query": { "engine": "web research", "language": "English", "description": "공식 제품 자료 비교", "tables_used": ["autodesk.com", "kreo.net", "togal.ai", "rib-software.com", "nplan.io", "apps.autodesk.com"] } },
+    { "id": "patent-synthesis", "label": "AI 적산 핵심 특허군", "query": { "engine": "Google Patents", "language": "English/Korean", "description": "공개 공보 비교; 법률 의견 아님", "tables_used": ["US9208264B2", "US11625553B2", "US12124772B2", "EP3921771B1", "WO2023064387A1", "WO2026005337A1"] } },
+    { "id": "standards-synthesis", "label": "미래 적산 데이터 구조 종합", "query": { "engine": "standards and product research", "language": "English/Korean", "description": "ICMS, IFC, Autodesk 및 Lukas 감사 종합", "tables_used": ["ICMS 3", "IfcCostQuantity", "Autodesk Takeoff Data Connector", "Lukas QTO repository audit"] } }
+  ]
+}

@@ -8,8 +8,8 @@ fi
 
 ROOT=$1
 REPO=$(cd "$(dirname "$0")/.." && pwd -P)
-if [[ -x /private/tmp/thekie-dotnet/dotnet ]]; then
-  DOTNET=/private/tmp/thekie-dotnet/dotnet
+if [[ -x /private/tmp/lukas-dotnet/dotnet ]]; then
+  DOTNET=/private/tmp/lukas-dotnet/dotnet
 else
   DOTNET=$(command -v dotnet || true)
 fi
@@ -39,17 +39,17 @@ ZJ01=$(find_one 'ZJ240507_01*')
 ZG04A=$(find_one 'ZG240507_04A*')
 ZJ02=$(find_one 'ZJ240507_02*')
 
-export DOTNET_CLI_HOME=${DOTNET_CLI_HOME:-/private/tmp/thekie-dotnet-home}
-export NUGET_PACKAGES=${NUGET_PACKAGES:-/private/tmp/thekie-nuget}
-"$DOTNET" build "$REPO/src/THEKIE.Qto.Preflight/THEKIE.Qto.Preflight.csproj" -c Release --no-restore -p:UseSharedCompilation=false >/dev/null
-"$DOTNET" build "$REPO/tests/THEKIE.Qto.StructuralFixtureTest/THEKIE.Qto.StructuralFixtureTest.csproj" -c Release --no-restore -p:UseSharedCompilation=false >/dev/null
+export DOTNET_CLI_HOME=${DOTNET_CLI_HOME:-/private/tmp/lukas-dotnet-home}
+export NUGET_PACKAGES=${NUGET_PACKAGES:-/private/tmp/lukas-nuget}
+"$DOTNET" build "$REPO/src/Lukas.Qto.Preflight/Lukas.Qto.Preflight.csproj" -c Release --no-restore -p:UseSharedCompilation=false >/dev/null
+"$DOTNET" build "$REPO/tests/Lukas.Qto.StructuralFixtureTest/Lukas.Qto.StructuralFixtureTest.csproj" -c Release --no-restore -p:UseSharedCompilation=false >/dev/null
 
-"$DOTNET" "$REPO/tests/THEKIE.Qto.StructuralFixtureTest/bin/Release/net8.0/THEKIE.Qto.StructuralFixtureTest.dll" \
+"$DOTNET" "$REPO/tests/Lukas.Qto.StructuralFixtureTest/bin/Release/net8.0/Lukas.Qto.StructuralFixtureTest.dll" \
   "$ZG02" "$ZG03" "$ZJ01" "$ZG04A" "$ZJ02"
 
 TMP_DIR=$(mktemp -d "/private/tmp/lukas-project-fixtures.XXXXXX")
 trap 'rm -rf "$TMP_DIR"' EXIT
-CLI="$REPO/src/THEKIE.Qto.Preflight/bin/Release/net8.0/THEKIE.Qto.Preflight.dll"
+CLI="$REPO/src/Lukas.Qto.Preflight/bin/Release/net8.0/Lukas.Qto.Preflight.dll"
 
 assert_count() {
   local report=$1 rule=$2 status=$3 expected=$4
