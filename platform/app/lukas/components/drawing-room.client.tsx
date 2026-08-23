@@ -27,6 +27,7 @@ import type {
   DrawingIssue,
 } from "~/lukas/lib/drawing-collaboration.types";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
+import type { DrawingViewerAnchor } from "~/lukas/lib/drawing-anchor-navigation";
 
 type Comment = {
   id: string;
@@ -50,6 +51,7 @@ export default function DrawingRoomClient({
   revisionReview,
   assignees,
   anchors,
+  activeAnchor,
   approvals,
   currentUserId,
   events,
@@ -67,6 +69,7 @@ export default function DrawingRoomClient({
   revisionReview: DrawingRevisionReviewItem[];
   assignees: DrawingAssignee[];
   anchors: DrawingAnchorRow[];
+  activeAnchor: DrawingViewerAnchor | null;
   approvals: DrawingApprovalRow[];
   currentUserId: string;
   events: DrawingEventRow[];
@@ -230,9 +233,22 @@ export default function DrawingRoomClient({
         >
           {file.kind === "ifc" ? (
             <IfcPropertyBrowser
+              activeAnchor={
+                activeAnchor?.kind === "ifc_element"
+                  ? {
+                      elementId: activeAnchor.elementId,
+                      camera: activeAnchor.camera,
+                    }
+                  : null
+              }
               byteSize={file.byte_size}
               fileName={file.original_filename}
-              initialGlobalId={initialGlobalId}
+              sourceKey={file.id}
+              initialGlobalId={
+                activeAnchor?.kind === "ifc_element"
+                  ? activeAnchor.ifcGlobalId
+                  : initialGlobalId
+              }
               onAnchorSelected={(anchor) => {
                 setPendingAnchor({
                   kind: "ifc_element",
@@ -246,6 +262,9 @@ export default function DrawingRoomClient({
             />
           ) : (
             <PdfDrawingViewer
+              activeRegion={
+                activeAnchor?.kind === "pdf_region" ? activeAnchor : null
+              }
               fileName={file.original_filename}
               onRegionSelected={(region) => {
                 setPendingAnchor({

@@ -95,6 +95,7 @@ export default function IfcBrowser({ loaderData }: Route.ComponentProps) {
           fileName={loaderData.file.original_filename}
           initialGlobalId={loaderData.requestedGlobalId}
           signedUrl={loaderData.signedUrl}
+          sourceKey={loaderData.file.id}
         />
       </div>
     </main>

@@ -32,6 +32,7 @@ import type {
   DrawingEventRow,
 } from "~/lukas/lib/drawing-collaboration.server";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
+import { drawingAnchorHref } from "~/lukas/lib/drawing-anchor-navigation";
 
 type Comment = {
   id: string;
@@ -368,7 +369,7 @@ export default function DrawingIssuePanel({
                     </div>
                     <Link
                       className="shrink-0 text-xs font-semibold text-primary underline underline-offset-4"
-                      to={`/projects/${projectId}/drawings/${anchor.file_id}${anchor.ifc_global_id ? `?globalId=${encodeURIComponent(anchor.ifc_global_id)}&issue=${encodeURIComponent(selected.id)}` : `?issue=${encodeURIComponent(selected.id)}`}`}
+                      to={drawingAnchorHref(projectId, anchor)}
                     >
                       열기
                     </Link>

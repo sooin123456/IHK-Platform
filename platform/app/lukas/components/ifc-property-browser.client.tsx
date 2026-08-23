@@ -34,6 +34,7 @@ type IfcRuntime = {
 type Props = {
   byteSize: number;
   fileName: string;
+  sourceKey: string;
   initialGlobalId?: string | null;
   signedUrl: string;
   activeAnchor?: {
@@ -108,6 +109,7 @@ function propertySetsFor(propertySets: unknown[]): DisplayProperty[] {
 export default function IfcPropertyBrowser({
   byteSize,
   fileName,
+  sourceKey,
   initialGlobalId,
   signedUrl,
   activeAnchor = null,
@@ -130,6 +132,8 @@ export default function IfcPropertyBrowser({
   const detailRef = useRef<HTMLElement>(null);
   const selectionRequestRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
+  const signedUrlRef = useRef(signedUrl);
+  signedUrlRef.current = signedUrl;
 
   useEffect(() => {
     let disposed = false;
@@ -147,7 +151,7 @@ export default function IfcPropertyBrowser({
       try {
         setError(null);
         setStatus("IFC 원본을 브라우저에서 읽는 중입니다.");
-        const response = await fetch(signedUrl);
+        const response = await fetch(signedUrlRef.current);
         if (!response.ok)
           throw new Error(
             "원본 IFC 파일을 가져오지 못했습니다. 프로젝트 화면에서 다시 열어 주세요.",
@@ -204,14 +208,7 @@ export default function IfcPropertyBrowser({
         setStatus(
           `요소 ${found.length.toLocaleString("ko-KR")}개를 찾았습니다.`,
         );
-        const initial = initialGlobalId
-          ? found.find((element) => element.globalId === initialGlobalId)
-          : found[0];
-        if (initial) await choose(initial, "initial");
-        else if (initialGlobalId)
-          setStatus(
-            `요청한 IFC 요소(${initialGlobalId})를 이 파일에서 찾지 못했습니다.`,
-          );
+        if (found[0]) await choose(found[0], "initial");
 
         if (byteSize > maxBrowserGeometryBytes) {
           setViewerPhase("skipped");
@@ -253,15 +250,6 @@ export default function IfcPropertyBrowser({
               setViewerReady(true);
               setViewerPhase("ready");
               viewer.selectElement(selectedIdRef.current);
-              if (activeAnchor) {
-                const expressId = Number(activeAnchor.elementId);
-                if (Number.isInteger(expressId) && byId.has(expressId)) {
-                  viewer.restoreViewState(activeAnchor.camera);
-                  viewer.selectElement(expressId);
-                } else {
-                  setViewerStatus("근거 열기 실패: 이 IFC에서 해당 요소를 찾지 못했습니다.");
-                }
-              }
             } else {
               setViewerPhase("empty");
               setViewerStatus(
@@ -309,7 +297,36 @@ export default function IfcPropertyBrowser({
       apiRef.current = null;
       modelRef.current = null;
     };
-  }, [activeAnchor, byteSize, initialGlobalId, signedUrl]);
+  }, [byteSize, sourceKey]);
+
+  useEffect(() => {
+    if (!initialGlobalId || elements.length === 0) return;
+    const element = elements.find(
+      (element) => element.globalId === initialGlobalId,
+    );
+    if (!element) {
+      setStatus(
+        `요청한 IFC 요소(${initialGlobalId})를 이 파일에서 찾지 못했습니다.`,
+      );
+      return;
+    }
+    if (selectedIdRef.current === element.expressId) return;
+    void choose(element, "deep-link");
+  }, [elements, initialGlobalId]);
+
+  useEffect(() => {
+    if (!activeAnchor || !viewerReady) return;
+    const expressId = Number(activeAnchor.elementId);
+    const element = elements.find((item) => item.expressId === expressId);
+    if (!Number.isInteger(expressId) || !element) {
+      setViewerStatus(
+        "근거 열기 실패: 이 IFC에서 해당 요소를 찾지 못했습니다.",
+      );
+      return;
+    }
+    viewerRef.current?.restoreViewState(activeAnchor.camera);
+    void choose(element, "anchor");
+  }, [activeAnchor, elements, viewerReady]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
@@ -323,13 +340,14 @@ export default function IfcPropertyBrowser({
 
   async function choose(
     element: IfcElement,
-    source: "initial" | "list" | "viewer" = "list",
+    source: "initial" | "list" | "viewer" | "deep-link" | "anchor" = "list",
   ) {
     const requestId = ++selectionRequestRef.current;
     selectedIdRef.current = element.expressId;
     setSelected(element);
     viewerRef.current?.selectElement(element.expressId);
-    if (source === "list") viewerRef.current?.focusElement(element.expressId);
+    if (source === "list" || source === "deep-link")
+      viewerRef.current?.focusElement(element.expressId);
     const runtime = apiRef.current;
     const modelId = modelRef.current;
     if (!runtime || modelId === null) return;
@@ -350,7 +368,7 @@ export default function IfcPropertyBrowser({
     setProperties([...propertiesFor(line), ...propertySetsFor(propertySets)]);
     setStatus(`선택한 요소: #${element.expressId} ${element.typeName}`);
     if (
-      source !== "initial" &&
+      (source === "list" || source === "viewer") &&
       window.matchMedia("(max-width: 1023px)").matches
     )
       detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });

@@ -499,6 +499,7 @@ export default function WorkspacePreviewRoomClient({
                   })
                 }
                 signedUrl={selectedFile.url}
+                sourceKey={selectedFile.id}
               />
             ) : selectedFile.url && selectedFile.kind === "pdf" ? (
               <PdfDrawingViewer

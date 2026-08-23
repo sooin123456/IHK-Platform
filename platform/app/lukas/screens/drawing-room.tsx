@@ -16,6 +16,12 @@ import {
 } from "~/lukas/lib/drawing-collaboration.server";
 import { loadDrawingRevisionReview } from "~/lukas/lib/drawing-revision.server";
 import {
+  drawingViewerAnchor,
+  drawingLegacyGlobalId,
+  parseDrawingAnchorId,
+  selectDrawingAnchorForView,
+} from "~/lukas/lib/drawing-anchor-navigation";
+import {
   parseDrawingIssueId,
   parseDrawingIssuePage,
 } from "~/lukas/lib/drawing-pagination";
@@ -38,6 +44,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     url.searchParams.get("page"),
   );
   const initialIssueId = parseDrawingIssueId(url.searchParams.get("issue"));
+  const requestedAnchorId = parseDrawingAnchorId(
+    url.searchParams.get("anchor"),
+  );
   const [room, files, revisionReview, assignees] = await Promise.all([
     loadDrawingRoom(client, project.id, params.fileId!, {
       page: requestedIssuePage,
@@ -51,6 +60,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     url.searchParams.set("page", String(room.issuePage.page));
     throw redirect(`${url.pathname}${url.search}`, { headers });
   }
+  const activeAnchor = drawingViewerAnchor(
+    selectDrawingAnchorForView(
+      room.anchors,
+      requestedAnchorId,
+      initialIssueId,
+      room.file.id,
+    ),
+  );
   const { data: signed, error } = await client.storage
     .from("lukas-qto")
     .createSignedUrl(room.file.storage_path, 300);
@@ -63,8 +80,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       room,
       files,
       revisionReview,
-      initialGlobalId: url.searchParams.get("globalId"),
+      initialGlobalId: drawingLegacyGlobalId(
+        url.searchParams.get("anchor"),
+        url.searchParams.get("globalId"),
+      ),
       initialIssueId,
+      activeAnchor,
       currentUserId: user.id,
       assignees,
       signedUrl: signed.signedUrl,
@@ -131,6 +152,7 @@ export default function DrawingRoom({
       <DrawingRoomClient
         assignees={loaderData.assignees}
         anchors={room.anchors}
+        activeAnchor={loaderData.activeAnchor}
         approvals={room.approvals}
         comments={room.comments}
         events={room.events}

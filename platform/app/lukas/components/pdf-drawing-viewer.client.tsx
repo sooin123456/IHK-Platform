@@ -176,6 +176,11 @@ export default function PdfDrawingViewer({
     else setSelectedRegion(null);
   }, [activeRegion, pageNumber]);
 
+  useEffect(() => {
+    if (!activeRegion || pageCount === 0) return;
+    setPageNumber(Math.min(pageCount, activeRegion.pageNumber));
+  }, [activeRegion, pageCount]);
+
   function point(event: React.PointerEvent<HTMLDivElement>): Point {
     const bounds = event.currentTarget.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
