@@ -4,8 +4,8 @@
 
 - 운영 URL: `https://lukas-qto-platform.vercel.app`
 - 운영 Supabase project ref: `naubrijesaqnnbfaehpy`
-- 배포 commit: `7c2033e`
-- Vercel deployment: `dpl_FXhJ6o34AnubqSKoDDM17EomggCP`
+- 배포 commit: `42d0af4`
+- Vercel deployment: `dpl_Avd2huenCGqy5KQ3jbRYQUC8o5Co`
 - 상태: **코드·DB 운영 배포 완료 / 실제 2인 현장 검증 대기**
 
 이 문서는 완료 선언을 위한 증거 양식이다. 고객 도면 원본, 이메일, 사용자 UUID,
@@ -14,12 +14,16 @@
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공
-- `node --test tests/*.test.mjs`: 99/99 성공
+- `node --test tests/*.test.mjs`: 115/115 성공
 - `npm run typecheck`, `npm run build`: 성공
 - 권한 있는 실제 Revit IFC smoke: 2,207,379 bytes, 560개 IFC 요소,
   385개 형상 요소, 441 placements, 7,904 triangles 파싱 성공
 - 이슈 목록은 서버에서 50건 단위로 조회하며, 오래된 이슈 직접 링크와 IFC
   객체 선택 query를 페이지 이동 뒤에도 보존한다.
+- 저장된 근거 링크는 이슈·파일·anchor를 함께 검증한다. IFC는 요소 선택과
+  카메라 위치를, PDF는 페이지와 정규화 영역을 복원하며 잘못된 anchor는
+  `globalId`만 부분 적용하지 않는다. 같은 IFC에서 query나 Realtime 데이터가
+  바뀌어도 파일 ID가 같으면 모델 전체를 다시 파싱하지 않는다.
 - Realtime 재연결 시 loader를 한 번 갱신하고, 숨긴 브라우저 탭에서는 IFC
   WebGL render와 first-frame 측정을 함께 보류한다.
 - 운영 테이블 5개 RLS 활성화 확인
