@@ -10,6 +10,10 @@ export default [
   route("/robots.txt", "core/screens/robots.ts"),
   route("/sitemap.xml", "core/screens/sitemap.ts"),
   route("/news.xml", "features/blog/screens/feed.ts"),
+  route(
+    "/workspace-preview/projects/:projectId/drawings/:fileId",
+    "lukas/screens/workspace-preview-room.tsx",
+  ),
   layout("core/layouts/navigation.layout.tsx", [
     route("/auth/confirm", "features/auth/screens/confirm.tsx"),
     index("features/home/screens/home.tsx"),

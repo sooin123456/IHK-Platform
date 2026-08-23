@@ -228,6 +228,8 @@ export function WorkspaceDashboard({
   const userInitial = (email[0] ?? "H").toUpperCase();
   const workspaceHref = previewMode ? "/workspace-preview" : "/workspace";
   const linkTo = (target: string) => (previewMode ? workspaceHref : target);
+  const previewProjectHref = (projectId: string, fileId?: string | null) =>
+    `/workspace-preview/projects/${projectId}/drawings/${fileId ?? "preview-drawing"}`;
   const sidebarItems = [
     {
       id: "all" as const,
@@ -297,7 +299,14 @@ export function WorkspaceDashboard({
               <Link
                 className="flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/5"
                 key={project.id}
-                to={linkTo(projectHref(project.id, projectMetrics[project.id]))}
+                to={
+                  previewMode
+                    ? previewProjectHref(
+                        project.id,
+                        projectMetrics[project.id]?.latestDrawingId,
+                      )
+                    : projectHref(project.id, projectMetrics[project.id])
+                }
               >
                 <span
                   className={cn(
@@ -467,7 +476,9 @@ export function WorkspaceDashboard({
                 >
                   {filteredProjects.map((project, index) => {
                     const metric = projectMetrics[project.id];
-                    const openHref = linkTo(projectHref(project.id, metric));
+                    const openHref = previewMode
+                      ? previewProjectHref(project.id, metric?.latestDrawingId)
+                      : projectHref(project.id, metric);
                     return (
                       <li
                         className={cn(
@@ -530,28 +541,44 @@ export function WorkspaceDashboard({
                           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={linkTo(`/projects/${project.id}/files`)}
+                              to={
+                                previewMode
+                                  ? openHref
+                                  : `/projects/${project.id}/files`
+                              }
                             >
                               <FileBox className="size-3.5" /> 파일{" "}
                               {metric?.fileCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={linkTo(`/projects/${project.id}/drawings`)}
+                              to={
+                                previewMode
+                                  ? openHref
+                                  : `/projects/${project.id}/drawings`
+                              }
                             >
                               <MessageSquareText className="size-3.5" /> 미해결{" "}
                               {metric?.unresolvedDrawingCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={linkTo(`/projects/${project.id}/drawings`)}
+                              to={
+                                previewMode
+                                  ? openHref
+                                  : `/projects/${project.id}/drawings`
+                              }
                             >
                               <UserRound className="size-3.5" /> 내 담당{" "}
                               {metric?.assignedToMeCount ?? 0}
                             </Link>
                             <Link
                               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 hover:border-[#2925d9]/40 hover:text-[#2925d9] dark:border-white/10"
-                              to={linkTo(`/projects/${project.id}/members`)}
+                              to={
+                                previewMode
+                                  ? openHref
+                                  : `/projects/${project.id}/members`
+                              }
                             >
                               <Users className="size-3.5" /> 참여{" "}
                               {metric?.memberCount ?? 0}
@@ -628,7 +655,11 @@ export function WorkspaceDashboard({
                       <Link
                         aria-label={`${activity.projectName} 열기`}
                         className="grid size-9 place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
-                        to={linkTo(`/projects/${activity.projectId}`)}
+                        to={
+                          previewMode
+                            ? previewProjectHref(activity.projectId)
+                            : `/projects/${activity.projectId}`
+                        }
                       >
                         <ArrowUpRight className="size-4" />
                       </Link>
