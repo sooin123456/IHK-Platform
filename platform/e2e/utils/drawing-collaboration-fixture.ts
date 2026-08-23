@@ -359,6 +359,32 @@ export async function authenticateContext(
   return page;
 }
 
+export async function authenticateApiClient(
+  fixture: DrawingFixture,
+  user: TestUser,
+) {
+  const { data, error } = await fixture.admin.auth.admin.generateLink({
+    type: "magiclink",
+    email: user.email,
+  });
+  const token = data.properties?.hashed_token;
+  if (error || !token)
+    throw error ?? new Error("Could not create API login token");
+  const client = createClient(
+    required("SUPABASE_URL"),
+    required("SUPABASE_ANON_KEY"),
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+    },
+  );
+  const { error: verifyError } = await client.auth.verifyOtp({
+    token_hash: token,
+    type: "magiclink",
+  });
+  if (verifyError) throw verifyError;
+  return client;
+}
+
 export async function destroyDrawingFixture(
   fixture: DrawingFixture | undefined,
 ) {

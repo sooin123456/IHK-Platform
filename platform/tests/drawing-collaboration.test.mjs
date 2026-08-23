@@ -22,11 +22,11 @@ test("only review roles can assign a drawing issue", () => {
     assert.equal(canAssignDrawingIssue(role), false);
 });
 
-test("only reviewers can close or reopen a drawing issue", () => {
+test("closing requires an approval record while reviewers may reopen", () => {
   for (const role of ["owner", "staff", "reviewer"])
     assert.equal(
       canTransitionDrawingIssue(role, "resolution_requested", "closed"),
-      true,
+      false,
     );
   for (const role of ["estimator", "site", "procurement", "viewer"])
     assert.equal(
@@ -38,31 +38,70 @@ test("only reviewers can close or reopen a drawing issue", () => {
 });
 
 test("workers can request review but viewers cannot change status", () => {
-  for (const role of ["owner", "staff", "reviewer", "estimator", "site", "procurement"])
+  for (const role of [
+    "owner",
+    "staff",
+    "reviewer",
+    "estimator",
+    "site",
+    "procurement",
+  ])
     assert.equal(
       canTransitionDrawingIssue(role, "in_progress", "resolution_requested"),
       true,
     );
-  for (const status of ["open", "in_progress", "resolution_requested", "closed"])
+  for (const status of [
+    "open",
+    "in_progress",
+    "resolution_requested",
+    "closed",
+  ])
     assert.equal(canTransitionDrawingIssue("viewer", status, status), true);
-  assert.equal(canTransitionDrawingIssue("viewer", "open", "in_progress"), false);
+  assert.equal(
+    canTransitionDrawingIssue("viewer", "open", "in_progress"),
+    false,
+  );
 });
 
 test("PDF anchors stay inside one page in normalized coordinates", () => {
   assert.equal(
-    validatePdfRegion({ pageNumber: 1, x: 0.1, y: 0.2, width: 0.3, height: 0.4 }),
+    validatePdfRegion({
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+    }),
     true,
   );
   assert.equal(
-    validatePdfRegion({ pageNumber: 0, x: 0.1, y: 0.2, width: 0.3, height: 0.4 }),
+    validatePdfRegion({
+      pageNumber: 0,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+    }),
     false,
   );
   assert.equal(
-    validatePdfRegion({ pageNumber: 1, x: 0.8, y: 0.2, width: 0.3, height: 0.4 }),
+    validatePdfRegion({
+      pageNumber: 1,
+      x: 0.8,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+    }),
     false,
   );
   assert.equal(
-    validatePdfRegion({ pageNumber: 1, x: 0.1, y: 0.8, width: 0.3, height: 0.4 }),
+    validatePdfRegion({
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.8,
+      width: 0.3,
+      height: 0.4,
+    }),
     false,
   );
 });
@@ -189,25 +228,64 @@ test("drawing mutation parser covers comments, assignment, due date, priority, a
       expected: { intent: "comment", issueId, body: "현장 확인 완료" },
     },
     {
-      fields: { intent: "set_assignee", issue_id: issueId, expected_version: "3", assignee_user_id: actorId },
-      expected: { intent: "set_assignee", issueId, expectedVersion: 3, assigneeUserId: actorId },
+      fields: {
+        intent: "set_assignee",
+        issue_id: issueId,
+        expected_version: "3",
+        assignee_user_id: actorId,
+      },
+      expected: {
+        intent: "set_assignee",
+        issueId,
+        expectedVersion: 3,
+        assigneeUserId: actorId,
+      },
     },
     {
-      fields: { intent: "set_due", issue_id: issueId, expected_version: "4", due_at: "2026-08-31T09:00:00+09:00" },
-      expected: { intent: "set_due", issueId, expectedVersion: 4, dueAt: "2026-08-31T09:00:00+09:00" },
+      fields: {
+        intent: "set_due",
+        issue_id: issueId,
+        expected_version: "4",
+        due_at: "2026-08-31T09:00:00+09:00",
+      },
+      expected: {
+        intent: "set_due",
+        issueId,
+        expectedVersion: 4,
+        dueAt: "2026-08-31T09:00:00+09:00",
+      },
     },
     {
-      fields: { intent: "set_priority", issue_id: issueId, expected_version: "5", priority: "urgent" },
-      expected: { intent: "set_priority", issueId, expectedVersion: 5, priority: "urgent" },
+      fields: {
+        intent: "set_priority",
+        issue_id: issueId,
+        expected_version: "5",
+        priority: "urgent",
+      },
+      expected: {
+        intent: "set_priority",
+        issueId,
+        expectedVersion: 5,
+        priority: "urgent",
+      },
     },
     {
-      fields: { intent: "deactivate_anchor", anchor_id: anchorId, note: "잘못 지정한 영역" },
-      expected: { intent: "deactivate_anchor", anchorId, note: "잘못 지정한 영역" },
+      fields: {
+        intent: "deactivate_anchor",
+        anchor_id: anchorId,
+        note: "잘못 지정한 영역",
+      },
+      expected: {
+        intent: "deactivate_anchor",
+        anchorId,
+        note: "잘못 지정한 영역",
+      },
     },
   ];
   for (const item of cases) {
     const form = new FormData();
-    for (const [key, value] of Object.entries(item.fields)) form.set(key, value);
+    for (const [key, value] of Object.entries(item.fields))
+      form.set(key, value);
     assert.deepEqual(parseDrawingMutationForm(form), item.expected);
   }
 });

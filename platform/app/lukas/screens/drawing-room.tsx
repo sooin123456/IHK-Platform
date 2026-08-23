@@ -29,7 +29,7 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const { client, headers, project, role } = await drawingContext(
+  const { client, headers, project, role, user } = await drawingContext(
     request,
     params.projectId!,
   );
@@ -65,6 +65,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       revisionReview,
       initialGlobalId: url.searchParams.get("globalId"),
       initialIssueId,
+      currentUserId: user.id,
       assignees,
       signedUrl: signed.signedUrl,
     },
@@ -130,6 +131,7 @@ export default function DrawingRoom({
       <DrawingRoomClient
         assignees={loaderData.assignees}
         anchors={room.anchors}
+        approvals={room.approvals}
         comments={room.comments}
         events={room.events}
         file={room.file}
@@ -138,6 +140,7 @@ export default function DrawingRoom({
         issuePage={room.issuePage}
         initialGlobalId={loaderData.initialGlobalId}
         initialIssueId={loaderData.initialIssueId}
+        currentUserId={loaderData.currentUserId}
         projectId={project.id}
         revisionReview={loaderData.revisionReview}
         role={loaderData.role as DrawingProjectRole}

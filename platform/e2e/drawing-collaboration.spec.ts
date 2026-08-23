@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  authenticateApiClient,
   authenticateContext,
   createDrawingFixture,
   destroyDrawingFixture,
@@ -19,7 +20,7 @@ test.describe.serial("1HK drawing collaboration", () => {
     await destroyDrawingFixture(fixture);
   });
 
-  test("maker creates a PDF issue and reviewer closes it in realtime", async ({
+  test("maker requests review and a separate reviewer approves it in realtime", async ({
     browser,
   }) => {
     const path = `/projects/${fixture.projectId}/drawings/${fixture.pdfFileId}`;
@@ -62,6 +63,13 @@ test.describe.serial("1HK drawing collaboration", () => {
     await expect(ownerPage.locator('input[id^="due-"]')).toHaveValue(
       "2099-12-31",
     );
+    await ownerPage.getByLabel("상태").selectOption("in_progress");
+    await ownerPage.getByRole("button", { name: /저장/ }).first().click();
+    await ownerPage.getByLabel("상태").selectOption("resolution_requested");
+    await ownerPage.getByRole("button", { name: /저장/ }).first().click();
+    await expect(
+      ownerPage.getByText("다른 검토자가 승인 또는 반려해야 합니다"),
+    ).toBeVisible();
     await ownerPage.goto(
       `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`,
     );
@@ -100,9 +108,15 @@ test.describe.serial("1HK drawing collaboration", () => {
       .click();
     await reviewerPage.getByLabel("댓글").fill("검토 완료: 치수 근거 확인");
     await reviewerPage.getByRole("button", { name: "등록" }).click();
-    await reviewerPage.getByLabel("상태").selectOption("closed");
-    await reviewerPage.getByRole("button", { name: /저장/ }).first().click();
+    await reviewerPage.getByLabel("검토 결정").selectOption("approved");
+    await reviewerPage
+      .getByLabel("검토 의견")
+      .fill("PDF 영역과 수정 의견을 확인해 승인합니다.");
+    await reviewerPage.getByRole("button", { name: "결정 기록" }).click();
     await expect(reviewerPage.getByText("완료", { exact: true })).toBeVisible();
+    await expect(
+      reviewerPage.getByRole("region", { name: "승인 기록" }),
+    ).toContainText("PDF 영역과 수정 의견을 확인해 승인합니다.");
     await expect(ownerPage.getByText("완료", { exact: true })).toBeVisible({
       timeout: 15_000,
     });
@@ -151,6 +165,146 @@ test.describe.serial("1HK drawing collaboration", () => {
     ).toBeVisible();
 
     await context.close();
+  });
+
+  test("database rejects approval bypasses and preserves a rejected decision", async () => {
+    const owner = await authenticateApiClient(fixture, fixture.owner);
+    const reviewer = await authenticateApiClient(fixture, fixture.reviewer);
+    const viewer = await authenticateApiClient(fixture, fixture.viewer);
+
+    const createReviewRequest = async (withAnchor: boolean) => {
+      const { data: issue, error: issueError } = await owner
+        .from("lukas_drawing_issues")
+        .insert({
+          project_id: fixture.projectId,
+          title: `승인 보안 E2E ${crypto.randomUUID()}`,
+          description: "실제 RLS와 트리거 반례 검증",
+          priority: "normal",
+          created_by: fixture.owner.id,
+        })
+        .select("id,project_id,version,status")
+        .single();
+      if (issueError || !issue)
+        throw issueError ?? new Error("Issue setup failed");
+      if (withAnchor) {
+        const { error: anchorError } = await owner
+          .from("lukas_drawing_issue_anchors")
+          .insert({
+            issue_id: issue.id,
+            project_id: fixture.projectId,
+            file_id: fixture.pdfFileId,
+            anchor_kind: "pdf_region",
+            page_number: 1,
+            x: 0.1,
+            y: 0.1,
+            width: 0.2,
+            height: 0.2,
+            label: "승인 보안 근거",
+            created_by: fixture.owner.id,
+          });
+        if (anchorError) throw anchorError;
+      }
+      const { data: inProgress, error: progressError } = await owner
+        .from("lukas_drawing_issues")
+        .update({ status: "in_progress" })
+        .eq("id", issue.id)
+        .eq("version", issue.version)
+        .select("id,project_id,version,status")
+        .single();
+      if (progressError || !inProgress)
+        throw progressError ?? new Error("Progress transition failed");
+      const { data: requested, error: requestError } = await owner
+        .from("lukas_drawing_issues")
+        .update({ status: "resolution_requested" })
+        .eq("id", issue.id)
+        .eq("version", inProgress.version)
+        .select("id,project_id,version,status")
+        .single();
+      if (requestError || !requested)
+        throw requestError ?? new Error("Review transition failed");
+      return requested;
+    };
+
+    const rejectIssue = await createReviewRequest(true);
+    const approvalInput = {
+      issue_id: rejectIssue.id,
+      project_id: fixture.projectId,
+      subject_version: rejectIssue.version,
+      note: "검토 반례 확인",
+    };
+    const { error: selfApprovalError } = await owner
+      .from("lukas_drawing_issue_approvals")
+      .insert({
+        ...approvalInput,
+        decision: "approved",
+        reviewer_id: fixture.owner.id,
+      });
+    expect(selfApprovalError).toBeTruthy();
+
+    const { error: staleError } = await reviewer
+      .from("lukas_drawing_issue_approvals")
+      .insert({
+        ...approvalInput,
+        subject_version: rejectIssue.version - 1,
+        decision: "approved",
+        reviewer_id: fixture.reviewer.id,
+      });
+    expect(staleError).toBeTruthy();
+
+    const { data: rejected, error: rejectError } = await reviewer
+      .from("lukas_drawing_issue_approvals")
+      .insert({
+        ...approvalInput,
+        decision: "rejected",
+        reviewer_id: fixture.reviewer.id,
+      })
+      .select("id,decision,note")
+      .single();
+    expect(rejectError).toBeNull();
+    expect(rejected?.decision).toBe("rejected");
+    const { data: rejectedIssue } = await reviewer
+      .from("lukas_drawing_issues")
+      .select("status")
+      .eq("id", rejectIssue.id)
+      .single();
+    expect(rejectedIssue?.status).toBe("in_progress");
+    const { error: updateApprovalError } = await reviewer
+      .from("lukas_drawing_issue_approvals")
+      .update({ note: "변조" })
+      .eq("id", rejected!.id);
+    expect(updateApprovalError).toBeTruthy();
+
+    const restrictedIssue = await createReviewRequest(false);
+    const restrictedInput = {
+      issue_id: restrictedIssue.id,
+      project_id: fixture.projectId,
+      subject_version: restrictedIssue.version,
+      decision: "approved" as const,
+      note: "거부돼야 하는 승인",
+    };
+    const { error: missingAnchorError } = await reviewer
+      .from("lukas_drawing_issue_approvals")
+      .insert({ ...restrictedInput, reviewer_id: fixture.reviewer.id });
+    expect(missingAnchorError).toBeTruthy();
+
+    const viewerIssue = await createReviewRequest(true);
+    const { error: viewerApprovalError } = await viewer
+      .from("lukas_drawing_issue_approvals")
+      .insert({
+        issue_id: viewerIssue.id,
+        project_id: fixture.projectId,
+        subject_version: viewerIssue.version,
+        decision: "approved",
+        note: "읽기 전용 사용자의 승인 시도",
+        reviewer_id: fixture.viewer.id,
+      });
+    expect(viewerApprovalError).toBeTruthy();
+    const { error: directCloseError } = await owner
+      .from("lukas_drawing_issues")
+      .update({ status: "closed" })
+      .eq("id", restrictedIssue.id)
+      .eq("version", restrictedIssue.version);
+    expect(directCloseError).toBeTruthy();
   });
 
   test("viewer is read-only and non-member cannot enter", async ({

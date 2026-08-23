@@ -15,6 +15,7 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import {
   canAssignDrawingIssue,
+  canRecordDrawingApproval,
   canTransitionDrawingIssue,
   drawingIssueStatuses,
   type DrawingProjectRole,
@@ -25,6 +26,7 @@ import {
   type DrawingIssuePageInfo,
 } from "~/lukas/lib/drawing-pagination";
 import type {
+  DrawingApprovalRow,
   DrawingAnchorRow,
   DrawingAssignee,
   DrawingEventRow,
@@ -63,6 +65,7 @@ const eventLabels: Record<string, string> = {
   anchor_added: "도면 근거 연결",
   anchor_deactivated: "도면 근거 해제",
   comment_added: "댓글 등록",
+  approval_recorded: "승인 결정",
 };
 
 function assigneeLabel(assignee: DrawingAssignee) {
@@ -82,6 +85,8 @@ export default function DrawingIssuePanel({
   revisionReview,
   assignees,
   anchors,
+  approvals,
+  currentUserId,
   events,
 }: {
   issues: DrawingIssue[];
@@ -96,6 +101,8 @@ export default function DrawingIssuePanel({
   revisionReview: DrawingRevisionReviewItem[];
   assignees: DrawingAssignee[];
   anchors: DrawingAnchorRow[];
+  approvals: DrawingApprovalRow[];
+  currentUserId: string;
   events: DrawingEventRow[];
 }) {
   const location = useLocation();
@@ -112,7 +119,18 @@ export default function DrawingIssuePanel({
     () => events.filter((event) => event.issue_id === selected?.id),
     [events, selected?.id],
   );
+  const selectedApprovals = useMemo(
+    () => approvals.filter((approval) => approval.issue_id === selected?.id),
+    [approvals, selected?.id],
+  );
   const mayWrite = role !== "viewer";
+  const statusOptions = selected
+    ? drawingIssueStatuses.filter(
+        (status) =>
+          status !== selected.status &&
+          canTransitionDrawingIssue(role, selected.status, status),
+      )
+    : [];
 
   return (
     <section aria-label="도면 이슈" className="rounded-2xl border bg-card p-4">
@@ -399,99 +417,223 @@ export default function DrawingIssuePanel({
 
           {mayWrite ? (
             <div className="mt-4 grid gap-3">
-              <Form method="post">
-                <input name="intent" type="hidden" value="set_status" />
-                <input name="issue_id" type="hidden" value={selected.id} />
-                <input
-                  name="expected_version"
-                  type="hidden"
-                  value={selected.version}
-                />
-                <Label htmlFor={`status-${selected.id}`}>상태</Label>
-                <div className="mt-1 flex gap-2">
-                  <select
-                    className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
-                    defaultValue={selected.status}
-                    id={`status-${selected.id}`}
-                    name="status"
-                  >
-                    {drawingIssueStatuses
-                      .filter((status) =>
-                        canTransitionDrawingIssue(
-                          role,
-                          selected.status,
-                          status,
-                        ),
-                      )
-                      .map((status) => (
-                        <option key={status} value={status}>
-                          {statusLabels[status]}
-                        </option>
-                      ))}
-                  </select>
-                  <Button className="min-h-11" type="submit">
-                    <CheckCircle2 className="size-4" /> 저장
-                  </Button>
-                </div>
-              </Form>
-              {canAssignDrawingIssue(role) ? (
+              {statusOptions.length > 0 ? (
                 <Form method="post">
-                  <input name="intent" type="hidden" value="set_assignee" />
+                  <input name="intent" type="hidden" value="set_status" />
                   <input name="issue_id" type="hidden" value={selected.id} />
                   <input
                     name="expected_version"
                     type="hidden"
                     value={selected.version}
                   />
-                  <Label htmlFor={`assignee-${selected.id}`}>담당자</Label>
+                  <Label htmlFor={`status-${selected.id}`}>상태</Label>
                   <div className="mt-1 flex gap-2">
                     <select
                       className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
-                      defaultValue={selected.assignee_user_id ?? ""}
-                      id={`assignee-${selected.id}`}
-                      name="assignee_user_id"
+                      defaultValue=""
+                      id={`status-${selected.id}`}
+                      name="status"
+                      required
                     >
-                      <option value="">담당자 해제</option>
-                      {assignees.map((assignee) => (
-                        <option key={assignee.userId} value={assignee.userId}>
-                          {assigneeLabel(assignee)}
+                      <option disabled value="">
+                        다음 상태 선택
+                      </option>
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {statusLabels[status]}
                         </option>
                       ))}
                     </select>
-                    <Button
-                      className="min-h-11"
-                      type="submit"
-                      variant="outline"
-                    >
-                      지정
+                    <Button className="min-h-11" type="submit">
+                      <CheckCircle2 className="size-4" /> 저장
                     </Button>
                   </div>
                 </Form>
               ) : null}
-              <Form method="post">
-                <input name="intent" type="hidden" value="set_due" />
-                <input name="issue_id" type="hidden" value={selected.id} />
-                <input
-                  name="expected_version"
-                  type="hidden"
-                  value={selected.version}
-                />
-                <Label htmlFor={`due-${selected.id}`}>기한</Label>
-                <div className="mt-1 flex gap-2">
-                  <Input
-                    className="min-h-11"
-                    id={`due-${selected.id}`}
-                    name="due_at"
-                    type="date"
-                    defaultValue={selected.due_at?.slice(0, 10) ?? ""}
-                  />
-                  <Button className="min-h-11" type="submit" variant="outline">
-                    저장
-                  </Button>
-                </div>
-              </Form>
+              {canAssignDrawingIssue(role) ? (
+                <>
+                  <Form method="post">
+                    <input name="intent" type="hidden" value="set_assignee" />
+                    <input name="issue_id" type="hidden" value={selected.id} />
+                    <input
+                      name="expected_version"
+                      type="hidden"
+                      value={selected.version}
+                    />
+                    <Label htmlFor={`assignee-${selected.id}`}>담당자</Label>
+                    <div className="mt-1 flex gap-2">
+                      <select
+                        className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
+                        defaultValue={selected.assignee_user_id ?? ""}
+                        id={`assignee-${selected.id}`}
+                        name="assignee_user_id"
+                      >
+                        <option value="">담당자 해제</option>
+                        {assignees.map((assignee) => (
+                          <option key={assignee.userId} value={assignee.userId}>
+                            {assigneeLabel(assignee)}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        className="min-h-11"
+                        type="submit"
+                        variant="outline"
+                      >
+                        지정
+                      </Button>
+                    </div>
+                  </Form>
+                  <Form method="post">
+                    <input name="intent" type="hidden" value="set_priority" />
+                    <input name="issue_id" type="hidden" value={selected.id} />
+                    <input
+                      name="expected_version"
+                      type="hidden"
+                      value={selected.version}
+                    />
+                    <Label htmlFor={`priority-${selected.id}`}>우선순위</Label>
+                    <div className="mt-1 flex gap-2">
+                      <select
+                        className="min-h-11 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm"
+                        defaultValue={selected.priority}
+                        id={`priority-${selected.id}`}
+                        name="priority"
+                      >
+                        <option value="low">낮음</option>
+                        <option value="normal">보통</option>
+                        <option value="high">높음</option>
+                        <option value="urgent">긴급</option>
+                      </select>
+                      <Button
+                        className="min-h-11"
+                        type="submit"
+                        variant="outline"
+                      >
+                        저장
+                      </Button>
+                    </div>
+                  </Form>
+                  <Form method="post">
+                    <input name="intent" type="hidden" value="set_due" />
+                    <input name="issue_id" type="hidden" value={selected.id} />
+                    <input
+                      name="expected_version"
+                      type="hidden"
+                      value={selected.version}
+                    />
+                    <Label htmlFor={`due-${selected.id}`}>기한</Label>
+                    <div className="mt-1 flex gap-2">
+                      <Input
+                        className="min-h-11"
+                        id={`due-${selected.id}`}
+                        name="due_at"
+                        type="date"
+                        defaultValue={selected.due_at?.slice(0, 10) ?? ""}
+                      />
+                      <Button
+                        className="min-h-11"
+                        type="submit"
+                        variant="outline"
+                      >
+                        저장
+                      </Button>
+                    </div>
+                  </Form>
+                </>
+              ) : null}
             </div>
           ) : null}
+
+          {selected.status === "resolution_requested" ? (
+            <section className="mt-5 rounded-xl border border-primary/30 bg-primary/5 p-3">
+              <h4 className="text-sm font-bold">승인 또는 반려</h4>
+              {canRecordDrawingApproval(
+                role,
+                currentUserId,
+                selected.created_by,
+                selected.status,
+              ) ? (
+                <Form className="mt-3 space-y-3" method="post">
+                  <input name="intent" type="hidden" value="record_approval" />
+                  <input name="issue_id" type="hidden" value={selected.id} />
+                  <input
+                    name="subject_version"
+                    type="hidden"
+                    value={selected.version}
+                  />
+                  <div>
+                    <Label htmlFor={`decision-${selected.id}`}>검토 결정</Label>
+                    <select
+                      className="mt-1 min-h-11 w-full rounded-lg border bg-background px-2 text-sm"
+                      defaultValue=""
+                      id={`decision-${selected.id}`}
+                      name="decision"
+                      required
+                    >
+                      <option disabled value="">
+                        결정을 선택하세요
+                      </option>
+                      <option value="approved">승인</option>
+                      <option value="rejected">반려</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor={`approval-note-${selected.id}`}>
+                      검토 의견
+                    </Label>
+                    <textarea
+                      className="mt-1 min-h-24 w-full rounded-lg border bg-background p-3 text-sm"
+                      id={`approval-note-${selected.id}`}
+                      name="note"
+                      placeholder="확인한 근거와 결정 사유를 남겨주세요."
+                      required
+                    />
+                  </div>
+                  <Button className="min-h-11 w-full" type="submit">
+                    결정 기록
+                  </Button>
+                </Form>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  다른 검토자가 승인 또는 반려해야 합니다. 작성자는 자신의
+                  이슈를 승인할 수 없습니다.
+                </p>
+              )}
+            </section>
+          ) : null}
+
+          <section className="mt-5 border-t pt-4" aria-label="승인 기록">
+            <h4 className="text-sm font-bold">승인 기록</h4>
+            <p className="mt-1 text-xs text-muted-foreground">
+              승인과 반려 결정은 수정하거나 삭제하지 않고 계속 보존합니다.
+            </p>
+            <ol className="mt-2 space-y-2">
+              {selectedApprovals.map((approval) => (
+                <li
+                  className="rounded-lg bg-muted/50 p-3 text-xs"
+                  key={approval.id}
+                >
+                  <p className="font-semibold">
+                    {approval.decision === "approved" ? "승인" : "반려"} · 이슈
+                    버전 {approval.subject_version}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                    {approval.note}
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {new Date(approval.created_at).toLocaleString("ko-KR")} ·{" "}
+                    {approval.reviewer_id.slice(0, 8)}
+                  </p>
+                </li>
+              ))}
+              {selectedApprovals.length === 0 ? (
+                <li className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                  아직 기록된 승인 결정이 없습니다.
+                </li>
+              ) : null}
+            </ol>
+          </section>
 
           <div className="mt-5">
             <Label htmlFor={`comment-${selected.id}`}>댓글</Label>

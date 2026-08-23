@@ -23,7 +23,12 @@ test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", as
   assert.match(fixture, /deleteUser/);
   assert.match(fixture, /storage\.from\("lukas-qto"\)\.remove/);
 
-  assert.match(spec, /PDF issue and reviewer closes it in realtime/);
+  assert.match(
+    spec,
+    /maker requests review and a separate reviewer approves it in realtime/,
+  );
+  assert.match(spec, /getByLabel\("검토 결정"\)\.selectOption\("approved"\)/);
+  assert.match(spec, /getByRole\("region", \{ name: "승인 기록" \}\)/);
   assert.match(spec, /real IFC element and camera/);
   assert.match(spec, /\/notifications/);
   assert.match(spec, /2099-12-31/);

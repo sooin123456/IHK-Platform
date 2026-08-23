@@ -71,6 +71,16 @@ export type DrawingEventRow = {
   note: string;
   created_at: string;
 };
+export type DrawingApprovalRow = {
+  id: string;
+  issue_id: string;
+  project_id: string;
+  subject_version: number;
+  decision: "approved" | "rejected";
+  note: string;
+  reviewer_id: string;
+  created_at: string;
+};
 type TableDefinition<Row, Insert, Update> = {
   Row: Row;
   Insert: Insert;
@@ -124,6 +134,11 @@ type DrawingDatabase = Omit<Database, "public"> & {
         never,
         never
       >;
+      lukas_drawing_issue_approvals: TableDefinition<
+        DrawingApprovalRow,
+        Omit<DrawingApprovalRow, "id" | "created_at">,
+        never
+      >;
     };
   };
 };
@@ -172,6 +187,13 @@ const DeactivateAnchorMutationSchema = z.object({
   anchorId: z.string().uuid(),
   note: z.string().trim().min(1).max(1000),
 });
+const RecordApprovalMutationSchema = z.object({
+  intent: z.literal("record_approval"),
+  issueId: z.string().uuid(),
+  subjectVersion: z.number().int().positive(),
+  decision: z.enum(["approved", "rejected"]),
+  note: z.string().trim().min(1).max(2000),
+});
 
 const DrawingMutationSchema = z.discriminatedUnion("intent", [
   SetStatusMutationSchema,
@@ -182,6 +204,7 @@ const DrawingMutationSchema = z.discriminatedUnion("intent", [
   SetDueMutationSchema,
   SetPriorityMutationSchema,
   DeactivateAnchorMutationSchema,
+  RecordApprovalMutationSchema,
 ]);
 
 export type DrawingMutation = z.infer<typeof DrawingMutationSchema>;
@@ -256,6 +279,14 @@ export function parseDrawingMutationForm(form: FormData): DrawingMutation {
     return DrawingMutationSchema.parse({
       intent,
       anchorId: form.get("anchor_id"),
+      note: form.get("note"),
+    });
+  if (intent === "record_approval")
+    return DrawingMutationSchema.parse({
+      intent,
+      issueId: form.get("issue_id"),
+      subjectVersion: Number(form.get("subject_version")),
+      decision: form.get("decision"),
       note: form.get("note"),
     });
   return DrawingMutationSchema.parse({
@@ -435,27 +466,37 @@ export async function loadDrawingRoom(
       anchors: [] as DrawingAnchorRow[],
       comments: [] as DrawingCommentRow[],
       events: [] as DrawingEventRow[],
+      approvals: [] as DrawingApprovalRow[],
     };
 
-  const [anchorsResult, commentsResult, eventsResult] = await Promise.all([
-    client
-      .from("lukas_drawing_issue_anchors")
-      .select("*")
-      .in("issue_id", issueIds)
-      .order("created_at"),
-    client
-      .from("lukas_drawing_issue_comments")
-      .select("*")
-      .in("issue_id", issueIds)
-      .order("created_at"),
-    client
-      .from("lukas_drawing_issue_events")
-      .select("*")
-      .in("issue_id", issueIds)
-      .order("created_at"),
-  ]);
+  const [anchorsResult, commentsResult, eventsResult, approvalsResult] =
+    await Promise.all([
+      client
+        .from("lukas_drawing_issue_anchors")
+        .select("*")
+        .in("issue_id", issueIds)
+        .order("created_at"),
+      client
+        .from("lukas_drawing_issue_comments")
+        .select("*")
+        .in("issue_id", issueIds)
+        .order("created_at"),
+      client
+        .from("lukas_drawing_issue_events")
+        .select("*")
+        .in("issue_id", issueIds)
+        .order("created_at"),
+      client
+        .from("lukas_drawing_issue_approvals")
+        .select("*")
+        .in("issue_id", issueIds)
+        .order("created_at"),
+    ]);
   const error =
-    anchorsResult.error ?? commentsResult.error ?? eventsResult.error;
+    anchorsResult.error ??
+    commentsResult.error ??
+    eventsResult.error ??
+    approvalsResult.error;
   if (error)
     throw new Error(`도면 이슈 근거를 불러오지 못했습니다: ${error.message}`);
   return {
@@ -465,6 +506,7 @@ export async function loadDrawingRoom(
     anchors: anchorsResult.data ?? [],
     comments: commentsResult.data ?? [],
     events: eventsResult.data ?? [],
+    approvals: approvalsResult.data ?? [],
   };
 }
 
@@ -569,6 +611,22 @@ export async function mutateDrawingIssue(
       throw new Response("앵커가 이미 비활성화됐거나 존재하지 않습니다.", {
         status: 409,
       });
+    return data;
+  }
+  if (input.intent === "record_approval") {
+    const { data, error } = await client
+      .from("lukas_drawing_issue_approvals")
+      .insert({
+        issue_id: input.issueId,
+        project_id: projectId,
+        subject_version: input.subjectVersion,
+        decision: input.decision,
+        note: input.note,
+        reviewer_id: actorId,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
     return data;
   }
   const update =

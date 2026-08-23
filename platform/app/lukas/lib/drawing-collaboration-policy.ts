@@ -19,7 +19,6 @@ const reviewTransitions = new Set([
   "open:in_progress",
   "in_progress:resolution_requested",
   "resolution_requested:in_progress",
-  "resolution_requested:closed",
   "closed:open",
 ]);
 const workerTransitions = new Set([
@@ -29,6 +28,19 @@ const workerTransitions = new Set([
 
 export function canAssignDrawingIssue(role: DrawingProjectRole): boolean {
   return role === "owner" || role === "staff" || role === "reviewer";
+}
+
+export function canRecordDrawingApproval(
+  role: DrawingProjectRole,
+  actorId: string,
+  issueCreatorId: string,
+  status: DrawingIssueStatus,
+): boolean {
+  return (
+    canAssignDrawingIssue(role) &&
+    actorId !== issueCreatorId &&
+    status === "resolution_requested"
+  );
 }
 
 export function canTransitionDrawingIssue(

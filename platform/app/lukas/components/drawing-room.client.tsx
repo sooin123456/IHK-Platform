@@ -17,6 +17,7 @@ import {
   type DrawingRealtimeState,
 } from "~/lukas/lib/drawing-runtime";
 import type {
+  DrawingApprovalRow,
   DrawingAnchorRow,
   DrawingAssignee,
   DrawingEventRow,
@@ -49,6 +50,8 @@ export default function DrawingRoomClient({
   revisionReview,
   assignees,
   anchors,
+  approvals,
+  currentUserId,
   events,
 }: {
   projectId: string;
@@ -64,6 +67,8 @@ export default function DrawingRoomClient({
   revisionReview: DrawingRevisionReviewItem[];
   assignees: DrawingAssignee[];
   anchors: DrawingAnchorRow[];
+  approvals: DrawingApprovalRow[];
+  currentUserId: string;
   events: DrawingEventRow[];
 }) {
   const revalidator = useRevalidator();
@@ -136,6 +141,16 @@ export default function DrawingRoomClient({
             event: "INSERT",
             schema: "public",
             table: "lukas_drawing_issue_events",
+            filter: `project_id=eq.${projectId}`,
+          },
+          refresh,
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "lukas_drawing_issue_approvals",
             filter: `project_id=eq.${projectId}`,
           },
           refresh,
@@ -252,7 +267,9 @@ export default function DrawingRoomClient({
           <DrawingIssuePanel
             assignees={assignees}
             anchors={anchors}
+            approvals={approvals}
             comments={comments}
+            currentUserId={currentUserId}
             issues={issues}
             issuePage={issuePage}
             onSelectIssue={setSelectedIssueId}
