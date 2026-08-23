@@ -14,10 +14,17 @@
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공
-- `node --test tests/*.test.mjs`: 115/115 성공
+- `node --test tests/*.test.mjs`: 116/116 성공
 - `npm run typecheck`, `npm run build`: 성공
 - 권한 있는 실제 Revit IFC smoke: 2,207,379 bytes, 560개 IFC 요소,
   385개 형상 요소, 441 placements, 7,904 triangles 파싱 성공
+- 로그인 없는 로컬 현장 점검에서 같은 IFC의 첫 3D 화면을 1.824초에 표시하고
+  객체 #1356을 이슈 근거로 연결했다. 539쪽·7,115,196 bytes PDF는 첫 페이지를
+  0.795초에 표시하고 2쪽 전환·영역 지정·이슈 근거 연결을 완료했다. 브라우저
+  console error와 PDF font loading warning은 모두 0건이었다. 이 시간은 로컬
+  Chrome 1회 측정값이며 운영 네트워크 SLA가 아니다.
+- PDF.js 문자표와 표준 글꼴을 애플리케이션에서 직접 제공하므로 한국어·기호
+  문서가 외부 CDN에 의존하지 않는다.
 - 이슈 목록은 서버에서 50건 단위로 조회하며, 오래된 이슈 직접 링크와 IFC
   객체 선택 query를 페이지 이동 뒤에도 보존한다.
 - 저장된 근거 링크는 이슈·파일·anchor를 함께 검증한다. IFC는 요소 선택과
@@ -26,7 +33,7 @@
   바뀌어도 파일 ID가 같으면 모델 전체를 다시 파싱하지 않는다.
 - Realtime 재연결 시 loader를 한 번 갱신하고, 숨긴 브라우저 탭에서는 IFC
   WebGL render와 first-frame 측정을 함께 보류한다.
-- 운영 테이블 5개 RLS 활성화 확인
+- 운영 도면 테이블 6개 RLS 활성화 확인
 - Realtime publication: `lukas_drawing_issues`,
   `lukas_drawing_issue_comments`, `lukas_drawing_issue_events`
 - 운영 DB rollback smoke: 소유자 생성·배정, viewer 읽기, viewer 쓰기 차단,

@@ -7,7 +7,7 @@
   알림, 승인, 감사 이력을 연결하는 완성형 도면 협업 플랫폼이 최종 기준이다.
 - 도면 목록·IFC/PDF 협업실·공통 이슈·담당자·감사 이력·개정 재검토·Realtime
   알림을 구현했고 운영 Supabase와 Vercel에 배포했다.
-- 운영 DB는 5개 도면 테이블의 RLS, 최소 권한, Realtime 3개 테이블,
+- 운영 DB는 6개 도면 테이블의 RLS, 최소 권한, Realtime 4개 테이블,
   외래키 인덱스와 rollback 기반 owner/viewer 권한 검사를 통과했다.
 - 현재 상태는 **코드·DB 운영 배포 완료 / 실제 2인 현장 검증 대기**다.
   서로 다른 소유자·검토자가 실제 IFC/PDF로 데스크톱과 모바일 전체 흐름을
@@ -20,8 +20,11 @@
   행도 고유 ID로 안정 정렬한다. 저장 근거를 열면 IFC 요소·카메라 또는 PDF
   페이지·영역을 복원하고, 같은 IFC의 query·Realtime 갱신은 모델을 다시
   파싱하지 않는다.
-- 최신 플랫폼 검증은 Node 계약 115/115, TypeScript, production build와 실제
-  Revit IFC(560요소·7,904 triangles) geometry smoke를 통과했다. 운영
+- 최신 플랫폼 검증은 Node 계약 116/116, TypeScript, production build와 실제
+  Revit IFC(560요소·7,904 triangles) geometry smoke를 통과했다. 로컬 Chrome에서
+  같은 IFC 첫 3D 화면은 1.824초, 실제 539쪽 PDF 첫 페이지는 0.795초에 표시됐고,
+  IFC 객체·PDF 2쪽 영역을 이슈 근거로 연결했다. PDF 문자표·표준 글꼴은
+  자체 제공하며 console error와 font warning은 0건이었다. 운영
   Playwright는 Vercel CLI가 Sensitive 값을 `[SENSITIVE]`로 내보내는 보안
   경계에서 테스트 데이터 생성 전에 중단됐으며 성공으로 간주하지 않는다.
 - 운영 4역할 Playwright 코드는 준비됐지만 Vercel CLI는 Sensitive 값을

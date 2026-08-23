@@ -81,7 +81,12 @@ export default function PdfDrawingViewer({
     void import("pdfjs-dist")
       .then(async (pdfjs) => {
         pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-        const task = pdfjs.getDocument({ url: signedUrl });
+        const task = pdfjs.getDocument({
+          url: signedUrl,
+          cMapUrl: "/pdfjs/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: "/pdfjs/standard_fonts/",
+        });
         loadingTaskRef.current = task;
         const document = await task.promise;
         if (!alive) {
