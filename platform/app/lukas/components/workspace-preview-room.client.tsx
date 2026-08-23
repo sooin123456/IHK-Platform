@@ -1,11 +1,16 @@
 import {
   ArrowLeft,
+  Bell,
   Box,
+  CalendarDays,
   CheckCircle2,
   FileText,
+  History,
   Link2,
   MessageSquarePlus,
+  RefreshCw,
   Upload,
+  UserRound,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -27,9 +32,14 @@ import {
   addPreviewComment,
   createPreviewIssue,
   defaultPreviewRoomState,
+  markPreviewNotificationRead,
+  previewAssignees,
   type PreviewAnchor,
   type PreviewIssueStatus,
+  type PreviewPriority,
   type PreviewRoomState,
+  updatePreviewIssueAssignment,
+  updatePreviewIssueSchedule,
   updatePreviewIssueStatus,
 } from "~/lukas/lib/workspace-preview-state";
 
@@ -46,6 +56,37 @@ const statusLabels: Record<PreviewIssueStatus, string> = {
   in_progress: "처리 중",
   closed: "완료",
 };
+const priorityLabels: Record<PreviewPriority, string> = {
+  low: "낮음",
+  normal: "보통",
+  high: "높음",
+  urgent: "긴급",
+};
+const eventLabels: Record<string, string> = {
+  created: "이슈 생성",
+  comment_added: "댓글 등록",
+  anchor_added: "도면 근거 연결",
+  status_changed: "상태 변경",
+  assignee_changed: "담당자 변경",
+  due_changed: "기한 변경",
+  priority_changed: "우선순위 변경",
+};
+
+function assigneeName(assigneeId: string | null) {
+  return (
+    previewAssignees.find((assignee) => assignee.id === assigneeId)?.name ??
+    "미지정"
+  );
+}
+
+function displayDate(value: string | null) {
+  if (!value) return "기한 없음";
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
 
 const initialFiles: PreviewFile[] = [
   {
@@ -72,7 +113,10 @@ function storedState(key: string) {
     if (
       Array.isArray(parsed.issues) &&
       Array.isArray(parsed.comments) &&
-      Array.isArray(parsed.anchors)
+      Array.isArray(parsed.anchors) &&
+      Array.isArray(parsed.events) &&
+      Array.isArray(parsed.notifications) &&
+      Array.isArray(parsed.revisionReviews)
     ) {
       return parsed as PreviewRoomState;
     }
@@ -154,7 +198,7 @@ export default function WorkspacePreviewRoomClient({
   projectId: string;
   fileId: string;
 }) {
-  const storageKey = `onehk:workspace-preview:${projectId}`;
+  const storageKey = `onehk:workspace-preview:v2:${projectId}`;
   const objectUrls = useRef<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [state, setState] = useState(defaultPreviewRoomState);
@@ -172,6 +216,7 @@ export default function WorkspacePreviewRoomClient({
     "kind" | "label"
   > | null>(null);
   const [notice, setNotice] = useState("도면 객체나 영역을 선택해 보세요.");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => {
     const restored = storedState(storageKey);
@@ -203,6 +248,16 @@ export default function WorkspacePreviewRoomClient({
   const selectedAnchors = useMemo(
     () => state.anchors.filter((anchor) => anchor.issueId === selectedIssueId),
     [selectedIssueId, state.anchors],
+  );
+  const selectedEvents = useMemo(
+    () => state.events.filter((item) => item.issueId === selectedIssueId),
+    [selectedIssueId, state.events],
+  );
+  const unreadNotifications = state.notifications.filter(
+    (notification) => !notification.read,
+  );
+  const pendingRevisionReviews = state.revisionReviews.filter(
+    (review) => review.status === "needs_reanchor",
   );
 
   function update(next: PreviewRoomState) {
@@ -247,6 +302,9 @@ export default function WorkspacePreviewRoomClient({
       const next = createPreviewIssue(state, {
         title: String(form.get("title") ?? ""),
         description: String(form.get("description") ?? ""),
+        priority: String(form.get("priority") ?? "normal") as PreviewPriority,
+        assigneeId: String(form.get("assignee") ?? "") || null,
+        dueDate: String(form.get("due_date") ?? "") || null,
       });
       update(next);
       setSelectedIssueId(next.issues.at(-1)?.id ?? null);
@@ -287,6 +345,42 @@ export default function WorkspacePreviewRoomClient({
     setPendingAnchor(null);
   }
 
+  function markAllNotificationsRead() {
+    update(
+      unreadNotifications.reduce(
+        (current, notification) =>
+          markPreviewNotificationRead(current, notification.id),
+        state,
+      ),
+    );
+    setNotice("모든 알림을 읽음 처리했습니다.");
+  }
+
+  function changeAssignment(assigneeId: string) {
+    if (!selectedIssueId) return;
+    update(
+      updatePreviewIssueAssignment(state, selectedIssueId, assigneeId || null),
+    );
+    setNotice("담당자를 변경하고 알림을 기록했습니다.");
+  }
+
+  function changeSchedule(input: {
+    dueDate?: string;
+    priority?: PreviewPriority;
+  }) {
+    if (!selectedIssue) return;
+    update(
+      updatePreviewIssueSchedule(state, selectedIssue.id, {
+        dueDate:
+          input.dueDate === undefined
+            ? selectedIssue.dueDate
+            : input.dueDate || null,
+        priority: input.priority ?? selectedIssue.priority,
+      }),
+    );
+    setNotice("기한과 우선순위 변경을 감사 기록에 남겼습니다.");
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-4 pb-10 pt-5 text-[#19191d] dark:bg-[#111214] dark:text-white sm:px-6">
       <div className="mx-auto max-w-[1700px]">
@@ -297,10 +391,47 @@ export default function WorkspacePreviewRoomClient({
           >
             <ArrowLeft className="size-4" /> 프로젝트로 돌아가기
           </Link>
-          <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">
-            로컬 미리보기 · 서버 저장 안 됨
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              aria-expanded={notificationsOpen}
+              aria-label={`알림 ${unreadNotifications.length}건`}
+              className="inline-flex min-h-10 items-center gap-2 rounded-full border bg-white px-3 text-xs font-bold shadow-sm dark:border-white/10 dark:bg-[#1a1b1e]"
+              onClick={() => setNotificationsOpen((current) => !current)}
+              type="button"
+            >
+              <Bell className="size-4" /> 알림 {unreadNotifications.length}건
+            </button>
+            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">
+              로컬 미리보기 · 서버 저장 안 됨
+            </span>
+          </div>
         </div>
+        {notificationsOpen ? (
+          <section className="ml-auto mt-3 max-w-md rounded-2xl border bg-white p-3 shadow-lg dark:border-white/10 dark:bg-[#1a1b1e]">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold">내 알림</h2>
+              <Button
+                className="min-h-9 text-xs"
+                disabled={unreadNotifications.length === 0}
+                onClick={markAllNotificationsRead}
+                type="button"
+                variant="outline"
+              >
+                모두 읽음 처리
+              </Button>
+            </div>
+            <ul className="mt-2 space-y-2">
+              {state.notifications.map((notification) => (
+                <li
+                  className={`rounded-xl p-2.5 text-xs ${notification.read ? "bg-muted/50 text-muted-foreground" : "bg-[#2925d9]/10 font-semibold text-[#211dc0] dark:text-[#aaa7ff]"}`}
+                  key={notification.id}
+                >
+                  {notification.message}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         <header className="mt-3 border-b pb-5 dark:border-white/10">
           <p className="text-sm font-semibold text-[#2925d9] dark:text-[#aaa7ff]">
             근린생활시설 도면 협업 · 도면 작업실
@@ -392,6 +523,40 @@ export default function WorkspacePreviewRoomClient({
                 {state.issues.length}건
               </span>
             </div>
+            {state.revisionReviews.length > 0 ? (
+              <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                <p className="flex items-center gap-2 text-sm font-bold">
+                  <RefreshCw className="size-4" /> 개정 도면 재검토{" "}
+                  {pendingRevisionReviews.length}건
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {state.revisionReviews.map((review) => (
+                    <li
+                      className="rounded-lg bg-white/70 p-2 text-xs"
+                      key={review.id}
+                    >
+                      <button
+                        className="w-full text-left"
+                        onClick={() => setSelectedIssueId(review.issueId)}
+                        type="button"
+                      >
+                        <span className="block font-semibold">
+                          {review.previousFileName} → {review.currentFileName}
+                        </span>
+                        <span className="mt-1 block">
+                          이전 근거: {review.previousAnchorLabel}
+                        </span>
+                        <span className="mt-1 block font-semibold">
+                          {review.status === "resolved"
+                            ? `새 근거 연결 완료: ${review.replacementAnchorLabel}`
+                            : "새 도면에서 객체나 영역을 다시 선택하세요."}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
             <form
               className="mt-4 space-y-3 rounded-xl border p-3 dark:border-white/10"
               onSubmit={createIssue}
@@ -414,6 +579,47 @@ export default function WorkspacePreviewRoomClient({
                   name="description"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="preview-issue-priority">우선순위</Label>
+                  <select
+                    className="mt-1 min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                    defaultValue="normal"
+                    id="preview-issue-priority"
+                    name="priority"
+                  >
+                    <option value="low">낮음</option>
+                    <option value="normal">보통</option>
+                    <option value="high">높음</option>
+                    <option value="urgent">긴급</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="preview-issue-due">기한</Label>
+                  <Input
+                    className="mt-1 min-h-11"
+                    id="preview-issue-due"
+                    name="due_date"
+                    type="date"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="preview-issue-assignee">담당자</Label>
+                <select
+                  className="mt-1 min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                  defaultValue=""
+                  id="preview-issue-assignee"
+                  name="assignee"
+                >
+                  <option value="">나중에 지정</option>
+                  {previewAssignees.map((assignee) => (
+                    <option key={assignee.id} value={assignee.id}>
+                      {assignee.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <Button className="min-h-11 w-full" type="submit">
                 <MessageSquarePlus className="size-4" /> 이슈 만들기
               </Button>
@@ -434,6 +640,19 @@ export default function WorkspacePreviewRoomClient({
                       {statusLabels[issue.status]}
                     </span>
                   </span>
+                  <span className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                    <span className="rounded-full bg-muted px-2 py-1">
+                      {priorityLabels[issue.priority]}
+                    </span>
+                    <span className="rounded-full bg-muted px-2 py-1">
+                      <UserRound className="mr-1 inline size-3" />
+                      {assigneeName(issue.assigneeId)}
+                    </span>
+                    <span className="rounded-full bg-muted px-2 py-1">
+                      <CalendarDays className="mr-1 inline size-3" />
+                      {displayDate(issue.dueDate)}
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -444,6 +663,56 @@ export default function WorkspacePreviewRoomClient({
                 <p className="mt-2 text-sm text-muted-foreground">
                   {selectedIssue.description}
                 </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="preview-current-priority">
+                      현재 우선순위
+                    </Label>
+                    <select
+                      className="mt-1 min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                      id="preview-current-priority"
+                      onChange={(event) =>
+                        changeSchedule({
+                          priority: event.target.value as PreviewPriority,
+                        })
+                      }
+                      value={selectedIssue.priority}
+                    >
+                      <option value="low">낮음</option>
+                      <option value="normal">보통</option>
+                      <option value="high">높음</option>
+                      <option value="urgent">긴급</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="preview-current-due">현재 기한</Label>
+                    <Input
+                      className="mt-1 min-h-11"
+                      id="preview-current-due"
+                      onChange={(event) =>
+                        changeSchedule({ dueDate: event.target.value })
+                      }
+                      type="date"
+                      value={selectedIssue.dueDate ?? ""}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <Label htmlFor="preview-current-assignee">현재 담당자</Label>
+                  <select
+                    className="mt-1 min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                    id="preview-current-assignee"
+                    onChange={(event) => changeAssignment(event.target.value)}
+                    value={selectedIssue.assigneeId ?? ""}
+                  >
+                    <option value="">미지정</option>
+                    {previewAssignees.map((assignee) => (
+                      <option key={assignee.id} value={assignee.id}>
+                        {assignee.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="mt-3">
                   <Label htmlFor="preview-status">처리 상태</Label>
                   <select
@@ -517,6 +786,29 @@ export default function WorkspacePreviewRoomClient({
                       추가
                     </Button>
                   </form>
+                </div>
+                <div className="mt-4">
+                  <h4 className="flex items-center gap-2 text-sm font-bold">
+                    <History className="size-4" /> 감사 기록
+                  </h4>
+                  <ol className="mt-2 space-y-2">
+                    {selectedEvents
+                      .slice()
+                      .reverse()
+                      .map((item) => (
+                        <li
+                          className="rounded-lg border p-2.5 text-xs"
+                          key={item.id}
+                        >
+                          <span className="font-semibold">
+                            {eventLabels[item.kind] ?? item.kind}
+                          </span>
+                          <span className="mt-1 block text-muted-foreground">
+                            {item.detail}
+                          </span>
+                        </li>
+                      ))}
+                  </ol>
                 </div>
                 {selectedIssue.status === "closed" ? (
                   <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
