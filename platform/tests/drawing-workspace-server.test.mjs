@@ -50,6 +50,7 @@ function operation(overrides = {}) {
       objects: [
         {
           id: ids.object,
+          name: "Circle",
           layerId: ids.workLayer,
           geometry: {
             type: "circle",
@@ -117,9 +118,41 @@ test("mutation parsing rejects unknown nested renderer fields instead of strippi
   );
 });
 
+test("mutation parsing requires object names and rejects browser layer authority", () => {
+  const missingName = operation();
+  delete missingName.forward.objects[0].name;
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: missingName }),
+    ),
+  );
+
+  const addLayer = operation({
+    type: "add_layer",
+    forward: {
+      type: "add_layer",
+      layer: {
+        id: ids.sourceLayer,
+        name: "Injected source",
+        visible: true,
+        locked: true,
+        systemKind: "source",
+        version: 1,
+      },
+    },
+    inverse: {},
+  });
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: addLayer }),
+    ),
+  );
+});
+
 test("pasted add payload is exact canonical DrawingObject input for server parsing", () => {
   const source = {
     id: ids.object,
+    name: "Rectangle",
     layerId: ids.workLayer,
     geometry: {
       type: "rectangle",
@@ -139,6 +172,7 @@ test("pasted add payload is exact canonical DrawingObject input for server parsi
         name: "Work",
         visible: true,
         locked: false,
+        systemKind: "work",
         version: 1,
       },
     ],
@@ -326,7 +360,16 @@ test("workspace loading binds immutable PDF evidence to its project and performs
     lukas_drawing_revisions: { data: revision, error: null },
     lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
     lukas_drawing_layers: {
-      data: [{ id: ids.sourceLayer, locked: true }],
+      data: [
+        {
+          id: ids.sourceLayer,
+          name: "Source",
+          locked: true,
+          visible: true,
+          system_kind: "source",
+          version: 1,
+        },
+      ],
       error: null,
     },
     lukas_drawing_objects: { data: [], error: null },
@@ -348,6 +391,43 @@ test("workspace loading binds immutable PDF evidence to its project and performs
     false,
   );
   assert.equal(file.sha256, sourceSha);
+});
+
+test("workspace loading fails closed when source-layer metadata is missing", async () => {
+  const file = {
+    id: ids.file,
+    project_id: ids.project,
+    kind: "pdf",
+    original_filename: "A-101.pdf",
+    storage_path: "projects/source.pdf",
+    content_type: "application/pdf",
+    byte_size: 1234,
+    sha256: sourceSha,
+    immutable: true,
+    created_at: "2026-08-24T00:00:00.000Z",
+  };
+  const client = queryClient({
+    lukas_qto_files: { data: file, error: null },
+    lukas_drawing_documents: {
+      data: { id: ids.document, project_id: ids.project },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: { id: ids.revision, status: "draft", version: 1 },
+      error: null,
+    },
+    lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
+    lukas_drawing_layers: {
+      data: [{ id: ids.sourceLayer, name: "Source", locked: true }],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+  });
+
+  await assert.rejects(
+    loadDrawingWorkspace(client, ids.project, ids.file),
+    /source layer metadata/i,
+  );
 });
 
 test("workspace loading returns a null document without creating one", async () => {
@@ -415,7 +495,19 @@ test("review-requested workspace loads its exact project-bound snapshot evidence
     lukas_drawing_documents: { data: document, error: null },
     lukas_drawing_revisions: { data: revision, error: null },
     lukas_drawing_pages: { data: [], error: null },
-    lukas_drawing_layers: { data: [], error: null },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.sourceLayer,
+          name: "Source",
+          locked: true,
+          visible: true,
+          system_kind: "source",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
     lukas_drawing_objects: { data: [], error: null },
     lukas_drawing_snapshots: {
       data: { revision_version: 7, sha256: snapshotSha },

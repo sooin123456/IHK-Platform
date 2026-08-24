@@ -89,7 +89,9 @@ create table public.lukas_drawing_layers (
   page_id uuid not null,
   revision_id uuid not null,
   project_id uuid not null references public.lukas_qto_projects(id) on delete cascade,
-  name text not null check (char_length(trim(name)) between 1 and 255),
+  name text not null check (
+    name = pg_catalog.btrim(name) and char_length(name) between 1 and 255
+  ),
   sort_order integer not null default 0,
   visible boolean not null default true,
   locked boolean not null default false,
@@ -104,7 +106,7 @@ create table public.lukas_drawing_layers (
   constraint lukas_drawing_layers_page_fkey
     foreign key (page_id, revision_id, project_id)
     references public.lukas_drawing_pages(id, revision_id, project_id) on delete cascade,
-  check (system_kind <> 'source' or locked)
+  check (system_kind <> 'source' or (locked and visible))
 );
 
 create table public.lukas_drawing_objects (
@@ -114,6 +116,9 @@ create table public.lukas_drawing_objects (
   layer_id uuid not null,
   revision_id uuid not null,
   project_id uuid not null references public.lukas_qto_projects(id) on delete cascade,
+  name text not null check (
+    name = pg_catalog.btrim(name) and char_length(name) between 1 and 255
+  ),
   object_type text not null
     check (object_type in ('line', 'polyline', 'rectangle', 'circle', 'text', 'dimension')),
   geometry jsonb not null check (jsonb_typeof(geometry) = 'object'),
@@ -751,6 +756,9 @@ begin
       raise exception 'Drawing layer creator and initial version are invalid';
     end if;
   else
+    if old.system_kind = 'source' then
+      raise exception 'Source drawing layer is immutable';
+    end if;
     if new.id is distinct from old.id
        or new.page_id is distinct from old.page_id
        or new.revision_id is distinct from old.revision_id
@@ -766,6 +774,17 @@ begin
   end if;
   if new.system_kind = 'source' and not new.locked then
     raise exception 'Source drawing layer must remain locked';
+  end if;
+  if new.system_kind <> 'source'
+     and (not new.visible or new.locked)
+     and not exists (
+       select 1 from public.lukas_drawing_layers l
+       where l.page_id = new.page_id
+         and l.id <> new.id
+         and l.system_kind <> 'source'
+         and l.visible and not l.locked
+     ) then
+    raise exception 'At least one visible unlocked user drawing layer is required';
   end if;
   new.updated_at := pg_catalog.now();
   return new;
@@ -1092,14 +1111,17 @@ begin
     end if;
     for v_item in select value from pg_catalog.jsonb_array_elements(p_payload -> 'objects') loop
       if pg_catalog.jsonb_typeof(v_item) <> 'object'
-         or not (v_item ?& array['id', 'layerId', 'geometry', 'style', 'version'])
-         or v_item - array['id', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
+         or not (v_item ?& array['id', 'name', 'layerId', 'geometry', 'style', 'version'])
+         or v_item - array['id', 'name', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
          or pg_catalog.jsonb_typeof(v_item -> 'id') <> 'string'
          or (v_item ->> 'id') !~
            '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
          or pg_catalog.jsonb_typeof(v_item -> 'layerId') <> 'string'
          or (v_item ->> 'layerId') !~
            '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+         or pg_catalog.jsonb_typeof(v_item -> 'name') <> 'string'
+         or v_item ->> 'name' <> pg_catalog.btrim(v_item ->> 'name')
+         or pg_catalog.char_length(v_item ->> 'name') not between 1 and 255
          or private.lukas_drawing_geometry_valid(
            v_item -> 'geometry' ->> 'type', v_item -> 'geometry'
          ) is not true
@@ -1134,7 +1156,12 @@ begin
            '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
          or pg_catalog.jsonb_typeof(v_patch) <> 'object'
          or v_patch = '{}'::jsonb
-         or v_patch - array['layerId', 'geometry', 'style'] <> '{}'::jsonb
+         or v_patch - array['name', 'layerId', 'geometry', 'style'] <> '{}'::jsonb
+         or (v_patch ? 'name' and (
+           pg_catalog.jsonb_typeof(v_patch -> 'name') <> 'string'
+           or v_patch ->> 'name' <> pg_catalog.btrim(v_patch ->> 'name')
+           or pg_catalog.char_length(v_patch ->> 'name') not between 1 and 255
+         ))
          or (v_patch ? 'layerId' and (
            pg_catalog.jsonb_typeof(v_patch -> 'layerId') <> 'string'
            or (v_patch ->> 'layerId') !~
@@ -1369,7 +1396,10 @@ begin
       group by item ->> 'id' having pg_catalog.count(*) > 1
     ) then raise exception 'Drawing operation contains duplicate object IDs'; end if;
     for v_item in select value from pg_catalog.jsonb_array_elements(p_forward -> 'objects') loop
-      if v_item - array['id', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
+      if v_item - array['id', 'name', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
+         or pg_catalog.jsonb_typeof(v_item -> 'name') <> 'string'
+         or v_item ->> 'name' <> pg_catalog.btrim(v_item ->> 'name')
+         or pg_catalog.char_length(v_item ->> 'name') not between 1 and 255
          or pg_catalog.jsonb_typeof(v_item -> 'geometry') <> 'object'
          or pg_catalog.jsonb_typeof(v_item -> 'style') <> 'object'
          or pg_catalog.jsonb_typeof(v_item -> 'version') <> 'number' then
@@ -1401,6 +1431,7 @@ begin
         end if;
         update public.lukas_drawing_objects
         set page_id = v_layer.page_id, layer_id = v_layer.id,
+            name = v_item ->> 'name',
             geometry = v_item -> 'geometry', style = v_item -> 'style',
             status = 'active', version = (v_item ->> 'version')::bigint,
             updated_by = v_actor
@@ -1417,11 +1448,12 @@ begin
         end if;
         insert into public.lukas_drawing_objects(
           id, lineage_id, page_id, layer_id, revision_id, project_id,
-          object_type, geometry, style, status, version, created_by, updated_by
+          name, object_type, geometry, style, status, version, created_by, updated_by
         ) values (
           v_object_id, v_object_id, v_layer.page_id, v_layer.id,
           p_revision_id, v_revision.project_id,
-          v_item -> 'geometry' ->> 'type', v_item -> 'geometry', v_item -> 'style',
+          v_item ->> 'name', v_item -> 'geometry' ->> 'type',
+          v_item -> 'geometry', v_item -> 'style',
           'active', 1, v_actor, v_actor
         );
         v_result_versions := v_result_versions ||
@@ -1450,7 +1482,7 @@ begin
       if v_item - array['objectId', 'patch'] <> '{}'::jsonb
          or pg_catalog.jsonb_typeof(v_item -> 'patch') <> 'object'
          or v_item -> 'patch' = '{}'::jsonb
-         or (v_item -> 'patch') - array['layerId', 'geometry', 'style'] <> '{}'::jsonb then
+         or (v_item -> 'patch') - array['name', 'layerId', 'geometry', 'style'] <> '{}'::jsonb then
         raise exception 'Invalid drawing object update payload';
       end if;
       v_object_id := (v_item ->> 'objectId')::uuid;
@@ -1473,6 +1505,12 @@ begin
           and l.page_id = v_object.page_id for update;
         if not found or v_new_layer.locked then raise exception 'Target drawing layer is locked or missing'; end if;
       end if;
+      if v_patch ? 'name'
+         and (pg_catalog.jsonb_typeof(v_patch -> 'name') <> 'string'
+           or v_patch ->> 'name' <> pg_catalog.btrim(v_patch ->> 'name')
+           or pg_catalog.char_length(v_patch ->> 'name') not between 1 and 255) then
+        raise exception 'Drawing object name is invalid';
+      end if;
       if v_patch ? 'geometry'
          and private.lukas_drawing_geometry_valid(
            v_object.object_type, v_patch -> 'geometry'
@@ -1484,7 +1522,8 @@ begin
         raise exception 'Drawing object style is invalid';
       end if;
       update public.lukas_drawing_objects
-      set layer_id = case when v_patch ? 'layerId' then (v_patch ->> 'layerId')::uuid else layer_id end,
+      set name = case when v_patch ? 'name' then v_patch ->> 'name' else name end,
+          layer_id = case when v_patch ? 'layerId' then (v_patch ->> 'layerId')::uuid else layer_id end,
           geometry = case when v_patch ? 'geometry' then v_patch -> 'geometry' else geometry end,
           style = case when v_patch ? 'style' then v_patch -> 'style' else style end,
           version = version + 1, updated_by = v_actor
@@ -1521,6 +1560,7 @@ begin
       where item ->> 'id' = v_object_id::text;
       if v_inverse_item is distinct from pg_catalog.jsonb_build_object(
         'id', v_object.id,
+        'name', v_object.name,
         'layerId', v_object.layer_id,
         'geometry', v_object.geometry,
         'style', v_object.style,
@@ -1554,7 +1594,7 @@ begin
     end if;
     v_layer_id := (v_item ->> 'id')::uuid;
     if p_base_versions <> '{}'::jsonb
-       and not (pg_catalog.jsonb_object_length(p_base_versions) = 1
+       and not ((select pg_catalog.count(*) from pg_catalog.jsonb_each(p_base_versions)) = 1
          and (p_base_versions ->> v_layer_id::text)::bigint = 1) then
       raise exception 'Invalid add_layer base version';
     end if;
@@ -1585,7 +1625,7 @@ begin
     end if;
     v_layer_id := (p_forward ->> 'layerId')::uuid;
     v_patch := p_forward -> 'patch';
-    if pg_catalog.jsonb_object_length(p_base_versions) <> 1 then
+    if (select pg_catalog.count(*) from pg_catalog.jsonb_each(p_base_versions)) <> 1 then
       raise exception 'Drawing layer base version is required';
     end if;
     select * into v_layer from public.lukas_drawing_layers l
@@ -1692,7 +1732,7 @@ begin
     'objects', coalesce((
       select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
         'id', o.id, 'lineageId', o.lineage_id, 'pageId', o.page_id,
-        'layerId', o.layer_id, 'type', o.object_type,
+        'layerId', o.layer_id, 'name', o.name, 'type', o.object_type,
         'geometry', o.geometry, 'style', o.style, 'version', o.version,
         'sources', coalesce((
           select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(

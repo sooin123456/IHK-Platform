@@ -52,6 +52,7 @@ import type {
   Point,
   Viewport,
 } from "~/lukas/lib/drawing-workspace.types";
+import { defaultDrawingObjectName } from "~/lukas/lib/drawing-workspace.types";
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
@@ -137,6 +138,7 @@ function drawingObject(
 ): DrawingObject {
   return {
     id: options.objectId,
+    name: defaultDrawingObjectName(geometry.type),
     layerId: options.layerId,
     geometry,
     style: {

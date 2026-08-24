@@ -84,6 +84,54 @@ test("workspace document renders the accessible editor shell", async () => {
   assert.match(shell, /aria-label="속성 검사기"/);
 });
 
+test("layers and inspector expose native labeled controls", async () => {
+  const [shell, layers, inspector] = await Promise.all([
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-workspace.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-layers-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/lukas/components/drawing-inspector.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  assert.match(shell, /<DrawingLayersPanel/);
+  assert.match(shell, /<DrawingInspector/);
+  for (const label of [
+    "새 레이어 이름",
+    "레이어 추가",
+    "레이어 이름",
+    "레이어 표시",
+    "레이어 잠금",
+    "활성 레이어",
+  ]) {
+    assert.match(layers, new RegExp(label));
+  }
+  for (const label of [
+    "객체 이름",
+    "레이어",
+    "선 색상",
+    "선 두께",
+    "채우기",
+    "텍스트",
+  ]) {
+    assert.match(inspector, new RegExp(label));
+  }
+  assert.match(inspector, /<input/);
+  assert.match(inspector, /<select/);
+  assert.match(inspector, /<button/);
+});
+
 test("review controls require capability, requested status, separate maker, and exact evidence", () => {
   assert.ok(workspaceView);
   const base = {

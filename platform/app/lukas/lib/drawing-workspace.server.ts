@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import {
   DrawingGeometrySchema,
-  DrawingLayerSchema,
+  DrawingLayerInputSchema,
+  DrawingObjectNameSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
   DrawingStyleSchema,
@@ -98,6 +99,7 @@ type DrawingLayerRow = {
 
 type DrawingObjectRow = {
   id: string;
+  name: string;
   lineage_id: string;
   page_id: string;
   layer_id: string;
@@ -181,6 +183,7 @@ const DecisionNote = z.string().trim().max(5000);
 
 const ObjectPatchSchema = z
   .object({
+    name: DrawingObjectNameSchema.optional(),
     layerId: Uuid.optional(),
     geometry: DrawingGeometrySchema.optional(),
     style: DrawingStyleSchema.optional(),
@@ -217,7 +220,7 @@ const DeleteObjectsPayloadSchema = z
   })
   .strict();
 const AddLayerPayloadSchema = z
-  .object({ type: z.literal("add_layer"), layer: DrawingLayerSchema })
+  .object({ type: z.literal("add_layer"), layer: DrawingLayerInputSchema })
   .strict();
 const UpdateLayerPayloadSchema = z
   .object({
@@ -502,6 +505,18 @@ export async function loadDrawingWorkspace(
     pagesResult.error ?? layersResult.error ?? objectsResult.error;
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
+  const layers = layersResult.data ?? [];
+  if (
+    layers.some(
+      (layer) =>
+        layer.system_kind !== "source" &&
+        layer.system_kind !== "work" &&
+        layer.system_kind !== "custom",
+    ) ||
+    !layers.some((layer) => layer.system_kind === "source")
+  ) {
+    throw new Error("Drawing source layer metadata is missing.");
+  }
   let reviewEvidence: {
     subjectVersion: number;
     snapshotSha256: string;
@@ -532,7 +547,7 @@ export async function loadDrawingWorkspace(
       revision: {
         ...revision,
         pages: pagesResult.data ?? [],
-        layers: layersResult.data ?? [],
+        layers,
         objects: objectsResult.data ?? [],
         reviewEvidence,
       },

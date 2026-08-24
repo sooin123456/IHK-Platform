@@ -28,9 +28,11 @@ import {
   createDrawingDocumentState,
   deleteDrawingSelection,
   duplicateDrawingSelection,
+  isEditableDrawingLayer,
   moveDrawingSelection,
   pasteDrawingClipboard,
   redoDrawingCommand,
+  resolveActiveDrawingLayerId,
   undoDrawingCommand,
   type DrawingCommand,
   type DrawingClipboard,
@@ -56,6 +58,8 @@ import {
   DrawingCommandMenu,
   type DrawingCommandId,
 } from "./drawing-command-menu";
+import { DrawingInspector } from "./drawing-inspector";
+import { DrawingLayersPanel } from "./drawing-layers-panel";
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
@@ -98,7 +102,8 @@ function drawingShortcutTargetIsEditable(target: EventTarget | null) {
       candidate.closest?.("input, textarea, select, [contenteditable='true']"),
     ) ||
     Boolean(candidate.closest?.("dialog")) ||
-    Boolean(candidate.closest?.("[role='dialog']"))
+    Boolean(candidate.closest?.("[role='dialog']")) ||
+    Boolean(candidate.closest?.("[data-drawing-shortcuts='ignore']"))
   );
 }
 
@@ -129,17 +134,35 @@ export function resolveDrawingWorkspaceShortcut(
 
 export function drawingEditingContext(
   capability: DrawingWorkspaceCapability,
-  layers: WorkspaceLayer[],
+  layers: Array<
+    | WorkspaceLayer
+    | (DrawingDocumentState["layers"][string] & { system_kind?: never })
+  >,
+  requestedLayerId: string | null = null,
 ) {
   if (capability !== "admin" && capability !== "editor")
     return { canEdit: false, layerId: null };
+  const eligible = (candidate: (typeof layers)[number]) => {
+    const kind =
+      "systemKind" in candidate ? candidate.systemKind : candidate.system_kind;
+    return (
+      (kind === "work" || kind === "custom") &&
+      candidate.visible &&
+      !candidate.locked
+    );
+  };
   const layer =
     layers.find(
-      (candidate) =>
-        candidate.system_kind === "work" &&
-        candidate.visible &&
-        !candidate.locked,
-    ) ?? layers.find((candidate) => candidate.visible && !candidate.locked);
+      (candidate) => candidate.id === requestedLayerId && eligible(candidate),
+    ) ??
+    layers.find((candidate) => {
+      const kind =
+        "systemKind" in candidate
+          ? candidate.systemKind
+          : candidate.system_kind;
+      return kind === "work" && eligible(candidate);
+    }) ??
+    layers.find(eligible);
   return layer
     ? { canEdit: true, layerId: layer.id }
     : { canEdit: false, layerId: null };
@@ -156,12 +179,14 @@ function drawingStateFromRevision(
         name: layer.name,
         visible: layer.visible,
         locked: layer.locked,
+        systemKind: layer.system_kind,
         version: layer.version,
       }),
     ),
     objects: revision.objects.map((object) =>
       DrawingObjectSchema.parse({
         id: object.id,
+        name: object.name,
         layerId: object.layer_id,
         geometry: object.geometry,
         style: object.style,
@@ -201,6 +226,7 @@ export default function DrawingWorkspaceClient({
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [repeatMode, setRepeatMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
@@ -216,8 +242,16 @@ export default function DrawingWorkspaceClient({
       ),
     [drawingState.layers, drawingState.objects],
   );
+  const resolvedActiveLayerId = useMemo(
+    () => resolveActiveDrawingLayerId(drawingState.layers, activeLayerId),
+    [activeLayerId, drawingState.layers],
+  );
   const page = revision.pages[0];
-  const editing = drawingEditingContext(capability, revision.layers);
+  const editing = drawingEditingContext(
+    capability,
+    Object.values(drawingState.layers),
+    resolvedActiveLayerId,
+  );
   const calibration = useMemo<DimensionCalibrationEvidence | null>(() => {
     const parsed = PdfCalibrationSchema.safeParse(page?.calibration);
     return page && parsed.success
@@ -289,10 +323,23 @@ export default function DrawingWorkspaceClient({
   useEffect(() => {
     setDrawingState(drawingStateFromRevision(revision));
     setActiveTool("select");
+    setActiveLayerId(null);
     setSelectedIds([]);
     clipboardRef.current = { items: [] };
     setHasLocalChanges(false);
   }, [revision]);
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const eligible = current.filter((objectId) => {
+        const object = drawingState.objects[objectId];
+        return Boolean(
+          object && isEditableDrawingLayer(drawingState.layers[object.layerId]),
+        );
+      });
+      return eligible.length === current.length ? current : eligible;
+    });
+  }, [drawingState.layers, drawingState.objects]);
 
   const applyCommand = useCallback((command: DrawingCommand) => {
     setDrawingState((state) => applyDrawingCommand(state, command).state);
@@ -597,20 +644,14 @@ export default function DrawingWorkspaceClient({
           aria-label="레이어 패널"
           className="border-b border-white/10 bg-slate-900 p-4 lg:border-b-0 lg:border-r"
         >
-          <h2 className="text-sm font-bold">레이어</h2>
-          <ul className="mt-3 space-y-1 text-sm">
-            {revision.layers.map((layer) => (
-              <li
-                className="flex items-center justify-between gap-2 rounded-md bg-white/5 px-3 py-2"
-                key={layer.id}
-              >
-                <span className="truncate">{layer.name}</span>
-                <span className="text-xs text-slate-400">
-                  {layer.locked ? "잠김" : layer.visible ? "표시" : "숨김"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <DrawingLayersPanel
+            activeLayerId={resolvedActiveLayerId}
+            actorId={currentUserId}
+            canEdit={capability === "admin" || capability === "editor"}
+            onActiveLayerChange={setActiveLayerId}
+            onCommand={applyCommand}
+            state={drawingState}
+          />
         </aside>
 
         <section
@@ -807,24 +848,13 @@ export default function DrawingWorkspaceClient({
           aria-label="속성 검사기"
           className="border-t border-white/10 bg-slate-900 p-4 lg:border-l lg:border-t-0"
         >
-          <h2 className="text-sm font-bold">속성</h2>
-          <dl className="mt-4 space-y-3 text-sm">
-            <div>
-              <dt className="text-xs text-slate-400">리비전</dt>
-              <dd>{revision.sequence}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-400">상태</dt>
-              <dd>{revision.status}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-400">페이지</dt>
-              <dd>{page?.name ?? "도면 1"}</dd>
-            </div>
-          </dl>
-          <p className="mt-6 text-sm leading-6 text-slate-400">
-            객체를 선택하면 이 영역에서 속성을 확인할 수 있습니다.
-          </p>
+          <DrawingInspector
+            actorId={currentUserId}
+            canEdit={editing.canEdit}
+            onCommand={applyCommand}
+            selectedIds={selectedIds}
+            state={drawingState}
+          />
         </aside>
       </div>
       <DrawingCommandMenu

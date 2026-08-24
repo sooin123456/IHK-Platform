@@ -54,6 +54,7 @@ function layer(overrides = {}) {
     name: "Annotations",
     visible: true,
     locked: false,
+    systemKind: "custom",
     version: 1,
     ...overrides,
   };
@@ -62,6 +63,7 @@ function layer(overrides = {}) {
 function rectangle(overrides = {}) {
   return {
     id: ids.rectangle,
+    name: "Rectangle",
     layerId: ids.layer,
     geometry: {
       type: "rectangle",
@@ -79,6 +81,7 @@ function rectangle(overrides = {}) {
 function circle(overrides = {}) {
   return {
     id: ids.circle,
+    name: "Circle",
     layerId: ids.layer,
     geometry: { type: "circle", center: { x: 10, y: 10 }, radius: 5 },
     style: { stroke: "#112233", strokeWidth: 2, fill: null },
@@ -86,6 +89,29 @@ function circle(overrides = {}) {
     ...overrides,
   };
 }
+
+test("canonical drawing objects require an exact trimmed name", () => {
+  assert.equal(
+    DrawingObjectSchema.strict().safeParse(rectangle()).success,
+    true,
+  );
+  for (const candidate of [
+    { ...rectangle(), name: "" },
+    { ...rectangle(), name: " Rectangle " },
+    { ...rectangle(), name: "x".repeat(256) },
+    { ...rectangle(), rendererName: "Rectangle" },
+  ]) {
+    assert.equal(
+      DrawingObjectSchema.strict().safeParse(candidate).success,
+      false,
+    );
+  }
+  const { name: _name, ...missingName } = rectangle();
+  assert.equal(
+    DrawingObjectSchema.strict().safeParse(missingName).success,
+    false,
+  );
+});
 
 function emptyState(overrides = {}) {
   return createDrawingDocumentState({
@@ -156,6 +182,31 @@ test("update moves an object and records the version it was based on", () => {
   });
 });
 
+test("update records and restores an object's trimmed name", () => {
+  const state = emptyState({ objects: [rectangle()] });
+  const renamed = applyDrawingCommand(
+    state,
+    {
+      type: "update_objects",
+      actorId: "actor-a",
+      updates: [
+        {
+          objectId: ids.rectangle,
+          baseVersion: 1,
+          patch: { name: "Door outline" },
+        },
+      ],
+    },
+    environment(),
+  );
+
+  assert.equal(renamed.state.objects[ids.rectangle].name, "Door outline");
+  assert.deepEqual(renamed.operation.inverse, {
+    type: "update_objects",
+    updates: [{ objectId: ids.rectangle, patch: { name: "Rectangle" } }],
+  });
+});
+
 test("delete removes an object and records an add inverse", () => {
   const state = emptyState({ objects: [rectangle()] });
   const deleted = applyDrawingCommand(
@@ -167,7 +218,7 @@ test("delete removes an object and records an add inverse", () => {
   assert.equal(deleted.state.objects[ids.rectangle], undefined);
   assert.deepEqual(deleted.operation.inverse, {
     type: "add_objects",
-    objects: [rectangle()],
+    objects: [rectangle({ version: 3 })],
   });
   assert.deepEqual(deleted.operation.baseVersions, { [ids.rectangle]: 1 });
 });
@@ -407,7 +458,7 @@ test("undo of a layer update conflicts when another actor changed that layer", (
       type: "update_layer",
       actorId: "actor-b",
       layerId: ids.layer,
-      patch: { visible: false },
+      patch: { name: "Final notes" },
     },
     env,
   );
@@ -421,11 +472,189 @@ test("undo of a layer update conflicts when another actor changed that layer", (
 test("add_layer remains non-undoable without a delete_layer command", () => {
   const added = applyDrawingCommand(
     createDrawingDocumentState({ revisionId: ids.revision }),
-    { type: "add_layer", actorId: "actor-a", layer: layer() },
+    {
+      type: "add_layer",
+      actorId: "actor-a",
+      layer: {
+        id: ids.layer,
+        name: "Annotations",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
     environment(),
   );
 
+  assert.equal(added.state.layers[ids.layer].systemKind, "custom");
   assert.equal(undoDrawingCommand(added.state, "actor-a", environment()), null);
+});
+
+test("layer commands trim unique names and preserve one active editable user layer", () => {
+  const sourceId = "00000000-0000-4000-8000-000000000020";
+  const workId = "00000000-0000-4000-8000-000000000021";
+  const customId = "00000000-0000-4000-8000-000000000022";
+  const state = createDrawingDocumentState({
+    revisionId: ids.revision,
+    layers: [
+      layer({
+        id: sourceId,
+        name: "Source",
+        locked: true,
+        systemKind: "source",
+      }),
+      layer({ id: workId, name: "Work", systemKind: "work" }),
+    ],
+  });
+  const add = drawingCommands.createDrawingLayerCommand(
+    state,
+    "actor-a",
+    "  Details  ",
+    () => customId,
+  );
+  assert.deepEqual(add, {
+    type: "add_layer",
+    actorId: "actor-a",
+    layer: {
+      id: customId,
+      name: "Details",
+      visible: true,
+      locked: false,
+      version: 1,
+    },
+  });
+  const added = applyDrawingCommand(state, add, environment());
+  assert.equal(
+    drawingCommands.resolveActiveDrawingLayerId(added.state.layers, customId),
+    customId,
+  );
+  assert.throws(() =>
+    drawingCommands.createDrawingLayerCommand(
+      added.state,
+      "actor-a",
+      " Details ",
+      () => "00000000-0000-4000-8000-000000000023",
+    ),
+  );
+  assert.throws(() =>
+    drawingCommands.updateDrawingLayerCommand(state, "actor-a", sourceId, {
+      visible: false,
+    }),
+  );
+  assert.throws(() =>
+    drawingCommands.updateDrawingLayerCommand(state, "actor-a", workId, {
+      locked: true,
+    }),
+  );
+
+  const hiddenWork = applyDrawingCommand(
+    added.state,
+    drawingCommands.updateDrawingLayerCommand(added.state, "actor-a", workId, {
+      visible: false,
+    }),
+    environment(),
+  );
+  assert.equal(
+    drawingCommands.resolveActiveDrawingLayerId(
+      hiddenWork.state.layers,
+      workId,
+    ),
+    customId,
+  );
+});
+
+test("inspector builds one version-aware all-or-nothing multi-object command", () => {
+  const secondLayerId = "00000000-0000-4000-8000-000000000024";
+  const state = emptyState({
+    layers: [layer(), layer({ id: secondLayerId, name: "Details" })],
+    objects: [
+      rectangle(),
+      circle({ style: { stroke: "#445566", strokeWidth: 4, fill: "#ffffff" } }),
+    ],
+  });
+  const command = drawingCommands.updateDrawingSelectionProperties(
+    state,
+    [ids.rectangle, ids.circle],
+    "actor-a",
+    { layerId: secondLayerId, stroke: "#abcdef", strokeWidth: 3, fill: null },
+  );
+
+  assert.deepEqual(command, {
+    type: "update_objects",
+    actorId: "actor-a",
+    updates: [
+      {
+        objectId: ids.rectangle,
+        baseVersion: 1,
+        patch: {
+          layerId: secondLayerId,
+          style: { stroke: "#abcdef", strokeWidth: 3, fill: null },
+        },
+      },
+      {
+        objectId: ids.circle,
+        baseVersion: 1,
+        patch: {
+          layerId: secondLayerId,
+          style: { stroke: "#abcdef", strokeWidth: 3, fill: null },
+        },
+      },
+    ],
+  });
+  assert.throws(() =>
+    drawingCommands.updateDrawingSelectionProperties(
+      state,
+      [ids.rectangle, "missing"],
+      "actor-a",
+      { strokeWidth: 2 },
+    ),
+  );
+  for (const patch of [
+    { name: "  " },
+    { stroke: "red" },
+    { strokeWidth: Number.POSITIVE_INFINITY },
+    { fill: "#xyzxyz" },
+  ]) {
+    assert.throws(() =>
+      drawingCommands.updateDrawingSelectionProperties(
+        state,
+        [ids.rectangle],
+        "actor-a",
+        patch,
+      ),
+    );
+  }
+});
+
+test("inspector text changes are available only when every target is text", () => {
+  const textObject = rectangle({
+    name: "Text",
+    geometry: {
+      type: "text",
+      origin: { x: 1, y: 2 },
+      width: 80,
+      text: "old",
+    },
+  });
+  const state = emptyState({ objects: [textObject] });
+  const command = drawingCommands.updateDrawingSelectionProperties(
+    state,
+    [ids.rectangle],
+    "actor-a",
+    { text: "new" },
+  );
+  assert.deepEqual(command.updates[0].patch.geometry, {
+    ...textObject.geometry,
+    text: "new",
+  });
+  assert.throws(() =>
+    drawingCommands.updateDrawingSelectionProperties(
+      emptyState({ objects: [rectangle()] }),
+      [ids.rectangle],
+      "actor-a",
+      { text: "new" },
+    ),
+  );
 });
 
 const snap = {
@@ -1485,12 +1714,7 @@ test("arrow moves use millimeters and mutation commands filter locked or hidden 
 test("copy strips identity and paste creates strict fresh objects at 20 mm", () => {
   assert.equal(typeof drawingCommands.copyDrawingSelection, "function");
   assert.equal(typeof drawingCommands.pasteDrawingClipboard, "function");
-  const source = {
-    ...rectangle(),
-    lineageId: "source-lineage",
-    sourceLink: { kind: "ifc", id: "wall-1" },
-    createdBy: "actor-a",
-  };
+  const source = rectangle();
   const state = emptyState({ objects: [source] });
   const clipboard = drawingCommands.copyDrawingSelection(state, [
     ids.rectangle,
@@ -1498,6 +1722,7 @@ test("copy strips identity and paste creates strict fresh objects at 20 mm", () 
   assert.deepEqual(clipboard, {
     items: [
       {
+        name: "Rectangle",
         layerId: ids.layer,
         geometry: rectangle().geometry,
         style: rectangle().style,
@@ -1517,6 +1742,7 @@ test("copy strips identity and paste creates strict fresh objects at 20 mm", () 
     "geometry",
     "id",
     "layerId",
+    "name",
     "style",
     "version",
   ]);
@@ -1612,6 +1838,12 @@ test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", asy
       tagName: "BUTTON",
       isContentEditable: false,
       closest: (selector) => (selector.includes("role") ? {} : null),
+    },
+    {
+      tagName: "BUTTON",
+      isContentEditable: false,
+      closest: (selector) =>
+        selector === "[data-drawing-shortcuts='ignore']" ? {} : null,
     },
   ]) {
     assert.equal(shortcut({ target }), null);

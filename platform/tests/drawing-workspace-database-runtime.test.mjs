@@ -27,7 +27,9 @@ const migration = () =>
 
 async function asActor(actor) {
   await db.exec("set role authenticated");
-  await db.query("select set_config('request.jwt.claim.sub',$1,false)", [actor]);
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    actor,
+  ]);
 }
 
 async function createDocument(title = randomUUID()) {
@@ -39,7 +41,13 @@ async function createDocument(title = randomUUID()) {
   return result.rows[0].result;
 }
 
-async function applyOperation(revisionId, operationType, baseVersions, forward, inverse) {
+async function applyOperation(
+  revisionId,
+  operationType,
+  baseVersions,
+  forward,
+  inverse,
+) {
   const result = await db.query(
     `select public.lukas_drawing_apply_operation($1,$2,$3,$4,$5,$6) result`,
     [revisionId, randomUUID(), operationType, baseVersions, forward, inverse],
@@ -49,6 +57,7 @@ async function applyOperation(revisionId, operationType, baseVersions, forward, 
 
 const circleObject = (id, layerId, overrides = {}) => ({
   id,
+  name: "Circle",
   layerId,
   geometry: { type: "circle", center: { x: 10, y: 20 }, radius: 5 },
   style: STYLE,
@@ -148,6 +157,23 @@ after(async () => {
 });
 
 test("runtime migration rejects malformed domain and inverse JSON", async (t) => {
+  await t.test("missing and untrimmed object names", async () => {
+    const ids = await createDocument();
+    const missing = circleObject(randomUUID(), ids.workLayerId);
+    delete missing.name;
+    await assert.rejects(
+      addObject(ids, missing),
+      /Drawing operation domain JSON is invalid/,
+    );
+    await assert.rejects(
+      addObject(
+        ids,
+        circleObject(randomUUID(), ids.workLayerId, { name: " Circle " }),
+      ),
+      /Drawing operation domain JSON is invalid/,
+    );
+  });
+
   await t.test("geometry with a missing mandatory key", async () => {
     const ids = await createDocument();
     const object = circleObject(randomUUID(), ids.workLayerId, {
@@ -187,7 +213,11 @@ test("runtime migration rejects malformed domain and inverse JSON", async (t) =>
         "add_objects",
         {},
         { type: "add_objects", objects: [object] },
-        { type: "update_layer", layerId: ids.workLayerId, patch: { visible: false } },
+        {
+          type: "update_layer",
+          layerId: ids.workLayerId,
+          patch: { visible: false },
+        },
       ),
       /inverse payload is invalid/i,
     );
@@ -253,7 +283,7 @@ test("runtime delete inverse is exactly replayable through add_objects", async (
     { type: "delete_objects", objectIds: [object.id] },
   );
   const restored = await db.query(
-    `select status,version,layer_id "layerId",geometry,style
+    `select status,version,layer_id "layerId",name,geometry,style
      from public.lukas_drawing_objects where id=$1`,
     [object.id],
   );
@@ -261,9 +291,140 @@ test("runtime delete inverse is exactly replayable through add_objects", async (
     status: "active",
     version: 3,
     layerId: ids.workLayerId,
+    name: "Circle",
     geometry: object.geometry,
     style: object.style,
   });
+});
+
+test("runtime object rename and snapshot preserve the canonical name", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Door circle" } }],
+    },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Circle" } }],
+    },
+  );
+  const renamed = await db.query(
+    "select name,version from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(renamed.rows[0], { name: "Door circle", version: 2 });
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await db.exec("reset role");
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  assert.equal(snapshot.rows[0].canonical_json.objects[0].name, "Door circle");
+});
+
+test("runtime layers enforce trimmed uniqueness, source immutability, and an editable fallback", async () => {
+  const ids = await createDocument();
+  const customId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    {},
+    {
+      type: "add_layer",
+      layer: {
+        id: customId,
+        name: " Details ",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  const stored = await db.query(
+    "select name,system_kind from public.lukas_drawing_layers where id=$1",
+    [customId],
+  );
+  assert.deepEqual(stored.rows[0], { name: "Details", system_kind: "custom" });
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "add_layer",
+      {},
+      {
+        type: "add_layer",
+        layer: {
+          id: randomUUID(),
+          name: "Details",
+          visible: true,
+          locked: false,
+          version: 1,
+        },
+      },
+      {},
+    ),
+    /unique|duplicate/i,
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_layer",
+      { [ids.sourceLayerId]: 1 },
+      {
+        type: "update_layer",
+        layerId: ids.sourceLayerId,
+        patch: { visible: false },
+      },
+      {
+        type: "update_layer",
+        layerId: ids.sourceLayerId,
+        patch: { visible: true },
+      },
+    ),
+    /Source drawing layer is immutable/,
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 1 },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { locked: true },
+    },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { locked: false },
+    },
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_layer",
+      { [customId]: 1 },
+      {
+        type: "update_layer",
+        layerId: customId,
+        patch: { visible: false },
+      },
+      {
+        type: "update_layer",
+        layerId: customId,
+        patch: { visible: true },
+      },
+    ),
+    /visible unlocked user drawing layer/i,
+  );
 });
 
 test("runtime delete rejects a non-replayable inverse version", async () => {
@@ -342,7 +503,9 @@ test("runtime review freeze rejects inserts into the locked revision", async () 
     ],
   );
   await db.exec("reset role");
-  await db.query("select set_config('request.jwt.claim.sub',$1,false)", [OWNER]);
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    OWNER,
+  ]);
   await assert.rejects(
     db.query(
       `insert into public.lukas_drawing_pages(
@@ -355,88 +518,94 @@ test("runtime review freeze rejects inserts into the locked revision", async () 
 });
 
 test("runtime privileged child and approval guards reject missing membership", async (t) => {
-  await t.test("child guard rejects unauthenticated and nonmember actors", async () => {
-    const unauthenticatedIds = await createDocument();
-    await db.exec("reset role");
-    await db.query("select set_config('request.jwt.claim.sub','',false)");
-    await assert.rejects(
-      db.query(
-        `insert into public.lukas_drawing_pages(
+  await t.test(
+    "child guard rejects unauthenticated and nonmember actors",
+    async () => {
+      const unauthenticatedIds = await createDocument();
+      await db.exec("reset role");
+      await db.query("select set_config('request.jwt.claim.sub','',false)");
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_pages(
           revision_id,project_id,name,page_number,width_mm,height_mm
         ) values ($1,$2,'unauthenticated late page',2,420,297)`,
-        [unauthenticatedIds.revisionId, PROJECT],
-      ),
-      /Drawing workspace editor capability required/,
-    );
-    await assert.rejects(
-      db.query(
-        "update public.lukas_drawing_pages set name='unauthenticated edit' where id=$1",
-        [unauthenticatedIds.pageId],
-      ),
-      /Drawing workspace editor capability required/,
-    );
+          [unauthenticatedIds.revisionId, PROJECT],
+        ),
+        /Drawing workspace editor capability required/,
+      );
+      await assert.rejects(
+        db.query(
+          "update public.lukas_drawing_pages set name='unauthenticated edit' where id=$1",
+          [unauthenticatedIds.pageId],
+        ),
+        /Drawing workspace editor capability required/,
+      );
 
-    const nonmemberIds = await createDocument();
-    await db.exec("reset role");
-    await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
-      OUTSIDER,
-    ]);
-    await assert.rejects(
-      db.query(
-        `insert into public.lukas_drawing_pages(
+      const nonmemberIds = await createDocument();
+      await db.exec("reset role");
+      await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
+        OUTSIDER,
+      ]);
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_pages(
           revision_id,project_id,name,page_number,width_mm,height_mm
         ) values ($1,$2,'nonmember late page',2,420,297)`,
-        [nonmemberIds.revisionId, PROJECT],
-      ),
-      /Drawing workspace editor capability required/,
-    );
-    await assert.rejects(
-      db.query(
-        "update public.lukas_drawing_pages set name='nonmember edit' where id=$1",
-        [nonmemberIds.pageId],
-      ),
-      /Drawing workspace editor capability required/,
-    );
-  });
+          [nonmemberIds.revisionId, PROJECT],
+        ),
+        /Drawing workspace editor capability required/,
+      );
+      await assert.rejects(
+        db.query(
+          "update public.lukas_drawing_pages set name='nonmember edit' where id=$1",
+          [nonmemberIds.pageId],
+        ),
+        /Drawing workspace editor capability required/,
+      );
+    },
+  );
 
-  await t.test("approval guard rejects unauthenticated and nonmember actors", async () => {
-    const ids = await createDocument();
-    const review = await db.query(
-      "select public.lukas_drawing_request_review($1) result",
-      [ids.revisionId],
-    );
-    const approval = [
-      ids.revisionId,
-      PROJECT,
-      review.rows[0].result.subjectVersion,
-      review.rows[0].result.snapshotSha256,
-      OUTSIDER,
-    ];
-    await db.exec("reset role");
-    await db.query("select set_config('request.jwt.claim.sub','',false)");
-    await assert.rejects(
-      db.query(
-        `insert into public.lukas_drawing_revision_approvals(
+  await t.test(
+    "approval guard rejects unauthenticated and nonmember actors",
+    async () => {
+      const ids = await createDocument();
+      const review = await db.query(
+        "select public.lukas_drawing_request_review($1) result",
+        [ids.revisionId],
+      );
+      const approval = [
+        ids.revisionId,
+        PROJECT,
+        review.rows[0].result.subjectVersion,
+        review.rows[0].result.snapshotSha256,
+        OUTSIDER,
+      ];
+      await db.exec("reset role");
+      await db.query("select set_config('request.jwt.claim.sub','',false)");
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_revision_approvals(
           revision_id,project_id,subject_version,snapshot_sha256,
           decision,note,decided_by
         ) values ($1,$2,$3,$4,'approved','unauthenticated',$5)`,
-        approval,
-      ),
-      /Authenticated drawing reviewer required/,
-    );
+          approval,
+        ),
+        /Authenticated drawing reviewer required/,
+      );
 
-    await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
-      OUTSIDER,
-    ]);
-    await assert.rejects(
-      db.query(
-        `insert into public.lukas_drawing_revision_approvals(
+      await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
+        OUTSIDER,
+      ]);
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_revision_approvals(
           revision_id,project_id,subject_version,snapshot_sha256,
           decision,note,decided_by
         ) values ($1,$2,$3,$4,'approved','nonmember',$5)`,
-        approval,
-      ),
-      /Project role cannot approve drawing revisions/,
-    );
-  });
+          approval,
+        ),
+        /Project role cannot approve drawing revisions/,
+      );
+    },
+  );
 });

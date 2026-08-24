@@ -1,13 +1,25 @@
 import type {
   DrawingGeometry,
   DrawingLayer,
+  DrawingLayerInput,
   DrawingObject,
   DrawingOperationInput,
   Point,
 } from "./drawing-workspace.types.ts";
+import {
+  DrawingFillColorSchema,
+  DrawingGeometrySchema,
+  DrawingLayerInputSchema,
+  DrawingLayerNameSchema,
+  DrawingLayerSchema,
+  DrawingObjectNameSchema,
+  DrawingObjectSchema,
+  DrawingStrokeColorSchema,
+  DrawingStrokeWidthSchema,
+} from "./drawing-workspace.types.ts";
 
 export type ObjectPatch = Partial<
-  Pick<DrawingObject, "layerId" | "geometry" | "style">
+  Pick<DrawingObject, "name" | "layerId" | "geometry" | "style">
 >;
 
 export type ObjectUpdate = {
@@ -24,7 +36,7 @@ export type DrawingCommand =
   | { type: "add_objects"; actorId: string; objects: DrawingObject[] }
   | { type: "update_objects"; actorId: string; updates: ObjectUpdate[] }
   | { type: "delete_objects"; actorId: string; objectIds: string[] }
-  | { type: "add_layer"; actorId: string; layer: DrawingLayer }
+  | { type: "add_layer"; actorId: string; layer: DrawingLayerInput }
   | {
       type: "update_layer";
       actorId: string;
@@ -36,7 +48,7 @@ type DrawingCommandPayload =
   | { type: "add_objects"; objects: DrawingObject[] }
   | { type: "update_objects"; updates: ObjectUpdate[] }
   | { type: "delete_objects"; objectIds: string[] }
-  | { type: "add_layer"; layer: DrawingLayer }
+  | { type: "add_layer"; layer: DrawingLayerInput }
   | { type: "update_layer"; layerId: string; patch: LayerPatch };
 
 export type DrawingRecordedOperation = DrawingOperationInput & {
@@ -189,6 +201,7 @@ function objectPatchBefore(
   patch: ObjectPatch,
 ): ObjectPatch {
   const inverse: ObjectPatch = {};
+  if (patch.name !== undefined) inverse.name = object.name;
   if (patch.layerId !== undefined) inverse.layerId = object.layerId;
   if (patch.geometry !== undefined) inverse.geometry = clone(object.geometry);
   if (patch.style !== undefined) inverse.style = clone(object.style);
@@ -224,7 +237,7 @@ function reduceCommand(
         }
         objectIds.add(object.id);
         requireUnlockedLayer(layers, object.layerId);
-        const added = clone(object);
+        const added = DrawingObjectSchema.parse(clone(object));
         objects[added.id] = added;
         resultVersions[added.id] = added.version;
       }
@@ -261,16 +274,19 @@ function reduceCommand(
         if (update.patch.layerId !== undefined) {
           requireUnlockedLayer(layers, update.patch.layerId);
         }
+        if (update.patch.name !== undefined) {
+          DrawingObjectNameSchema.parse(update.patch.name);
+        }
         baseVersions[object.id] = object.version;
         inverseUpdates.push({
           objectId: object.id,
           patch: objectPatchBefore(object, update.patch),
         });
-        const updated = {
+        const updated = DrawingObjectSchema.parse({
           ...object,
           ...clone(update.patch),
           version: object.version + 1,
-        };
+        });
         objects[object.id] = updated;
         resultVersions[object.id] = updated.version;
       }
@@ -298,7 +314,7 @@ function reduceCommand(
         requireUnlockedLayer(layers, object.layerId);
         baseVersions[object.id] = object.version;
         resultVersions[object.id] = null;
-        deleted.push(clone(object));
+        deleted.push({ ...clone(object), version: object.version + 2 });
         delete objects[object.id];
       }
       return {
@@ -317,7 +333,16 @@ function reduceCommand(
           `Drawing layer ${command.layer.id} already exists.`,
         );
       }
-      const added = clone(command.layer);
+      const input = DrawingLayerInputSchema.parse(clone(command.layer));
+      if (Object.values(layers).some((layer) => layer.name === input.name)) {
+        throw new DrawingCommandError(
+          `Drawing layer name ${input.name} already exists.`,
+        );
+      }
+      const added = DrawingLayerSchema.parse({
+        ...input,
+        systemKind: "custom",
+      });
       layers[added.id] = added;
       baseVersions[added.id] = added.version;
       resultVersions[added.id] = added.version;
@@ -333,13 +358,41 @@ function reduceCommand(
     }
     case "update_layer": {
       const layer = requireLayer(layers, command.layerId);
+      if (layer.systemKind === "source") {
+        throw new DrawingCommandError("Source drawing layer is immutable.");
+      }
+      if (command.patch.name !== undefined) {
+        DrawingLayerNameSchema.parse(command.patch.name);
+        if (
+          Object.values(layers).some(
+            (candidate) =>
+              candidate.id !== layer.id &&
+              candidate.name === command.patch.name,
+          )
+        ) {
+          throw new DrawingCommandError(
+            `Drawing layer name ${command.patch.name} already exists.`,
+          );
+        }
+      }
       baseVersions[layer.id] = layer.version;
       const inverse = layerPatchBefore(layer, command.patch);
-      const updated = {
+      const updated = DrawingLayerSchema.parse({
         ...layer,
         ...clone(command.patch),
         version: layer.version + 1,
-      };
+      });
+      if (
+        !isEditableDrawingLayer(updated) &&
+        !Object.values(layers).some(
+          (candidate) =>
+            candidate.id !== layer.id && isEditableDrawingLayer(candidate),
+        )
+      ) {
+        throw new DrawingCommandError(
+          "At least one visible unlocked user drawing layer is required.",
+        );
+      }
       layers[layer.id] = updated;
       resultVersions[layer.id] = updated.version;
       return {
@@ -478,8 +531,10 @@ export function createDrawingDocumentState({
 }): DrawingDocumentState {
   return {
     revisionId,
-    objects: mapById(objects),
-    layers: mapById(layers),
+    objects: mapById(
+      objects.map((object) => DrawingObjectSchema.parse(object)),
+    ),
+    layers: mapById(layers.map((layer) => DrawingLayerSchema.parse(layer))),
     operations: [],
     undoStackByActor: {},
     redoStackByActor: {},
@@ -582,7 +637,7 @@ export function redoDrawingCommand(
 }
 
 export type DrawingClipboard = {
-  items: Array<Pick<DrawingObject, "layerId" | "geometry" | "style">>;
+  items: Array<Pick<DrawingObject, "name" | "layerId" | "geometry" | "style">>;
 };
 
 export type DrawingMoveSnapshot = Pick<
@@ -695,6 +750,7 @@ export function copyDrawingSelection(
       return object
         ? [
             clone({
+              name: object.name,
               layerId: object.layerId,
               geometry: object.geometry,
               style: object.style,
@@ -714,12 +770,200 @@ export function pasteDrawingClipboard(
   if (clipboard.items.length === 0) return null;
   const objects: DrawingObject[] = clipboard.items.map((item) => ({
     id: createId(),
+    name: item.name,
     layerId: item.layerId,
     geometry: translateDrawingGeometry(item.geometry, { x: 20, y: 20 }),
     style: clone(item.style),
     version: 1,
   }));
   return { type: "add_objects", actorId, objects };
+}
+
+/** Returns true only for visible, unlocked user-authored layers. */
+export function isEditableDrawingLayer(layer: DrawingLayer | undefined) {
+  return Boolean(
+    layer &&
+      (layer.systemKind === "work" || layer.systemKind === "custom") &&
+      layer.visible &&
+      !layer.locked,
+  );
+}
+
+/** Keeps the requested layer when eligible, otherwise selects a stable fallback. */
+export function resolveActiveDrawingLayerId(
+  layers: Record<string, DrawingLayer>,
+  requestedLayerId: string | null,
+): string | null {
+  if (requestedLayerId && isEditableDrawingLayer(layers[requestedLayerId])) {
+    return requestedLayerId;
+  }
+  const candidates = Object.values(layers).filter(isEditableDrawingLayer);
+  return (
+    candidates.find((layer) => layer.systemKind === "work")?.id ??
+    candidates[0]?.id ??
+    null
+  );
+}
+
+/** Creates a normalized local add-layer command without browser-supplied authority. */
+export function createDrawingLayerCommand(
+  state: Pick<DrawingDocumentState, "layers">,
+  actorId: string,
+  name: string,
+  createId: () => string = () => crypto.randomUUID(),
+): Extract<DrawingCommand, { type: "add_layer" }> {
+  const normalizedName = DrawingLayerNameSchema.parse(name.trim());
+  if (
+    Object.values(state.layers).some((layer) => layer.name === normalizedName)
+  ) {
+    throw new DrawingCommandError(
+      `Drawing layer name ${normalizedName} already exists.`,
+    );
+  }
+  return {
+    type: "add_layer",
+    actorId,
+    layer: DrawingLayerInputSchema.parse({
+      id: createId(),
+      name: normalizedName,
+      visible: true,
+      locked: false,
+      version: 1,
+    }),
+  };
+}
+
+/** Creates a normalized layer update and enforces immutable/eligible layer rules. */
+export function updateDrawingLayerCommand(
+  state: Pick<DrawingDocumentState, "layers">,
+  actorId: string,
+  layerId: string,
+  patch: LayerPatch,
+): Extract<DrawingCommand, { type: "update_layer" }> {
+  const layer = requireLayer(state.layers, layerId);
+  if (layer.systemKind === "source") {
+    throw new DrawingCommandError("Source drawing layer is immutable.");
+  }
+  const normalizedPatch: LayerPatch = { ...patch };
+  if (patch.name !== undefined) {
+    normalizedPatch.name = DrawingLayerNameSchema.parse(patch.name.trim());
+  }
+  const command = {
+    type: "update_layer" as const,
+    actorId,
+    layerId,
+    patch: normalizedPatch,
+  };
+  reduceCommand(
+    {
+      revisionId: "",
+      objects: {},
+      layers: state.layers,
+      operations: [],
+      undoStackByActor: {},
+      redoStackByActor: {},
+    },
+    command,
+  );
+  return command;
+}
+
+export type DrawingInspectorPatch = {
+  name?: string;
+  layerId?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  fill?: string | null;
+  text?: string;
+};
+
+/** Builds one atomic, version-aware property command for an exact selection. */
+export function updateDrawingSelectionProperties(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  selectedIds: string[],
+  actorId: string,
+  patch: DrawingInspectorPatch,
+): Extract<DrawingCommand, { type: "update_objects" }> | null {
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return null;
+  const allowedKeys = new Set([
+    "name",
+    "layerId",
+    "stroke",
+    "strokeWidth",
+    "fill",
+    "text",
+  ]);
+  if (keys.some((key) => !allowedKeys.has(key))) {
+    throw new DrawingCommandError("Unknown drawing inspector property.");
+  }
+  const parsed = {
+    ...patch,
+    ...(patch.name !== undefined
+      ? { name: DrawingObjectNameSchema.parse(patch.name.trim()) }
+      : {}),
+    ...(patch.stroke !== undefined
+      ? { stroke: DrawingStrokeColorSchema.parse(patch.stroke) }
+      : {}),
+    ...(patch.strokeWidth !== undefined
+      ? { strokeWidth: DrawingStrokeWidthSchema.parse(patch.strokeWidth) }
+      : {}),
+    ...(patch.fill !== undefined
+      ? { fill: DrawingFillColorSchema.parse(patch.fill) }
+      : {}),
+  };
+  if (parsed.layerId !== undefined) {
+    const targetLayer = requireLayer(state.layers, parsed.layerId);
+    if (!isEditableDrawingLayer(targetLayer)) {
+      throw new LockedDrawingLayerError(parsed.layerId);
+    }
+  }
+  const objectIds = [...new Set(selectedIds)];
+  if (objectIds.length === 0) return null;
+  const targets = objectIds.map((objectId) => {
+    const object = requireObject(state.objects, objectId);
+    if (!mutableDrawingObject(state, objectId)) {
+      throw new LockedDrawingLayerError(object.layerId);
+    }
+    return object;
+  });
+  if (
+    parsed.text !== undefined &&
+    targets.some((object) => object.geometry.type !== "text")
+  ) {
+    throw new DrawingCommandError("Text can only update text objects.");
+  }
+  const changesStyle =
+    parsed.stroke !== undefined ||
+    parsed.strokeWidth !== undefined ||
+    parsed.fill !== undefined;
+  const updates = targets.map((object) => {
+    const objectPatch: ObjectPatch = {};
+    if (parsed.name !== undefined) objectPatch.name = parsed.name;
+    if (parsed.layerId !== undefined) objectPatch.layerId = parsed.layerId;
+    if (changesStyle) {
+      objectPatch.style = {
+        ...object.style,
+        ...(parsed.stroke !== undefined ? { stroke: parsed.stroke } : {}),
+        ...(parsed.strokeWidth !== undefined
+          ? { strokeWidth: parsed.strokeWidth }
+          : {}),
+        ...(parsed.fill !== undefined ? { fill: parsed.fill } : {}),
+      };
+    }
+    if (parsed.text !== undefined && object.geometry.type === "text") {
+      objectPatch.geometry = DrawingGeometrySchema.parse({
+        ...object.geometry,
+        text: parsed.text,
+      });
+    }
+    return {
+      objectId: object.id,
+      baseVersion: object.version,
+      patch: objectPatch,
+    };
+  });
+  return { type: "update_objects", actorId, updates };
 }
 
 export function duplicateDrawingSelection(

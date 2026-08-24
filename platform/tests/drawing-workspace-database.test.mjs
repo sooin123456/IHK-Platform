@@ -71,11 +71,21 @@ test("workspace creates only the ten approved P0/P1 tables with domain checks", 
   ]) {
     assert.doesNotMatch(
       sql,
-      new RegExp(`create table (?:public|private)\\.lukas_drawing_${forbidden}`, "i"),
+      new RegExp(
+        `create table (?:public|private)\\.lukas_drawing_${forbidden}`,
+        "i",
+      ),
     );
   }
   assert.match(sql, /jsonb_typeof\s*\(geometry\)\s*=\s*'object'/i);
-  assert.match(sql, /status\s+text[\s\S]*status in\s*\('active',\s*'deleted'\)/i);
+  assert.match(
+    sql,
+    /create table public\.lukas_drawing_objects[\s\S]+name text not null[\s\S]+char_length\(name\) between 1 and 255/i,
+  );
+  assert.match(
+    sql,
+    /status\s+text[\s\S]*status in\s*\('active',\s*'deleted'\)/i,
+  );
   assert.match(
     sql,
     /status\s+text[\s\S]*status in\s*\('draft',\s*'review_requested',\s*'approved',\s*'superseded'\)/i,
@@ -98,10 +108,7 @@ test("capability mapping, RLS, and grants expose only project-scoped operations"
     ["procurement", "commenter"],
     ["viewer", "viewer"],
   ]) {
-    assert.match(
-      sql,
-      new RegExp(`when '${role}' then '${capability}'`, "i"),
-    );
+    assert.match(sql, new RegExp(`when '${role}' then '${capability}'`, "i"));
   }
   for (const table of [
     "documents",
@@ -132,9 +139,18 @@ test("capability mapping, RLS, and grants expose only project-scoped operations"
   }
   assert.match(sql, /revoke all on[\s\S]+from public, anon, authenticated/i);
   assert.match(sql, /grant select[\s\S]+to authenticated/i);
-  assert.match(sql, /for update to authenticated[\s\S]+using[\s\S]+with check/i);
-  assert.match(sql, /for insert to authenticated[\s\S]+created_by\s*=\s*\(select auth\.uid\(\)\)/i);
-  assert.match(sql, /revision approvals[\s\S]+created_by\s*<>\s*\(select auth\.uid\(\)\)/i);
+  assert.match(
+    sql,
+    /for update to authenticated[\s\S]+using[\s\S]+with check/i,
+  );
+  assert.match(
+    sql,
+    /for insert to authenticated[\s\S]+created_by\s*=\s*\(select auth\.uid\(\)\)/i,
+  );
+  assert.match(
+    sql,
+    /revision approvals[\s\S]+created_by\s*<>\s*\(select auth\.uid\(\)\)/i,
+  );
   assert.match(
     sql,
     /revoke update, delete on[\s\S]+lukas_drawing_operations[\s\S]+lukas_drawing_snapshots[\s\S]+lukas_drawing_revision_approvals[\s\S]+from authenticated/i,
@@ -147,7 +163,10 @@ test("guards validate domain JSON and preserve approved and append-only records"
   assert.match(sql, /geometry\s*->>\s*'type'[\s\S]+object_type/i);
   assert.match(sql, /before update or delete on public\.lukas_drawing_pages/i);
   assert.match(sql, /before update or delete on public\.lukas_drawing_layers/i);
-  assert.match(sql, /before update or delete on public\.lukas_drawing_objects/i);
+  assert.match(
+    sql,
+    /before update or delete on public\.lukas_drawing_objects/i,
+  );
   for (const table of ["operations", "snapshots", "revision_approvals"]) {
     assert.match(
       sql,
@@ -208,14 +227,14 @@ test("every revision child INSERT serializes with review on the parent row", asy
     const definition = triggerDefinition(sql, trigger);
     assert.match(
       definition,
-      new RegExp(`before insert on public\\.lukas_drawing_${escaped(table)}`, "i"),
+      new RegExp(
+        `before insert on public\\.lukas_drawing_${escaped(table)}`,
+        "i",
+      ),
     );
     assert.match(definition, /lukas_drawing_draft_child_insert_guard\(\)/i);
   }
-  const requestReview = functionDefinition(
-    sql,
-    "lukas_drawing_request_review",
-  );
+  const requestReview = functionDefinition(sql, "lukas_drawing_request_review");
   assert.match(requestReview, /where r\.id = p_revision_id for update/i);
   const approvalGuard = functionDefinition(
     sql,
@@ -268,9 +287,20 @@ test("domain and inverse validation fails closed", async () => {
     sql,
     /function private\.lukas_drawing_style_valid[\s\S]+p_style \?& array\['stroke', 'strokeWidth', 'fill'\][\s\S]+false/i,
   );
-  assert.match(sql, /private\.lukas_drawing_geometry_valid\([^;]+\) is not true/i);
+  assert.match(
+    sql,
+    /private\.lukas_drawing_geometry_valid\([^;]+\) is not true/i,
+  );
   assert.match(sql, /private\.lukas_drawing_style_valid\([^;]+\) is not true/i);
   assert.match(sql, /function private\.lukas_drawing_operation_payload_valid/i);
+  assert.match(
+    sql,
+    /v_item \?& array\['id', 'name', 'layerId', 'geometry', 'style', 'version'\]/i,
+  );
+  assert.match(
+    sql,
+    /v_patch - array\['name', 'layerId', 'geometry', 'style'\]/i,
+  );
   assert.match(sql, /Drawing operation inverse payload is invalid/i);
   assert.match(
     sql,
@@ -296,7 +326,10 @@ test("document creation and operation RPCs are atomic, authorized, and idempoten
     "lukas_drawing_apply_operation",
   );
   assert.match(applyOperation, /select auth\.uid\(\)/i);
-  assert.match(applyOperation, /from public\.lukas_drawing_revisions[\s\S]+for update/i);
+  assert.match(
+    applyOperation,
+    /from public\.lukas_drawing_revisions[\s\S]+for update/i,
+  );
   assert.match(
     applyOperation,
     /where o\.revision_id\s*=\s*p_revision_id[\s\S]+o\.client_operation_id\s*=\s*p_client_operation_id/i,
@@ -326,6 +359,7 @@ test("review RPCs hash canonical stable ordering and enforce maker-checker", asy
   assert.match(sql, /jsonb_agg\s*\([^;]+order by p\.id/is);
   assert.match(sql, /jsonb_agg\s*\([^;]+order by l\.id/is);
   assert.match(sql, /jsonb_agg\s*\([^;]+order by o\.id/is);
+  assert.match(sql, /'name', o\.name/i);
   assert.match(
     sql,
     /(?:extensions\.)?digest\s*\(\s*(?:pg_catalog\.)?convert_to\s*\(v_snapshot::text,\s*'UTF8'\),\s*'sha256'\s*\)/i,
