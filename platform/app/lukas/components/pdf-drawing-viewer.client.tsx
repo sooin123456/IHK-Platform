@@ -44,6 +44,8 @@ export default function PdfDrawingViewer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const documentRef = useRef<OpenPdfDocument | null>(null);
   const renderCleanupRef = useRef<(() => void) | null>(null);
+  const renderControllerRef = useRef<AbortController | null>(null);
+  const renderGenerationRef = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [message, setMessage] = useState("PDF를 여는 중입니다.");
   const [pageNumber, setPageNumber] = useState(1);
@@ -96,6 +98,9 @@ export default function PdfDrawingViewer({
     return () => {
       alive = false;
       controller.abort();
+      renderGenerationRef.current += 1;
+      renderControllerRef.current?.abort();
+      renderControllerRef.current = null;
       renderCleanupRef.current?.();
       renderCleanupRef.current = null;
       void openedDocument?.destroy();
@@ -109,10 +114,14 @@ export default function PdfDrawingViewer({
     if (!openedDocument || !canvas || hostWidth <= 0 || pageCount === 0) return;
     let alive = true;
     const controller = new AbortController();
+    const renderGeneration = renderGenerationRef.current + 1;
+    renderGenerationRef.current = renderGeneration;
+    renderControllerRef.current?.abort();
     setPhase("loading");
     setMessage(`${pageNumber}쪽을 그리는 중입니다.`);
     renderCleanupRef.current?.();
-    renderCleanupRef.current = null;
+    renderControllerRef.current = controller;
+    renderCleanupRef.current = () => controller.abort();
     void renderPdfPageToCanvas({
       document: openedDocument.document,
       pageNumber,
@@ -122,7 +131,11 @@ export default function PdfDrawingViewer({
       signal: controller.signal,
     })
       .then((render) => {
-        if (!alive) {
+        if (
+          !alive ||
+          controller.signal.aborted ||
+          renderGenerationRef.current !== renderGeneration
+        ) {
           render.cleanup();
           return;
         }
@@ -135,6 +148,8 @@ export default function PdfDrawingViewer({
       .catch((error: unknown) => {
         if (
           !alive ||
+          controller.signal.aborted ||
+          renderGenerationRef.current !== renderGeneration ||
           (error instanceof Error &&
             error.name === "RenderingCancelledException")
         )
@@ -149,8 +164,10 @@ export default function PdfDrawingViewer({
     return () => {
       alive = false;
       controller.abort();
+      if (renderControllerRef.current === controller)
+        renderControllerRef.current = null;
     };
-  }, [hostWidth, pageCount, pageNumber, zoom]);
+  }, [hostWidth, pageCount, pageNumber, signedUrl, zoom]);
 
   useEffect(() => {
     if (activeRegion?.pageNumber === pageNumber)
