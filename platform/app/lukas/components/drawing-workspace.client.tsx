@@ -41,6 +41,7 @@ import {
 } from "~/lukas/lib/drawing-commands";
 import {
   canPersistDrawingMutation,
+  claimLegacyDrawingOperations,
   createDrawingOutbox,
   createDrawingPersistenceQueue,
   drawingSaveStatus,
@@ -249,7 +250,9 @@ export default function DrawingWorkspaceClient({
   });
   const [persistenceState, setPersistenceState] =
     useState<DrawingPersistenceSnapshot>({ failed: false, volatileCount: 0 });
+  const [legacyOperationCount, setLegacyOperationCount] = useState(0);
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
+  const legacyOutboxRef = useRef<DrawingOutbox | null>(null);
   const persistenceRef = useRef<ReturnType<
     typeof createDrawingPersistenceQueue
   > | null>(null);
@@ -375,10 +378,12 @@ export default function DrawingWorkspaceClient({
     let outbox: DrawingOutbox;
     const actionUrl = window.location.href;
     const refresh = async () => {
-      const entries = (await outbox.entries()).filter(
-        (entry) => entry.operation.revisionId === revision.id,
-      );
+      const [entries, legacy] = await Promise.all([
+        outbox.entries(),
+        outbox.legacyEntries(),
+      ]);
       if (!active) return;
+      setLegacyOperationCount(legacy.length);
       setSaveState((current) => ({
         ...current,
         pending: entries.length,
@@ -391,6 +396,7 @@ export default function DrawingWorkspaceClient({
       revisionId: revision.id,
       onChange: () => void refresh(),
     });
+    legacyOutboxRef.current = outbox;
 
     const flush = async () => {
       if (!active || !navigator.onLine) {
@@ -399,8 +405,8 @@ export default function DrawingWorkspaceClient({
       }
       setSaveState((current) => ({ ...current, flushing: true }));
       try {
-        await outbox.flush((operation) =>
-          sendDrawingOperation(operation, actionUrl),
+        await outbox.flush((operation, context) =>
+          sendDrawingOperation(operation, actionUrl, fetch, context?.signal),
         );
       } catch {
         // The outbox retains the operation and schedules the bounded retry.
@@ -430,7 +436,8 @@ export default function DrawingWorkspaceClient({
         const recovered = await restoreDrawingWorkspaceState({
           online: navigator.onLine,
           outbox,
-          send: (operation) => sendDrawingOperation(operation, actionUrl),
+          send: (operation, context) =>
+            sendDrawingOperation(operation, actionUrl, fetch, context?.signal),
           serverState: base,
         });
         for (const operationId of recovered.conflictedOperationIds)
@@ -464,6 +471,7 @@ export default function DrawingWorkspaceClient({
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     setOutboxReady(false);
+    setLegacyOperationCount(0);
     setPersistenceState({ failed: false, volatileCount: 0 });
     setActiveTool("select");
     setActiveLayerId(null);
@@ -476,6 +484,7 @@ export default function DrawingWorkspaceClient({
       outbox.dispose();
       if (persistenceRef.current === persistence)
         persistenceRef.current = null;
+      if (legacyOutboxRef.current === outbox) legacyOutboxRef.current = null;
       retryStorageRef.current = () => {};
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
@@ -698,7 +707,10 @@ export default function DrawingWorkspaceClient({
     [commandEnabled, deleteSelection, duplicateSelection, redo, undo],
   );
   const background: DrawingCanvasBackground = surface.background;
-  const saveStatus = drawingSaveStatus(saveState);
+  const saveStatus = drawingSaveStatus({
+    ...saveState,
+    volatileCount: persistenceState.volatileCount,
+  });
   const decisionFields = reviewControls.decisionEvidence
     ? drawingRevisionDecisionFields({
         revisionId: revision.id,
@@ -848,6 +860,45 @@ export default function DrawingWorkspaceClient({
           >
             다시 시도
           </Button>
+        </div>
+      ) : null}
+
+      {legacyOperationCount > 0 ? (
+        <div
+          className="border-b border-amber-500/30 bg-amber-950 px-4 py-2 text-sm text-amber-100"
+          role="status"
+        >
+          이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다. 복구하면 현재
+          로그인 사용자가 복구 책임자로 기록됩니다.{" "}
+          {canPersistDrawingMutation(capability, persistenceState) ? (
+            <Button
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  "격리된 이전 작업을 현재 로그인 사용자에게 귀속하고 저장하시겠습니까?",
+                );
+                const drawingOutbox = legacyOutboxRef.current;
+                if (!drawingOutbox) return;
+                try {
+                  await claimLegacyDrawingOperations({
+                    capability,
+                    confirmed,
+                    outbox: drawingOutbox,
+                  });
+                  retryStorageRef.current();
+                } catch {
+                  setSaveState((current) => ({
+                    ...current,
+                    storageError: true,
+                  }));
+                }
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              이전 작업 복구
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

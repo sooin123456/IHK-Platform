@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   canPersistDrawingMutation,
+  claimLegacyDrawingOperations,
   createDrawingOutbox,
   createDrawingPersistenceQueue,
   createIndexedDbDrawingOutboxAdapter,
@@ -58,6 +59,20 @@ function memoryAdapter(events = []) {
     async list() {
       return structuredClone([...records.values()]);
     },
+    async claimLegacy(revisionId, ownerId) {
+      let claimed = 0;
+      for (const [id, record] of records) {
+        if (record.ownerId || record.operation.revisionId !== revisionId)
+          continue;
+        records.set(id, {
+          ...record,
+          ownerId,
+          enqueueSequence: ++enqueueSequence,
+        });
+        claimed += 1;
+      }
+      return claimed;
+    },
     async enqueue(record) {
       const stored = { ...record, enqueueSequence: ++enqueueSequence };
       events.push(`put:${record.operation.clientOperationId}`);
@@ -72,6 +87,7 @@ function memoryAdapter(events = []) {
 }
 
 function fakeIndexedDb({ blocked = false, records = [] } = {}) {
+  const storedRecords = structuredClone(records);
   const store = {
     createdIndexes: [],
     indexNames: {
@@ -85,10 +101,17 @@ function fakeIndexedDb({ blocked = false, records = [] } = {}) {
     getAll() {
       const request = {};
       queueMicrotask(() => {
-        request.result = structuredClone(records);
+        request.result = structuredClone(storedRecords);
         request.onsuccess?.();
       });
       return request;
+    },
+    put(record) {
+      const index = storedRecords.findIndex(
+        (candidate) => candidate.clientOperationId === record.clientOperationId,
+      );
+      if (index === -1) storedRecords.push(structuredClone(record));
+      else storedRecords[index] = structuredClone(record);
     },
   };
   const database = {
@@ -111,7 +134,10 @@ function fakeIndexedDb({ blocked = false, records = [] } = {}) {
     },
   };
   const factory = {
+    openCalls: 0,
     open() {
+      this.openCalls += 1;
+      database.closed = false;
       queueMicrotask(() => {
         if (blocked) request.onblocked?.();
         else {
@@ -485,6 +511,87 @@ test("a replacement instance takes over after the disposed active flush rejects"
   assert.deepEqual(await second.pending(), []);
 });
 
+test("dispose aborts a hung send so the replacement can take over", async () => {
+  const adapter = memoryAdapter();
+  const first = scopedOutbox(adapter);
+  const second = scopedOutbox(adapter);
+  await first.enqueue(operation(ids.operation1));
+  let observedAbort = false;
+  const hung = first.flush(
+    async (_queued, { signal }) =>
+      new Promise((_, reject) => {
+        signal.addEventListener("abort", () => {
+          observedAbort = true;
+          reject(new Error("aborted"));
+        });
+      }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  first.dispose();
+
+  let sends = 0;
+  await second.flush(async (queued) => {
+    sends += 1;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+  await assert.rejects(hung, /aborted/);
+  assert.equal(observedAbort, true);
+  assert.equal(sends, 1);
+  assert.deepEqual(await second.pending(), []);
+});
+
+test("ownerless v1 rows stay quarantined until an editor confirms current-user attribution", async () => {
+  const adapter = memoryAdapter();
+  await adapter.put({
+    operation: operation(ids.operation1),
+    status: "pending",
+    retryCount: 0,
+  });
+  const outbox = scopedOutbox(adapter);
+  let sends = 0;
+  const send = async (queued) => {
+    sends += 1;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  };
+
+  assert.equal((await outbox.legacyEntries()).length, 1);
+  await outbox.flush(send);
+  assert.equal(sends, 0);
+  await assert.rejects(
+    claimLegacyDrawingOperations({
+      capability: "reviewer",
+      confirmed: true,
+      outbox,
+    }),
+    /editor/i,
+  );
+  assert.equal(
+    await claimLegacyDrawingOperations({
+      capability: "editor",
+      confirmed: false,
+      outbox,
+    }),
+    0,
+  );
+  assert.equal(
+    await claimLegacyDrawingOperations({
+      capability: "editor",
+      confirmed: true,
+      outbox,
+    }),
+    1,
+  );
+  assert.deepEqual(
+    (await adapter.list()).map((entry) => [
+      entry.ownerId,
+      entry.enqueueSequence,
+    ]),
+    [[ids.ownerA, 1]],
+  );
+  await outbox.flush(send);
+  assert.equal(sends, 1);
+});
+
 test("volatile persistence queues rapid commands and retries all failures in causal order", async () => {
   const persisted = [];
   let storageAvailable = false;
@@ -517,6 +624,25 @@ test("volatile persistence queues rapid commands and retries all failures in cau
   assert.deepEqual(queue.snapshot(), { failed: false, volatileCount: 0 });
   assert.equal(canPersistDrawingMutation("editor", queue.snapshot()), true);
   assert.ok(snapshots.some((snapshot) => snapshot.failed));
+});
+
+test("a hung durable enqueue remains visibly saving", () => {
+  const queue = createDrawingPersistenceQueue({
+    flush: async () => {},
+    outbox: { enqueue: async () => new Promise(() => {}) },
+  });
+
+  void queue.capture(operation(ids.operation1));
+
+  assert.equal(queue.snapshot().volatileCount, 1);
+  assert.equal(
+    drawingSaveStatus({
+      pending: 0,
+      volatileCount: queue.snapshot().volatileCount,
+    }),
+    "저장 중",
+  );
+  queue.dispose();
 });
 
 test("reload recovery applies exact-base work and retains ambiguous stale work", () => {
@@ -619,6 +745,10 @@ test("save status exposes only the four workspace states and never calls storage
     "충돌 검토 필요",
   );
   assert.equal(drawingSaveStatus({ pending: 0, storageError: true }), "저장 중");
+  assert.equal(
+    drawingSaveStatus({ pending: 0, volatileCount: 1 }),
+    "저장 중",
+  );
 });
 
 test("a failed durable enqueue sends nothing and the same operation can be retried", async () => {
@@ -651,6 +781,7 @@ test("a failed durable enqueue sends nothing and the same operation can be retri
 test("workspace transport posts the canonical operation and requires the echoed acknowledgement id", async () => {
   const input = operation(ids.operation1);
   const requests = [];
+  const controller = new AbortController();
   const response = await sendDrawingOperation(
     input,
     "/workspace",
@@ -670,6 +801,7 @@ test("workspace transport posts the canonical operation and requires the echoed 
         },
       };
     },
+    controller.signal,
   );
 
   assert.deepEqual(response, {
@@ -678,6 +810,7 @@ test("workspace transport posts the canonical operation and requires the echoed 
   });
   assert.equal(requests[0][0], "/workspace");
   assert.equal(requests[0][1].method, "POST");
+  assert.equal(requests[0][1].signal, controller.signal);
   assert.equal(requests[0][1].body.get("intent"), "apply_operation");
   assert.deepEqual(
     JSON.parse(requests[0][1].body.get("operation_json")),
@@ -766,13 +899,76 @@ test("online acknowledgement replays over the captured snapshot with server-curr
   assert.equal(next.state.objects[ids.object].version, 3);
 });
 
+test("recovery skips an already represented ack then applies the next acknowledged operation", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  const secondOperation = operation(ids.operation2, {
+    baseVersions: { [ids.object]: 2 },
+    forward: {
+      type: "update_objects",
+      updates: [{ objectId: ids.object, patch: { name: "Door 2" } }],
+    },
+    inverse: {
+      type: "update_objects",
+      updates: [{ objectId: ids.object, patch: { name: "Door" } }],
+    },
+  });
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.enqueue(secondOperation);
+  const snapshot = state();
+  snapshot.objects[ids.object] = rectangle({ name: "Door", version: 2 });
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (queued) => ({
+      clientOperationId: queued.clientOperationId,
+      status: "acked",
+    }),
+    serverState: snapshot,
+  });
+  const next = applyDrawingCommand(recovered.state, {
+    type: "update_objects",
+    actorId: ids.ownerA,
+    updates: [{ objectId: ids.object, patch: { name: "Door 3" } }],
+  });
+
+  assert.equal(recovered.state.objects[ids.object].name, "Door 2");
+  assert.equal(recovered.state.objects[ids.object].version, 3);
+  assert.deepEqual(next.operation.baseVersions, { [ids.object]: 3 });
+});
+
+test("true acknowledged ambiguity restores durable conflict evidence", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  const snapshot = state();
+  snapshot.objects[ids.object] = rectangle({ name: "Other edit", version: 2 });
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (queued) => ({
+      clientOperationId: queued.clientOperationId,
+      status: "acked",
+    }),
+    serverState: snapshot,
+  });
+
+  assert.equal(recovered.state.objects[ids.object].name, "Other edit");
+  assert.deepEqual(recovered.conflictedOperationIds, [ids.operation1]);
+  assert.deepEqual(
+    (await outbox.entries()).map((entry) => [
+      entry.operation.clientOperationId,
+      entry.status,
+    ]),
+    [[ids.operation1, "conflicted"]],
+  );
+});
+
 test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange", async () => {
   const record = {
-    ownerId: ids.ownerA,
     operation: operation(ids.operation1),
     status: "pending",
     retryCount: 0,
-    enqueueSequence: 1,
     clientOperationId: ids.operation1,
     revisionId: ids.revisionA,
     createdAt: operation(ids.operation1).createdAt,
@@ -783,9 +979,29 @@ test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange
   assert.deepEqual((await adapter.list()).map((entry) => entry.operation), [
     operation(ids.operation1),
   ]);
+  assert.equal((await adapter.list())[0].ownerId, undefined);
   assert.equal(store.createdIndexes.includes("enqueue_sequence"), true);
+  assert.equal(await adapter.claimLegacy(ids.revisionA, ids.ownerA), 1);
+  assert.deepEqual(
+    (await adapter.list()).map((entry) => [
+      entry.ownerId,
+      entry.enqueueSequence,
+    ]),
+    [[ids.ownerA, 1]],
+  );
   database.onversionchange();
   assert.equal(database.closed, true);
+});
+
+test("versionchange invalidates the cached handle and the adapter reopens", async () => {
+  const { factory, database } = fakeIndexedDb();
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory);
+
+  await adapter.list();
+  database.onversionchange();
+  await adapter.list();
+
+  assert.equal(factory.openCalls, 2);
 });
 
 test("blocked IndexedDB initialization rejects and closes a late-success connection", async () => {

@@ -167,3 +167,48 @@
 ### Known limit
 
 - The volatile queue prevents loss while the current browser page remains alive and warns before navigation. If IndexedDB is completely unavailable and the browser process, tab, device, or OS crashes before retry succeeds, volatile memory cannot survive that crash. Removing this limit requires a second durable browser/native storage channel; adding one is outside the approved native minimal P0/P1 scope.
+
+## Fix round 3 — legacy attribution and deterministic acknowledgement recovery
+
+### Findings addressed
+
+- Treats real version-1 ownerless records as quarantined legacy work. They remain visible for the current revision but are never sent, deleted, or silently attributed during ordinary startup.
+- Adds an explicit, confirmed recovery action for Editor/Admin capabilities. Claiming atomically assigns the authenticated local owner and new monotonic enqueue sequences; the UI explains that the current authenticated claimant becomes the recovery/audit owner. Viewer and Reviewer capabilities cannot claim.
+- Reconstructs acknowledged chains one operation at a time. An operation already represented by the loader snapshot is skipped only when its realized version and relevant effect match; the next exact-base acknowledged operation is then replayed. True ambiguity restores durable conflicted evidence instead of returning stale UI after deleting the queue.
+- Invalidates the cached IndexedDB handle on `versionchange`, allowing the same adapter to reopen cleanly on its next operation.
+- Propagates an `AbortSignal` through the outbox transport. Disposing an obsolete instance aborts a hung fetch so a replacement same-realm instance can acquire the coordinator and drain the pending entry.
+- Derives `저장 중` whenever the volatile queue is non-empty, including the interval before a hung durable enqueue has failed.
+
+### Strict TDD evidence
+
+1. Legacy/recovery RED:
+
+   `cd platform && node --test --import tsx tests/drawing-workspace-outbox.test.mjs`
+
+   Failed during module loading because `claimLegacyDrawingOperations` did not exist. The added behavioral tests use the actual v1 ownerless record shape and cover quarantine, capability/confirmation gates, current-owner attribution, monotonic sequencing, mixed acknowledged replay, ambiguity evidence retention, abort takeover, cached-handle reopen, transport cancellation, and the volatile save label.
+
+2. Client integration RED:
+
+   `cd platform && node --test --import tsx tests/drawing-workspace-route.test.mjs`
+
+   Failed because the workspace lifecycle had no legacy-entry query, visible quarantine notice, confirmed claim action, or abort-aware transport wiring.
+
+3. Focused GREEN:
+
+   `cd platform && node --test --import tsx tests/drawing-workspace-outbox.test.mjs tests/drawing-workspace-commands.test.mjs tests/drawing-workspace-route.test.mjs tests/drawing-workspace-server.test.mjs`
+
+   Passed 123/123.
+
+4. Full gates:
+
+   - `cd platform && node --test --import tsx tests/*.test.mjs` — passed 300/300.
+   - `cd platform && npm run typecheck` — passed.
+   - `cd platform && npm run build` — passed client and SSR production builds.
+   - `git diff --check` — passed.
+
+   Build output retained only the existing large-chunk, React Router future-flag, and unsigned theme-cookie warnings. Native IndexedDB lifecycle and v1 migration behavior are covered by the existing deterministic fake-IDB browser-contract seam; no IndexedDB, state, or collaboration dependency was added.
+
+### Audit and recovery boundary
+
+- Legacy attribution is local privacy/audit metadata and does not replace server authorization. Every claimed operation still passes through the canonical server action, authenticated capability checks, revision checks, version checks, and idempotency contract.
+- Delete acknowledgement recognition is conservative: absence is accepted only for an acknowledged delete carrying the target's base-version contract. Any other mismatched acknowledged state is retained visibly as conflicted recovery evidence.
