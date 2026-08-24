@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createServer } from "vite";
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
@@ -7,6 +9,20 @@ import {
   redoDrawingCommand,
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
+
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
+const drawingTools = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-canvas.client.tsx",
+);
+test.after(() => vite.close());
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000000001",
@@ -387,4 +403,337 @@ test("add_layer remains non-undoable without a delete_layer command", () => {
   );
 
   assert.equal(undoDrawingCommand(added.state, "actor-a", environment()), null);
+});
+
+const snap = {
+  gridSize: 10,
+  objectCandidates: [{ x: 21, y: 19 }],
+  tolerancePixels: 3,
+  zoom: 1,
+};
+
+function commitOptions(overrides = {}) {
+  return {
+    actorId: "actor-a",
+    layerId: ids.layer,
+    objectId: "00000000-0000-4000-8000-000000000020",
+    repeatMode: false,
+    snap,
+    ...overrides,
+  };
+}
+
+test("line click-click snaps both committed points and emits one add command", () => {
+  const started = drawingTools.beginDrawingToolSession(
+    "line",
+    { x: 2, y: 1 },
+    snap,
+  );
+  const completed = drawingTools.commitDrawingPoint(
+    started,
+    { x: 19, y: 18 },
+    commitOptions(),
+  );
+
+  assert.deepEqual(completed.command.objects[0].geometry, {
+    type: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 21, y: 19 },
+  });
+  assert.deepEqual(completed.session, { tool: "idle" });
+  assert.equal(completed.nextTool, "select");
+});
+
+test("polyline multi-click plus Enter snaps every vertex into one command", () => {
+  let session = drawingTools.beginDrawingToolSession(
+    "polyline",
+    { x: 1, y: 2 },
+    snap,
+  );
+  session = drawingTools.commitDrawingPoint(
+    session,
+    { x: 19, y: 18 },
+    commitOptions(),
+  ).session;
+  session = drawingTools.commitDrawingPoint(
+    session,
+    { x: 31, y: 39 },
+    commitOptions(),
+  ).session;
+  const completed = drawingTools.completeDrawingToolSession(
+    session,
+    commitOptions(),
+  );
+
+  assert.deepEqual(completed.command.objects[0].geometry, {
+    type: "polyline",
+    points: [
+      { x: 0, y: 0 },
+      { x: 21, y: 19 },
+      { x: 30, y: 40 },
+    ],
+    closed: false,
+  });
+  assert.equal(completed.command.objects.length, 1);
+});
+
+test("rectangle drag normalizes an up-left drag after snapping", () => {
+  const started = drawingTools.beginDrawingToolSession(
+    "rectangle",
+    { x: 31, y: 39 },
+    snap,
+  );
+  const completed = drawingTools.commitDrawingPoint(
+    started,
+    { x: 2, y: 1 },
+    commitOptions(),
+  );
+
+  assert.deepEqual(completed.command.objects[0].geometry, {
+    type: "rectangle",
+    origin: { x: 0, y: 0 },
+    width: 30,
+    height: 40,
+    rotation: 0,
+  });
+});
+
+test("circle center-radius drag commits the snapped Euclidean radius", () => {
+  const started = drawingTools.beginDrawingToolSession(
+    "circle",
+    { x: 1, y: 2 },
+    snap,
+  );
+  const completed = drawingTools.commitDrawingPoint(
+    started,
+    { x: 31, y: 39 },
+    commitOptions(),
+  );
+
+  assert.deepEqual(completed.command.objects[0].geometry, {
+    type: "circle",
+    center: { x: 0, y: 0 },
+    radius: 50,
+  });
+});
+
+test("text Enter ignores empty input and commits non-empty text at a snapped origin", () => {
+  const session = drawingTools.beginDrawingToolSession(
+    "text",
+    { x: 19, y: 18 },
+    snap,
+  );
+  assert.equal(
+    drawingTools.completeDrawingToolSession(
+      session,
+      commitOptions({ text: "   " }),
+    ).command,
+    null,
+  );
+  const completed = drawingTools.completeDrawingToolSession(
+    session,
+    commitOptions({ text: "  현장 메모  " }),
+  );
+
+  assert.deepEqual(completed.command.objects[0].geometry, {
+    type: "text",
+    origin: { x: 21, y: 19 },
+    text: "현장 메모",
+    width: 160,
+  });
+});
+
+test("dimension commits explicit calibrated or visibly uncalibrated evidence", () => {
+  const calibrationId = "00000000-0000-4000-8000-000000000099";
+  for (const expected of [calibrationId, null]) {
+    const started = drawingTools.beginDrawingToolSession(
+      "dimension",
+      { x: 2, y: 1 },
+      snap,
+    );
+    const completed = drawingTools.commitDrawingPoint(
+      started,
+      { x: 31, y: 39 },
+      commitOptions({ calibrationId: expected }),
+    );
+    assert.deepEqual(completed.command.objects[0].geometry, {
+      type: "dimension",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      offset: 12,
+      calibrationId: expected,
+    });
+    assert.equal(
+      drawingTools.dimensionLabel(
+        completed.command.objects[0].geometry,
+        expected === null
+          ? null
+          : {
+              id: calibrationId,
+              millimetersPerNormalizedUnit: 100,
+              pageHeight: 100,
+              pageWidth: 100,
+            },
+      ),
+      expected === null ? "미보정" : "50.0 mm",
+    );
+    if (expected !== null) {
+      assert.equal(
+        drawingTools.dimensionLabel(completed.command.objects[0].geometry),
+        "보정 확인 불가",
+      );
+    }
+  }
+});
+
+test("dimension adapter applies the canonical perpendicular offset", () => {
+  assert.deepEqual(
+    drawingTools.dimensionDisplayPoints({
+      type: "dimension",
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 0 },
+      offset: 4,
+      calibrationId: null,
+    }),
+    {
+      displayStart: { x: 0, y: 4 },
+      displayEnd: { x: 10, y: 4 },
+      label: { x: 5, y: 4 },
+    },
+  );
+});
+
+test("Shift constrains line and dimension endpoints to 45-degree increments", () => {
+  for (const tool of ["line", "dimension"]) {
+    const session = drawingTools.beginDrawingToolSession(
+      tool,
+      { x: 0, y: 0 },
+      { ...snap, gridSize: 0, objectCandidates: [] },
+    );
+    const completed = drawingTools.commitDrawingPoint(
+      session,
+      { x: 9, y: 4 },
+      commitOptions({
+        constrain: true,
+        snap: { ...snap, gridSize: 0, objectCandidates: [] },
+      }),
+    );
+    assert.ok(
+      Math.abs(completed.command.objects[0].geometry.end.x - 6.964) < 0.001,
+    );
+    assert.ok(
+      Math.abs(completed.command.objects[0].geometry.end.y - 6.964) < 0.001,
+    );
+  }
+});
+
+test("Escape cancels without a command and Backspace removes the last polyline point", () => {
+  let session = drawingTools.beginDrawingToolSession(
+    "polyline",
+    { x: 1, y: 2 },
+    snap,
+  );
+  session = drawingTools.commitDrawingPoint(
+    session,
+    { x: 31, y: 39 },
+    commitOptions(),
+  ).session;
+  assert.deepEqual(drawingTools.removeLastPolylinePoint(session), {
+    tool: "polyline",
+    points: [{ x: 0, y: 0 }],
+  });
+  assert.deepEqual(drawingTools.cancelDrawingToolSession(), {
+    command: null,
+    nextTool: "select",
+    session: { tool: "idle" },
+  });
+});
+
+test("repeat mode keeps the completed drawing tool active", () => {
+  const completed = drawingTools.commitDrawingPoint(
+    drawingTools.beginDrawingToolSession("line", { x: 0, y: 0 }, snap),
+    { x: 20, y: 20 },
+    commitOptions({ repeatMode: true }),
+  );
+  assert.equal(completed.nextTool, "line");
+});
+
+test("command registry filters Korean labels and stable IDs case-insensitively", async () => {
+  const menu = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-command-menu.tsx",
+  );
+  assert.deepEqual(
+    menu
+      .filterDrawingCommands(menu.DRAWING_COMMAND_REGISTRY, "사각형")
+      .map((command) => command.id),
+    ["rectangle"],
+  );
+  assert.deepEqual(
+    menu
+      .filterDrawingCommands(menu.DRAWING_COMMAND_REGISTRY, "ZOOM_TO")
+      .map((command) => command.id),
+    ["zoom_to_fit"],
+  );
+  assert.deepEqual(
+    menu.DRAWING_COMMAND_REGISTRY.map((command) => command.id),
+    [
+      "select",
+      "pan",
+      "line",
+      "polyline",
+      "rectangle",
+      "circle",
+      "text",
+      "dimension",
+      "undo",
+      "redo",
+      "duplicate",
+      "delete",
+      "zoom_to_fit",
+    ],
+  );
+});
+
+test("command menu Enter only runs the selected enabled command and Escape closes", async () => {
+  const menu = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-command-menu.tsx",
+  );
+  const commands = [
+    { id: "undo", label: "실행 취소", enabled: false },
+    { id: "line", label: "선", enabled: true },
+  ];
+  assert.equal(menu.resolveDrawingCommandMenuKey("Enter", commands, 0), null);
+  assert.deepEqual(menu.resolveDrawingCommandMenuKey("Enter", commands, 1), {
+    kind: "run",
+    commandId: "line",
+  });
+  assert.deepEqual(menu.resolveDrawingCommandMenuKey("Escape", commands, 1), {
+    kind: "close",
+  });
+});
+
+test("editing context fails closed unless capability and an active layer both allow edits", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.client.tsx",
+  );
+  const layers = [
+    layer({ id: ids.lockedLayer, locked: true }),
+    layer({ id: ids.layer, visible: false }),
+    layer({
+      id: "00000000-0000-4000-8000-000000000030",
+      system_kind: "work",
+    }),
+  ];
+  assert.deepEqual(shell.drawingEditingContext("editor", layers), {
+    canEdit: true,
+    layerId: "00000000-0000-4000-8000-000000000030",
+  });
+  assert.deepEqual(shell.drawingEditingContext("viewer", layers), {
+    canEdit: false,
+    layerId: null,
+  });
+  assert.deepEqual(
+    shell.drawingEditingContext("admin", [layer({ locked: true })]),
+    { canEdit: false, layerId: null },
+  );
 });

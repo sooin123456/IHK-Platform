@@ -1,24 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ArrowLeft,
   Check,
+  Circle as CircleIcon,
   Cloud,
   Hand,
+  Minus,
   MousePointer2,
   Redo2,
+  Repeat2,
   RotateCcw,
+  Ruler,
   Save,
+  Square,
+  Type,
   Undo2,
+  Waypoints,
   X,
 } from "lucide-react";
 import { Form, Link } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
+import {
+  applyDrawingCommand,
+  createDrawingDocumentState,
+  redoDrawingCommand,
+  undoDrawingCommand,
+  type DrawingCommand,
+  type DrawingDocumentState,
+} from "~/lukas/lib/drawing-commands";
 import type {
   DrawingWorkspace,
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
+import {
+  DrawingLayerSchema,
+  DrawingObjectSchema,
+  PdfCalibrationSchema,
+} from "~/lukas/lib/drawing-workspace.types";
 import {
   drawingRevisionDecisionFields,
   drawingWorkspaceReviewControls,
@@ -26,15 +46,69 @@ import {
   loadDrawingClientModule,
   type DrawingClientModuleState,
 } from "~/lukas/lib/drawing-workspace-view";
+import {
+  DrawingCommandMenu,
+  type DrawingCommandId,
+} from "./drawing-command-menu";
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
+  DrawingTool,
+  DimensionCalibrationEvidence,
 } from "./drawing-canvas.client";
 
 type CanvasModule = typeof import("./drawing-canvas.client");
 type CanvasComponent = CanvasModule["DrawingCanvas"];
 type IfcModule = typeof import("./ifc-property-browser.client");
 type IfcComponent = IfcModule["default"];
+
+type WorkspaceLayer = NonNullable<
+  DrawingWorkspace["document"]
+>["revision"]["layers"][number];
+
+export function drawingEditingContext(
+  capability: DrawingWorkspaceCapability,
+  layers: WorkspaceLayer[],
+) {
+  if (capability !== "admin" && capability !== "editor")
+    return { canEdit: false, layerId: null };
+  const layer =
+    layers.find(
+      (candidate) =>
+        candidate.system_kind === "work" &&
+        candidate.visible &&
+        !candidate.locked,
+    ) ?? layers.find((candidate) => candidate.visible && !candidate.locked);
+  return layer
+    ? { canEdit: true, layerId: layer.id }
+    : { canEdit: false, layerId: null };
+}
+
+function drawingStateFromRevision(
+  revision: NonNullable<DrawingWorkspace["document"]>["revision"],
+): DrawingDocumentState {
+  return createDrawingDocumentState({
+    revisionId: revision.id,
+    layers: revision.layers.map((layer) =>
+      DrawingLayerSchema.parse({
+        id: layer.id,
+        name: layer.name,
+        visible: layer.visible,
+        locked: layer.locked,
+        version: layer.version,
+      }),
+    ),
+    objects: revision.objects.map((object) =>
+      DrawingObjectSchema.parse({
+        id: object.id,
+        layerId: object.layer_id,
+        geometry: object.geometry,
+        style: object.style,
+        version: object.version,
+      }),
+    ),
+  });
+}
 
 type Props = {
   actionError?: string | null;
@@ -62,11 +136,37 @@ export default function DrawingWorkspaceClient({
   const [ifcModule, setIfcModule] = useState<
     DrawingClientModuleState<IfcComponent>
   >({ status: "loading" });
-  const [activeTool, setActiveTool] = useState<"select" | "pan">("select");
+  const [activeTool, setActiveTool] = useState<DrawingTool>("select");
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [repeatMode, setRepeatMode] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
+  const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const { file, document: drawingDocument } = workspace;
   const { revision } = drawingDocument;
+  const [drawingState, setDrawingState] = useState(() =>
+    drawingStateFromRevision(revision),
+  );
+  const visibleObjects = useMemo(
+    () =>
+      Object.values(drawingState.objects).filter(
+        (object) => drawingState.layers[object.layerId]?.visible,
+      ),
+    [drawingState.layers, drawingState.objects],
+  );
   const page = revision.pages[0];
+  const editing = drawingEditingContext(capability, revision.layers);
+  const parsedCalibration = PdfCalibrationSchema.safeParse(page?.calibration);
+  const calibration: DimensionCalibrationEvidence | null =
+    page && parsedCalibration.success
+      ? {
+          id: page.id,
+          millimetersPerNormalizedUnit:
+            parsedCalibration.data.millimetersPerNormalizedUnit,
+          pageHeight: page.height_mm,
+          pageWidth: page.width_mm,
+        }
+      : null;
+  const calibrationId = calibration?.id ?? null;
   const reviewControls = drawingWorkspaceReviewControls({
     capability,
     createdBy: revision.created_by,
@@ -121,6 +221,77 @@ export default function DrawingWorkspaceClient({
       onState: setIfcModule,
     });
   }, [surface.layout]);
+
+  useEffect(() => {
+    setDrawingState(drawingStateFromRevision(revision));
+    setActiveTool("select");
+    setHasLocalChanges(false);
+  }, [revision]);
+
+  useEffect(() => {
+    function openCommandMenu(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setCommandMenuOpen(true);
+    }
+    window.addEventListener("keydown", openCommandMenu);
+    return () => window.removeEventListener("keydown", openCommandMenu);
+  }, []);
+
+  const applyCommand = useCallback((command: DrawingCommand) => {
+    setDrawingState((state) => applyDrawingCommand(state, command).state);
+    setHasLocalChanges(true);
+  }, []);
+
+  const undo = useCallback(() => {
+    const result = undoDrawingCommand(drawingState, currentUserId);
+    if (!result || "kind" in result) return;
+    setDrawingState(result.state);
+    setHasLocalChanges(true);
+  }, [currentUserId, drawingState]);
+
+  const redo = useCallback(() => {
+    const result = redoDrawingCommand(drawingState, currentUserId);
+    if (!result || "kind" in result) return;
+    setDrawingState(result.state);
+    setHasLocalChanges(true);
+  }, [currentUserId, drawingState]);
+
+  const commandEnabled = useCallback(
+    (commandId: DrawingCommandId) => {
+      if (commandId === "select" || commandId === "pan") return true;
+      if (commandId === "zoom_to_fit") return true;
+      if (commandId === "undo")
+        return (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0;
+      if (commandId === "redo")
+        return (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0;
+      if (commandId === "duplicate" || commandId === "delete") return false;
+      return editing.canEdit;
+    },
+    [currentUserId, drawingState, editing.canEdit],
+  );
+
+  const runCommand = useCallback(
+    (commandId: DrawingCommandId) => {
+      if (!commandEnabled(commandId)) return;
+      if (
+        commandId === "select" ||
+        commandId === "pan" ||
+        commandId === "line" ||
+        commandId === "polyline" ||
+        commandId === "rectangle" ||
+        commandId === "circle" ||
+        commandId === "text" ||
+        commandId === "dimension"
+      ) {
+        setActiveTool(commandId);
+      } else if (commandId === "undo") undo();
+      else if (commandId === "redo") redo();
+      else if (commandId === "zoom_to_fit") canvasRef.current?.resetViewport();
+    },
+    [commandEnabled, redo, undo],
+  );
   const background: DrawingCanvasBackground = surface.background;
   const decisionFields = reviewControls.decisionEvidence
     ? drawingRevisionDecisionFields({
@@ -152,11 +323,12 @@ export default function DrawingWorkspaceClient({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <span
-            aria-label="저장 상태: 저장됨"
-            className="inline-flex min-h-9 items-center gap-1 px-2 text-xs text-emerald-300"
+            aria-label={`저장 상태: ${hasLocalChanges ? "로컬 변경(저장되지 않음)" : "저장됨"}`}
+            className={`inline-flex min-h-9 items-center gap-1 px-2 text-xs ${hasLocalChanges ? "text-amber-300" : "text-emerald-300"}`}
             role="status"
           >
-            <Cloud className="size-4" /> 저장됨
+            <Cloud className="size-4" />
+            {hasLocalChanges ? "로컬 변경" : "저장됨"}
           </span>
           <Button
             aria-label="저장"
@@ -169,7 +341,8 @@ export default function DrawingWorkspaceClient({
           </Button>
           <Button
             aria-label="실행 취소"
-            disabled
+            disabled={!commandEnabled("undo")}
+            onClick={undo}
             size="icon"
             title="실행 취소"
             variant="ghost"
@@ -178,7 +351,8 @@ export default function DrawingWorkspaceClient({
           </Button>
           <Button
             aria-label="다시 실행"
-            disabled
+            disabled={!commandEnabled("redo")}
+            onClick={redo}
             size="icon"
             title="다시 실행"
             variant="ghost"
@@ -293,8 +467,17 @@ export default function DrawingWorkspaceClient({
               {Canvas ? (
                 <Canvas
                   activeTool={activeTool}
+                  actorId={currentUserId}
                   background={background}
+                  calibration={calibration}
+                  calibrationId={calibrationId}
+                  canEdit={editing.canEdit}
+                  layerId={editing.layerId}
+                  objects={visibleObjects}
+                  onCommand={applyCommand}
+                  onToolComplete={setActiveTool}
                   ref={canvasRef}
+                  repeatMode={repeatMode}
                 />
               ) : canvasLoadError ? (
                 <div
@@ -359,6 +542,76 @@ export default function DrawingWorkspaceClient({
               <MousePointer2 className="size-4" />
             </Button>
             <Button
+              aria-label="선 도구"
+              aria-pressed={activeTool === "line"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("line")}
+              size="icon"
+              variant={activeTool === "line" ? "secondary" : "ghost"}
+            >
+              <Minus className="size-4" />
+            </Button>
+            <Button
+              aria-label="폴리라인 도구"
+              aria-pressed={activeTool === "polyline"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("polyline")}
+              size="icon"
+              variant={activeTool === "polyline" ? "secondary" : "ghost"}
+            >
+              <Waypoints className="size-4" />
+            </Button>
+            <Button
+              aria-label="사각형 도구"
+              aria-pressed={activeTool === "rectangle"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("rectangle")}
+              size="icon"
+              variant={activeTool === "rectangle" ? "secondary" : "ghost"}
+            >
+              <Square className="size-4" />
+            </Button>
+            <Button
+              aria-label="원 도구"
+              aria-pressed={activeTool === "circle"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("circle")}
+              size="icon"
+              variant={activeTool === "circle" ? "secondary" : "ghost"}
+            >
+              <CircleIcon className="size-4" />
+            </Button>
+            <Button
+              aria-label="텍스트 도구"
+              aria-pressed={activeTool === "text"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("text")}
+              size="icon"
+              variant={activeTool === "text" ? "secondary" : "ghost"}
+            >
+              <Type className="size-4" />
+            </Button>
+            <Button
+              aria-label="치수 도구"
+              aria-pressed={activeTool === "dimension"}
+              disabled={!editing.canEdit}
+              onClick={() => setActiveTool("dimension")}
+              size="icon"
+              variant={activeTool === "dimension" ? "secondary" : "ghost"}
+            >
+              <Ruler className="size-4" />
+            </Button>
+            <Button
+              aria-label="도구 반복"
+              aria-pressed={repeatMode}
+              disabled={!editing.canEdit}
+              onClick={() => setRepeatMode((enabled) => !enabled)}
+              size="icon"
+              variant={repeatMode ? "secondary" : "ghost"}
+            >
+              <Repeat2 className="size-4" />
+            </Button>
+            <Button
               aria-label="이동 도구"
               aria-pressed={activeTool === "pan"}
               onClick={() => setActiveTool("pan")}
@@ -402,6 +655,12 @@ export default function DrawingWorkspaceClient({
           </p>
         </aside>
       </div>
+      <DrawingCommandMenu
+        enabled={commandEnabled}
+        onClose={() => setCommandMenuOpen(false)}
+        onRun={runCommand}
+        open={commandMenuOpen}
+      />
     </main>
   );
 }

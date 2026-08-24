@@ -366,3 +366,50 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
   assert.match(canvas, /x=\{pdfSource\.bounds\.x\}/);
   assert.match(canvas, /y=\{pdfSource\.bounds\.y\}/);
 });
+
+test("workspace exposes six authoring tools, transient previews, and an accessible native command menu", async () => {
+  const [shell, canvas, menu] = await Promise.all([
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-workspace.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-canvas.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-command-menu.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  for (const label of [
+    "선 도구",
+    "폴리라인 도구",
+    "사각형 도구",
+    "원 도구",
+    "텍스트 도구",
+    "치수 도구",
+  ]) {
+    assert.match(shell, new RegExp(`aria-label="${label}"`));
+  }
+  assert.match(shell, /DrawingCommandMenu/);
+  assert.match(shell, /event\.(metaKey \|\| event\.ctrlKey)/);
+  assert.match(shell, /event\.key\.toLowerCase\(\) !== "k"/);
+  assert.match(canvas, /name="drawing-preview"/);
+  assert.match(canvas, /미보정/);
+  assert.match(canvas, /onDoubleClick/);
+  assert.match(canvas, /event\.key === "Backspace"/);
+  assert.match(menu, /<dialog/);
+  assert.match(menu, /aria-labelledby="drawing-command-menu-title"/);
+  assert.match(menu, /aria-label="도면 명령 검색"/);
+  assert.match(menu, /role="listbox"/);
+});
