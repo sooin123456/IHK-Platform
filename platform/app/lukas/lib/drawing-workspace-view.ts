@@ -80,6 +80,22 @@ export function drawingWorkspaceReviewControls(input: {
   return { requestReview, decisionEvidence };
 }
 
+export function drawingIssueLinkReady(input: {
+  capability: DrawingWorkspaceCapability;
+  objectIds: string[];
+  saveStatus: "저장됨" | "저장 중" | "오프라인 저장" | "충돌 검토 필요";
+  selectedIds: string[];
+  status: RevisionStatus;
+}) {
+  return (
+    (input.capability === "admin" || input.capability === "editor") &&
+    input.status === "draft" &&
+    input.saveStatus === "저장됨" &&
+    input.selectedIds.length === 1 &&
+    input.objectIds.includes(input.selectedIds[0])
+  );
+}
+
 export function drawingRevisionDecisionFields(input: {
   decision: "approved" | "rejected";
   evidence: DrawingReviewEvidence;

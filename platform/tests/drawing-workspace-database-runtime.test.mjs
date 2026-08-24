@@ -46,6 +46,14 @@ const issueLinkMigration = () =>
     ),
     "utf8",
   );
+const releaseHardeningMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260824154700_drawing_workspace_release_hardening.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -62,6 +70,9 @@ const drawingCommands = await vite.ssrLoadModule(
 const workspaceServer = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace.server.ts",
 );
+const drawingOutbox = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-outbox.client.ts",
+);
 const { DrawingInspector } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-inspector.tsx",
 );
@@ -72,9 +83,7 @@ const { buildDrawingPerformanceFixture } = await vite.ssrLoadModule(
   "/e2e/utils/drawing-collaboration-fixture.ts",
 );
 const { drawingFittedViewport, drawingSelectionHitBounds } =
-  await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-canvas.client.tsx",
-  );
+  await vite.ssrLoadModule("/app/lukas/components/drawing-canvas.client.tsx");
 const { worldToScreen, zoomViewportAroundPointer } = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-geometry.ts",
 );
@@ -143,8 +152,8 @@ async function asActor(actor) {
 async function createDocument(title = randomUUID()) {
   await asActor(OWNER);
   const result = await db.query(
-    "select public.lukas_drawing_create_document($1,$2,$3,true) result",
-    [PROJECT, PDF, title],
+    "select public.lukas_drawing_create_document($1,null,$2,true) result",
+    [PROJECT, title],
   );
   return result.rows[0].result;
 }
@@ -183,12 +192,37 @@ async function addObject(ids, object) {
   );
 }
 
+function runtimeOutboxAdapter() {
+  const records = new Map();
+  let sequence = 0;
+  return {
+    async claimLegacy() {
+      return 0;
+    },
+    async delete(id) {
+      records.delete(id);
+    },
+    async enqueue(entry) {
+      const stored = { ...entry, enqueueSequence: ++sequence };
+      records.set(entry.operation.clientOperationId, stored);
+      return stored;
+    },
+    async list() {
+      return structuredClone([...records.values()]);
+    },
+    async put(entry) {
+      records.set(entry.operation.clientOperationId, structuredClone(entry));
+    },
+  };
+}
+
 before(async () => {
   db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(foundationSql);
   await db.exec(await migration());
   await db.exec(await upgradeMigration());
   await db.exec(await issueLinkMigration());
+  await db.exec(await releaseHardeningMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -209,6 +243,353 @@ before(async () => {
      values ($1,$2,$3,'pdf',$4)`,
     [PDF, PROJECT, OWNER, PDF_SHA],
   );
+});
+
+test("release hardening gives one non-null source one document and keeps blank documents repeatable", async () => {
+  await asActor(OWNER);
+  const source = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values ($1,$2,$3,'pdf',$4)`,
+    [source, PROJECT, OWNER, "d".repeat(64)],
+  );
+  await asActor(OWNER);
+
+  const createFromSource = () =>
+    db.query("select public.lukas_drawing_create_document($1,$2,$3,false)", [
+      PROJECT,
+      source,
+      randomUUID(),
+    ]);
+  const outcomes = await Promise.allSettled([
+    createFromSource(),
+    createFromSource(),
+  ]);
+  assert.equal(
+    outcomes.filter(({ status }) => status === "fulfilled").length,
+    1,
+  );
+  const duplicate = outcomes.find(({ status }) => status === "rejected");
+  assert.equal(duplicate.reason.code, "P1C01");
+  await assert.rejects(createFromSource(), (error) => error.code === "P1C01");
+
+  const firstBlank = await db.query(
+    "select public.lukas_drawing_create_document($1,null,$2,true) result",
+    [PROJECT, randomUUID()],
+  );
+  const secondBlank = await db.query(
+    "select public.lukas_drawing_create_document($1,null,$2,true) result",
+    [PROJECT, randomUUID()],
+  );
+  assert.notEqual(
+    firstBlank.rows[0].result.documentId,
+    secondBlank.rows[0].result.documentId,
+  );
+});
+
+test("release hardening binds an idempotency key to the canonical stored request", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  const clientOperationId = randomUUID();
+  const args = [
+    ids.revisionId,
+    clientOperationId,
+    "add_objects",
+    {},
+    { type: "add_objects", objects: [object] },
+    { type: "delete_objects", objectIds: [object.id] },
+  ];
+  const send = (values = args) =>
+    db.query(
+      "select public.lukas_drawing_apply_operation($1,$2,$3,$4,$5,$6) result",
+      values,
+    );
+
+  const first = await send();
+  assert.deepEqual((await send()).rows[0].result, first.rows[0].result);
+  const mismatches = [
+    [
+      ...args.slice(0, 2),
+      "update_objects",
+      { [object.id]: 1 },
+      {
+        type: "update_objects",
+        updates: [{ objectId: object.id, patch: { name: "Changed" } }],
+      },
+      {
+        type: "update_objects",
+        updates: [{ objectId: object.id, patch: { name: "Circle" } }],
+      },
+    ],
+    [args[0], args[1], args[2], { [object.id]: 1 }, args[4], args[5]],
+    [args[0], args[1], args[2], args[3], { ...args[4], extra: true }, args[5]],
+    [args[0], args[1], args[2], args[3], args[4], {}],
+  ];
+  for (const mismatch of mismatches)
+    await assert.rejects(send(mismatch), (error) => error.code === "P1C01");
+
+  await asActor(EDITOR);
+  await assert.rejects(send(), (error) => error.code === "P1C01");
+});
+
+test("release hardening makes inaccessible and random revision targets indistinguishable", async () => {
+  const foreignProject = randomUUID();
+  const foreignFile = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+    [foreignProject, OUTSIDER],
+  );
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values ($1,$2,$3,'pdf',$4)`,
+    [foreignFile, foreignProject, OUTSIDER, "e".repeat(64)],
+  );
+  await asActor(OUTSIDER);
+  const foreign = await db.query(
+    "select public.lukas_drawing_create_document($1,$2,$3,false) result",
+    [foreignProject, foreignFile, randomUUID()],
+  );
+  const foreignRevision = foreign.rows[0].result.revisionId;
+  const foreignReview = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [foreignRevision],
+  );
+  await asActor(EDITOR);
+  const randomRevision = randomUUID();
+  const operationArgs = (revisionId) => [
+    revisionId,
+    randomUUID(),
+    "add_layer",
+    {},
+    {
+      type: "add_layer",
+      layer: {
+        id: randomUUID(),
+        name: "Unavailable",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  ];
+  const probes = [
+    (revisionId) =>
+      db.query(
+        "select public.lukas_drawing_apply_operation($1,$2,$3,$4,$5,$6)",
+        operationArgs(revisionId),
+      ),
+    (revisionId) =>
+      db.query("select public.lukas_drawing_request_review($1)", [revisionId]),
+    (revisionId) =>
+      db.query(
+        "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','probe')",
+        [
+          revisionId,
+          foreignReview.rows[0].result.subjectVersion,
+          foreignReview.rows[0].result.snapshotSha256,
+        ],
+      ),
+  ];
+
+  for (const probe of probes) {
+    const errors = [];
+    for (const revisionId of [foreignRevision, randomRevision]) {
+      try {
+        await probe(revisionId);
+        assert.fail("expected unavailable target");
+      } catch (error) {
+        errors.push({ code: error.code, message: error.message });
+      }
+    }
+    assert.deepEqual(errors, [
+      { code: "P1R01", message: "Drawing revision target is unavailable" },
+      { code: "P1R01", message: "Drawing revision target is unavailable" },
+    ]);
+  }
+});
+
+test("release hardening reports a real stale object version with a stable conflict code", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_objects",
+      { [object.id]: 99 },
+      {
+        type: "update_objects",
+        updates: [{ objectId: object.id, patch: { name: "Stale" } }],
+      },
+      {
+        type: "update_objects",
+        updates: [{ objectId: object.id, patch: { name: "Circle" } }],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+});
+
+test("real PGlite errors drive terminal conflict and transient retry through server and outbox", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  const operation = {
+    clientOperationId: randomUUID(),
+    revisionId: ids.revisionId,
+    type: "update_objects",
+    baseVersions: { [object.id]: 99 },
+    forward: {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Stale" } }],
+    },
+    inverse: {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Circle" } }],
+    },
+    createdAt: "2026-08-25T00:00:00.000Z",
+  };
+  const workspace = {
+    document: { revision: { id: ids.revisionId } },
+  };
+  const databaseClient = {
+    async rpc(_name, args) {
+      try {
+        const result = await db.query(
+          "select public.lukas_drawing_apply_operation($1,$2,$3,$4,$5,$6) result",
+          [
+            args.p_revision_id,
+            args.p_client_operation_id,
+            args.p_operation_type,
+            args.p_base_versions,
+            args.p_forward,
+            args.p_inverse,
+          ],
+        );
+        return { data: result.rows[0].result, error: null };
+      } catch (error) {
+        return {
+          data: null,
+          error: { code: error.code, message: error.message },
+        };
+      }
+    },
+  };
+  const routeFetch = (client) => async (_url, init) => {
+    const result = await workspaceServer.handleWorkspaceMutation({
+      client,
+      projectId: PROJECT,
+      capability: "editor",
+      workspace,
+      form: init.body,
+    });
+    return {
+      ok: result.status >= 200 && result.status < 300,
+      status: result.status,
+      async json() {
+        return result.body;
+      },
+    };
+  };
+  const conflicted = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
+    ownerId: OWNER,
+    revisionId: ids.revisionId,
+    schedule: () => () => {},
+  });
+  await conflicted.enqueue(operation);
+  await conflicted.flush((queued) =>
+    drawingOutbox.sendDrawingOperation(
+      queued,
+      "/workspace",
+      routeFetch(databaseClient),
+    ),
+  );
+  assert.equal((await conflicted.entries())[0].status, "conflicted");
+  assert.equal(
+    drawingOutbox.drawingSaveStatus({ pending: 1, conflicted: true }),
+    "충돌 검토 필요",
+  );
+  conflicted.dispose();
+
+  for (const code of ["40001", "40P01"]) {
+    const transientClient = {
+      async rpc() {
+        try {
+          await db.exec(
+            `do $$ begin raise exception using errcode='${code}', message='retry transaction'; end $$`,
+          );
+          assert.fail("expected transient database failure");
+        } catch (error) {
+          return {
+            data: null,
+            error: { code: error.code, message: error.message },
+          };
+        }
+      },
+    };
+    const retryable = drawingOutbox.createDrawingOutbox(
+      runtimeOutboxAdapter(),
+      {
+        ownerId: OWNER,
+        revisionId: ids.revisionId,
+        schedule: () => () => {},
+      },
+    );
+    await retryable.enqueue({ ...operation, clientOperationId: randomUUID() });
+    await assert.rejects(
+      retryable.flush((queued) =>
+        drawingOutbox.sendDrawingOperation(
+          queued,
+          "/workspace",
+          routeFetch(transientClient),
+        ),
+      ),
+      /retry transaction/,
+    );
+    assert.equal((await retryable.entries())[0].status, "pending");
+    retryable.dispose();
+  }
+});
+
+test("release migration duplicate preflight fails before installing the unique index", async () => {
+  const preflightDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await preflightDb.exec(foundationSql);
+    await preflightDb.exec(await migration());
+    await preflightDb.exec(await upgradeMigration());
+    await preflightDb.exec(await issueLinkMigration());
+    await preflightDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await preflightDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await preflightDb.query(
+      `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+       values ($1,$2,$3,'pdf',$4)`,
+      [PDF, PROJECT, OWNER, PDF_SHA],
+    );
+    await preflightDb.exec("set role authenticated");
+    await preflightDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    for (let index = 0; index < 2; index += 1)
+      await preflightDb.query(
+        "select public.lukas_drawing_create_document($1,$2,$3,false)",
+        [PROJECT, PDF, `duplicate ${index}`],
+      );
+    await preflightDb.exec("reset role");
+    await assert.rejects(
+      preflightDb.exec(await releaseHardeningMigration()),
+      (error) =>
+        error.code === "P1C01" && /before deployment/i.test(error.message),
+    );
+  } finally {
+    await preflightDb.close();
+  }
 });
 
 after(async () => {
@@ -1359,59 +1740,66 @@ test("runtime issue links are same-project, idempotent, append-only, and draft-o
     );
   });
 
-  await t.test("missing and foreign targets have one fail-closed response", async () => {
-    const fixture = await makeObjectAndIssue();
-    const otherProject = randomUUID();
-    const otherFile = randomUUID();
-    const otherIssue = randomUUID();
-    await db.exec("reset role");
-    await db.query(
-      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
-      [otherProject, OUTSIDER],
-    );
-    await db.query(
-      `insert into public.lukas_qto_files(
+  await t.test(
+    "missing and foreign targets have one fail-closed response",
+    async () => {
+      const fixture = await makeObjectAndIssue();
+      const otherProject = randomUUID();
+      const otherFile = randomUUID();
+      const otherIssue = randomUUID();
+      await db.exec("reset role");
+      await db.query(
+        "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+        [otherProject, OUTSIDER],
+      );
+      await db.query(
+        `insert into public.lukas_qto_files(
         id,project_id,uploaded_by,kind,sha256
       ) values ($1,$2,$3,'pdf',$4)`,
-      [otherFile, otherProject, OUTSIDER, "c".repeat(64)],
-    );
-    await db.query(
-      "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
-      [otherIssue, otherProject],
-    );
-    await asActor(OUTSIDER);
-    const other = await db.query(
-      "select public.lukas_drawing_create_document($1,$2,$3,true) result",
-      [otherProject, otherFile, "Foreign workspace"],
-    );
-    const foreignObject = circleObject(
-      randomUUID(),
-      other.rows[0].result.workLayerId,
-    );
-    await addObject(other.rows[0].result, foreignObject);
-    await asActor(EDITOR);
+        [otherFile, otherProject, OUTSIDER, "c".repeat(64)],
+      );
+      await db.query(
+        "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+        [otherIssue, otherProject],
+      );
+      await asActor(OUTSIDER);
+      const other = await db.query(
+        "select public.lukas_drawing_create_document($1,$2,$3,true) result",
+        [otherProject, otherFile, "Foreign workspace"],
+      );
+      const foreignObject = circleObject(
+        randomUUID(),
+        other.rows[0].result.workLayerId,
+      );
+      await addObject(other.rows[0].result, foreignObject);
+      await asActor(EDITOR);
 
-    const unavailable = async (objectId, issueId) => {
-      try {
-        await link(objectId, issueId);
-        assert.fail("expected unavailable target");
-      } catch (error) {
-        return error.message;
-      }
-    };
-    const messages = [];
-    for (const [objectId, issueId] of [
-      [randomUUID(), fixture.issueId],
-      [foreignObject.id, fixture.issueId],
-      [fixture.object.id, randomUUID()],
-      [fixture.object.id, otherIssue],
-    ])
-      messages.push(await unavailable(objectId, issueId));
-    assert.deepEqual(
-      new Set(messages),
-      new Set(["Drawing issue link target is unavailable"]),
-    );
-  });
+      const unavailable = async (objectId, issueId) => {
+        try {
+          await link(objectId, issueId);
+          assert.fail("expected unavailable target");
+        } catch (error) {
+          return { code: error.code, message: error.message };
+        }
+      };
+      const messages = [];
+      for (const [objectId, issueId] of [
+        [randomUUID(), fixture.issueId],
+        [foreignObject.id, fixture.issueId],
+        [fixture.object.id, randomUUID()],
+        [fixture.object.id, otherIssue],
+      ])
+        messages.push(await unavailable(objectId, issueId));
+      assert.deepEqual(
+        new Set(messages.map(({ code }) => code)),
+        new Set(["P1R01"]),
+      );
+      assert.deepEqual(
+        new Set(messages.map(({ message }) => message)),
+        new Set(["Drawing issue link target is unavailable"]),
+      );
+    },
+  );
 
   for (const status of ["review_requested", "approved"]) {
     await t.test(`${status} revision cannot be linked`, async () => {
@@ -1552,7 +1940,9 @@ test("authenticated editors mutate drawing objects only through the operation RP
     /permission denied/i,
   );
   await assert.rejects(
-    db.query("delete from public.lukas_drawing_objects where id=$1", [object.id]),
+    db.query("delete from public.lukas_drawing_objects where id=$1", [
+      object.id,
+    ]),
     /permission denied/i,
   );
   for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
@@ -1594,10 +1984,10 @@ test("authenticated editors mutate drawing objects only through the operation RP
     [issueId, PROJECT],
   );
   await asActor(EDITOR);
-  await db.query(
-    "select public.lukas_drawing_link_object_issue($1,$2)",
-    [object.id, issueId],
-  );
+  await db.query("select public.lukas_drawing_link_object_issue($1,$2)", [
+    object.id,
+    issueId,
+  ]);
   await applyOperation(
     ids.revisionId,
     "delete_objects",

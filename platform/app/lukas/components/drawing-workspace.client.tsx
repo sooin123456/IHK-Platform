@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import {
   ArrowLeft,
@@ -18,7 +25,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { Form, Link, useBlocker } from "react-router";
+import { Form, Link, useBlocker, useNavigation } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import {
@@ -44,6 +51,7 @@ import {
   createDrawingOutbox,
   createDrawingPersistenceQueue,
   drawingSaveStatus,
+  prepareDrawingReview,
   restoreDrawingWorkspaceState,
   sendDrawingOperation,
   type DrawingOutbox,
@@ -60,6 +68,7 @@ import {
 } from "~/lukas/lib/drawing-workspace.types";
 import {
   drawingRevisionDecisionFields,
+  drawingIssueLinkReady,
   drawingWorkspaceReviewControls,
   drawingWorkspaceSurface,
   loadDrawingClientModule,
@@ -239,6 +248,10 @@ export default function DrawingWorkspaceClient({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
+  const [reviewPreparing, setReviewPreparing] = useState(false);
+  const [reviewPreparationError, setReviewPreparationError] = useState<
+    string | null
+  >(null);
   const [outboxReady, setOutboxReady] = useState(false);
   const [saveState, setSaveState] = useState({
     pending: 0,
@@ -252,11 +265,17 @@ export default function DrawingWorkspaceClient({
   const [legacyOperationCount, setLegacyOperationCount] = useState(0);
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
   const legacyOutboxRef = useRef<DrawingOutbox | null>(null);
+  const flushOutboxRef = useRef<(() => Promise<void>) | null>(null);
+  const reviewFrozenRef = useRef(false);
+  const reviewSubmitBypassRef = useRef(false);
+  const reviewSubmissionSeenRef = useRef(false);
+  const reviewSubmittedRef = useRef(false);
   const persistenceRef = useRef<ReturnType<
     typeof createDrawingPersistenceQueue
   > | null>(null);
   const retryStorageRef = useRef<() => void>(() => {});
   const { file, document: drawingDocument } = workspace;
+  const navigation = useNavigation();
   const { revision } = drawingDocument;
   const [drawingState, setDrawingState] = useState(() =>
     drawingStateFromRevision(revision),
@@ -283,10 +302,24 @@ export default function DrawingWorkspaceClient({
     ...editingContext,
     canEdit:
       outboxReady &&
+      !reviewPreparing &&
       editingContext.canEdit &&
       canPersistDrawingMutation(capability, persistenceState),
   };
   const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
+
+  useEffect(() => {
+    if (!reviewSubmittedRef.current) return;
+    if (navigation.state !== "idle") {
+      reviewSubmissionSeenRef.current = true;
+      return;
+    }
+    if (!reviewSubmissionSeenRef.current) return;
+    reviewSubmittedRef.current = false;
+    reviewSubmissionSeenRef.current = false;
+    reviewFrozenRef.current = false;
+    setReviewPreparing(false);
+  }, [navigation.state]);
 
   useEffect(() => {
     if (navigationBlocker.state !== "blocked") return;
@@ -419,6 +452,7 @@ export default function DrawingWorkspaceClient({
         await refresh();
       }
     };
+    flushOutboxRef.current = flush;
     const persistence = createDrawingPersistenceQueue({
       flush,
       outbox,
@@ -487,6 +521,7 @@ export default function DrawingWorkspaceClient({
       outbox.dispose();
       if (persistenceRef.current === persistence) persistenceRef.current = null;
       if (legacyOutboxRef.current === outbox) legacyOutboxRef.current = null;
+      if (flushOutboxRef.current === flush) flushOutboxRef.current = null;
       retryStorageRef.current = () => {};
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
@@ -509,6 +544,7 @@ export default function DrawingWorkspaceClient({
     (applied: AppliedDrawingCommand) => {
       const persistence = persistenceRef.current;
       if (
+        reviewFrozenRef.current ||
         !persistence ||
         !canPersistDrawingMutation(capability, persistence.snapshot())
       )
@@ -523,6 +559,7 @@ export default function DrawingWorkspaceClient({
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
       if (
+        reviewFrozenRef.current ||
         !outboxReady ||
         !canPersistDrawingMutation(capability, persistenceState)
       )
@@ -721,6 +758,51 @@ export default function DrawingWorkspaceClient({
         note: reviewNote,
       })
     : null;
+  const prepareReviewSubmission = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      if (reviewSubmitBypassRef.current) {
+        reviewSubmitBypassRef.current = false;
+        return;
+      }
+      if (reviewFrozenRef.current) {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submitter = (event.nativeEvent as SubmitEvent).submitter;
+      const persistence = persistenceRef.current;
+      const outbox = legacyOutboxRef.current;
+      const flush = flushOutboxRef.current;
+      if (!persistence || !outbox || !flush) return;
+      setReviewPreparationError(null);
+      try {
+        await prepareDrawingReview({
+          freeze() {
+            reviewFrozenRef.current = true;
+            setReviewPreparing(true);
+          },
+          persistence,
+          flush,
+          outbox,
+        });
+        reviewSubmittedRef.current = true;
+        reviewSubmitBypassRef.current = true;
+        form.requestSubmit(
+          submitter instanceof HTMLButtonElement ? submitter : undefined,
+        );
+      } catch (error) {
+        reviewFrozenRef.current = false;
+        setReviewPreparing(false);
+        setReviewPreparationError(
+          error instanceof Error
+            ? error.message
+            : "검토 요청을 준비하지 못했습니다.",
+        );
+      }
+    },
+    [],
+  );
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
@@ -775,10 +857,14 @@ export default function DrawingWorkspaceClient({
             </>
           ) : null}
           {reviewControls.requestReview ? (
-            <Form method="post">
+            <Form method="post" onSubmit={prepareReviewSubmission}>
               <input name="intent" type="hidden" value="request_review" />
               <input name="revision_id" type="hidden" value={revision.id} />
-              <Button type="submit" variant="secondary">
+              <Button
+                disabled={!outboxReady}
+                type="submit"
+                variant="secondary"
+              >
                 <Check className="size-4" /> 검토 요청
               </Button>
             </Form>
@@ -835,6 +921,15 @@ export default function DrawingWorkspaceClient({
           role="alert"
         >
           {actionError}
+        </p>
+      ) : null}
+
+      {reviewPreparationError ? (
+        <p
+          className="border-b border-red-500/30 bg-red-950 px-4 py-2 text-sm text-red-100"
+          role="alert"
+        >
+          {reviewPreparationError}
         </p>
       ) : null}
 
@@ -1108,13 +1203,13 @@ export default function DrawingWorkspaceClient({
           <DrawingInspector
             actorId={currentUserId}
             canEdit={editing.canEdit}
-            canLinkIssues={
-              (capability === "admin" || capability === "editor") &&
-              revision.status === "draft" &&
-              saveStatus === "저장됨" &&
-              selectedIds.length === 1 &&
-              revision.objects.some((object) => object.id === selectedIds[0])
-            }
+            canLinkIssues={drawingIssueLinkReady({
+              capability,
+              objectIds: Object.keys(drawingState.objects),
+              saveStatus,
+              selectedIds,
+              status: revision.status,
+            })}
             issueLinks={revision.issueLinks}
             issues={revision.issues}
             onCommand={applyCommand}

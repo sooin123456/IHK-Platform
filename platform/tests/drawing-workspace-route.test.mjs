@@ -84,6 +84,38 @@ test("workspace document renders the accessible editor shell", async () => {
   assert.match(shell, /aria-label="속성 검사기"/);
 });
 
+test("same-session saved drawing objects become linkable without a loader reload", () => {
+  assert.equal(
+    workspaceView.drawingIssueLinkReady({
+      capability: "editor",
+      objectIds: ["same-session-object"],
+      saveStatus: "저장됨",
+      selectedIds: ["same-session-object"],
+      status: "draft",
+    }),
+    true,
+  );
+  for (const blocked of [
+    { saveStatus: "저장 중" },
+    { saveStatus: "충돌 검토 필요" },
+    { objectIds: [] },
+    { selectedIds: [] },
+    { capability: "reviewer" },
+    { status: "review_requested" },
+  ])
+    assert.equal(
+      workspaceView.drawingIssueLinkReady({
+        capability: "editor",
+        objectIds: ["same-session-object"],
+        saveStatus: "저장됨",
+        selectedIds: ["same-session-object"],
+        status: "draft",
+        ...blocked,
+      }),
+      false,
+    );
+});
+
 test("workspace wires durable outbox recovery and the four visible save states", async () => {
   const shell = await readFile(
     new URL(
@@ -99,7 +131,10 @@ test("workspace wires durable outbox recovery and the four visible save states",
   assert.match(shell, /persistence\.capture/);
   assert.match(shell, /const saveStatus = drawingSaveStatus/);
   assert.match(shell, /\{saveStatus\}/);
-  assert.match(shell, /canPersistDrawingMutation\(capability, persistenceState\)/);
+  assert.match(
+    shell,
+    /canPersistDrawingMutation\(capability, persistenceState\)/,
+  );
   assert.match(shell, /로컬 저장 실패/);
   assert.match(shell, /다시 시도/);
   assert.match(shell, /beforeunload/);

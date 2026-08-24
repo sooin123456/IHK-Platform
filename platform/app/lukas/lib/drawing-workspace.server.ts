@@ -171,7 +171,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
     Functions: Database["public"]["Functions"] & {
       lukas_drawing_create_document: DrawingRpc<{
         p_project_id: string;
-        p_source_file_id: string;
+        p_source_file_id: string | null;
         p_title: string;
         p_blank: boolean;
       }>;
@@ -749,7 +749,17 @@ export class DrawingWorkspaceConflictError extends Error {
   }
 }
 
-const drawingConflictCodes = new Set(["23505", "23P01", "40001", "40P01"]);
+export class DrawingWorkspaceRejectedError extends Error {
+  readonly kind = "rejected" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DrawingWorkspaceRejectedError";
+  }
+}
+
+const drawingConflictCodes = new Set(["23505", "23P01", "P1C01"]);
+const drawingRejectedCodes = new Set(["P1R01"]);
 
 function rpcResult<T>(
   data: T | null,
@@ -758,6 +768,8 @@ function rpcResult<T>(
   if (error) {
     if (error.code && drawingConflictCodes.has(error.code))
       throw new DrawingWorkspaceConflictError(error.message);
+    if (error.code && drawingRejectedCodes.has(error.code))
+      throw new DrawingWorkspaceRejectedError(error.message);
     throw new DrawingWorkspaceRpcError(error.message);
   }
   if (data === null)
@@ -864,7 +876,7 @@ export type DrawingWorkspaceActionBody =
     }
   | {
       ok: false;
-      kind: "validation" | "rpc" | "conflict";
+      kind: "validation" | "rpc" | "conflict" | "rejected";
       error: string;
     };
 
@@ -990,10 +1002,6 @@ export async function handleWorkspaceMutation({
           throw new DrawingWorkspaceConflictError(
             "초안 리비전에서만 이슈를 연결할 수 있습니다.",
           );
-        if (!revision.objects.some((object) => object.id === mutation.objectId))
-          throw new DrawingWorkspaceConflictError(
-            "현재 도면의 객체를 찾을 수 없습니다.",
-          );
         if (!revision.issues.some((issue) => issue.id === mutation.issueId))
           throw new DrawingWorkspaceConflictError(
             "현재 프로젝트의 이슈를 찾을 수 없습니다.",
@@ -1020,11 +1028,13 @@ export async function handleWorkspaceMutation({
     const kind =
       error instanceof DrawingWorkspaceConflictError
         ? "conflict"
-        : error instanceof DrawingWorkspaceRpcError
-          ? "rpc"
-          : "validation";
+        : error instanceof DrawingWorkspaceRejectedError
+          ? "rejected"
+          : error instanceof DrawingWorkspaceRpcError
+            ? "rpc"
+            : "validation";
     return {
-      status: kind === "conflict" ? 409 : 400,
+      status: kind === "conflict" || kind === "rejected" ? 409 : 400,
       body: {
         ok: false,
         kind,

@@ -124,8 +124,7 @@ export function createDrawingOutbox(
   const legacyEntries = async () =>
     (await adapter.list()).filter(
       (entry): entry is DrawingLegacyOutboxEntry =>
-        !entry.ownerId &&
-        entry.operation.revisionId === options.revisionId,
+        !entry.ownerId && entry.operation.revisionId === options.revisionId,
     );
   const markAcked = async (clientOperationId: string) => {
     const exists = (await entries()).some(
@@ -151,9 +150,7 @@ export function createDrawingOutbox(
     return true;
   };
 
-  const flushOnce = async (
-    send: DrawingOutboxSend,
-  ) => {
+  const flushOnce = async (send: DrawingOutboxSend) => {
     let observedGeneration = -1;
     while (!disposed) {
       const queued = await entries();
@@ -802,7 +799,9 @@ export async function claimLegacyDrawingOperations({
   outbox: Pick<DrawingOutbox, "claimLegacyEntries">;
 }) {
   if (!canPersistDrawingMutation(capability))
-    throw new Error("Drawing editor capability is required to claim legacy work.");
+    throw new Error(
+      "Drawing editor capability is required to claim legacy work.",
+    );
   return confirmed ? outbox.claimLegacyEntries() : 0;
 }
 
@@ -870,13 +869,44 @@ export function createDrawingPersistenceQueue({
   };
 }
 
+export async function prepareDrawingReview({
+  freeze,
+  persistence,
+  flush,
+  outbox,
+}: {
+  freeze: () => void;
+  persistence: Pick<
+    ReturnType<typeof createDrawingPersistenceQueue>,
+    "retry" | "snapshot"
+  >;
+  flush: () => Promise<void>;
+  outbox: Pick<DrawingOutbox, "entries" | "legacyEntries">;
+}) {
+  freeze();
+  const persisted = await persistence.retry();
+  const snapshot = persistence.snapshot();
+  if (!persisted || snapshot.failed || snapshot.volatileCount > 0)
+    throw new Error("검토 요청 전에 로컬 작업을 모두 저장해야 합니다.");
+
+  await flush();
+  const [entries, legacy] = await Promise.all([
+    outbox.entries(),
+    outbox.legacyEntries(),
+  ]);
+  if (legacy.length > 0)
+    throw new Error("검토 요청 전에 격리된 이전 작업을 복구해야 합니다.");
+  if (entries.length > 0)
+    throw new Error("검토 요청 전에 대기 또는 충돌 작업을 해결해야 합니다.");
+  return true;
+}
+
 export function canPersistDrawingMutation(
   capability: string,
   persistence?: Pick<DrawingPersistenceSnapshot, "failed">,
 ) {
   return (
-    !persistence?.failed &&
-    (capability === "admin" || capability === "editor")
+    !persistence?.failed && (capability === "admin" || capability === "editor")
   );
 }
 
@@ -949,7 +979,21 @@ export async function sendDrawingOperation(
   }
   if (body?.kind === "rpc")
     throw new Error(body.error ?? "Drawing operation could not be saved.");
-  if (body?.kind === "conflict" || response.status === 409) {
+  if (body?.kind === "conflict") {
+    return {
+      clientOperationId: operation.clientOperationId,
+      status: "conflicted",
+      error: body?.error,
+    };
+  }
+  if (body?.kind === "rejected") {
+    return {
+      clientOperationId: operation.clientOperationId,
+      status: "rejected",
+      error: body.error,
+    };
+  }
+  if (response.status === 409) {
     return {
       clientOperationId: operation.clientOperationId,
       status: "conflicted",

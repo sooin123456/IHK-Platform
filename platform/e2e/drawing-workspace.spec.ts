@@ -229,7 +229,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     await reloginContext.close();
   });
 
-  test("reload and relogin restore acknowledged edits, link an issue, and a separate reviewer approves", async ({
+  test("same-session draw, save, and issue link without reload, then a separate reviewer approves", async ({
     browser,
   }) => {
     const path = `/projects/${fixture.projectId}/drawings/${fixture.pdfWorkspace.fileId}/workspace`;
@@ -242,8 +242,13 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       path,
     );
     await waitUntilSaved(ownerPage);
+    await drawClicks(ownerPage, "선 도구", [
+      [0.82, 0.68],
+      [0.9, 0.68],
+    ]);
+    await waitUntilSaved(ownerPage);
     await ownerPage.getByRole("button", { name: "선택 도구" }).click();
-    const line = await drawingPoint(ownerPage, 0.27, 0.22);
+    const line = await drawingPoint(ownerPage, 0.86, 0.68);
     await ownerPage.mouse.click(line.x, line.y);
     await ownerPage
       .getByRole("form", { name: "이슈 연결" })

@@ -11,6 +11,7 @@ import {
   recoverPendingDrawingState,
   restoreDrawingWorkspaceState,
   sendDrawingOperation,
+  prepareDrawingReview,
 } from "../app/lukas/lib/drawing-outbox.client.ts";
 import {
   applyDrawingCommand,
@@ -288,9 +289,7 @@ test("flush orders the scoped revision and never accepts another revision", asyn
       queued.clientOperationId,
       status,
     ]),
-    [
-      [ids.operation1, "conflicted"],
-    ],
+    [[ids.operation1, "conflicted"]],
   );
 });
 
@@ -744,11 +743,11 @@ test("save status exposes only the four workspace states and never calls storage
     drawingSaveStatus({ pending: 1, conflicted: true }),
     "충돌 검토 필요",
   );
-  assert.equal(drawingSaveStatus({ pending: 0, storageError: true }), "저장 중");
   assert.equal(
-    drawingSaveStatus({ pending: 0, volatileCount: 1 }),
+    drawingSaveStatus({ pending: 0, storageError: true }),
     "저장 중",
   );
+  assert.equal(drawingSaveStatus({ pending: 0, volatileCount: 1 }), "저장 중");
 });
 
 test("a failed durable enqueue sends nothing and the same operation can be retried", async () => {
@@ -976,9 +975,10 @@ test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange
   const { factory, database, store } = fakeIndexedDb({ records: [record] });
   const adapter = createIndexedDbDrawingOutboxAdapter(factory);
 
-  assert.deepEqual((await adapter.list()).map((entry) => entry.operation), [
-    operation(ids.operation1),
-  ]);
+  assert.deepEqual(
+    (await adapter.list()).map((entry) => entry.operation),
+    [operation(ids.operation1)],
+  );
   assert.equal((await adapter.list())[0].ownerId, undefined);
   assert.equal(store.createdIndexes.includes("enqueue_sequence"), true);
   assert.equal(await adapter.claimLegacy(ids.revisionA, ids.ownerA), 1);
@@ -1106,4 +1106,121 @@ test("local persistence capability fails closed", () => {
   assert.equal(canPersistDrawingMutation("commenter"), false);
   assert.equal(canPersistDrawingMutation("viewer"), false);
   assert.equal(canPersistDrawingMutation("unknown"), false);
+});
+
+test("review preparation freezes edits before draining and confirms every scoped queue is empty", async () => {
+  const events = [];
+  const ready = await prepareDrawingReview({
+    freeze() {
+      events.push("freeze");
+    },
+    persistence: {
+      async retry() {
+        events.push("persistence");
+        return true;
+      },
+      snapshot() {
+        return { failed: false, volatileCount: 0 };
+      },
+    },
+    async flush() {
+      events.push("flush");
+    },
+    outbox: {
+      async entries() {
+        events.push("entries");
+        return [];
+      },
+      async legacyEntries() {
+        events.push("legacy");
+        return [];
+      },
+    },
+  });
+
+  assert.equal(ready, true);
+  assert.deepEqual(events, [
+    "freeze",
+    "persistence",
+    "flush",
+    "entries",
+    "legacy",
+  ]);
+});
+
+test("review preparation refuses pending, terminal, volatile, and quarantined work without submitting", async () => {
+  for (const fixture of [
+    {
+      snapshot: { failed: false, volatileCount: 0 },
+      entries: [{ status: "pending" }],
+      legacy: [],
+      retry: true,
+    },
+    {
+      snapshot: { failed: false, volatileCount: 0 },
+      entries: [{ status: "conflicted" }],
+      legacy: [],
+      retry: true,
+    },
+    {
+      snapshot: { failed: true, volatileCount: 1 },
+      entries: [],
+      legacy: [],
+      retry: false,
+    },
+    {
+      snapshot: { failed: false, volatileCount: 0 },
+      entries: [],
+      legacy: [{}],
+      retry: true,
+    },
+  ]) {
+    let frozen = false;
+    await assert.rejects(
+      prepareDrawingReview({
+        freeze() {
+          frozen = true;
+        },
+        persistence: {
+          async retry() {
+            return fixture.retry;
+          },
+          snapshot() {
+            return fixture.snapshot;
+          },
+        },
+        async flush() {},
+        outbox: {
+          async entries() {
+            return fixture.entries;
+          },
+          async legacyEntries() {
+            return fixture.legacy;
+          },
+        },
+      }),
+      /검토 요청 전에.*저장|격리|충돌/i,
+    );
+    assert.equal(frozen, true);
+  }
+});
+
+test("operation transport distinguishes terminal rejection from conflict on HTTP 409", async () => {
+  for (const [kind, status] of [
+    ["conflict", "conflicted"],
+    ["rejected", "rejected"],
+  ]) {
+    const result = await sendDrawingOperation(
+      operation(ids.operation1),
+      "/workspace",
+      async () => ({
+        ok: false,
+        status: 409,
+        async json() {
+          return { ok: false, kind, error: kind };
+        },
+      }),
+    );
+    assert.equal(result.status, status);
+  }
 });

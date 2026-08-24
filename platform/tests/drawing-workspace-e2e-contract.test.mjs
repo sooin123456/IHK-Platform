@@ -39,7 +39,8 @@ test("drawing workspace has one complete serial production contract", async () =
   ]) {
     assert.match(spec, new RegExp(behavior));
   }
-  assert.match(spec, /reload and relogin restore acknowledged edits/);
+  assert.match(spec, /survives reload and relogin/);
+  assert.match(spec, /same-session draw, save, and issue link without reload/);
   assert.match(
     spec,
     /getByLabel\("속성 검사기"\)[\s\S]*getByLabel\("레이어",\s*\{ exact: true \}\)/,

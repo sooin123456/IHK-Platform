@@ -146,6 +146,66 @@ test("mutation parsing preserves a valid operation without accepting authority f
   );
 });
 
+test("blank canvas creation retains route source identity while omitting its PDF background", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return { data: { documentId: ids.document }, error: null };
+    },
+  };
+  await createDrawingDocument(
+    client,
+    ids.project,
+    { id: ids.file, kind: "pdf" },
+    {
+      title: "Blank",
+      mode: "blank",
+    },
+  );
+  await createDrawingDocument(
+    client,
+    ids.project,
+    { id: ids.file, kind: "pdf" },
+    {
+      title: "Background",
+      mode: "pdf_background",
+    },
+  );
+  assert.equal(calls[0][1].p_source_file_id, ids.file);
+  assert.equal(calls[0][1].p_blank, true);
+  assert.equal(calls[1][1].p_source_file_id, ids.file);
+  assert.equal(calls[1][1].p_blank, false);
+});
+
+test("stable domain SQLSTATEs map to terminal conflict or rejection while database retries stay transient", async () => {
+  const workspace = loadedWorkspace();
+  const applyForm = form({
+    intent: "apply_operation",
+    operation_json: operation(),
+  });
+  for (const [code, kind, status] of [
+    ["P1C01", "conflict", 409],
+    ["P1R01", "rejected", 409],
+    ["40001", "rpc", 400],
+    ["40P01", "rpc", 400],
+  ]) {
+    const result = await handleWorkspaceMutation({
+      client: {
+        async rpc() {
+          return { data: null, error: { code, message: `failure ${code}` } };
+        },
+      },
+      projectId: ids.project,
+      capability: "editor",
+      workspace,
+      form: applyForm,
+    });
+    assert.equal(result.status, status);
+    assert.equal(result.body.kind, kind);
+  }
+});
+
 test("mutation parsing rejects malformed canonical geometry before an RPC", () => {
   const malformed = operation();
   malformed.forward.objects[0].geometry.radius = -1;
@@ -933,7 +993,7 @@ test("operation RPC receives exact client operation fields and exposes conflicts
     async rpc() {
       return {
         data: null,
-        error: { code: "40001", message: "Drawing object version conflict" },
+        error: { code: "P1C01", message: "Drawing object version conflict" },
       };
     },
   };
@@ -1317,4 +1377,39 @@ test("issue-link action permits only editors on the current draft", async () => 
     assert.equal(response.body.kind, "conflict");
   }
   assert.equal(rpcCalls, 2);
+});
+
+test("issue-link action delegates same-session saved object identity to the authoritative RPC", async () => {
+  let linkedObjectId = null;
+  const workspace = loadedWorkspace();
+  workspace.document.revision.objects = [];
+  workspace.document.revision.issues = [{ id: ids.issue }];
+  const response = await handleWorkspaceMutation({
+    client: {
+      async rpc(name, args) {
+        assert.equal(name, "lukas_drawing_link_object_issue");
+        linkedObjectId = args.p_object_id;
+        return {
+          data: {
+            id: ids.link,
+            objectId: ids.object,
+            issueId: ids.issue,
+            createdBy: ids.actor,
+            createdAt: "2026-08-24T03:00:00.000Z",
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace,
+    form: form({
+      intent: "link_issue",
+      object_id: ids.object,
+      issue_id: ids.issue,
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(linkedObjectId, ids.object);
 });
