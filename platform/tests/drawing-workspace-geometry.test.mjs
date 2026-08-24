@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
+import * as drawingGeometry from "../app/lukas/lib/drawing-geometry.ts";
+const {
   calibratePdf,
   geometryBounds,
   screenToWorld,
   snapWorldPoint,
   worldToScreen,
-} from "../app/lukas/lib/drawing-geometry.ts";
+} = drawingGeometry;
 import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 test("world coordinates round-trip independently from viewport pixels", () => {
@@ -16,6 +17,74 @@ test("world coordinates round-trip independently from viewport pixels", () => {
     screenToWorld(worldToScreen(world, viewport), viewport),
     world,
   );
+});
+
+test("pointer-centered zoom preserves the world point and clamps finite zoom", () => {
+  assert.equal(typeof drawingGeometry.zoomViewportAroundPointer, "function");
+  const { zoomViewportAroundPointer } = drawingGeometry;
+  const pointer = { x: 400, y: 250 };
+  const viewport = { x: 100, y: 50, zoom: 2 };
+  const world = screenToWorld(pointer, viewport);
+
+  assert.deepEqual(zoomViewportAroundPointer(pointer, viewport, 4), {
+    x: -200,
+    y: -150,
+    zoom: 4,
+  });
+  assert.deepEqual(
+    worldToScreen(world, zoomViewportAroundPointer(pointer, viewport, 4)),
+    pointer,
+  );
+  assert.equal(zoomViewportAroundPointer(pointer, viewport, 0.001).zoom, 0.05);
+  assert.equal(zoomViewportAroundPointer(pointer, viewport, 100).zoom, 32);
+  assert.throws(() =>
+    zoomViewportAroundPointer(pointer, viewport, Number.POSITIVE_INFINITY),
+  );
+});
+
+test("PDF source contain placement preserves portrait and landscape aspect ratios", () => {
+  assert.equal(typeof drawingGeometry.containPdfSource, "function");
+  const { containPdfSource } = drawingGeometry;
+  assert.deepEqual(
+    containPdfSource(
+      { width: 200, height: 100 },
+      { x: 0, y: 0, width: 100, height: 200 },
+    ),
+    { x: 0, y: 75, width: 100, height: 50 },
+  );
+  assert.deepEqual(
+    containPdfSource(
+      { width: 100, height: 200 },
+      { x: 10, y: 20, width: 200, height: 100 },
+    ),
+    { x: 85, y: 20, width: 50, height: 100 },
+  );
+  assert.deepEqual(
+    containPdfSource(
+      { width: 300, height: 200 },
+      { x: 5, y: 10, width: 150, height: 100 },
+    ),
+    { x: 5, y: 10, width: 150, height: 100 },
+  );
+  for (const source of [
+    { width: 0, height: 10 },
+    { width: Infinity, height: 10 },
+    { width: 10, height: NaN },
+  ]) {
+    assert.throws(() =>
+      containPdfSource(source, { x: 0, y: 0, width: 100, height: 100 }),
+    );
+  }
+});
+
+test("canvas cursor follows Space and pan transitions without stale ref state", () => {
+  assert.equal(typeof drawingGeometry.drawingCanvasCursor, "function");
+  const { drawingCanvasCursor } = drawingGeometry;
+  assert.equal(drawingCanvasCursor("select", false, false), "default");
+  assert.equal(drawingCanvasCursor("select", true, false), "grab");
+  assert.equal(drawingCanvasCursor("pan", false, false), "grab");
+  assert.equal(drawingCanvasCursor("select", false, true), "grabbing");
+  assert.equal(drawingCanvasCursor("pan", true, true), "grabbing");
 });
 
 test("PDF calibration converts normalized page distance to millimeters", () => {

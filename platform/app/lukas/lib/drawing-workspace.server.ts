@@ -120,6 +120,18 @@ type DrawingObjectRow = {
   updated_at: string;
 };
 
+type DrawingSnapshotRow = {
+  id: string;
+  revision_id: string;
+  project_id: string;
+  revision_version: number;
+  operation_sequence: number;
+  canonical_json: Json;
+  sha256: string;
+  created_by: string;
+  created_at: string;
+};
+
 type DrawingRpc<Args> = { Args: Args; Returns: Json };
 
 export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
@@ -130,6 +142,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_pages: TableDefinition<DrawingPageRow>;
       lukas_drawing_layers: TableDefinition<DrawingLayerRow>;
       lukas_drawing_objects: TableDefinition<DrawingObjectRow>;
+      lukas_drawing_snapshots: TableDefinition<DrawingSnapshotRow>;
     };
     Functions: Database["public"]["Functions"] & {
       lukas_drawing_create_document: DrawingRpc<{
@@ -408,6 +421,10 @@ export type DrawingWorkspace = {
           pages: DrawingPageRow[];
           layers: DrawingLayerRow[];
           objects: DrawingObjectRow[];
+          reviewEvidence: {
+            subjectVersion: number;
+            snapshotSha256: string;
+          } | null;
         };
       })
     | null;
@@ -485,6 +502,29 @@ export async function loadDrawingWorkspace(
     pagesResult.error ?? layersResult.error ?? objectsResult.error;
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
+  let reviewEvidence: {
+    subjectVersion: number;
+    snapshotSha256: string;
+  } | null = null;
+  if (revision.status === "review_requested") {
+    const { data: snapshot, error: snapshotError } = await client
+      .from("lukas_drawing_snapshots")
+      .select("revision_version,sha256")
+      .eq("project_id", projectId)
+      .eq("revision_id", revision.id)
+      .eq("revision_version", revision.version)
+      .maybeSingle();
+    if (snapshotError)
+      throw new Error(
+        `도면 검토 스냅샷을 불러오지 못했습니다: ${snapshotError.message}`,
+      );
+    if (snapshot) {
+      reviewEvidence = {
+        subjectVersion: snapshot.revision_version,
+        snapshotSha256: Sha256.parse(snapshot.sha256),
+      };
+    }
+  }
   return {
     file: file as DrawingWorkspaceFile,
     document: {
@@ -494,9 +534,36 @@ export async function loadDrawingWorkspace(
         pages: pagesResult.data ?? [],
         layers: layersResult.data ?? [],
         objects: objectsResult.data ?? [],
+        reviewEvidence,
       },
     },
   };
+}
+
+export async function loadDrawingWorkspaceSourceUrl(
+  client: DrawingWorkspaceClient,
+  workspace: DrawingWorkspace,
+): Promise<string | null> {
+  if (!workspace.document) return null;
+  const backgroundPage = workspace.document.revision.pages.find(
+    (page) => page.background_pdf_page !== null,
+  );
+  if (workspace.file.kind === "pdf" && !backgroundPage) return null;
+  if (
+    backgroundPage &&
+    (backgroundPage.background_source_file_id !== workspace.file.id ||
+      backgroundPage.background_source_sha256 !== workspace.file.sha256)
+  ) {
+    throw new Response("도면 배경 원본 증거가 일치하지 않습니다.", {
+      status: 409,
+    });
+  }
+  const { data: signed, error } = await client.storage
+    .from("lukas-qto")
+    .createSignedUrl(workspace.file.storage_path, 300);
+  if (error || !signed?.signedUrl)
+    throw new Response("도면 원본을 열지 못했습니다.", { status: 500 });
+  return signed.signedUrl;
 }
 
 const capabilityByRole: Record<string, DrawingWorkspaceCapability> = {

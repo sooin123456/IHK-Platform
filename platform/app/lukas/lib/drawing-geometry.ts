@@ -39,6 +39,71 @@ export function screenToWorld(point: Point, view: Viewport): Point {
   };
 }
 
+export function zoomViewportAroundPointer(
+  pointer: Point,
+  viewport: Viewport,
+  requestedZoom: number,
+): Viewport {
+  if (
+    !Number.isFinite(pointer.x) ||
+    !Number.isFinite(pointer.y) ||
+    !Number.isFinite(viewport.x) ||
+    !Number.isFinite(viewport.y) ||
+    !Number.isFinite(requestedZoom)
+  ) {
+    throw new Error("확대 기준점이 올바르지 않습니다.");
+  }
+  const worldPoint = screenToWorld(pointer, viewport);
+  const zoom = Math.min(32, Math.max(0.05, requestedZoom));
+  const scaledPoint = worldToScreen(worldPoint, { x: 0, y: 0, zoom });
+  return {
+    x: pointer.x - scaledPoint.x,
+    y: pointer.y - scaledPoint.y,
+    zoom,
+  };
+}
+
+export function containPdfSource(
+  source: { width: number; height: number },
+  target: Bounds,
+): Bounds {
+  if (
+    !Number.isFinite(source.width) ||
+    !Number.isFinite(source.height) ||
+    source.width <= 0 ||
+    source.height <= 0 ||
+    !Number.isFinite(target.x) ||
+    !Number.isFinite(target.y) ||
+    !Number.isFinite(target.width) ||
+    !Number.isFinite(target.height) ||
+    target.width <= 0 ||
+    target.height <= 0
+  ) {
+    throw new Error("PDF 배경 크기가 올바르지 않습니다.");
+  }
+  const scale = Math.min(
+    target.width / source.width,
+    target.height / source.height,
+  );
+  const width = source.width * scale;
+  const height = source.height * scale;
+  return {
+    x: target.x + (target.width - width) / 2,
+    y: target.y + (target.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+export function drawingCanvasCursor(
+  activeTool: "select" | "pan",
+  spacePressed: boolean,
+  panning: boolean,
+) {
+  if (panning) return "grabbing";
+  return activeTool === "pan" || spacePressed ? "grab" : "default";
+}
+
 export function calibratePdf(
   normalizedStart: Point,
   normalizedEnd: Point,

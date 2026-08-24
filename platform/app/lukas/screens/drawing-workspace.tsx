@@ -10,6 +10,7 @@ import {
   handleWorkspaceMutation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
+  loadDrawingWorkspaceSourceUrl,
 } from "~/lukas/lib/drawing-workspace.server";
 import type {
   DrawingWorkspaceCapability,
@@ -53,26 +54,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     project.id,
     params.fileId!,
   );
-  const backgroundPage = workspace.document?.revision.pages.find(
-    (page) => page.background_pdf_page !== null,
-  );
-  let sourceUrl: string | null = null;
-  if (backgroundPage) {
-    if (
-      backgroundPage.background_source_file_id !== workspace.file.id ||
-      backgroundPage.background_source_sha256 !== workspace.file.sha256
-    ) {
-      throw new Response("도면 배경 원본 증거가 일치하지 않습니다.", {
-        status: 409,
-      });
-    }
-    const { data: signed, error } = await client.storage
-      .from("lukas-qto")
-      .createSignedUrl(workspace.file.storage_path, 300);
-    if (error || !signed?.signedUrl)
-      throw new Response("도면 배경을 열지 못했습니다.", { status: 500 });
-    sourceUrl = signed.signedUrl;
-  }
+  const sourceUrl = await loadDrawingWorkspaceSourceUrl(client, workspace);
   return data(
     { project, currentUserId: user.id, capability, workspace, sourceUrl },
     { headers },
@@ -111,7 +93,6 @@ export default function DrawingWorkspaceScreen({
         actionError={actionData?.error}
         capability={capability}
         currentUserId={loaderData.currentUserId}
-        ifcViewerUrl={`/projects/${project.id}/ifc/${workspace.file.id}`}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceUrl={loaderData.sourceUrl}
         workspace={{ ...workspace, document: workspace.document }}

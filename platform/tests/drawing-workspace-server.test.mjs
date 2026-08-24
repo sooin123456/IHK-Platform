@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import * as workspaceServer from "../app/lukas/lib/drawing-workspace.server.ts";
 import {
   applyDrawingOperation,
   createDrawingDocument,
@@ -302,6 +303,152 @@ test("workspace loading returns a null document without creating one", async () 
   );
 });
 
+test("review-requested workspace loads its exact project-bound snapshot evidence", async () => {
+  const snapshotSha = "b".repeat(64);
+  const file = {
+    id: ids.file,
+    project_id: ids.project,
+    kind: "pdf",
+    original_filename: "A-101.pdf",
+    storage_path: "projects/source.pdf",
+    content_type: "application/pdf",
+    byte_size: 1234,
+    sha256: sourceSha,
+    immutable: true,
+    created_at: "2026-08-24T00:00:00.000Z",
+  };
+  const document = {
+    id: ids.document,
+    project_id: ids.project,
+    source_file_id: ids.file,
+    source_sha256: sourceSha,
+    title: "A-101",
+    created_by: ids.actor,
+    created_at: "2026-08-24T00:00:00.000Z",
+    updated_at: "2026-08-24T01:00:00.000Z",
+  };
+  const revision = {
+    id: ids.revision,
+    document_id: ids.document,
+    project_id: ids.project,
+    parent_revision_id: null,
+    sequence: 1,
+    status: "review_requested",
+    version: 7,
+    created_by: ids.actor,
+    review_requested_at: "2026-08-24T01:00:00.000Z",
+    approved_at: null,
+    created_at: "2026-08-24T00:00:00.000Z",
+    updated_at: "2026-08-24T01:00:00.000Z",
+  };
+  const client = queryClient({
+    lukas_qto_files: { data: file, error: null },
+    lukas_drawing_documents: { data: document, error: null },
+    lukas_drawing_revisions: { data: revision, error: null },
+    lukas_drawing_pages: { data: [], error: null },
+    lukas_drawing_layers: { data: [], error: null },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_snapshots: {
+      data: { revision_version: 7, sha256: snapshotSha },
+      error: null,
+    },
+  });
+
+  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+
+  assert.deepEqual(loaded.document.revision.reviewEvidence, {
+    subjectVersion: 7,
+    snapshotSha256: snapshotSha,
+  });
+  const snapshotCall = client.calls.find(
+    (call) => call.table === "lukas_drawing_snapshots",
+  );
+  assert.equal(snapshotCall.select, "revision_version,sha256");
+  assert.deepEqual(snapshotCall.filters, [
+    ["eq", "project_id", ids.project],
+    ["eq", "revision_id", ids.revision],
+    ["eq", "revision_version", 7],
+  ]);
+  assert.equal(snapshotCall.terminal, "maybeSingle");
+});
+
+test("workspace source signing covers IFC and exact PDF evidence without source mutation", async () => {
+  assert.equal(
+    typeof workspaceServer.loadDrawingWorkspaceSourceUrl,
+    "function",
+  );
+  const calls = [];
+  const client = {
+    storage: {
+      from(bucket) {
+        calls.push(["bucket", bucket]);
+        return {
+          async createSignedUrl(path, expiresIn) {
+            calls.push(["sign", path, expiresIn]);
+            return {
+              data: { signedUrl: "https://storage.test/source" },
+              error: null,
+            };
+          },
+        };
+      },
+    },
+  };
+  const ifcWorkspace = {
+    file: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "ifc",
+      original_filename: "model.ifc",
+      storage_path: "projects/model.ifc",
+      content_type: "application/x-step",
+      byte_size: 2048,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-08-24T00:00:00.000Z",
+    },
+    document: loadedWorkspace().document,
+  };
+  assert.equal(
+    await workspaceServer.loadDrawingWorkspaceSourceUrl(client, ifcWorkspace),
+    "https://storage.test/source",
+  );
+  assert.deepEqual(calls, [
+    ["bucket", "lukas-qto"],
+    ["sign", "projects/model.ifc", 300],
+  ]);
+
+  const blankPdf = {
+    ...ifcWorkspace,
+    file: { ...ifcWorkspace.file, kind: "pdf" },
+  };
+  assert.equal(
+    await workspaceServer.loadDrawingWorkspaceSourceUrl(client, blankPdf),
+    null,
+  );
+  const mismatchedPdf = {
+    ...blankPdf,
+    document: {
+      ...blankPdf.document,
+      revision: {
+        ...blankPdf.document.revision,
+        pages: [
+          {
+            background_pdf_page: 1,
+            background_source_file_id: ids.file,
+            background_source_sha256: "c".repeat(64),
+          },
+        ],
+      },
+    },
+  };
+  await assert.rejects(
+    workspaceServer.loadDrawingWorkspaceSourceUrl(client, mismatchedPdf),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  assert.equal(calls.length, 2);
+});
+
 test("document creation derives blank/background behavior from the authoritative file kind", async () => {
   const rpcCalls = [];
   const client = {
@@ -513,6 +660,7 @@ function loadedWorkspace(revisionId = ids.revision) {
         pages: [],
         layers: [],
         objects: [],
+        reviewEvidence: null,
       },
     },
   };

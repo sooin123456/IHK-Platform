@@ -19,6 +19,11 @@ import type {
   DrawingWorkspace,
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
+import {
+  drawingRevisionDecisionFields,
+  drawingWorkspaceReviewControls,
+  drawingWorkspaceSurface,
+} from "~/lukas/lib/drawing-workspace-view";
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
@@ -26,12 +31,13 @@ import type {
 
 type CanvasModule = typeof import("./drawing-canvas.client");
 type CanvasComponent = CanvasModule["DrawingCanvas"];
+type IfcModule = typeof import("./ifc-property-browser.client");
+type IfcComponent = IfcModule["default"];
 
 type Props = {
   actionError?: string | null;
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
-  ifcViewerUrl: string;
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -39,59 +45,88 @@ type Props = {
   };
 };
 
-function canEdit(capability: DrawingWorkspaceCapability) {
-  return capability === "admin" || capability === "editor";
-}
-
-function canReview(capability: DrawingWorkspaceCapability) {
-  return capability === "admin" || capability === "reviewer";
-}
-
 export default function DrawingWorkspaceClient({
   actionError,
   capability,
   currentUserId,
-  ifcViewerUrl,
   roomUrl,
   sourceUrl,
   workspace,
 }: Props) {
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [Canvas, setCanvas] = useState<CanvasComponent | null>(null);
+  const [canvasLoadError, setCanvasLoadError] = useState<string | null>(null);
+  const [IfcViewer, setIfcViewer] = useState<IfcComponent | null>(null);
+  const [ifcLoadError, setIfcLoadError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<"select" | "pan">("select");
+  const [reviewNote, setReviewNote] = useState("");
   const { file, document: drawingDocument } = workspace;
   const { revision } = drawingDocument;
   const page = revision.pages[0];
-  const editable = canEdit(capability) && revision.status === "draft";
-  const reviewable =
-    canReview(capability) &&
-    revision.status === "review_requested" &&
-    revision.created_by !== currentUserId;
+  const reviewControls = drawingWorkspaceReviewControls({
+    capability,
+    createdBy: revision.created_by,
+    currentUserId,
+    reviewEvidence: revision.reviewEvidence,
+    revisionId: revision.id,
+    revisionVersion: revision.version,
+    status: revision.status,
+  });
 
   useEffect(() => {
     let alive = true;
-    void import("./drawing-canvas.client").then((module) => {
-      if (alive) setCanvas(() => module.DrawingCanvas);
-    });
+    void import("./drawing-canvas.client")
+      .then((module) => {
+        if (alive) setCanvas(() => module.DrawingCanvas);
+      })
+      .catch(() => {
+        if (alive) setCanvasLoadError("도면 캔버스를 불러오지 못했습니다.");
+      });
     return () => {
       alive = false;
     };
   }, []);
 
-  const background: DrawingCanvasBackground =
-    page?.background_pdf_page && sourceUrl
+  useEffect(() => {
+    if (file.kind !== "ifc") return;
+    let alive = true;
+    void import("./ifc-property-browser.client")
+      .then((module) => {
+        if (alive) setIfcViewer(() => module.default);
+      })
+      .catch(() => {
+        if (alive) setIfcLoadError("IFC 원본 화면을 불러오지 못했습니다.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [file.kind]);
+
+  const surface = drawingWorkspaceSurface({
+    file: {
+      id: file.id,
+      kind: file.kind,
+      originalFilename: file.original_filename,
+      byteSize: file.byte_size,
+    },
+    page: page
       ? {
-          kind: "pdf",
           width: page.width_mm,
           height: page.height_mm,
-          pageNumber: page.background_pdf_page,
-          signedUrl: sourceUrl,
+          backgroundPdfPage: page.background_pdf_page,
         }
-      : {
-          kind: "blank",
-          width: page?.width_mm ?? 841,
-          height: page?.height_mm ?? 594,
-        };
+      : null,
+    sourceUrl,
+  });
+  const background: DrawingCanvasBackground = surface.background;
+  const decisionFields = reviewControls.decisionEvidence
+    ? drawingRevisionDecisionFields({
+        revisionId: revision.id,
+        evidence: reviewControls.decisionEvidence,
+        decision: "approved",
+        note: reviewNote,
+      })
+    : null;
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
@@ -147,34 +182,57 @@ export default function DrawingWorkspaceClient({
           >
             <Redo2 className="size-4" />
           </Button>
-          {editable ? (
+          {reviewControls.requestReview ? (
             <Form method="post">
               <input name="intent" type="hidden" value="request_review" />
               <input name="revision_id" type="hidden" value={revision.id} />
-              <Button name="review" type="submit" variant="secondary">
+              <Button type="submit" variant="secondary">
                 <Check className="size-4" /> 검토 요청
               </Button>
             </Form>
           ) : null}
-          {reviewable ? (
-            <div className="flex items-center gap-1" aria-label="리비전 검토">
+          {decisionFields ? (
+            <Form
+              aria-label="리비전 검토"
+              className="flex flex-wrap items-center gap-1"
+              method="post"
+            >
+              {Object.entries(decisionFields)
+                .filter(([name]) => name !== "decision" && name !== "note")
+                .map(([name, value]) => (
+                  <input key={name} name={name} type="hidden" value={value} />
+                ))}
+              <label className="sr-only" htmlFor="drawing-review-note">
+                검토 의견
+              </label>
+              <input
+                className="min-h-9 w-40 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+                id="drawing-review-note"
+                maxLength={5000}
+                name="note"
+                onChange={(event) => setReviewNote(event.target.value)}
+                placeholder="검토 의견"
+                value={reviewNote}
+              />
               <Button
                 aria-label="도면 승인"
-                disabled
-                title="스냅샷 확인 후 사용할 수 있습니다."
+                name="decision"
+                type="submit"
+                value="approved"
                 variant="secondary"
               >
                 <Check className="size-4" /> 승인
               </Button>
               <Button
                 aria-label="도면 반려"
-                disabled
-                title="스냅샷 확인 후 사용할 수 있습니다."
+                name="decision"
+                type="submit"
+                value="rejected"
                 variant="destructive"
               >
                 <X className="size-4" /> 반려
               </Button>
-            </div>
+            </Form>
           ) : null}
         </div>
       </header>
@@ -216,7 +274,7 @@ export default function DrawingWorkspaceClient({
           <div
             className={
               file.kind === "ifc"
-                ? "grid h-full min-h-[34rem] xl:grid-cols-[minmax(0,1fr)_16rem]"
+                ? "grid h-full min-h-[34rem] xl:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]"
                 : "h-full min-h-[34rem]"
             }
           >
@@ -227,6 +285,13 @@ export default function DrawingWorkspaceClient({
                   background={background}
                   ref={canvasRef}
                 />
+              ) : canvasLoadError ? (
+                <div
+                  className="grid h-full min-h-[34rem] place-items-center p-6 text-sm text-red-200"
+                  role="alert"
+                >
+                  {canvasLoadError}
+                </div>
               ) : (
                 <div
                   className="grid h-full min-h-[34rem] place-items-center text-sm text-slate-400"
@@ -237,20 +302,34 @@ export default function DrawingWorkspaceClient({
               )}
             </div>
             {file.kind === "ifc" ? (
-              <aside className="border-t border-white/10 bg-slate-900 p-4 xl:border-l xl:border-t-0">
+              <aside
+                aria-label="IFC 3D 원본"
+                className="max-h-[calc(100vh-4rem)] overflow-auto border-t border-white/10 bg-background p-4 text-foreground xl:border-l xl:border-t-0"
+              >
                 <h2 className="text-sm font-bold">IFC 원본 보기</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   2D 오버레이는 빈 도면에서 시작합니다. 2D와 3D 화면 동기화는
                   이후 단계에서 제공합니다.
                 </p>
-                <Link
-                  className="mt-4 inline-flex min-h-11 items-center rounded-md border border-white/15 px-3 text-sm font-semibold hover:bg-white/10"
-                  rel="noreferrer"
-                  target="_blank"
-                  to={ifcViewerUrl}
-                >
-                  IFC 3D 원본 열기
-                </Link>
+                {surface.sourceError || ifcLoadError ? (
+                  <p
+                    className="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+                    role="alert"
+                  >
+                    {surface.sourceError ?? ifcLoadError}
+                  </p>
+                ) : IfcViewer && surface.ifcViewer ? (
+                  <div className="mt-4">
+                    <IfcViewer {...surface.ifcViewer} />
+                  </div>
+                ) : (
+                  <p
+                    className="mt-4 text-sm text-muted-foreground"
+                    role="status"
+                  >
+                    IFC 3D 원본을 준비하는 중입니다.
+                  </p>
+                )}
               </aside>
             ) : null}
           </div>

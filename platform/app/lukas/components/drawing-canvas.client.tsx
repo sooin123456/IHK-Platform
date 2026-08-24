@@ -12,7 +12,12 @@ import {
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konva";
 
-import { screenToWorld, worldToScreen } from "~/lukas/lib/drawing-geometry";
+import {
+  containPdfSource,
+  drawingCanvasCursor,
+  screenToWorld,
+  zoomViewportAroundPointer,
+} from "~/lukas/lib/drawing-geometry";
 import {
   openPdfDocument,
   renderPdfPageToCanvas,
@@ -77,24 +82,6 @@ function fittedViewport(size: CanvasSize, background: DrawingCanvasBackground) {
   };
 }
 
-function zoomAroundPointer(
-  pointer: Point,
-  viewport: Viewport,
-  nextZoom: number,
-): Viewport {
-  const worldPoint = screenToWorld(pointer, viewport);
-  const scaledPoint = worldToScreen(worldPoint, {
-    x: 0,
-    y: 0,
-    zoom: nextZoom,
-  });
-  return {
-    x: pointer.x - scaledPoint.x,
-    y: pointer.y - scaledPoint.y,
-    zoom: nextZoom,
-  };
-}
-
 function visibleGrid(
   size: CanvasSize,
   viewport: Viewport,
@@ -141,9 +128,14 @@ export const DrawingCanvas = forwardRef<
     pointerId: number;
   } | null>(null);
   const spacePressedRef = useRef(false);
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [panning, setPanning] = useState(false);
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [viewport, setViewportState] = useState<Viewport>(viewportRef.current);
-  const [pdfCanvas, setPdfCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [pdfSource, setPdfSource] = useState<{
+    canvas: HTMLCanvasElement;
+    bounds: { x: number; y: number; width: number; height: number };
+  } | null>(null);
   const [pdfMessage, setPdfMessage] = useState("");
 
   const setViewport = useCallback(
@@ -200,7 +192,7 @@ export const DrawingCanvas = forwardRef<
 
   useEffect(() => {
     if (background.kind !== "pdf") {
-      setPdfCanvas(null);
+      setPdfSource(null);
       setPdfMessage("");
       return;
     }
@@ -209,7 +201,7 @@ export const DrawingCanvas = forwardRef<
     let renderCleanup: (() => void) | null = null;
     const controller = new AbortController();
     const canvas = document.createElement("canvas");
-    setPdfCanvas(null);
+    setPdfSource(null);
     setPdfMessage("PDF 배경을 준비하는 중입니다.");
     void openPdfDocument(background.signedUrl, controller.signal)
       .then(async (nextDocument) => {
@@ -226,15 +218,29 @@ export const DrawingCanvas = forwardRef<
           zoom: 1,
           signal: controller.signal,
         });
+        renderCleanup = rendered.cleanup;
+        const sourceBounds = containPdfSource(rendered.canvasSize, {
+          x: 0,
+          y: 0,
+          width: background.width,
+          height: background.height,
+        });
         if (!alive || controller.signal.aborted) {
           rendered.cleanup();
+          renderCleanup = null;
           return;
         }
-        renderCleanup = rendered.cleanup;
-        setPdfCanvas(canvas);
+        setPdfSource({ canvas, bounds: sourceBounds });
         setPdfMessage("PDF 원본 배경을 표시하고 있습니다.");
       })
       .catch((error: unknown) => {
+        renderCleanup?.();
+        renderCleanup = null;
+        const failedDocument = opened;
+        opened = null;
+        void failedDocument?.destroy();
+        canvas.width = 0;
+        canvas.height = 0;
         if (!alive || controller.signal.aborted || isCancelled(error)) return;
         setPdfMessage(
           error instanceof Error
@@ -246,14 +252,18 @@ export const DrawingCanvas = forwardRef<
       alive = false;
       controller.abort();
       renderCleanup?.();
-      void opened?.destroy();
+      const documentToDestroy = opened;
+      opened = null;
+      void documentToDestroy?.destroy();
       canvas.width = 0;
       canvas.height = 0;
     };
   }, [
     background.kind,
+    background.height,
     background.kind === "pdf" ? background.pageNumber : 0,
     background.kind === "pdf" ? background.signedUrl : "",
+    background.width,
   ]);
 
   useEffect(
@@ -265,12 +275,7 @@ export const DrawingCanvas = forwardRef<
   );
 
   const grid = useMemo(() => visibleGrid(size, viewport), [size, viewport]);
-  const cursor =
-    activeTool === "pan" || spacePressedRef.current
-      ? panStartRef.current
-        ? "grabbing"
-        : "grab"
-      : "default";
+  const cursor = drawingCanvasCursor(activeTool, spacePressed, panning);
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
     const nativeEvent = event.evt;
@@ -288,6 +293,7 @@ export const DrawingCanvas = forwardRef<
       viewport: viewportRef.current,
       pointerId: nativeEvent.pointerId,
     };
+    setPanning(true);
   }
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
@@ -307,6 +313,7 @@ export const DrawingCanvas = forwardRef<
     if (target?.hasPointerCapture?.(event.evt.pointerId))
       target.releasePointerCapture(event.evt.pointerId);
     panStartRef.current = null;
+    setPanning(false);
   }
 
   return (
@@ -316,16 +323,20 @@ export const DrawingCanvas = forwardRef<
       onBlur={() => {
         spacePressedRef.current = false;
         panStartRef.current = null;
+        setSpacePressed(false);
+        setPanning(false);
       }}
       onKeyDown={(event) => {
         if (event.code !== "Space") return;
         event.preventDefault();
         spacePressedRef.current = true;
+        setSpacePressed(true);
       }}
       onKeyUp={(event) => {
         if (event.code !== "Space") return;
         event.preventDefault();
         spacePressedRef.current = false;
+        setSpacePressed(false);
       }}
       onPointerDown={(event) => event.currentTarget.focus()}
       ref={hostRef}
@@ -346,7 +357,7 @@ export const DrawingCanvas = forwardRef<
               viewportRef.current.zoom * Math.exp(-event.evt.deltaY * 0.002),
             );
             setViewport(
-              zoomAroundPointer(pointer, viewportRef.current, nextZoom),
+              zoomViewportAroundPointer(pointer, viewportRef.current, nextZoom),
             );
           }}
           style={{ cursor }}
@@ -371,12 +382,14 @@ export const DrawingCanvas = forwardRef<
               strokeWidth={1 / viewport.zoom}
               width={background.width}
             />
-            {background.kind === "pdf" && pdfCanvas ? (
+            {background.kind === "pdf" && pdfSource ? (
               <KonvaImage
-                height={background.height}
-                image={pdfCanvas}
+                height={pdfSource.bounds.height}
+                image={pdfSource.canvas}
                 listening={false}
-                width={background.width}
+                width={pdfSource.bounds.width}
+                x={pdfSource.bounds.x}
+                y={pdfSource.bounds.y}
               />
             ) : null}
           </Layer>
