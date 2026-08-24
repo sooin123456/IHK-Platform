@@ -1988,6 +1988,20 @@ export const DrawingCanvas = forwardRef<
       ref={hostRef}
       tabIndex={0}
     >
+      {/* Read-only diagnostics let assistive and release-test clients confirm that
+          input changed the rendered view without treating DOM state as canonical. */}
+      <output
+        aria-label="도면 상태"
+        className="sr-only"
+        data-selected-object-name={selectedObjects[0]?.name ?? ""}
+        data-selection-count={selectionState.selectedIds.length}
+        data-viewport-x={viewport.x}
+        data-viewport-y={viewport.y}
+        data-viewport-zoom={viewport.zoom}
+      >
+        확대 {viewport.zoom.toFixed(3)}, 선택{" "}
+        {selectionState.selectedIds.length}개
+      </output>
       {size.width > 0 && size.height > 0 ? (
         <Stage
           height={size.height}

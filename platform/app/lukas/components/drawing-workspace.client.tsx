@@ -12,7 +12,6 @@ import {
   Repeat2,
   RotateCcw,
   Ruler,
-  Save,
   Square,
   Type,
   Undo2,
@@ -751,35 +750,30 @@ export default function DrawingWorkspaceClient({
             <Cloud className="size-4" />
             {saveStatus}
           </span>
-          <Button
-            aria-label="저장"
-            disabled
-            size="icon"
-            title={saveStatus}
-            variant="ghost"
-          >
-            <Save className="size-4" />
-          </Button>
-          <Button
-            aria-label="실행 취소"
-            disabled={!commandEnabled("undo")}
-            onClick={undo}
-            size="icon"
-            title="실행 취소"
-            variant="ghost"
-          >
-            <Undo2 className="size-4" />
-          </Button>
-          <Button
-            aria-label="다시 실행"
-            disabled={!commandEnabled("redo")}
-            onClick={redo}
-            size="icon"
-            title="다시 실행"
-            variant="ghost"
-          >
-            <Redo2 className="size-4" />
-          </Button>
+          {editing.canEdit ? (
+            <>
+              <Button
+                aria-label="실행 취소"
+                disabled={!commandEnabled("undo")}
+                onClick={undo}
+                size="icon"
+                title="실행 취소"
+                variant="ghost"
+              >
+                <Undo2 className="size-4" />
+              </Button>
+              <Button
+                aria-label="다시 실행"
+                disabled={!commandEnabled("redo")}
+                onClick={redo}
+                size="icon"
+                title="다시 실행"
+                variant="ghost"
+              >
+                <Redo2 className="size-4" />
+              </Button>
+            </>
+          ) : null}
           {reviewControls.requestReview ? (
             <Form method="post">
               <input name="intent" type="hidden" value="request_review" />
@@ -1020,76 +1014,73 @@ export default function DrawingWorkspaceClient({
             >
               <MousePointer2 className="size-4" />
             </Button>
-            <Button
-              aria-label="선 도구"
-              aria-pressed={activeTool === "line"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("line")}
-              size="icon"
-              variant={activeTool === "line" ? "secondary" : "ghost"}
-            >
-              <Minus className="size-4" />
-            </Button>
-            <Button
-              aria-label="폴리라인 도구"
-              aria-pressed={activeTool === "polyline"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("polyline")}
-              size="icon"
-              variant={activeTool === "polyline" ? "secondary" : "ghost"}
-            >
-              <Waypoints className="size-4" />
-            </Button>
-            <Button
-              aria-label="사각형 도구"
-              aria-pressed={activeTool === "rectangle"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("rectangle")}
-              size="icon"
-              variant={activeTool === "rectangle" ? "secondary" : "ghost"}
-            >
-              <Square className="size-4" />
-            </Button>
-            <Button
-              aria-label="원 도구"
-              aria-pressed={activeTool === "circle"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("circle")}
-              size="icon"
-              variant={activeTool === "circle" ? "secondary" : "ghost"}
-            >
-              <CircleIcon className="size-4" />
-            </Button>
-            <Button
-              aria-label="텍스트 도구"
-              aria-pressed={activeTool === "text"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("text")}
-              size="icon"
-              variant={activeTool === "text" ? "secondary" : "ghost"}
-            >
-              <Type className="size-4" />
-            </Button>
-            <Button
-              aria-label="치수 도구"
-              aria-pressed={activeTool === "dimension"}
-              disabled={!editing.canEdit}
-              onClick={() => setActiveTool("dimension")}
-              size="icon"
-              variant={activeTool === "dimension" ? "secondary" : "ghost"}
-            >
-              <Ruler className="size-4" />
-            </Button>
-            <Button
-              aria-label="도구 반복"
-              aria-pressed={repeatMode}
-              disabled={!editing.canEdit}
-              onClick={() => setRepeatMode((enabled) => !enabled)}
-              size="icon"
-              variant={repeatMode ? "secondary" : "ghost"}
-            >
-              <Repeat2 className="size-4" />
-            </Button>
+            {editing.canEdit ? (
+              <>
+                <Button
+                  aria-label="선 도구"
+                  aria-pressed={activeTool === "line"}
+                  onClick={() => setActiveTool("line")}
+                  size="icon"
+                  variant={activeTool === "line" ? "secondary" : "ghost"}
+                >
+                  <Minus className="size-4" />
+                </Button>
+                <Button
+                  aria-label="폴리라인 도구"
+                  aria-pressed={activeTool === "polyline"}
+                  onClick={() => setActiveTool("polyline")}
+                  size="icon"
+                  variant={activeTool === "polyline" ? "secondary" : "ghost"}
+                >
+                  <Waypoints className="size-4" />
+                </Button>
+                <Button
+                  aria-label="사각형 도구"
+                  aria-pressed={activeTool === "rectangle"}
+                  onClick={() => setActiveTool("rectangle")}
+                  size="icon"
+                  variant={activeTool === "rectangle" ? "secondary" : "ghost"}
+                >
+                  <Square className="size-4" />
+                </Button>
+                <Button
+                  aria-label="원 도구"
+                  aria-pressed={activeTool === "circle"}
+                  onClick={() => setActiveTool("circle")}
+                  size="icon"
+                  variant={activeTool === "circle" ? "secondary" : "ghost"}
+                >
+                  <CircleIcon className="size-4" />
+                </Button>
+                <Button
+                  aria-label="텍스트 도구"
+                  aria-pressed={activeTool === "text"}
+                  onClick={() => setActiveTool("text")}
+                  size="icon"
+                  variant={activeTool === "text" ? "secondary" : "ghost"}
+                >
+                  <Type className="size-4" />
+                </Button>
+                <Button
+                  aria-label="치수 도구"
+                  aria-pressed={activeTool === "dimension"}
+                  onClick={() => setActiveTool("dimension")}
+                  size="icon"
+                  variant={activeTool === "dimension" ? "secondary" : "ghost"}
+                >
+                  <Ruler className="size-4" />
+                </Button>
+                <Button
+                  aria-label="도구 반복"
+                  aria-pressed={repeatMode}
+                  onClick={() => setRepeatMode((enabled) => !enabled)}
+                  size="icon"
+                  variant={repeatMode ? "secondary" : "ghost"}
+                >
+                  <Repeat2 className="size-4" />
+                </Button>
+              </>
+            ) : null}
             <Button
               aria-label="이동 도구"
               aria-pressed={activeTool === "pan"}
@@ -1132,12 +1123,14 @@ export default function DrawingWorkspaceClient({
           />
         </aside>
       </div>
-      <DrawingCommandMenu
-        enabled={commandEnabled}
-        onClose={() => setCommandMenuOpen(false)}
-        onRun={runCommand}
-        open={commandMenuOpen}
-      />
+      {editing.canEdit ? (
+        <DrawingCommandMenu
+          enabled={commandEnabled}
+          onClose={() => setCommandMenuOpen(false)}
+          onRun={runCommand}
+          open={commandMenuOpen}
+        />
+      ) : null}
     </main>
   );
 }

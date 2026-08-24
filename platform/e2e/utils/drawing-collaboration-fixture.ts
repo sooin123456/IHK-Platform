@@ -33,7 +33,14 @@ export type DrawingFixture = {
   pdfWorkspace: WorkspaceFixture;
   blankWorkspace: WorkspaceFixture;
   existingIssueId: string;
-  sourceHashes: Record<string, string>;
+  sourceEvidence: Record<
+    string,
+    {
+      metadataSha256: string;
+      storageByteSha256: string;
+      byteLength: number;
+    }
+  >;
   storagePaths: string[];
 };
 
@@ -105,6 +112,41 @@ function required(name: string) {
 
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function downloadSourceEvidence(
+  admin: SupabaseClient,
+  fileIds: string[],
+) {
+  const { data, error } = await admin
+    .from("lukas_qto_files")
+    .select("id,sha256,storage_path,byte_size")
+    .in("id", fileIds);
+  if (error) throw error;
+  if (!data || data.length !== fileIds.length)
+    throw new Error("Source metadata evidence is incomplete");
+
+  const evidence: DrawingFixture["sourceEvidence"] = {};
+  for (const file of data) {
+    const { data: blob, error: downloadError } = await admin.storage
+      .from("lukas-qto")
+      .download(file.storage_path);
+    if (downloadError || !blob)
+      throw downloadError ?? new Error("Source byte download returned no data");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    evidence[file.id] = {
+      metadataSha256: file.sha256,
+      storageByteSha256: sha256(bytes),
+      byteLength: bytes.byteLength,
+    };
+    if (
+      evidence[file.id].metadataSha256 !==
+        evidence[file.id].storageByteSha256 ||
+      evidence[file.id].byteLength !== file.byte_size
+    )
+      throw new Error("Source Storage bytes do not match immutable metadata");
+  }
+  return evidence;
 }
 
 function parseWorkspace(value: unknown, fileId: string): WorkspaceFixture {
@@ -369,11 +411,11 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     if (issueError || !issue)
       throw issueError ?? new Error("Existing issue setup failed");
 
-    const sourceHashes = Object.fromEntries([
-      [pdfFileId, sha256(pdf)],
-      [ifcFileId, sha256(ifc)],
-      [revisedPdfFileId, sha256(pdf)],
-      [revisedIfcFileId, sha256(ifc)],
+    const sourceEvidence = await downloadSourceEvidence(admin, [
+      pdfFileId,
+      ifcFileId,
+      revisedPdfFileId,
+      revisedIfcFileId,
     ]);
 
     return {
@@ -390,7 +432,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
       pdfWorkspace,
       blankWorkspace,
       existingIssueId: issue.id,
-      sourceHashes,
+      sourceEvidence,
       storagePaths,
     };
   } catch (error) {
@@ -411,19 +453,11 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
   }
 }
 
-export async function readSourceHashes(fixture: DrawingFixture) {
-  const fileIds = Object.keys(fixture.sourceHashes);
-  const { data, error } = await fixture.admin
-    .from("lukas_qto_files")
-    .select("id,sha256")
-    .in("id", fileIds);
-  if (error) throw error;
-  const hashes = Object.fromEntries(
-    (data ?? []).map((file) => [file.id, file.sha256]),
+export async function readSourceEvidence(fixture: DrawingFixture) {
+  return downloadSourceEvidence(
+    fixture.admin,
+    Object.keys(fixture.sourceEvidence),
   );
-  if (Object.keys(hashes).length !== fileIds.length)
-    throw new Error("Source hash evidence is incomplete");
-  return hashes;
 }
 
 export async function seedDrawingPerformanceObjects(
@@ -507,7 +541,14 @@ export async function seedDrawingPerformanceObjects(
     });
     if (error) throw error;
   }
-  return { composition, count };
+  return {
+    composition,
+    count,
+    selectionTargets: [
+      { name: objects[2].name, world: { x: 28.5, y: 13.5 } },
+      { name: objects[8].name, world: { x: 70.5, y: 13.5 } },
+    ],
+  };
 }
 
 export async function authenticateContext(

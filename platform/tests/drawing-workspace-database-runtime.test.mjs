@@ -65,6 +65,9 @@ const workspaceServer = await vite.ssrLoadModule(
 const { DrawingInspector } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-inspector.tsx",
 );
+const { DrawingLayersPanel } = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-layers-panel.tsx",
+);
 
 const foundationSql = `
     create role anon nologin;
@@ -1673,8 +1676,11 @@ test("inspector renders linked issues read-only and draft editor controls access
   const readOnly = render(props);
   assert.match(readOnly, /연결된 이슈/);
   assert.match(readOnly, /출입문 치수 확인/);
+  assert.match(readOnly, /Circle/);
   assert.doesNotMatch(readOnly, /이슈 검색/);
   assert.doesNotMatch(readOnly, /name="issue_id"/);
+  assert.doesNotMatch(readOnly, /<form/);
+  assert.doesNotMatch(readOnly, /속성 적용/);
 
   const editable = render({ ...props, canEdit: true, canLinkIssues: true });
   assert.match(editable, /aria-label="이슈 연결"/);
@@ -1683,4 +1689,35 @@ test("inspector renders linked issues read-only and draft editor controls access
   assert.match(editable, /name="issue_id"/);
   assert.match(editable, /name="object_id"/);
   assert.doesNotMatch(editable, /새 이슈 만들기/);
+});
+
+test("viewer layer panel keeps read surfaces but omits every mutation control", () => {
+  const layerId = randomUUID();
+  const readOnly = renderToStaticMarkup(
+    createElement(DrawingLayersPanel, {
+      activeLayerId: null,
+      actorId: OWNER,
+      canEdit: false,
+      onActiveLayerChange() {},
+      onCommand() {},
+      state: {
+        layers: {
+          [layerId]: {
+            id: layerId,
+            name: "Work read only",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            version: 1,
+          },
+        },
+      },
+    }),
+  );
+  assert.match(readOnly, /Work read only/);
+  assert.match(readOnly, /표시/);
+  assert.match(readOnly, /잠금 해제/);
+  assert.doesNotMatch(readOnly, /<form/);
+  assert.doesNotMatch(readOnly, /<input/);
+  assert.doesNotMatch(readOnly, /<button/);
 });

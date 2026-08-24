@@ -9,6 +9,7 @@ const read = (file) => readFile(path.join(root, file), "utf8");
 test("drawing workspace has one complete serial production contract", async () => {
   const spec = await read("e2e/drawing-workspace.spec.ts");
   const fixture = await read("e2e/utils/drawing-collaboration-fixture.ts");
+  const ifcRunner = await read("tests/run-ifc-geometry-smoke.mjs");
   const packageJson = JSON.parse(await read("package.json"));
 
   assert.match(spec, /test\.describe\.serial\(/);
@@ -38,16 +39,34 @@ test("drawing workspace has one complete serial production contract", async () =
     assert.match(spec, new RegExp(behavior));
   }
   assert.match(spec, /reload and relogin restore acknowledged edits/);
-  assert.match(spec, /getByLabel\("레이어"\)\.selectOption/);
-  assert.match(spec, /getByLabel\("텍스트"\)/);
-  assert.match(spec, /viewer UI and direct mutations are read-only/);
-  assert.match(spec, /approved revision rejects direct update and delete/);
-  assert.match(spec, /readSourceHashes/);
-  assert.match(spec, /toEqual\(fixture\.sourceHashes\)/);
+  assert.match(
+    spec,
+    /getByLabel\("속성 검사기"\)[\s\S]*getByLabel\("레이어",\s*\{ exact: true \}\)/,
+  );
+  assert.match(
+    spec,
+    /getByLabel\("속성 검사기"\)[\s\S]*getByLabel\("텍스트",\s*\{ exact: true \}\)/,
+  );
+  assert.match(spec, /toHaveCount\(1\)/);
+  assert.match(spec, /viewer UI mutation controls are absent/);
+  assert.match(spec, /non-member route, read API, and mutation RPC are denied/);
+  assert.match(
+    spec,
+    /approved revision rejects canonical RPC and direct table mutations/,
+  );
+  assert.match(spec, /p_operation_type:\s*"update_objects"/);
+  assert.match(spec, /p_operation_type:\s*"delete_objects"/);
+  assert.match(spec, /readSourceEvidence/);
+  assert.match(spec, /toEqual\(fixture\.sourceEvidence\)/);
   assert.match(spec, /10,000 canonical objects/);
   assert.match(spec, /seedDrawingPerformanceObjects/);
   assert.match(spec, /frameCount:\s*120/);
   assert.match(spec, /performance\.now\(\)/);
+  assert.match(spec, /getByLabel\("이동 도구"\)\.click\(\)/);
+  assert.match(spec, /page\.mouse\.wheel/);
+  assert.match(spec, /viewportZoom/);
+  assert.match(spec, /selectionCount/);
+  assert.match(spec, /inspectorObjectName/);
   assert.match(spec, /p95.*50/is);
   assert.doesNotMatch(spec, /live cursor|Yjs|Hocuspocus/i);
 
@@ -56,7 +75,12 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(fixture, /pdfWorkspace/);
   assert.match(fixture, /blankWorkspace/);
   assert.match(fixture, /existingIssueId/);
-  assert.match(fixture, /sourceHashes/);
+  assert.match(fixture, /sourceEvidence/);
+  assert.match(fixture, /storageByteSha256/);
+  assert.match(
+    fixture,
+    /\.storage\s*[\s\S]*\.from\("lukas-qto"\)\s*[\s\S]*\.download/,
+  );
   assert.match(fixture, /seedDrawingPerformanceObjects/);
   assert.match(fixture, /10_000/);
   assert.match(fixture, /cleanupErrors/);
@@ -73,6 +97,18 @@ test("drawing workspace has one complete serial production contract", async () =
     packageJson.scripts["test:e2e:drawing-workspace:production"],
     "npx playwright test e2e/drawing-workspace.spec.ts --project=chromium",
   );
+  assert.equal(
+    packageJson.scripts["test:ifc"],
+    "node tests/run-ifc-geometry-smoke.mjs",
+  );
+  assert.match(ifcRunner, /ThatOpen\/engine_web-ifc/);
+  assert.match(
+    ifcRunner,
+    /db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d/,
+  );
+  assert.match(ifcRunner, /mkdtemp/);
+  assert.match(ifcRunner, /rm\(temporaryDirectory/);
+  assert.match(ifcRunner, /spawnSync/);
 });
 
 test("release documentation keeps local evidence separate from external gates", async () => {
@@ -102,6 +138,9 @@ test("release documentation keeps local evidence separate from external gates", 
   }
   assert.match(deployment, /unexecuted/i);
   assert.match(deployment, /60fps.*P7/is);
+  assert.match(deployment, /ThatOpen\/engine_web-ifc/);
+  assert.match(deployment, /MPL-2\.0/);
+  assert.match(deployment, /network/i);
   assert.match(matrix, /Drawing Workspace P0\/P1/);
   assert.match(matrix, /P3.*Yjs.*Hocuspocus/is);
   assert.match(matrix, /미실행|외부 게이트/);

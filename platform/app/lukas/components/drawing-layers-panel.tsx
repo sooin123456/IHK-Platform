@@ -63,6 +63,32 @@ export function DrawingLayersPanel({
     }
   }
 
+  if (!canEdit) {
+    return (
+      <section aria-labelledby="drawing-layers-title">
+        <h2 className="text-sm font-bold" id="drawing-layers-title">
+          레이어
+        </h2>
+        <p className="mt-3 text-xs text-slate-400">읽기 전용 레이어 목록</p>
+        <ul className="mt-4 space-y-2 text-sm">
+          {layers.map((layer) => (
+            <li
+              className="rounded-md border border-white/10 bg-white/5 p-2"
+              key={layer.id}
+            >
+              <p className="font-medium">{layer.name}</p>
+              <p className="mt-2 text-xs text-slate-400">
+                {layer.visible ? "표시" : "숨김"} ·{" "}
+                {layer.locked ? "잠금" : "잠금 해제"}
+                {layer.systemKind === "source" ? " · 원본 레이어" : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
   return (
     <section aria-labelledby="drawing-layers-title">
       <h2 className="text-sm font-bold" id="drawing-layers-title">

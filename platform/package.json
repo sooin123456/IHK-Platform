@@ -18,7 +18,7 @@
     "test:e2e:drawing-workspace:production": "npx playwright test e2e/drawing-workspace.spec.ts --project=chromium",
     "test:e2e:ui": "npx playwright test --ui",
     "test:drawing-workspace": "node --test tests/drawing-workspace-*.test.mjs tests/drawing-fixture-cleanup.test.mjs",
-    "test:ifc": "node tests/ifc-geometry-smoke.mjs",
+    "test:ifc": "node tests/run-ifc-geometry-smoke.mjs",
     "test:public": "node --test tests/public-site-contract.test.mjs",
     "format": "prettier --write \"app/**/*.{ts,tsx,js,jsx,json,css,md,mdx}\""
   },

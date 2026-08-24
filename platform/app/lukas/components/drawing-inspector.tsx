@@ -227,6 +227,54 @@ export function DrawingInspector({
     );
   }
 
+  if (!canEdit) {
+    return (
+      <section aria-labelledby="drawing-inspector-title">
+        <h2 className="text-sm font-bold" id="drawing-inspector-title">
+          속성
+        </h2>
+        <p className="mt-1 text-xs text-slate-400">
+          {selectedObjects.length}개 객체 선택 · 읽기 전용
+        </p>
+        <dl className="mt-4 grid gap-3 text-sm">
+          <div>
+            <dt className="text-xs text-slate-400">객체 이름</dt>
+            <dd>{sharedValue(selectedObjects, (object) => object.name)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-400">레이어</dt>
+            <dd>
+              {sharedValue(
+                selectedObjects,
+                (object) => state.layers[object.layerId]?.name ?? "알 수 없음",
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-400">선 색상 · 두께</dt>
+            <dd>
+              {sharedValue(selectedObjects, (object) => object.style.stroke)} ·{" "}
+              {sharedValue(selectedObjects, (object) =>
+                String(object.style.strokeWidth),
+              )}
+            </dd>
+          </div>
+          {textOnly ? (
+            <div>
+              <dt className="text-xs text-slate-400">텍스트</dt>
+              <dd className="whitespace-pre-wrap">
+                {sharedValue(selectedObjects, (object) =>
+                  object.geometry.type === "text" ? object.geometry.text : "",
+                )}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+        {issueSection}
+      </section>
+    );
+  }
+
   return (
     <section aria-labelledby="drawing-inspector-title">
       <h2 className="text-sm font-bold" id="drawing-inspector-title">

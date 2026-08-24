@@ -14,8 +14,9 @@ Windows/Revit 실기와 3개 현장 적용은 코드 완료와 분리된 외부 
 | 편집 코어 | PDF/빈 배경, 6개 도구, 선택·이동·복사·삭제, undo/redo, 레이어·속성 검사기 계약 테스트 | 코드 완료 / 로컬 자동 검증 |
 | 저장·복구 | append-only operation RPC와 IndexedDB outbox의 ack·충돌·재시도·재로그인 복구 계약 | 코드 완료 / 로컬 자동 검증 |
 | 이슈·검토·승인 | 기존 이슈 객체 연결, maker-checker 검토 요청, 별도 Reviewer 승인, 승인 후 변경 차단 | 코드 완료 / 운영 E2E 외부 게이트 |
-| 원본 불변성 | fixture가 PDF/IFC 파일 행의 SHA-256을 작업 전후 정확히 비교 | 코드 완료 / 운영 E2E 미실행 |
-| 10,000 객체 | Chromium 1440×900, 120 프레임 및 선택 median/p95 측정; P0/P1 p95 50ms 파국 방지선 | 코드 완료 / 운영 성능 미실행 |
+| 권한·격리 | Viewer 변경 UI 부재와 RPC 거부, non-member route·read API·RPC 거부 | 코드 완료 / 운영 E2E 외부 게이트 |
+| 원본 불변성 | fixture가 PDF/IFC 파일 행 SHA-256과 Storage 다운로드 바이트의 Node SHA-256·크기를 작업 전후 정확히 비교 | 코드 완료 / 운영 E2E 미실행 |
+| 10,000 객체 | Chromium 1440×900에서 실제 wheel 60 + drag-pan 60 프레임과 실제 선택의 viewport·inspector 변화 및 median/p95 측정; P0/P1 p95 50ms 파국 방지선 | 코드 완료 / 운영 성능 미실행 |
 | P3 실시간 공동 편집 | Yjs, y-indexeddb, Hocuspocus와 두 브라우저 live cursor/concurrent sync | 미구현 / P3 외부 게이트 |
 
 `완료`는 production Playwright 실행을 뜻하지 않는다. 운영 자격 증명과 격리된

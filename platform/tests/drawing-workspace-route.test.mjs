@@ -76,7 +76,7 @@ test("workspace document renders the accessible editor shell", async () => {
   assert.match(screen, /협업 도면실/);
   assert.match(shell, /도면 작업실/);
   assert.match(shell, /저장됨/);
-  assert.match(shell, /aria-label="저장"/);
+  assert.match(shell, /aria-label=\{`저장 상태:/);
   assert.match(shell, /aria-label="실행 취소"/);
   assert.match(shell, /aria-label="다시 실행"/);
   assert.match(shell, /aria-label="레이어 패널"/);
@@ -131,6 +131,15 @@ test("layers and inspector expose native labeled controls", async () => {
   ]);
   assert.match(shell, /<DrawingLayersPanel/);
   assert.match(shell, /<DrawingInspector/);
+  assert.match(
+    shell,
+    /\{editing\.canEdit \? \(\s*<>\s*<Button\s+aria-label="선 도구"/,
+  );
+  assert.match(
+    shell,
+    /\{editing\.canEdit \? \(\s*<>\s*<Button\s+aria-label="실행 취소"/,
+  );
+  assert.match(shell, /\{editing\.canEdit \? \(\s*<DrawingCommandMenu/);
   for (const label of [
     "새 레이어 이름",
     "레이어 추가",

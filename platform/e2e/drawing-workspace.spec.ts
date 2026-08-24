@@ -5,7 +5,7 @@ import {
   authenticateContext,
   createDrawingFixture,
   destroyDrawingFixture,
-  readSourceHashes,
+  readSourceEvidence,
   seedDrawingPerformanceObjects,
   type DrawingFixture,
 } from "./utils/drawing-collaboration-fixture";
@@ -149,16 +149,23 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     await page.getByRole("button", { name: "선택 도구" }).click();
     const rectangle = await drawingPoint(page, 0.59, 0.23);
     await page.mouse.click(rectangle.x, rectangle.y);
-    await page.getByLabel("객체 이름").fill("외벽 검토 영역");
-    await page.getByLabel("레이어").selectOption({ label: "검토 주석" });
-    await page.getByLabel("선 색상").fill("#dc2626");
-    await page.getByLabel("선 두께").fill("3");
-    await page.getByLabel("채우기").fill("#fee2e2aa");
-    await page.getByRole("button", { name: "속성 적용" }).click();
+    const inspector = page.getByLabel("속성 검사기");
+    const inspectorLayer = inspector.getByLabel("레이어", { exact: true });
+    await expect(inspectorLayer).toHaveCount(1);
+    await inspector
+      .getByLabel("객체 이름", { exact: true })
+      .fill("외벽 검토 영역");
+    await inspectorLayer.selectOption({ label: "검토 주석" });
+    await inspector.getByLabel("선 색상", { exact: true }).fill("#dc2626");
+    await inspector.getByLabel("선 두께", { exact: true }).fill("3");
+    await inspector.getByLabel("채우기", { exact: true }).fill("#fee2e2aa");
+    await inspector.getByRole("button", { name: "속성 적용" }).click();
 
     await page.mouse.click(textPoint.x, textPoint.y);
-    await page.getByLabel("텍스트").fill("수정된 1HK E2E 메모");
-    await page.getByRole("button", { name: "속성 적용" }).click();
+    const inspectorText = inspector.getByLabel("텍스트", { exact: true });
+    await expect(inspectorText).toHaveCount(1);
+    await inspectorText.fill("수정된 1HK E2E 메모");
+    await inspector.getByRole("button", { name: "속성 적용" }).click();
     await page.mouse.click(rectangle.x, rectangle.y);
 
     await page.mouse.move(rectangle.x, rectangle.y);
@@ -282,12 +289,14 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
         return data?.status;
       })
       .toBe("approved");
-    expect(await readSourceHashes(fixture)).toEqual(fixture.sourceHashes);
+    expect(await readSourceEvidence(fixture)).toEqual(fixture.sourceEvidence);
     await ownerContext.close();
     await reviewerContext.close();
   });
 
-  test("viewer UI and direct mutations are read-only", async ({ browser }) => {
+  test("viewer UI mutation controls are absent and RPC is read-only", async ({
+    browser,
+  }) => {
     const path = `/projects/${fixture.projectId}/drawings/${fixture.pdfWorkspace.fileId}/workspace`;
     const context = await browser.newContext();
     const page = await authenticateContext(
@@ -297,8 +306,21 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       baseUrl,
       path,
     );
-    for (const control of ["선 도구", "레이어 추가", "속성 적용"])
-      await expect(page.getByRole("button", { name: control })).toBeDisabled();
+    for (const control of [
+      "선 도구",
+      "폴리라인 도구",
+      "사각형 도구",
+      "원 도구",
+      "텍스트 도구",
+      "치수 도구",
+      "레이어 추가",
+      "속성 적용",
+      "실행 취소",
+      "다시 실행",
+    ])
+      await expect(page.getByRole("button", { name: control })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "선택 도구" })).toBeVisible();
+    await expect(page.getByText("읽기 전용 레이어 목록")).toBeVisible();
 
     const viewerApi = await authenticateApiClient(fixture, fixture.viewer);
     const objectId = crypto.randomUUID();
@@ -326,7 +348,59 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     await context.close();
   });
 
-  test("approved revision rejects direct update and delete", async () => {
+  test("non-member route, read API, and mutation RPC are denied", async ({
+    browser,
+  }) => {
+    const path = `/projects/${fixture.projectId}/drawings/${fixture.blankWorkspace.fileId}/workspace`;
+    const context = await browser.newContext();
+    const page = await authenticateContext(
+      fixture,
+      context,
+      fixture.nonMember,
+      baseUrl,
+      "/",
+    );
+    const routeResponse = await page.goto(`${baseUrl}${path}`);
+    expect(routeResponse?.status()).toBe(403);
+
+    const outsider = await authenticateApiClient(fixture, fixture.nonMember);
+    const read = await outsider
+      .from("lukas_drawing_documents")
+      .select("id")
+      .eq("id", fixture.blankWorkspace.documentId);
+    expect(read.error).toBeNull();
+    expect(read.data).toEqual([]);
+
+    const objectId = crypto.randomUUID();
+    const mutation = await outsider.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.blankWorkspace.revisionId,
+      p_client_operation_id: crypto.randomUUID(),
+      p_operation_type: "add_objects",
+      p_base_versions: {},
+      p_forward: {
+        type: "add_objects",
+        objects: [
+          {
+            id: objectId,
+            name: "Non-member mutation attempt",
+            layerId: fixture.blankWorkspace.workLayerId,
+            geometry: {
+              type: "circle",
+              center: { x: 10, y: 10 },
+              radius: 5,
+            },
+            style: { stroke: "#2563eb", strokeWidth: 2, fill: null },
+            version: 1,
+          },
+        ],
+      },
+      p_inverse: { type: "delete_objects", objectIds: [objectId] },
+    });
+    expect(mutation.error).toBeTruthy();
+    await context.close();
+  });
+
+  test("approved revision rejects canonical RPC and direct table mutations", async () => {
     const owner = await authenticateApiClient(fixture, fixture.owner);
     const { data: revision, error } = await owner
       .from("lukas_drawing_revisions")
@@ -337,23 +411,81 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     expect(revision.status).toBe("approved");
     const { data: object, error: objectError } = await owner
       .from("lukas_drawing_objects")
-      .select("id")
+      .select("id,name,layer_id,geometry,style,version,status")
       .eq("revision_id", fixture.pdfWorkspace.revisionId)
       .eq("status", "active")
       .limit(1)
       .single();
     if (objectError || !object)
       throw objectError ?? new Error("Approved object evidence missing");
+
+    const canonicalBefore = structuredClone(object);
+    const rpcUpdate = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.pdfWorkspace.revisionId,
+      p_client_operation_id: crypto.randomUUID(),
+      p_operation_type: "update_objects",
+      p_base_versions: { [object.id]: object.version },
+      p_forward: {
+        type: "update_objects",
+        updates: [
+          { objectId: object.id, patch: { name: "승인 후 RPC 변경 시도" } },
+        ],
+      },
+      p_inverse: {
+        type: "update_objects",
+        updates: [{ objectId: object.id, patch: { name: object.name } }],
+      },
+    });
+    expect(rpcUpdate.error).toBeTruthy();
+    const rpcDelete = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.pdfWorkspace.revisionId,
+      p_client_operation_id: crypto.randomUUID(),
+      p_operation_type: "delete_objects",
+      p_base_versions: { [object.id]: object.version },
+      p_forward: { type: "delete_objects", objectIds: [object.id] },
+      p_inverse: {
+        type: "add_objects",
+        objects: [
+          {
+            id: object.id,
+            name: object.name,
+            layerId: object.layer_id,
+            geometry: object.geometry,
+            style: object.style,
+            version: object.version + 2,
+          },
+        ],
+      },
+    });
+    expect(rpcDelete.error).toBeTruthy();
+    const { data: afterRpc, error: afterRpcError } = await owner
+      .from("lukas_drawing_objects")
+      .select("id,name,layer_id,geometry,style,version,status")
+      .eq("id", object.id)
+      .single();
+    if (afterRpcError) throw afterRpcError;
+    expect(afterRpc).toEqual(canonicalBefore);
+
+    // Separate defense-in-depth proof: authenticated table DML is also blocked.
     const update = await owner
       .from("lukas_drawing_objects")
       .update({ name: "승인 후 변경 시도" })
-      .eq("id", object.id);
+      .eq("id", object.id)
+      .select("id");
     const deletion = await owner
       .from("lukas_drawing_objects")
       .delete()
-      .eq("id", object.id);
-    expect(update.error).toBeTruthy();
-    expect(deletion.error).toBeTruthy();
+      .eq("id", object.id)
+      .select("id");
+    expect(Boolean(update.error) || update.data?.length === 0).toBe(true);
+    expect(Boolean(deletion.error) || deletion.data?.length === 0).toBe(true);
+    const { data: afterDirect, error: afterDirectError } = await owner
+      .from("lukas_drawing_objects")
+      .select("id,name,layer_id,geometry,style,version,status")
+      .eq("id", object.id)
+      .single();
+    if (afterDirectError) throw afterDirectError;
+    expect(afterDirect).toEqual(canonicalBefore);
   });
 
   test("10,000 canonical objects stay below the catastrophic P0/P1 budget", async ({
@@ -373,73 +505,176 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       path,
     );
     await waitUntilSaved(page);
-    const metrics = await page.getByLabel(/도면 화면/).evaluate(
-      async (surface, input) => {
-        const target = surface.querySelector("canvas");
-        if (!(target instanceof HTMLCanvasElement))
-          throw new Error(
-            "Konva canvas is unavailable for performance evidence",
-          );
-        const frameDurations: number[] = [];
-        for (let frame = 0; frame < input.frameCount; frame += 1) {
-          const started = performance.now();
-          target.dispatchEvent(
-            new WheelEvent("wheel", {
-              bubbles: true,
-              cancelable: true,
-              clientX: 720,
-              clientY: 450,
-              deltaY: frame % 2 === 0 ? -2 : 2,
-            }),
-          );
-          await new Promise<void>((resolve) =>
+    const surface = page.getByLabel(/도면 화면/);
+    const state = page.getByLabel("도면 상태");
+    const readState = async () => ({
+      viewportX: Number(await state.getAttribute("data-viewport-x")),
+      viewportY: Number(await state.getAttribute("data-viewport-y")),
+      viewportZoom: Number(await state.getAttribute("data-viewport-zoom")),
+      selectionCount: Number(await state.getAttribute("data-selection-count")),
+      selectedObjectName:
+        (await state.getAttribute("data-selected-object-name")) ?? "",
+    });
+    const initial = await readState();
+    await surface.evaluate((element) => {
+      const evidence = {
+        mode: "zoom" as "zoom" | "pan" | "selection",
+        zoom: [] as number[],
+        pan: [] as number[],
+        selection: [] as number[],
+      };
+      Object.assign(element, { __drawingPerformanceEvidence: evidence });
+      const measure = (kind: "wheel" | "pointermove" | "pointerup") => {
+        const started = performance.now();
+        requestAnimationFrame(() => {
+          const elapsed = performance.now() - started;
+          if (kind === "wheel" && evidence.mode === "zoom")
+            evidence.zoom.push(elapsed);
+          if (kind === "pointermove" && evidence.mode === "pan")
+            evidence.pan.push(elapsed);
+          if (kind === "pointerup" && evidence.mode === "selection")
+            evidence.selection.push(elapsed);
+        });
+      };
+      element.addEventListener("wheel", () => measure("wheel"), {
+        capture: true,
+      });
+      element.addEventListener("pointermove", () => measure("pointermove"), {
+        capture: true,
+      });
+      element.addEventListener("pointerup", () => measure("pointerup"), {
+        capture: true,
+      });
+    });
+    const box = await surface.boundingBox();
+    if (!box) throw new Error("Performance canvas has no layout box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let frame = 0; frame < 60; frame += 1) {
+      await page.mouse.wheel(0, frame < 30 ? -3 : 1);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
             requestAnimationFrame(() => resolve()),
-          );
-          frameDurations.push(performance.now() - started);
+          ),
+      );
+    }
+    const afterZoom = await readState();
+    expect(afterZoom.viewportZoom).not.toBe(initial.viewportZoom);
+
+    await page.getByLabel("이동 도구").click();
+    const panStart = {
+      x: box.x + box.width * 0.55,
+      y: box.y + box.height * 0.55,
+    };
+    await page.mouse.move(panStart.x, panStart.y);
+    await surface.evaluate((element) => {
+      (
+        element as HTMLElement & {
+          __drawingPerformanceEvidence: { mode: string };
         }
-        const selectionDurations: number[] = [];
-        for (let query = 0; query < 20; query += 1) {
-          const started = performance.now();
-          const x = 120 + query * 4;
-          const y = 140 + query * 3;
-          target.dispatchEvent(
-            new PointerEvent("pointerdown", {
-              bubbles: true,
-              clientX: x,
-              clientY: y,
-              pointerId: query + 1,
-            }),
-          );
-          target.dispatchEvent(
-            new PointerEvent("pointerup", {
-              bubbles: true,
-              clientX: x + 100,
-              clientY: y + 80,
-              pointerId: query + 1,
-            }),
-          );
-          await new Promise<void>((resolve) =>
+      ).__drawingPerformanceEvidence.mode = "pan";
+    });
+    await page.mouse.down();
+    for (let frame = 1; frame <= 60; frame += 1) {
+      await page.mouse.move(panStart.x + frame * 1.5, panStart.y + frame);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
             requestAnimationFrame(() => resolve()),
-          );
-          selectionDurations.push(performance.now() - started);
+          ),
+      );
+    }
+    await page.mouse.up();
+    const afterPan = await readState();
+    expect({ x: afterPan.viewportX, y: afterPan.viewportY }).not.toEqual({
+      x: afterZoom.viewportX,
+      y: afterZoom.viewportY,
+    });
+
+    await page.getByRole("button", { name: "선택 도구" }).click();
+    await surface.evaluate((element) => {
+      (
+        element as HTMLElement & {
+          __drawingPerformanceEvidence: { mode: string };
         }
+      ).__drawingPerformanceEvidence.mode = "selection";
+    });
+    for (let query = 0; query < 20; query += 1) {
+      const target =
+        seeded.selectionTargets[query % seeded.selectionTargets.length];
+      const current = await readState();
+      await page.mouse.click(
+        box.x + current.viewportX + target.world.x * current.viewportZoom,
+        box.y + current.viewportY + target.world.y * current.viewportZoom,
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+      await expect(state).toHaveAttribute("data-selection-count", "1");
+      await expect(state).toHaveAttribute(
+        "data-selected-object-name",
+        target.name,
+      );
+      await expect(
+        page.getByLabel("속성 검사기").getByLabel("객체 이름", { exact: true }),
+      ).toHaveValue(target.name);
+    }
+    const finalState = await readState();
+    const inspectorObjectName = await page
+      .getByLabel("속성 검사기")
+      .getByLabel("객체 이름", { exact: true })
+      .inputValue();
+    expect(finalState.selectionCount).toBe(1);
+    expect(inspectorObjectName).toBe(finalState.selectedObjectName);
+
+    const metrics = await surface.evaluate(
+      (element, input) => {
+        const evidence = (
+          element as HTMLElement & {
+            __drawingPerformanceEvidence: {
+              zoom: number[];
+              pan: number[];
+              selection: number[];
+            };
+          }
+        ).__drawingPerformanceEvidence;
         const percentile = (values: number[], ratio: number) => {
           const sorted = [...values].sort((a, b) => a - b);
           return sorted[Math.ceil(sorted.length * ratio) - 1] ?? 0;
         };
+        const frameDurations = [...evidence.zoom, ...evidence.pan];
         return {
           browser: navigator.userAgent,
           viewport: { width: innerWidth, height: innerHeight },
           composition: input.composition,
-          frameCount: input.frameCount,
+          frameCount: frameDurations.length,
+          zoomFrameCount: evidence.zoom.length,
+          panFrameCount: evidence.pan.length,
           frameMedianMs: percentile(frameDurations, 0.5),
           frameP95Ms: percentile(frameDurations, 0.95),
-          selectionMedianMs: percentile(selectionDurations, 0.5),
-          selectionP95Ms: percentile(selectionDurations, 0.95),
+          selectionCount: evidence.selection.length,
+          selectionMedianMs: percentile(evidence.selection, 0.5),
+          selectionP95Ms: percentile(evidence.selection, 0.95),
+          initialViewport: input.initial,
+          finalViewport: input.finalState,
+          inspectorObjectName: input.inspectorObjectName,
         };
       },
-      { composition: seeded.composition, frameCount: 120 },
+      {
+        composition: seeded.composition,
+        frameCount: 120,
+        initial,
+        finalState,
+        inspectorObjectName,
+      },
     );
+    expect(metrics.frameCount).toBe(120);
+    expect(metrics.zoomFrameCount).toBe(60);
+    expect(metrics.panFrameCount).toBe(60);
+    expect(metrics.selectionCount).toBe(20);
     test.info().annotations.push({
       type: "performance",
       description: JSON.stringify(metrics),
@@ -448,6 +683,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     expect(metrics.selectionP95Ms, JSON.stringify(metrics)).toBeLessThanOrEqual(
       50,
     );
+    expect(await readSourceEvidence(fixture)).toEqual(fixture.sourceEvidence);
     await context.close();
   });
 });
