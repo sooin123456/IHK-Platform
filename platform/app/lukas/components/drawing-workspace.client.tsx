@@ -95,10 +95,10 @@ function drawingShortcutTargetIsEditable(target: EventTarget | null) {
     tagName === "select" ||
     candidate.isContentEditable === true ||
     Boolean(
-      candidate.closest?.(
-        "input, textarea, select, [contenteditable='true'], [role='dialog']",
-      ),
-    )
+      candidate.closest?.("input, textarea, select, [contenteditable='true']"),
+    ) ||
+    Boolean(candidate.closest?.("dialog")) ||
+    Boolean(candidate.closest?.("[role='dialog']"))
   );
 }
 

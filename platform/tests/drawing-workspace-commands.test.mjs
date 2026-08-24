@@ -1628,6 +1628,51 @@ test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", asy
   assert.equal(shortcut({ altKey: true }), null);
 });
 
+test("native dialog descendants own Backspace, Delete, and Cmd shortcuts", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.client.tsx",
+  );
+  const nativeDialogButton = {
+    tagName: "BUTTON",
+    isContentEditable: false,
+    closest: (selector) => (selector === "dialog" ? {} : null),
+  };
+  for (const event of [
+    { key: "Backspace", metaKey: false },
+    { key: "Delete", metaKey: false },
+    { key: "c", metaKey: true },
+  ]) {
+    let defaultPrevented = false;
+    const browserEvent = {
+      code: event.key,
+      altKey: false,
+      ctrlKey: false,
+      preventDefault: () => {
+        defaultPrevented = true;
+      },
+      shiftKey: false,
+      target: nativeDialogButton,
+      ...event,
+    };
+    const shortcut = shell.resolveDrawingWorkspaceShortcut(browserEvent);
+    if (shortcut) browserEvent.preventDefault();
+    assert.equal(shortcut, null);
+    assert.equal(defaultPrevented, false);
+  }
+  assert.deepEqual(
+    shell.resolveDrawingWorkspaceShortcut({
+      key: "Backspace",
+      code: "Backspace",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      target: null,
+    }),
+    { type: "delete" },
+  );
+});
+
 test("command registry filters Korean labels and stable IDs case-insensitively", async () => {
   const menu = await vite.ssrLoadModule(
     "/app/lukas/components/drawing-command-menu.tsx",
