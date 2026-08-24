@@ -406,10 +406,15 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.match(shell, /event\.key\.toLowerCase\(\) !== "k"/);
   assert.match(canvas, /name="drawing-preview"/);
   assert.match(canvas, /미보정/);
-  assert.match(canvas, /onDoubleClick/);
-  assert.match(canvas, /event\.key === "Backspace"/);
+  assert.match(canvas, /drawingToolEventTransition\(/);
+  assert.match(canvas, /geometrySnapPoints\(/);
+  assert.match(canvas, /memo\(function CommittedDrawingLayer/);
+  assert.match(canvas, /<CommittedDrawingLayer/);
   assert.match(menu, /<dialog/);
   assert.match(menu, /aria-labelledby="drawing-command-menu-title"/);
   assert.match(menu, /aria-label="도면 명령 검색"/);
-  assert.match(menu, /role="listbox"/);
+  assert.match(menu, /\.showModal\(\)/);
+  assert.match(menu, /onKeyDown=\{/);
+  assert.doesNotMatch(menu, /role="listbox"/);
+  assert.doesNotMatch(menu, /role="option"/);
 });

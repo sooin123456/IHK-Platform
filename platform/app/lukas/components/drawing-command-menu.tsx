@@ -60,6 +60,12 @@ export function resolveDrawingCommandMenuKey(
   return selected?.enabled ? { kind: "run", commandId: selected.id } : null;
 }
 
+export function resolveDrawingCommandDialogKey(
+  key: string,
+): { kind: "close" } | null {
+  return key === "Escape" ? { kind: "close" } : null;
+}
+
 type DrawingCommandMenuProps = {
   enabled: (commandId: DrawingCommandId) => boolean;
   onClose: () => void;
@@ -73,6 +79,7 @@ export function DrawingCommandMenu({
   onRun,
   open,
 }: DrawingCommandMenuProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -82,9 +89,15 @@ export function DrawingCommandMenu({
 
   useEffect(() => {
     if (!open) return;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
     setQuery("");
     setSelectedIndex(0);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      if (dialog?.open) dialog.close();
+    };
   }, [open]);
 
   if (!open) return null;
@@ -97,7 +110,14 @@ export function DrawingCommandMenu({
         event.preventDefault();
         onClose();
       }}
-      open
+      onKeyDown={(event) => {
+        const action = resolveDrawingCommandDialogKey(event.key);
+        if (!action) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
+      ref={dialogRef}
     >
       <h2
         className="px-2 pb-2 text-sm font-bold"
@@ -109,13 +129,7 @@ export function DrawingCommandMenu({
         도면 명령 검색
       </label>
       <input
-        aria-activedescendant={
-          filtered[selectedIndex]
-            ? `drawing-command-${filtered[selectedIndex].id}`
-            : undefined
-        }
         aria-controls="drawing-command-results"
-        aria-expanded="true"
         aria-label="도면 명령 검색"
         className="min-h-11 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
         id="drawing-command-search"
@@ -124,6 +138,7 @@ export function DrawingCommandMenu({
           setSelectedIndex(0);
         }}
         onKeyDown={(event) => {
+          if (event.key === "Escape") return;
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setSelectedIndex((index) =>
@@ -154,25 +169,20 @@ export function DrawingCommandMenu({
           }
         }}
         ref={inputRef}
-        role="combobox"
         value={query}
       />
       <ul
+        aria-label="도면 명령 목록"
         className="mt-2 max-h-80 space-y-1 overflow-auto"
         id="drawing-command-results"
-        role="listbox"
       >
         {filtered.map((command, index) => (
-          <li
-            aria-disabled={!command.enabled}
-            aria-selected={index === selectedIndex}
-            id={`drawing-command-${command.id}`}
-            key={command.id}
-            role="option"
-          >
+          <li key={command.id}>
             <button
-              className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-sm hover:bg-white/10 focus:bg-white/10 disabled:text-slate-500 aria-selected:bg-indigo-500/20"
+              aria-current={index === selectedIndex ? "true" : undefined}
+              className={`flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-sm hover:bg-white/10 focus:bg-white/10 disabled:text-slate-500 ${index === selectedIndex ? "bg-indigo-500/20" : ""}`}
               disabled={!command.enabled}
+              id={`drawing-command-${command.id}`}
               onClick={() => {
                 onRun(command.id);
                 onClose();

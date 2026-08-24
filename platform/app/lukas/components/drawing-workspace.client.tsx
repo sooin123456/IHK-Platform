@@ -155,17 +155,18 @@ export default function DrawingWorkspaceClient({
   );
   const page = revision.pages[0];
   const editing = drawingEditingContext(capability, revision.layers);
-  const parsedCalibration = PdfCalibrationSchema.safeParse(page?.calibration);
-  const calibration: DimensionCalibrationEvidence | null =
-    page && parsedCalibration.success
+  const calibration = useMemo<DimensionCalibrationEvidence | null>(() => {
+    const parsed = PdfCalibrationSchema.safeParse(page?.calibration);
+    return page && parsed.success
       ? {
           id: page.id,
           millimetersPerNormalizedUnit:
-            parsedCalibration.data.millimetersPerNormalizedUnit,
+            parsed.data.millimetersPerNormalizedUnit,
           pageHeight: page.height_mm,
           pageWidth: page.width_mm,
         }
       : null;
+  }, [page]);
   const calibrationId = calibration?.id ?? null;
   const reviewControls = drawingWorkspaceReviewControls({
     capability,

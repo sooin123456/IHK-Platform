@@ -26,6 +26,64 @@ function boundsForPoints(points: Point[]): Bounds {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
+function rectangleCorners(
+  geometry: Extract<DrawingGeometry, { type: "rectangle" }>,
+) {
+  const radians = (geometry.rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return [
+    { x: 0, y: 0 },
+    { x: geometry.width, y: 0 },
+    { x: geometry.width, y: geometry.height },
+    { x: 0, y: geometry.height },
+  ].map(({ x, y }) => ({
+    x: geometry.origin.x + x * cosine - y * sine,
+    y: geometry.origin.y + x * sine + y * cosine,
+  }));
+}
+
+function dimensionOffsetPoints(
+  geometry: Extract<DrawingGeometry, { type: "dimension" }>,
+) {
+  const lineLength = distance(geometry.start, geometry.end);
+  const offsetX =
+    (-(geometry.end.y - geometry.start.y) / lineLength) * geometry.offset;
+  const offsetY =
+    ((geometry.end.x - geometry.start.x) / lineLength) * geometry.offset;
+  return [
+    { x: geometry.start.x + offsetX, y: geometry.start.y + offsetY },
+    { x: geometry.end.x + offsetX, y: geometry.end.y + offsetY },
+  ];
+}
+
+/** Canonical authored points that are meaningful object-snap targets. */
+export function geometrySnapPoints(geometry: DrawingGeometry): Point[] {
+  switch (geometry.type) {
+    case "line":
+      return [geometry.start, geometry.end];
+    case "polyline":
+      return geometry.points;
+    case "rectangle":
+      return rectangleCorners(geometry);
+    case "circle":
+      return [
+        geometry.center,
+        { x: geometry.center.x + geometry.radius, y: geometry.center.y },
+        { x: geometry.center.x, y: geometry.center.y + geometry.radius },
+        { x: geometry.center.x - geometry.radius, y: geometry.center.y },
+        { x: geometry.center.x, y: geometry.center.y - geometry.radius },
+      ];
+    case "text":
+      return [
+        geometry.origin,
+        { x: geometry.origin.x + geometry.width, y: geometry.origin.y },
+      ];
+    case "dimension":
+      return [geometry.start, geometry.end, ...dimensionOffsetPoints(geometry)];
+  }
+}
+
 export function worldToScreen(point: Point, view: Viewport): Point {
   return { x: point.x * view.zoom + view.x, y: point.y * view.zoom + view.y };
 }
@@ -193,19 +251,7 @@ export function geometryBounds(geometry: DrawingGeometry): Bounds {
           : geometry.points,
       );
     case "rectangle": {
-      const radians = (geometry.rotation * Math.PI) / 180;
-      const cosine = Math.cos(radians);
-      const sine = Math.sin(radians);
-      const corners = [
-        { x: 0, y: 0 },
-        { x: geometry.width, y: 0 },
-        { x: geometry.width, y: geometry.height },
-        { x: 0, y: geometry.height },
-      ].map(({ x, y }) => ({
-        x: geometry.origin.x + x * cosine - y * sine,
-        y: geometry.origin.y + x * sine + y * cosine,
-      }));
-      return boundsForPoints(corners);
+      return boundsForPoints(rectangleCorners(geometry));
     }
     case "circle":
       return {
@@ -222,16 +268,10 @@ export function geometryBounds(geometry: DrawingGeometry): Bounds {
         height: 0,
       };
     case "dimension": {
-      const lineLength = distance(geometry.start, geometry.end);
-      const offsetX =
-        (-(geometry.end.y - geometry.start.y) / lineLength) * geometry.offset;
-      const offsetY =
-        ((geometry.end.x - geometry.start.x) / lineLength) * geometry.offset;
       return boundsForPoints([
         geometry.start,
         geometry.end,
-        { x: geometry.start.x + offsetX, y: geometry.start.y + offsetY },
-        { x: geometry.end.x + offsetX, y: geometry.end.y + offsetY },
+        ...dimensionOffsetPoints(geometry),
       ]);
     }
   }

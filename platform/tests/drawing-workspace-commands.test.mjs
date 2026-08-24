@@ -658,6 +658,334 @@ test("repeat mode keeps the completed drawing tool active", () => {
   assert.equal(completed.nextTool, "line");
 });
 
+function controllerContext(overrides = {}) {
+  return {
+    activeTool: "line",
+    actorId: "actor-a",
+    calibrationId: null,
+    canEdit: true,
+    layerId: ids.layer,
+    objectId: "00000000-0000-4000-8000-000000000020",
+    repeatMode: false,
+    snap: {
+      gridSize: 10,
+      objectCandidates: [{ x: 21, y: 19 }],
+      tolerancePixels: 6,
+    },
+    viewport: { x: 100, y: 50, zoom: 2 },
+    ...overrides,
+  };
+}
+
+function controllerState(overrides = {}) {
+  return drawingTools.createDrawingToolControllerState(
+    controllerContext(overrides),
+  );
+}
+
+test("tool event adapter converts Stage-relative screen points to world points before canonical snap", () => {
+  let state = controllerState();
+  let result = drawingTools.drawingToolEventTransition(
+    state,
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 7,
+      screenPoint: { x: 104, y: 52 },
+      shiftKey: false,
+    },
+    controllerContext(),
+  );
+  state = result.state;
+  assert.deepEqual(state.session, {
+    tool: "line",
+    start: { x: 0, y: 0 },
+  });
+  result = drawingTools.drawingToolEventTransition(
+    state,
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 7,
+      screenPoint: { x: 140, y: 88 },
+      shiftKey: false,
+    },
+    controllerContext(),
+  );
+  assert.deepEqual(result.command.objects[0].geometry, {
+    type: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 21, y: 19 },
+  });
+});
+
+test("tool event adapter models drag preview and pointer capture through release", () => {
+  const context = controllerContext({
+    activeTool: "rectangle",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  let result = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(context),
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 9,
+      screenPoint: { x: 31, y: 39 },
+      shiftKey: false,
+    },
+    context,
+  );
+  assert.deepEqual(result.pointerCapture, { type: "set", pointerId: 9 });
+  result = drawingTools.drawingToolEventTransition(
+    result.state,
+    {
+      type: "pointer_move",
+      pointerId: 9,
+      screenPoint: { x: 2, y: 1 },
+      shiftKey: false,
+    },
+    context,
+  );
+  assert.deepEqual(result.state.previewPoint, { x: 0, y: 0 });
+  result = drawingTools.drawingToolEventTransition(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 9,
+      screenPoint: { x: 2, y: 1 },
+      shiftKey: false,
+    },
+    context,
+  );
+  assert.deepEqual(result.pointerCapture, { type: "release", pointerId: 9 });
+  assert.deepEqual(result.command.objects[0].geometry, {
+    type: "rectangle",
+    origin: { x: 0, y: 0 },
+    width: 30,
+    height: 40,
+    rotation: 0,
+  });
+});
+
+test("tool event adapter completes one polyline across click and double-click browser ordering", () => {
+  const context = controllerContext({
+    activeTool: "polyline",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  let state = drawingTools.createDrawingToolControllerState(context);
+  for (const [detail, screenPoint] of [
+    [1, { x: 1, y: 2 }],
+    [1, { x: 19, y: 18 }],
+    [1, { x: 31, y: 39 }],
+  ]) {
+    state = drawingTools.drawingToolEventTransition(
+      state,
+      {
+        type: "pointer_down",
+        button: 0,
+        detail,
+        pointerId: 1,
+        screenPoint,
+        shiftKey: false,
+      },
+      context,
+    ).state;
+  }
+  const completed = drawingTools.drawingToolEventTransition(
+    state,
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 2,
+      pointerId: 1,
+      screenPoint: { x: 31, y: 39 },
+      shiftKey: false,
+    },
+    context,
+  );
+  assert.deepEqual(completed.command.objects[0].geometry.points, [
+    { x: 0, y: 0 },
+    { x: 21, y: 19 },
+    { x: 30, y: 40 },
+  ]);
+  assert.equal(
+    drawingTools.drawingToolEventTransition(
+      completed.state,
+      { type: "double_click" },
+      context,
+    ).command,
+    null,
+  );
+});
+
+test("tool event adapter owns Enter, Backspace, Escape, and text submission", () => {
+  const polylineContext = controllerContext({
+    activeTool: "polyline",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  let state = drawingTools.createDrawingToolControllerState(polylineContext);
+  for (const screenPoint of [
+    { x: 0, y: 0 },
+    { x: 20, y: 20 },
+    { x: 30, y: 40 },
+  ]) {
+    state = drawingTools.drawingToolEventTransition(
+      state,
+      {
+        type: "pointer_down",
+        button: 0,
+        detail: 1,
+        pointerId: 1,
+        screenPoint,
+        shiftKey: false,
+      },
+      polylineContext,
+    ).state;
+  }
+  state = drawingTools.drawingToolEventTransition(
+    state,
+    { type: "key_down", key: "Backspace" },
+    polylineContext,
+  ).state;
+  assert.equal(state.session.points.length, 2);
+  const entered = drawingTools.drawingToolEventTransition(
+    state,
+    { type: "key_down", key: "Enter" },
+    polylineContext,
+  );
+  assert.equal(entered.command.objects[0].geometry.type, "polyline");
+
+  const escaped = drawingTools.drawingToolEventTransition(
+    drawingTools.drawingToolEventTransition(
+      controllerState(),
+      {
+        type: "pointer_down",
+        button: 0,
+        detail: 1,
+        pointerId: 1,
+        screenPoint: { x: 100, y: 50 },
+        shiftKey: false,
+      },
+      controllerContext(),
+    ).state,
+    { type: "key_down", key: "Escape" },
+    controllerContext(),
+  );
+  assert.deepEqual(escaped.state.session, { tool: "idle" });
+  assert.equal(escaped.command, null);
+  assert.equal(escaped.nextTool, "select");
+
+  const textContext = controllerContext({ activeTool: "text" });
+  const textStarted = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(textContext),
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 1,
+      screenPoint: { x: 100, y: 50 },
+      shiftKey: false,
+    },
+    textContext,
+  );
+  const textEntered = drawingTools.drawingToolEventTransition(
+    textStarted.state,
+    { type: "key_down", key: "Enter", text: "메모" },
+    textContext,
+  );
+  assert.equal(textEntered.command.objects[0].geometry.text, "메모");
+});
+
+test("edit downgrade invalidates a live tool session before any later commit", () => {
+  const context = controllerContext();
+  const started = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(context),
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 1,
+      screenPoint: { x: 100, y: 50 },
+      shiftKey: false,
+    },
+    context,
+  );
+  const downgradedContext = controllerContext({
+    canEdit: false,
+    layerId: null,
+  });
+  const invalidated = drawingTools.drawingToolEventTransition(
+    started.state,
+    { type: "sync_context" },
+    downgradedContext,
+  );
+  assert.deepEqual(invalidated.state.session, { tool: "idle" });
+  assert.equal(invalidated.state.previewPoint, null);
+  assert.equal(
+    drawingTools.drawingToolEventTransition(
+      started.state,
+      {
+        type: "pointer_down",
+        button: 0,
+        detail: 1,
+        pointerId: 1,
+        screenPoint: { x: 140, y: 90 },
+        shiftKey: false,
+      },
+      downgradedContext,
+    ).command,
+    null,
+  );
+});
+
+test("layer switch cancels drag and releases capture instead of committing into the new layer", () => {
+  const firstContext = controllerContext({
+    activeTool: "rectangle",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  const started = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(firstContext),
+    {
+      type: "pointer_down",
+      button: 0,
+      detail: 1,
+      pointerId: 12,
+      screenPoint: { x: 30, y: 40 },
+      shiftKey: false,
+    },
+    firstContext,
+  );
+  const secondContext = controllerContext({
+    activeTool: "rectangle",
+    layerId: "00000000-0000-4000-8000-000000000030",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  const invalidated = drawingTools.drawingToolEventTransition(
+    started.state,
+    { type: "sync_context" },
+    secondContext,
+  );
+  assert.deepEqual(invalidated.state.session, { tool: "idle" });
+  assert.deepEqual(invalidated.pointerCapture, {
+    type: "release",
+    pointerId: 12,
+  });
+  const released = drawingTools.drawingToolEventTransition(
+    invalidated.state,
+    {
+      type: "pointer_up",
+      pointerId: 12,
+      screenPoint: { x: 0, y: 0 },
+      shiftKey: false,
+    },
+    secondContext,
+  );
+  assert.equal(released.command, null);
+});
+
 test("command registry filters Korean labels and stable IDs case-insensitively", async () => {
   const menu = await vite.ssrLoadModule(
     "/app/lukas/components/drawing-command-menu.tsx",
@@ -710,6 +1038,10 @@ test("command menu Enter only runs the selected enabled command and Escape close
   assert.deepEqual(menu.resolveDrawingCommandMenuKey("Escape", commands, 1), {
     kind: "close",
   });
+  assert.deepEqual(menu.resolveDrawingCommandDialogKey("Escape"), {
+    kind: "close",
+  });
+  assert.equal(menu.resolveDrawingCommandDialogKey("Enter"), null);
 });
 
 test("editing context fails closed unless capability and an active layer both allow edits", async () => {

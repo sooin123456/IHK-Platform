@@ -4,6 +4,7 @@ import * as drawingGeometry from "../app/lukas/lib/drawing-geometry.ts";
 const {
   calibratePdf,
   geometryBounds,
+  geometrySnapPoints,
   screenToWorld,
   snapWorldPoint,
   worldToScreen,
@@ -315,5 +316,95 @@ test("object snapping wins ties and leaves distant points unchanged", () => {
       zoom: 1,
     }),
     { point: { x: 126, y: 126 }, kind: null },
+  );
+});
+
+function assertPointClose(actual, expected) {
+  assert.ok(Math.abs(actual.x - expected.x) < 1e-9);
+  assert.ok(Math.abs(actual.y - expected.y) < 1e-9);
+}
+
+test("rectangle snap points are its real rotated corners", () => {
+  const rightAngle = geometrySnapPoints({
+    type: "rectangle",
+    origin: { x: 10, y: 20 },
+    width: 4,
+    height: 2,
+    rotation: 90,
+  });
+  const expectedRightAngle = [
+    { x: 10, y: 20 },
+    { x: 10, y: 24 },
+    { x: 8, y: 24 },
+    { x: 8, y: 20 },
+  ];
+  rightAngle.forEach((point, index) =>
+    assertPointClose(point, expectedRightAngle[index]),
+  );
+  assert.equal(
+    rightAngle.some((point) => point.x === 14 && point.y === 20),
+    false,
+  );
+
+  const diagonal = geometrySnapPoints({
+    type: "rectangle",
+    origin: { x: 1, y: 2 },
+    width: 2,
+    height: 2,
+    rotation: 45,
+  });
+  const rootTwo = Math.sqrt(2);
+  const expectedDiagonal = [
+    { x: 1, y: 2 },
+    { x: 1 + rootTwo, y: 2 + rootTwo },
+    { x: 1, y: 2 + 2 * rootTwo },
+    { x: 1 - rootTwo, y: 2 + rootTwo },
+  ];
+  diagonal.forEach((point, index) =>
+    assertPointClose(point, expectedDiagonal[index]),
+  );
+});
+
+test("snap points expose meaningful canonical points for every geometry", () => {
+  assert.deepEqual(
+    geometrySnapPoints({
+      type: "circle",
+      center: { x: 5, y: 6 },
+      radius: 2,
+    }),
+    [
+      { x: 5, y: 6 },
+      { x: 7, y: 6 },
+      { x: 5, y: 8 },
+      { x: 3, y: 6 },
+      { x: 5, y: 4 },
+    ],
+  );
+  assert.deepEqual(
+    geometrySnapPoints({
+      type: "text",
+      origin: { x: 2, y: 3 },
+      width: 5,
+      text: "note",
+    }),
+    [
+      { x: 2, y: 3 },
+      { x: 7, y: 3 },
+    ],
+  );
+  assert.deepEqual(
+    geometrySnapPoints({
+      type: "dimension",
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 0 },
+      offset: 4,
+      calibrationId: null,
+    }),
+    [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 0, y: 4 },
+      { x: 10, y: 4 },
+    ],
   );
 });

@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -24,6 +25,7 @@ import {
 import {
   drawingCanvasCursor,
   drawingPanGestureTransition,
+  geometrySnapPoints,
   screenToWorld,
   snapWorldPoint,
   worldToScreen,
@@ -288,6 +290,345 @@ export function cancelDrawingToolSession(): DrawingToolResult {
   return { command: null, nextTool: "select", session: { tool: "idle" } };
 }
 
+export type DrawingToolControllerContext = {
+  activeTool: DrawingTool;
+  actorId: string;
+  calibrationId: string | null;
+  canEdit: boolean;
+  layerId: string | null;
+  objectId: string;
+  repeatMode: boolean;
+  snap: Omit<DrawingSnapContext, "zoom">;
+  viewport: Viewport;
+};
+
+export type DrawingToolControllerState = {
+  activeTool: DrawingTool;
+  canEdit: boolean;
+  dragPointerId: number | null;
+  editLayerId: string | null;
+  previewPoint: Point | null;
+  session: ToolSession;
+};
+
+export type DrawingPointerCaptureIntent = {
+  type: "set" | "release";
+  pointerId: number;
+};
+
+export type DrawingToolControllerEvent =
+  | { type: "sync_context" }
+  | {
+      type: "pointer_down";
+      button: number;
+      detail: number;
+      pointerId: number;
+      screenPoint: Point;
+      shiftKey: boolean;
+    }
+  | {
+      type: "pointer_move";
+      pointerId: number;
+      screenPoint: Point;
+      shiftKey: boolean;
+    }
+  | {
+      type: "pointer_up";
+      pointerId: number;
+      screenPoint: Point;
+      shiftKey: boolean;
+    }
+  | { type: "pointer_cancel"; pointerId: number }
+  | { type: "double_click" }
+  | { type: "key_down"; key: string; text?: string };
+
+export type DrawingToolControllerResult = {
+  command: Extract<DrawingCommand, { type: "add_objects" }> | null;
+  nextTool: DrawingTool | null;
+  pointerCapture: DrawingPointerCaptureIntent | null;
+  state: DrawingToolControllerState;
+};
+
+function authorizedLayer(context: DrawingToolControllerContext) {
+  return context.canEdit ? context.layerId : null;
+}
+
+export function createDrawingToolControllerState(
+  context: DrawingToolControllerContext,
+): DrawingToolControllerState {
+  return {
+    activeTool: context.activeTool,
+    canEdit: context.canEdit,
+    dragPointerId: null,
+    editLayerId: authorizedLayer(context),
+    previewPoint: null,
+    session: { tool: "idle" },
+  };
+}
+
+function controllerResult(
+  state: DrawingToolControllerState,
+  changes: Partial<
+    Omit<DrawingToolControllerResult, "state"> & {
+      state: DrawingToolControllerState;
+    }
+  > = {},
+): DrawingToolControllerResult {
+  return {
+    command: null,
+    nextTool: null,
+    pointerCapture: null,
+    state,
+    ...changes,
+  };
+}
+
+function synchronizedController(
+  state: DrawingToolControllerState,
+  context: DrawingToolControllerContext,
+) {
+  const changed =
+    state.activeTool !== context.activeTool ||
+    state.canEdit !== context.canEdit ||
+    state.editLayerId !== authorizedLayer(context);
+  if (!changed) return { changed: false, result: controllerResult(state) };
+  return {
+    changed: true,
+    result: controllerResult(createDrawingToolControllerState(context), {
+      nextTool: context.canEdit ? null : "select",
+      pointerCapture:
+        state.dragPointerId === null
+          ? null
+          : { type: "release", pointerId: state.dragPointerId },
+    }),
+  };
+}
+
+function controllerSnapContext(
+  context: DrawingToolControllerContext,
+): DrawingSnapContext {
+  return { ...context.snap, zoom: context.viewport.zoom };
+}
+
+function controllerCommitOptions(
+  context: DrawingToolControllerContext,
+  constrain = false,
+  text?: string,
+): DrawingCommitOptions | null {
+  const layerId = authorizedLayer(context);
+  if (!layerId) return null;
+  return {
+    actorId: context.actorId,
+    calibrationId: context.calibrationId,
+    constrain,
+    layerId,
+    objectId: context.objectId,
+    repeatMode: context.repeatMode,
+    snap: controllerSnapContext(context),
+    text,
+  };
+}
+
+function completedControllerResult(
+  state: DrawingToolControllerState,
+  completed: DrawingToolResult,
+  pointerCapture: DrawingPointerCaptureIntent | null = null,
+) {
+  return controllerResult(
+    {
+      ...state,
+      dragPointerId: null,
+      previewPoint: null,
+      session: completed.session,
+    },
+    {
+      command: completed.command,
+      nextTool: completed.nextTool,
+      pointerCapture,
+    },
+  );
+}
+
+function controllerWorldPoint(
+  screenPoint: Point,
+  context: DrawingToolControllerContext,
+) {
+  return screenToWorld(screenPoint, context.viewport);
+}
+
+export function drawingToolEventTransition(
+  state: DrawingToolControllerState,
+  event: DrawingToolControllerEvent,
+  context: DrawingToolControllerContext,
+): DrawingToolControllerResult {
+  const synchronized = synchronizedController(state, context);
+  if (event.type === "sync_context" || synchronized.changed)
+    return synchronized.result;
+  if (!context.canEdit || !context.layerId)
+    return controllerResult(createDrawingToolControllerState(context));
+
+  const snap = controllerSnapContext(context);
+  if (event.type === "pointer_down") {
+    if (
+      event.button !== 0 ||
+      context.activeTool === "select" ||
+      context.activeTool === "pan"
+    )
+      return controllerResult(state);
+    const worldPoint = controllerWorldPoint(event.screenPoint, context);
+    if (context.activeTool === "text") {
+      return controllerResult({
+        ...state,
+        previewPoint: null,
+        session: beginDrawingToolSession("text", worldPoint, snap),
+      });
+    }
+    if (context.activeTool === "polyline") {
+      if (event.detail >= 2 && state.session.tool === "polyline") {
+        const options = controllerCommitOptions(context);
+        return options
+          ? completedControllerResult(
+              state,
+              completeDrawingToolSession(state.session, options),
+            )
+          : controllerResult(state);
+      }
+      if (state.session.tool === "polyline") {
+        const options = controllerCommitOptions(context);
+        if (!options) return controllerResult(state);
+        const added = commitDrawingPoint(state.session, worldPoint, options);
+        return controllerResult({
+          ...state,
+          previewPoint: null,
+          session: added.session,
+        });
+      }
+      return controllerResult({
+        ...state,
+        previewPoint: null,
+        session: beginDrawingToolSession("polyline", worldPoint, snap),
+      });
+    }
+    if (context.activeTool === "line" || context.activeTool === "dimension") {
+      if (state.session.tool === context.activeTool) {
+        const options = controllerCommitOptions(context, event.shiftKey);
+        return options
+          ? completedControllerResult(
+              state,
+              commitDrawingPoint(state.session, worldPoint, options),
+            )
+          : controllerResult(state);
+      }
+      return controllerResult({
+        ...state,
+        previewPoint: null,
+        session: beginDrawingToolSession(context.activeTool, worldPoint, snap),
+      });
+    }
+    return controllerResult(
+      {
+        ...state,
+        dragPointerId: event.pointerId,
+        previewPoint: null,
+        session: beginDrawingToolSession(context.activeTool, worldPoint, snap),
+      },
+      { pointerCapture: { type: "set", pointerId: event.pointerId } },
+    );
+  }
+
+  if (event.type === "pointer_move") {
+    if (
+      state.session.tool === "idle" ||
+      state.session.tool === "text" ||
+      (state.dragPointerId !== null && state.dragPointerId !== event.pointerId)
+    )
+      return controllerResult(state);
+    let candidate = controllerWorldPoint(event.screenPoint, context);
+    if (
+      event.shiftKey &&
+      (state.session.tool === "line" || state.session.tool === "dimension")
+    ) {
+      candidate = constrainTo45Degrees(state.session.start, candidate);
+    }
+    return controllerResult({
+      ...state,
+      previewPoint: snapPoint(candidate, snap),
+    });
+  }
+
+  if (event.type === "pointer_up") {
+    if (
+      state.dragPointerId !== event.pointerId ||
+      (state.session.tool !== "rectangle" && state.session.tool !== "circle")
+    )
+      return controllerResult(state);
+    const options = controllerCommitOptions(context, event.shiftKey);
+    if (!options) return controllerResult(state);
+    return completedControllerResult(
+      state,
+      commitDrawingPoint(
+        state.session,
+        controllerWorldPoint(event.screenPoint, context),
+        options,
+      ),
+      { type: "release", pointerId: event.pointerId },
+    );
+  }
+
+  if (event.type === "pointer_cancel") {
+    const pointerCapture =
+      state.dragPointerId === event.pointerId
+        ? { type: "release" as const, pointerId: event.pointerId }
+        : null;
+    return controllerResult(createDrawingToolControllerState(context), {
+      nextTool: state.session.tool === "idle" ? null : "select",
+      pointerCapture,
+    });
+  }
+
+  if (event.type === "double_click") {
+    if (state.session.tool !== "polyline") return controllerResult(state);
+    const options = controllerCommitOptions(context);
+    return options
+      ? completedControllerResult(
+          state,
+          completeDrawingToolSession(state.session, options),
+        )
+      : controllerResult(state);
+  }
+
+  if (event.key === "Escape") {
+    const cancelled = cancelDrawingToolSession();
+    return completedControllerResult(
+      state,
+      cancelled,
+      state.dragPointerId === null
+        ? null
+        : { type: "release", pointerId: state.dragPointerId },
+    );
+  }
+  if (event.key === "Backspace" && state.session.tool === "polyline") {
+    return controllerResult({
+      ...state,
+      previewPoint: null,
+      session: removeLastPolylinePoint(state.session),
+    });
+  }
+  if (
+    event.key === "Enter" &&
+    (state.session.tool === "polyline" || state.session.tool === "text")
+  ) {
+    const options = controllerCommitOptions(context, false, event.text);
+    return options
+      ? completedControllerResult(
+          state,
+          completeDrawingToolSession(state.session, options),
+        )
+      : controllerResult(state);
+  }
+  return controllerResult(state);
+}
+
 export function dimensionLabel(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
   calibration?: DimensionCalibrationEvidence | null,
@@ -439,31 +780,6 @@ function isCancelled(error: unknown) {
   );
 }
 
-function objectSnapPoints(object: DrawingObject): Point[] {
-  const geometry = object.geometry;
-  switch (geometry.type) {
-    case "line":
-    case "dimension":
-      return [geometry.start, geometry.end];
-    case "polyline":
-      return geometry.points;
-    case "rectangle":
-      return [
-        geometry.origin,
-        { x: geometry.origin.x + geometry.width, y: geometry.origin.y },
-        { x: geometry.origin.x, y: geometry.origin.y + geometry.height },
-        {
-          x: geometry.origin.x + geometry.width,
-          y: geometry.origin.y + geometry.height,
-        },
-      ];
-    case "circle":
-      return [geometry.center];
-    case "text":
-      return [geometry.origin];
-  }
-}
-
 function geometryShape(
   geometry: DrawingGeometry,
   style: DrawingObject["style"],
@@ -579,6 +895,41 @@ function geometryShape(
   }
 }
 
+type CommittedDrawingLayerProps = {
+  calibration: DimensionCalibrationEvidence | null;
+  objects: DrawingObject[];
+  viewportX: number;
+  viewportY: number;
+  viewportZoom: number;
+};
+
+// The workspace keeps `objects` and `calibration` identities stable. Passing
+// viewport primitives limits this memo boundary to actual committed-layer work.
+const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
+  calibration,
+  objects,
+  viewportX,
+  viewportY,
+  viewportZoom,
+}: CommittedDrawingLayerProps) {
+  return (
+    <Layer
+      listening={false}
+      name="drawing-objects"
+      scaleX={viewportZoom}
+      scaleY={viewportZoom}
+      x={viewportX}
+      y={viewportY}
+    >
+      {objects.map((object) => (
+        <Group key={object.id} listening={false}>
+          {geometryShape(object.geometry, object.style, false, calibration)}
+        </Group>
+      ))}
+    </Layer>
+  );
+});
+
 function previewGeometry(
   session: ToolSession,
   point: Point | null,
@@ -656,11 +1007,32 @@ export const DrawingCanvas = forwardRef<
   const fitPendingRef = useRef(true);
   const panGestureRef = useRef<DrawingPanGesture | null>(null);
   const spacePressedRef = useRef(false);
-  const toolSessionRef = useRef<ToolSession>({ tool: "idle" });
+  const capturedPointerTargetRef = useRef<HTMLElement | null>(null);
+  const objectCandidates = useMemo(
+    () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
+    [objects],
+  );
+  const [controllerState, setControllerState] =
+    useState<DrawingToolControllerState>(() =>
+      createDrawingToolControllerState({
+        activeTool,
+        actorId,
+        calibrationId,
+        canEdit,
+        layerId,
+        objectId: "",
+        repeatMode,
+        snap: {
+          gridSize: BASE_GRID_SIZE,
+          objectCandidates,
+          tolerancePixels: 8,
+        },
+        viewport: viewportRef.current,
+      }),
+    );
+  const controllerRef = useRef(controllerState);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panGesture, setPanGesture] = useState<DrawingPanGesture | null>(null);
-  const [toolSession, setToolSession] = useState<ToolSession>({ tool: "idle" });
-  const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const [textValue, setTextValue] = useState("");
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [viewport, setViewportState] = useState<Viewport>(viewportRef.current);
@@ -669,6 +1041,36 @@ export const DrawingCanvas = forwardRef<
     bounds: { x: number; y: number; width: number; height: number };
   } | null>(null);
   const [pdfMessage, setPdfMessage] = useState("");
+  const toolContextRef = useRef<DrawingToolControllerContext>({
+    activeTool,
+    actorId,
+    calibrationId,
+    canEdit,
+    layerId,
+    objectId: "",
+    repeatMode,
+    snap: {
+      gridSize: BASE_GRID_SIZE,
+      objectCandidates,
+      tolerancePixels: 8,
+    },
+    viewport: viewportRef.current,
+  });
+  toolContextRef.current = {
+    activeTool,
+    actorId,
+    calibrationId,
+    canEdit,
+    layerId,
+    objectId: "",
+    repeatMode,
+    snap: {
+      gridSize: BASE_GRID_SIZE,
+      objectCandidates,
+      tolerancePixels: 8,
+    },
+    viewport,
+  };
 
   const setViewport = useCallback(
     (next: Viewport) => {
@@ -796,33 +1198,68 @@ export const DrawingCanvas = forwardRef<
     background.width,
   ]);
 
+  const applyToolControllerResult = useCallback(
+    (result: DrawingToolControllerResult, target?: HTMLElement | null) => {
+      const previousSession = controllerRef.current.session;
+      const captureTarget = target ?? capturedPointerTargetRef.current;
+      if (result.pointerCapture?.type === "set") {
+        captureTarget?.setPointerCapture?.(result.pointerCapture.pointerId);
+        capturedPointerTargetRef.current = captureTarget ?? null;
+      } else if (result.pointerCapture?.type === "release") {
+        if (captureTarget?.hasPointerCapture?.(result.pointerCapture.pointerId))
+          captureTarget.releasePointerCapture(result.pointerCapture.pointerId);
+        capturedPointerTargetRef.current = null;
+      }
+      if (result.state !== controllerRef.current) {
+        controllerRef.current = result.state;
+        setControllerState(result.state);
+      }
+      if (
+        result.state.session.tool !== "text" ||
+        result.state.session !== previousSession
+      )
+        setTextValue("");
+      if (result.command) onCommand(result.command);
+      if (result.nextTool) onToolComplete(result.nextTool);
+    },
+    [onCommand, onToolComplete],
+  );
+
   useEffect(
     () => () => {
       spacePressedRef.current = false;
       panGestureRef.current = null;
+      const target = capturedPointerTargetRef.current;
+      const pointerId = controllerRef.current.dragPointerId;
+      if (pointerId !== null && target?.hasPointerCapture?.(pointerId))
+        target.releasePointerCapture(pointerId);
+      capturedPointerTargetRef.current = null;
     },
     [],
   );
 
   useEffect(() => {
-    toolSessionRef.current = { tool: "idle" };
-    setToolSession({ tool: "idle" });
-    setPreviewPoint(null);
-    setTextValue("");
-  }, [activeTool]);
+    applyToolControllerResult(
+      drawingToolEventTransition(
+        controllerRef.current,
+        { type: "sync_context" },
+        toolContextRef.current,
+      ),
+    );
+  }, [activeTool, applyToolControllerResult, canEdit, layerId]);
 
   const grid = useMemo(() => visibleGrid(size, viewport), [size, viewport]);
-  const objectCandidates = useMemo(
-    () => objects.flatMap(objectSnapPoints),
-    [objects],
-  );
   const cursor =
     activeTool === "select" || activeTool === "pan"
       ? drawingCanvasCursor(activeTool, spacePressed, panGesture !== null)
       : spacePressed
         ? drawingCanvasCursor("select", true, panGesture !== null)
         : "crosshair";
-  const preview = previewGeometry(toolSession, previewPoint, calibrationId);
+  const preview = previewGeometry(
+    controllerState.session,
+    controllerState.previewPoint,
+    calibrationId,
+  );
   const previewStyle: DrawingObject["style"] = {
     stroke: "#60a5fa",
     strokeWidth: 2 / viewport.zoom,
@@ -830,62 +1267,21 @@ export const DrawingCanvas = forwardRef<
     fontSize: 14,
   };
   const textPosition =
-    toolSession.tool === "text"
-      ? worldToScreen(toolSession.origin, viewport)
+    controllerState.session.tool === "text"
+      ? worldToScreen(controllerState.session.origin, viewport)
       : null;
 
-  function setSession(session: ToolSession) {
-    toolSessionRef.current = session;
-    setToolSession(session);
-  }
-
-  function setPreview(point: Point | null) {
-    setPreviewPoint(point);
-  }
-
-  function snapContext(): DrawingSnapContext {
-    return {
-      gridSize: BASE_GRID_SIZE,
-      objectCandidates,
-      tolerancePixels: 8,
-      zoom: viewportRef.current.zoom,
-    };
-  }
-
-  function eventWorldPoint(event: KonvaEventObject<PointerEvent | MouseEvent>) {
-    const pointer = event.target.getStage()?.getPointerPosition();
-    return pointer ? screenToWorld(pointer, viewportRef.current) : null;
-  }
-
-  function commitOptions(
-    constrain = false,
-    text?: string,
-  ): DrawingCommitOptions | null {
-    if (!canEdit || !layerId) return null;
-    return {
-      actorId,
-      calibrationId,
-      constrain,
-      layerId,
+  function runToolEvent(
+    event: DrawingToolControllerEvent,
+    target?: HTMLElement | null,
+  ) {
+    const result = drawingToolEventTransition(controllerRef.current, event, {
+      ...toolContextRef.current,
       objectId: crypto.randomUUID(),
-      repeatMode,
-      snap: snapContext(),
-      text,
-    };
-  }
-
-  function finishTool(result: DrawingToolResult) {
-    setSession(result.session);
-    setPreview(null);
-    setTextValue("");
-    if (result.command) onCommand(result.command);
-    onToolComplete(result.nextTool);
-  }
-
-  function completeCurrentTool(text?: string) {
-    const options = commitOptions(false, text);
-    if (!options) return;
-    finishTool(completeDrawingToolSession(toolSessionRef.current, options));
+      viewport: viewportRef.current,
+    });
+    applyToolControllerResult(result, target);
+    return result;
   }
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
@@ -912,49 +1308,26 @@ export const DrawingCanvas = forwardRef<
   function beginDrawing(event: KonvaEventObject<PointerEvent>) {
     beginPan(event);
     if (panGestureRef.current || event.evt.button !== 0) return;
-    if (!canEdit || !layerId || activeTool === "select" || activeTool === "pan")
-      return;
-    const point = eventWorldPoint(event);
-    if (!point) return;
-    const session = toolSessionRef.current;
-    if (activeTool === "text") {
-      setSession(beginDrawingToolSession("text", point, snapContext()));
-      setTextValue("");
-      return;
-    }
-    if (activeTool === "polyline") {
-      if (event.evt.detail >= 2 && session.tool === "polyline") {
-        completeCurrentTool();
-        return;
-      }
-      if (session.tool === "polyline") {
-        const options = commitOptions();
-        if (!options) return;
-        const result = commitDrawingPoint(session, point, options);
-        setSession(result.session);
-      } else {
-        setSession(beginDrawingToolSession("polyline", point, snapContext()));
-      }
-      return;
-    }
-    if (activeTool === "line" || activeTool === "dimension") {
-      if (session.tool === activeTool) {
-        const options = commitOptions(event.evt.shiftKey);
-        if (options) finishTool(commitDrawingPoint(session, point, options));
-      } else {
-        setSession(beginDrawingToolSession(activeTool, point, snapContext()));
-      }
-      return;
-    }
-    setSession(beginDrawingToolSession(activeTool, point, snapContext()));
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) return;
     const target = event.evt.currentTarget as HTMLElement | null;
-    target?.setPointerCapture?.(event.evt.pointerId);
+    runToolEvent(
+      {
+        type: "pointer_down",
+        button: event.evt.button,
+        detail: event.evt.detail,
+        pointerId: event.evt.pointerId,
+        screenPoint: pointer,
+        shiftKey: event.evt.shiftKey,
+      },
+      target,
+    );
   }
 
   function onDoubleClick(event: KonvaEventObject<MouseEvent>) {
     if (activeTool !== "polyline") return;
     event.evt.preventDefault();
-    if (toolSessionRef.current.tool === "polyline") completeCurrentTool();
+    runToolEvent({ type: "double_click" });
   }
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
@@ -965,18 +1338,14 @@ export const DrawingCanvas = forwardRef<
     });
     if (result.viewport) setViewport(result.viewport);
     if (result.viewport || panGestureRef.current) return;
-    const session = toolSessionRef.current;
-    if (session.tool === "idle" || session.tool === "text") return;
-    const point = eventWorldPoint(event);
-    if (!point) return;
-    let candidate = point;
-    if (
-      event.evt.shiftKey &&
-      (session.tool === "line" || session.tool === "dimension")
-    ) {
-      candidate = constrainTo45Degrees(session.start, candidate);
-    }
-    setPreview(snapPoint(candidate, snapContext()));
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) return;
+    runToolEvent({
+      type: "pointer_move",
+      pointerId: event.evt.pointerId,
+      screenPoint: pointer,
+      shiftKey: event.evt.shiftKey,
+    });
   }
 
   function endPan(
@@ -1001,15 +1370,18 @@ export const DrawingCanvas = forwardRef<
       endPan(event, "end");
       return;
     }
-    const session = toolSessionRef.current;
-    if (session.tool !== "rectangle" && session.tool !== "circle") return;
-    const point = eventWorldPoint(event);
-    const options = commitOptions();
-    if (!point || !options) return;
-    finishTool(commitDrawingPoint(session, point, options));
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) return;
     const target = event.evt.currentTarget as HTMLElement | null;
-    if (target?.hasPointerCapture?.(event.evt.pointerId))
-      target.releasePointerCapture(event.evt.pointerId);
+    runToolEvent(
+      {
+        type: "pointer_up",
+        pointerId: event.evt.pointerId,
+        screenPoint: pointer,
+        shiftKey: event.evt.shiftKey,
+      },
+      target,
+    );
   }
 
   return (
@@ -1026,25 +1398,14 @@ export const DrawingCanvas = forwardRef<
         setPanGesture(result.gesture);
       }}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && toolSessionRef.current.tool !== "idle") {
-          event.preventDefault();
-          finishTool(cancelDrawingToolSession());
-          return;
-        }
         if (
-          event.key === "Enter" &&
-          toolSessionRef.current.tool === "polyline"
+          (event.key === "Escape" ||
+            event.key === "Enter" ||
+            event.key === "Backspace") &&
+          controllerRef.current.session.tool !== "idle"
         ) {
           event.preventDefault();
-          completeCurrentTool();
-          return;
-        }
-        if (
-          event.key === "Backspace" &&
-          toolSessionRef.current.tool === "polyline"
-        ) {
-          event.preventDefault();
-          setSession(removeLastPolylinePoint(toolSessionRef.current));
+          runToolEvent({ type: "key_down", key: event.key });
           return;
         }
         if (event.code === "Space") {
@@ -1069,8 +1430,10 @@ export const DrawingCanvas = forwardRef<
           onDblClick={onDoubleClick}
           onPointerCancel={(event) => {
             endPan(event, "cancel");
-            if (toolSessionRef.current.tool !== "idle")
-              finishTool(cancelDrawingToolSession());
+            runToolEvent(
+              { type: "pointer_cancel", pointerId: event.evt.pointerId },
+              event.evt.currentTarget as HTMLElement | null,
+            );
           }}
           onPointerDown={beginDrawing}
           onPointerMove={continuePan}
@@ -1155,25 +1518,13 @@ export const DrawingCanvas = forwardRef<
               />
             ))}
           </Layer>
-          <Layer
-            listening={false}
-            name="drawing-objects"
-            scaleX={viewport.zoom}
-            scaleY={viewport.zoom}
-            x={viewport.x}
-            y={viewport.y}
-          >
-            {objects.map((object) => (
-              <Group key={object.id} listening={false}>
-                {geometryShape(
-                  object.geometry,
-                  object.style,
-                  false,
-                  calibration,
-                )}
-              </Group>
-            ))}
-          </Layer>
+          <CommittedDrawingLayer
+            calibration={calibration}
+            objects={objects}
+            viewportX={viewport.x}
+            viewportY={viewport.y}
+            viewportZoom={viewport.zoom}
+          />
           <Layer
             listening={false}
             name="drawing-preview"
@@ -1193,7 +1544,11 @@ export const DrawingCanvas = forwardRef<
           className="absolute z-10"
           onSubmit={(event) => {
             event.preventDefault();
-            completeCurrentTool(textValue);
+            runToolEvent({
+              type: "key_down",
+              key: "Enter",
+              text: textValue,
+            });
           }}
           style={{ left: textPosition.x, top: textPosition.y }}
         >
@@ -1211,7 +1566,7 @@ export const DrawingCanvas = forwardRef<
               event.stopPropagation();
               if (event.key !== "Escape") return;
               event.preventDefault();
-              finishTool(cancelDrawingToolSession());
+              runToolEvent({ type: "key_down", key: "Escape" });
             }}
             placeholder="텍스트 입력 후 Enter"
             value={textValue}
