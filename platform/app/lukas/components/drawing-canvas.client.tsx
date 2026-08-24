@@ -25,6 +25,7 @@ import {
 import {
   drawingCanvasCursor,
   drawingPanGestureTransition,
+  geometryBounds,
   geometrySnapPoints,
   screenToWorld,
   snapWorldPoint,
@@ -32,7 +33,11 @@ import {
   zoomViewportAroundPointer,
   type DrawingPanGesture,
 } from "~/lukas/lib/drawing-geometry";
-import type { DrawingCommand } from "~/lukas/lib/drawing-commands";
+import {
+  moveDrawingSelection,
+  translateDrawingGeometry,
+  type DrawingCommand,
+} from "~/lukas/lib/drawing-commands";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
   openPdfDocument,
@@ -41,6 +46,7 @@ import {
 } from "~/lukas/lib/pdf-page-renderer.client";
 import type {
   DrawingGeometry,
+  DrawingLayer,
   DrawingObject,
   Point,
   Viewport,
@@ -624,6 +630,289 @@ export function drawingToolEventTransition(
   return controllerResult(state);
 }
 
+export type DrawingSelectionState = {
+  selectedIds: string[];
+  marquee: {
+    pointerId: number;
+    start: Point;
+    current: Point;
+    additive: boolean;
+    initialSelectedIds: string[];
+  } | null;
+  drag: { pointerId: number; start: Point } | null;
+  previewDelta: Point;
+};
+
+export type DrawingSelectionContext = {
+  actorId: string;
+  canEdit: boolean;
+  layers: Record<string, DrawingLayer>;
+  objects: Record<string, DrawingObject>;
+  snap: { gridSize: number };
+  viewport: Viewport;
+};
+
+export type DrawingSelectionEvent =
+  | { type: "sync_context" }
+  | {
+      type: "pointer_down";
+      candidateId: string | null;
+      pointerId: number;
+      screenPoint: Point;
+      shiftKey: boolean;
+    }
+  | { type: "pointer_move"; pointerId: number; screenPoint: Point }
+  | { type: "pointer_up"; pointerId: number; screenPoint: Point }
+  | { type: "pointer_cancel"; pointerId: number };
+
+export type DrawingSelectionResult = {
+  command: Extract<DrawingCommand, { type: "update_objects" }> | null;
+  state: DrawingSelectionState;
+};
+
+export function createDrawingSelectionState(
+  selectedIds: string[] = [],
+): DrawingSelectionState {
+  return {
+    selectedIds: [...new Set(selectedIds)],
+    marquee: null,
+    drag: null,
+    previewDelta: { x: 0, y: 0 },
+  };
+}
+
+function selectableDrawingObject(
+  context: DrawingSelectionContext,
+  objectId: string,
+) {
+  const object = context.objects[objectId];
+  const layer = object ? context.layers[object.layerId] : undefined;
+  return object && layer?.visible && !layer.locked ? object : null;
+}
+
+function pointInBounds(
+  point: Point,
+  bounds: ReturnType<typeof geometryBounds>,
+) {
+  return (
+    point.x >= bounds.x &&
+    point.x <= bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y <= bounds.y + bounds.height
+  );
+}
+
+function normalizedBounds(first: Point, second: Point) {
+  return {
+    x: Math.min(first.x, second.x),
+    y: Math.min(first.y, second.y),
+    width: Math.abs(second.x - first.x),
+    height: Math.abs(second.y - first.y),
+  };
+}
+
+function boundsIntersect(
+  first: ReturnType<typeof normalizedBounds>,
+  second: ReturnType<typeof geometryBounds>,
+) {
+  return (
+    first.x <= second.x + second.width &&
+    first.x + first.width >= second.x &&
+    first.y <= second.y + second.height &&
+    first.y + first.height >= second.y
+  );
+}
+
+function snappedDragDelta(
+  start: Point,
+  current: Point,
+  gridSize: number,
+): Point {
+  const delta = { x: current.x - start.x, y: current.y - start.y };
+  if (!Number.isFinite(gridSize) || gridSize <= 0) return delta;
+  return {
+    x: Math.round(delta.x / gridSize) * gridSize,
+    y: Math.round(delta.y / gridSize) * gridSize,
+  };
+}
+
+function selectionPointerMove(
+  state: DrawingSelectionState,
+  pointerId: number,
+  screenPoint: Point,
+  context: DrawingSelectionContext,
+): DrawingSelectionState {
+  const worldPoint = screenToWorld(screenPoint, context.viewport);
+  if (state.drag?.pointerId === pointerId) {
+    return {
+      ...state,
+      previewDelta: snappedDragDelta(
+        state.drag.start,
+        worldPoint,
+        context.snap.gridSize,
+      ),
+    };
+  }
+  if (state.marquee?.pointerId === pointerId) {
+    return {
+      ...state,
+      marquee: { ...state.marquee, current: worldPoint },
+    };
+  }
+  return state;
+}
+
+/** Pure selection gesture adapter; renderer nodes are only candidate hints. */
+export function drawingSelectionEventTransition(
+  state: DrawingSelectionState,
+  event: DrawingSelectionEvent,
+  context: DrawingSelectionContext,
+): DrawingSelectionResult {
+  if (event.type === "sync_context") {
+    return {
+      command: null,
+      state: {
+        ...state,
+        selectedIds: state.selectedIds.filter((objectId) =>
+          Boolean(selectableDrawingObject(context, objectId)),
+        ),
+        drag: context.canEdit ? state.drag : null,
+        previewDelta: context.canEdit ? state.previewDelta : { x: 0, y: 0 },
+      },
+    };
+  }
+  if (event.type === "pointer_cancel") {
+    if (
+      state.drag?.pointerId !== event.pointerId &&
+      state.marquee?.pointerId !== event.pointerId
+    )
+      return { command: null, state };
+    return {
+      command: null,
+      state: {
+        ...state,
+        drag: null,
+        marquee: null,
+        previewDelta: { x: 0, y: 0 },
+      },
+    };
+  }
+  if (event.type === "pointer_move") {
+    return {
+      command: null,
+      state: selectionPointerMove(
+        state,
+        event.pointerId,
+        event.screenPoint,
+        context,
+      ),
+    };
+  }
+  if (event.type === "pointer_down") {
+    const point = screenToWorld(event.screenPoint, context.viewport);
+    if (event.candidateId !== null) {
+      const candidate = selectableDrawingObject(context, event.candidateId);
+      if (
+        !candidate ||
+        !pointInBounds(point, geometryBounds(candidate.geometry))
+      )
+        return { command: null, state };
+      const alreadySelected = state.selectedIds.includes(candidate.id);
+      const selectedIds = event.shiftKey
+        ? alreadySelected
+          ? state.selectedIds.filter((objectId) => objectId !== candidate.id)
+          : [...state.selectedIds, candidate.id]
+        : alreadySelected
+          ? state.selectedIds
+          : [candidate.id];
+      return {
+        command: null,
+        state: {
+          selectedIds,
+          marquee: null,
+          drag:
+            context.canEdit && selectedIds.includes(candidate.id)
+              ? { pointerId: event.pointerId, start: point }
+              : null,
+          previewDelta: { x: 0, y: 0 },
+        },
+      };
+    }
+    return {
+      command: null,
+      state: {
+        ...state,
+        marquee: {
+          pointerId: event.pointerId,
+          start: point,
+          current: point,
+          additive: event.shiftKey,
+          initialSelectedIds: state.selectedIds,
+        },
+        drag: null,
+        previewDelta: { x: 0, y: 0 },
+      },
+    };
+  }
+
+  const moved = selectionPointerMove(
+    state,
+    event.pointerId,
+    event.screenPoint,
+    context,
+  );
+  if (moved.drag?.pointerId === event.pointerId) {
+    const command =
+      context.canEdit &&
+      (moved.previewDelta.x !== 0 || moved.previewDelta.y !== 0)
+        ? moveDrawingSelection(
+            context,
+            moved.selectedIds,
+            context.actorId,
+            moved.previewDelta,
+          )
+        : null;
+    return {
+      command,
+      state: {
+        ...moved,
+        drag: null,
+        previewDelta: { x: 0, y: 0 },
+      },
+    };
+  }
+  if (moved.marquee?.pointerId === event.pointerId) {
+    const marquee = normalizedBounds(
+      moved.marquee.start,
+      moved.marquee.current,
+    );
+    const intersecting = Object.values(context.objects)
+      .filter(
+        (object) =>
+          selectableDrawingObject(context, object.id) &&
+          boundsIntersect(marquee, geometryBounds(object.geometry)),
+      )
+      .map((object) => object.id);
+    return {
+      command: null,
+      state: {
+        ...moved,
+        selectedIds: moved.marquee.additive
+          ? [...new Set([...moved.marquee.initialSelectedIds, ...intersecting])]
+          : intersecting,
+        marquee: null,
+      },
+    };
+  }
+  return { command: null, state: moved };
+}
+
+export function drawingSelectionHandleSize(zoom: number, pixels = 8) {
+  if (!Number.isFinite(zoom) || zoom <= 0)
+    throw new Error("확대 배율이 올바르지 않습니다.");
+  return pixels / zoom;
+}
+
 export function dimensionLabel(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
   calibration?: DimensionCalibrationEvidence | null,
@@ -702,13 +991,14 @@ type DrawingCanvasProps = {
   calibrationId: string | null;
   canEdit: boolean;
   layerId: string | null;
+  layers: DrawingLayer[];
   objects: DrawingObject[];
-  onCommand: (
-    command: Extract<DrawingCommand, { type: "add_objects" }>,
-  ) => void;
+  onCommand: (command: DrawingCommand) => void;
+  onSelectionChange: (selectedIds: string[]) => void;
   onToolComplete: (tool: DrawingTool) => void;
   onViewportChange?: (viewport: Viewport) => void;
   repeatMode: boolean;
+  selectedIds: string[];
 };
 
 type CanvasSize = { width: number; height: number };
@@ -989,11 +1279,14 @@ export const DrawingCanvas = forwardRef<
     calibrationId,
     canEdit,
     layerId,
+    layers,
     objects,
     onCommand,
+    onSelectionChange,
     onToolComplete,
     onViewportChange,
     repeatMode,
+    selectedIds,
   },
   ref,
 ) {
@@ -1003,6 +1296,15 @@ export const DrawingCanvas = forwardRef<
   const panGestureRef = useRef<DrawingPanGesture | null>(null);
   const spacePressedRef = useRef(false);
   const capturedPointerTargetRef = useRef<HTMLElement | null>(null);
+  const capturedSelectionTargetRef = useRef<HTMLElement | null>(null);
+  const layersById = useMemo(
+    () => Object.fromEntries(layers.map((layer) => [layer.id, layer])),
+    [layers],
+  );
+  const objectsById = useMemo(
+    () => Object.fromEntries(objects.map((object) => [object.id, object])),
+    [objects],
+  );
   const objectCandidates = useMemo(
     () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
     [objects],
@@ -1026,6 +1328,10 @@ export const DrawingCanvas = forwardRef<
       }),
     );
   const controllerRef = useRef(controllerState);
+  const [selectionState, setSelectionState] = useState<DrawingSelectionState>(
+    () => createDrawingSelectionState(selectedIds),
+  );
+  const selectionRef = useRef(selectionState);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panGesture, setPanGesture] = useState<DrawingPanGesture | null>(null);
   const [textValue, setTextValue] = useState("");
@@ -1064,6 +1370,22 @@ export const DrawingCanvas = forwardRef<
       objectCandidates,
       tolerancePixels: 8,
     },
+    viewport,
+  };
+  const selectionContextRef = useRef<DrawingSelectionContext>({
+    actorId,
+    canEdit,
+    layers: layersById,
+    objects: objectsById,
+    snap: { gridSize: BASE_GRID_SIZE },
+    viewport: viewportRef.current,
+  });
+  selectionContextRef.current = {
+    actorId,
+    canEdit,
+    layers: layersById,
+    objects: objectsById,
+    snap: { gridSize: BASE_GRID_SIZE },
     viewport,
   };
 
@@ -1220,6 +1542,23 @@ export const DrawingCanvas = forwardRef<
     [onCommand, onToolComplete],
   );
 
+  const applySelectionResult = useCallback(
+    (result: DrawingSelectionResult) => {
+      const previous = selectionRef.current;
+      selectionRef.current = result.state;
+      if (result.state !== previous) setSelectionState(result.state);
+      if (
+        result.state.selectedIds.length !== previous.selectedIds.length ||
+        result.state.selectedIds.some(
+          (objectId, index) => objectId !== previous.selectedIds[index],
+        )
+      )
+        onSelectionChange(result.state.selectedIds);
+      if (result.command) onCommand(result.command);
+    },
+    [onCommand, onSelectionChange],
+  );
+
   useEffect(
     () => () => {
       spacePressedRef.current = false;
@@ -1229,6 +1568,16 @@ export const DrawingCanvas = forwardRef<
       if (pointerId !== null && target?.hasPointerCapture?.(pointerId))
         target.releasePointerCapture(pointerId);
       capturedPointerTargetRef.current = null;
+      const selectionTarget = capturedSelectionTargetRef.current;
+      const selectionPointerId =
+        selectionRef.current.drag?.pointerId ??
+        selectionRef.current.marquee?.pointerId;
+      if (
+        selectionPointerId !== undefined &&
+        selectionTarget?.hasPointerCapture?.(selectionPointerId)
+      )
+        selectionTarget.releasePointerCapture(selectionPointerId);
+      capturedSelectionTargetRef.current = null;
     },
     [],
   );
@@ -1242,6 +1591,35 @@ export const DrawingCanvas = forwardRef<
       ),
     );
   }, [activeTool, applyToolControllerResult, canEdit, layerId]);
+
+  useEffect(() => {
+    const current = selectionRef.current;
+    const withExternalSelection = {
+      ...current,
+      selectedIds: [...selectedIds],
+      ...(activeTool === "select"
+        ? {}
+        : {
+            drag: null,
+            marquee: null,
+            previewDelta: { x: 0, y: 0 },
+          }),
+    };
+    applySelectionResult(
+      drawingSelectionEventTransition(
+        withExternalSelection,
+        { type: "sync_context" },
+        selectionContextRef.current,
+      ),
+    );
+  }, [
+    activeTool,
+    applySelectionResult,
+    canEdit,
+    layersById,
+    objectsById,
+    selectedIds,
+  ]);
 
   const grid = useMemo(() => visibleGrid(size, viewport), [size, viewport]);
   const cursor =
@@ -1265,6 +1643,25 @@ export const DrawingCanvas = forwardRef<
     controllerState.session.tool === "text"
       ? worldToScreen(controllerState.session.origin, viewport)
       : null;
+  const selectableObjects = useMemo(
+    () =>
+      objects.filter((object) => {
+        const objectLayer = layersById[object.layerId];
+        return objectLayer?.visible && !objectLayer.locked;
+      }),
+    [layersById, objects],
+  );
+  const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
+    const object = objectsById[objectId];
+    return object ? [object] : [];
+  });
+  const marqueeBounds = selectionState.marquee
+    ? normalizedBounds(
+        selectionState.marquee.start,
+        selectionState.marquee.current,
+      )
+    : null;
+  const handleSize = drawingSelectionHandleSize(viewport.zoom);
 
   function runToolEvent(
     event: DrawingToolControllerEvent,
@@ -1277,6 +1674,26 @@ export const DrawingCanvas = forwardRef<
     });
     applyToolControllerResult(result, target);
     return result;
+  }
+
+  function runSelectionEvent(event: DrawingSelectionEvent) {
+    const result = drawingSelectionEventTransition(
+      selectionRef.current,
+      event,
+      {
+        ...selectionContextRef.current,
+        viewport: viewportRef.current,
+      },
+    );
+    applySelectionResult(result);
+    return result;
+  }
+
+  function candidateIdFor(event: KonvaEventObject<PointerEvent>) {
+    const candidate = (
+      event.target as unknown as { getAttr: (name: string) => unknown }
+    ).getAttr("drawingObjectId");
+    return typeof candidate === "string" ? candidate : null;
   }
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
@@ -1306,6 +1723,19 @@ export const DrawingCanvas = forwardRef<
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
     const target = event.evt.currentTarget as HTMLElement | null;
+    if (activeTool === "select") {
+      event.evt.preventDefault();
+      target?.setPointerCapture?.(event.evt.pointerId);
+      capturedSelectionTargetRef.current = target;
+      runSelectionEvent({
+        type: "pointer_down",
+        candidateId: candidateIdFor(event),
+        pointerId: event.evt.pointerId,
+        screenPoint: pointer,
+        shiftKey: event.evt.shiftKey,
+      });
+      return;
+    }
     runToolEvent(
       {
         type: "pointer_down",
@@ -1334,6 +1764,14 @@ export const DrawingCanvas = forwardRef<
     if (result.viewport || panGestureRef.current) return;
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
+    if (activeTool === "select") {
+      runSelectionEvent({
+        type: "pointer_move",
+        pointerId: event.evt.pointerId,
+        screenPoint: pointer,
+      });
+      return;
+    }
     runToolEvent({
       type: "pointer_move",
       pointerId: event.evt.pointerId,
@@ -1367,6 +1805,17 @@ export const DrawingCanvas = forwardRef<
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
     const target = event.evt.currentTarget as HTMLElement | null;
+    if (activeTool === "select") {
+      runSelectionEvent({
+        type: "pointer_up",
+        pointerId: event.evt.pointerId,
+        screenPoint: pointer,
+      });
+      if (target?.hasPointerCapture?.(event.evt.pointerId))
+        target.releasePointerCapture(event.evt.pointerId);
+      capturedSelectionTargetRef.current = null;
+      return;
+    }
     runToolEvent(
       {
         type: "pointer_up",
@@ -1390,6 +1839,14 @@ export const DrawingCanvas = forwardRef<
         panGestureRef.current = result.gesture;
         setSpacePressed(false);
         setPanGesture(result.gesture);
+        const selectionPointerId =
+          selectionRef.current.drag?.pointerId ??
+          selectionRef.current.marquee?.pointerId;
+        if (selectionPointerId !== undefined)
+          runSelectionEvent({
+            type: "pointer_cancel",
+            pointerId: selectionPointerId,
+          });
       }}
       onKeyDown={(event) => {
         if (
@@ -1424,10 +1881,18 @@ export const DrawingCanvas = forwardRef<
           onDblClick={onDoubleClick}
           onPointerCancel={(event) => {
             endPan(event, "cancel");
-            runToolEvent(
-              { type: "pointer_cancel", pointerId: event.evt.pointerId },
-              event.evt.currentTarget as HTMLElement | null,
-            );
+            if (activeTool === "select") {
+              runSelectionEvent({
+                type: "pointer_cancel",
+                pointerId: event.evt.pointerId,
+              });
+              capturedSelectionTargetRef.current = null;
+            } else {
+              runToolEvent(
+                { type: "pointer_cancel", pointerId: event.evt.pointerId },
+                event.evt.currentTarget as HTMLElement | null,
+              );
+            }
           }}
           onPointerDown={beginDrawing}
           onPointerMove={continuePan}
@@ -1519,6 +1984,101 @@ export const DrawingCanvas = forwardRef<
             viewportY={viewport.y}
             viewportZoom={viewport.zoom}
           />
+          <Layer
+            listening={activeTool === "select"}
+            name="drawing-selection"
+            scaleX={viewport.zoom}
+            scaleY={viewport.zoom}
+            x={viewport.x}
+            y={viewport.y}
+          >
+            {activeTool === "select"
+              ? selectableObjects.map((object) => {
+                  const bounds = geometryBounds(object.geometry);
+                  return (
+                    <Rect
+                      drawingObjectId={object.id}
+                      fill="rgba(0,0,0,0.001)"
+                      height={bounds.height}
+                      key={`hit-${object.id}`}
+                      width={bounds.width}
+                      x={bounds.x}
+                      y={bounds.y}
+                    />
+                  );
+                })
+              : null}
+            {selectionState.previewDelta.x !== 0 ||
+            selectionState.previewDelta.y !== 0
+              ? selectedObjects.map((object) => (
+                  <Group key={`preview-${object.id}`} listening={false}>
+                    {geometryShape(
+                      translateDrawingGeometry(
+                        object.geometry,
+                        selectionState.previewDelta,
+                      ),
+                      previewStyle,
+                      true,
+                      calibration,
+                    )}
+                  </Group>
+                ))
+              : null}
+            {selectedObjects.map((object) => {
+              const geometry =
+                selectionState.previewDelta.x !== 0 ||
+                selectionState.previewDelta.y !== 0
+                  ? translateDrawingGeometry(
+                      object.geometry,
+                      selectionState.previewDelta,
+                    )
+                  : object.geometry;
+              const bounds = geometryBounds(geometry);
+              const corners = [
+                { x: bounds.x, y: bounds.y },
+                { x: bounds.x + bounds.width, y: bounds.y },
+                { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+                { x: bounds.x, y: bounds.y + bounds.height },
+              ];
+              return (
+                <Group key={`selection-${object.id}`} listening={false}>
+                  <Rect
+                    dash={[6 / viewport.zoom, 4 / viewport.zoom]}
+                    height={bounds.height}
+                    stroke="#2563eb"
+                    strokeWidth={1.5 / viewport.zoom}
+                    width={bounds.width}
+                    x={bounds.x}
+                    y={bounds.y}
+                  />
+                  {corners.map((corner, index) => (
+                    <Rect
+                      fill="#ffffff"
+                      height={handleSize}
+                      key={index}
+                      stroke="#2563eb"
+                      strokeWidth={1 / viewport.zoom}
+                      width={handleSize}
+                      x={corner.x - handleSize / 2}
+                      y={corner.y - handleSize / 2}
+                    />
+                  ))}
+                </Group>
+              );
+            })}
+            {marqueeBounds ? (
+              <Rect
+                fill="rgba(37,99,235,0.12)"
+                height={marqueeBounds.height}
+                listening={false}
+                stroke="#60a5fa"
+                strokeWidth={1 / viewport.zoom}
+                width={marqueeBounds.width}
+                x={marqueeBounds.x}
+                y={marqueeBounds.y}
+              />
+            ) : null}
+          </Layer>
           <Layer
             listening={false}
             name="drawing-preview"

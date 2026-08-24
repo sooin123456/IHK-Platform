@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createServer } from "vite";
-import {
+import * as drawingCommands from "../app/lukas/lib/drawing-commands.ts";
+
+const {
   applyDrawingCommand,
   createDrawingDocumentState,
   LockedDrawingLayerError,
   redoDrawingCommand,
   undoDrawingCommand,
-} from "../app/lukas/lib/drawing-commands.ts";
+} = drawingCommands;
 
 const vite = await createServer({
   appType: "custom",
@@ -31,6 +33,9 @@ const ids = {
   rectangle: "00000000-0000-4000-8000-000000000004",
   copiedRectangle: "00000000-0000-4000-8000-000000000005",
   circle: "00000000-0000-4000-8000-000000000006",
+  hiddenLayer: "00000000-0000-4000-8000-000000000007",
+  hiddenRectangle: "00000000-0000-4000-8000-000000000008",
+  lockedRectangle: "00000000-0000-4000-8000-000000000009",
 };
 
 function environment() {
@@ -336,6 +341,23 @@ test("a redone operation can be undone again without a false version conflict", 
   assert.equal(secondUndo.kind, undefined);
   assert.equal(secondUndo.state.objects[ids.rectangle].geometry.origin.x, 0);
   assert.equal(secondUndo.state.objects[ids.rectangle].version, 5);
+});
+
+test("redo reapplies a version-aware selection move against the post-undo version", () => {
+  const env = environment();
+  const state = emptyState({ objects: [rectangle()] });
+  const command = drawingCommands.moveDrawingSelection(
+    state,
+    [ids.rectangle],
+    "actor-a",
+    { x: 10, y: 0 },
+  );
+  const moved = applyDrawingCommand(state, command, env);
+  const undone = undoDrawingCommand(moved.state, "actor-a", env);
+  const redone = redoDrawingCommand(undone.state, "actor-a", env);
+
+  assert.equal(redone.state.objects[ids.rectangle].geometry.origin.x, 10);
+  assert.equal(redone.state.objects[ids.rectangle].version, 4);
 });
 
 test("update_layer appends a valid inverse and supports actor-scoped undo and redo", () => {
@@ -1005,6 +1027,388 @@ test("layer switch cancels drag and releases capture instead of committing into 
     secondContext,
   );
   assert.equal(released.command, null);
+});
+
+function selectionContext(overrides = {}) {
+  const selectableCircle = circle({
+    geometry: { type: "circle", center: { x: 35, y: 15 }, radius: 5 },
+  });
+  return {
+    actorId: "actor-a",
+    canEdit: true,
+    layers: {
+      [ids.layer]: layer(),
+      [ids.lockedLayer]: layer({ id: ids.lockedLayer, locked: true }),
+      [ids.hiddenLayer]: layer({ id: ids.hiddenLayer, visible: false }),
+    },
+    objects: {
+      [ids.rectangle]: rectangle(),
+      [ids.circle]: selectableCircle,
+      [ids.hiddenRectangle]: rectangle({
+        id: ids.hiddenRectangle,
+        layerId: ids.hiddenLayer,
+      }),
+      [ids.lockedRectangle]: rectangle({
+        id: ids.lockedRectangle,
+        layerId: ids.lockedLayer,
+      }),
+    },
+    snap: { gridSize: 10 },
+    viewport: { x: 100, y: 50, zoom: 2 },
+    ...overrides,
+  };
+}
+
+function selectionPointer(state, event, context = selectionContext()) {
+  return drawingTools.drawingSelectionEventTransition(state, event, context);
+}
+
+test("selection adapter confirms candidate clicks against domain bounds and Shift toggles", () => {
+  assert.equal(typeof drawingTools.createDrawingSelectionState, "function");
+  assert.equal(typeof drawingTools.drawingSelectionEventTransition, "function");
+  let state = drawingTools.createDrawingSelectionState();
+  state = selectionPointer(state, {
+    type: "pointer_down",
+    candidateId: ids.rectangle,
+    pointerId: 21,
+    screenPoint: { x: 110, y: 60 },
+    shiftKey: false,
+  }).state;
+  assert.deepEqual(state.selectedIds, [ids.rectangle]);
+
+  state = selectionPointer(state, {
+    type: "pointer_down",
+    candidateId: ids.circle,
+    pointerId: 22,
+    screenPoint: { x: 170, y: 80 },
+    shiftKey: true,
+  }).state;
+  assert.deepEqual(state.selectedIds, [ids.rectangle, ids.circle]);
+
+  state = selectionPointer(state, {
+    type: "pointer_down",
+    candidateId: ids.rectangle,
+    pointerId: 23,
+    screenPoint: { x: 110, y: 60 },
+    shiftKey: true,
+  }).state;
+  assert.deepEqual(state.selectedIds, [ids.circle]);
+
+  state = selectionPointer(state, {
+    type: "pointer_down",
+    candidateId: ids.rectangle,
+    pointerId: 24,
+    screenPoint: { x: 190, y: 140 },
+    shiftKey: false,
+  }).state;
+  assert.deepEqual(state.selectedIds, [ids.circle]);
+});
+
+test("marquee uses world-space intersection and canonical rotated bounds", () => {
+  assert.equal(typeof drawingTools.drawingSelectionEventTransition, "function");
+  const rotated = rectangle({
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 20,
+      height: 10,
+      rotation: 90,
+    },
+  });
+  const context = selectionContext({
+    objects: { [ids.rectangle]: rotated },
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  let result = selectionPointer(
+    drawingTools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: null,
+      pointerId: 25,
+      screenPoint: { x: -12, y: 8 },
+      shiftKey: false,
+    },
+    context,
+  );
+  result = selectionPointer(
+    result.state,
+    {
+      type: "pointer_move",
+      pointerId: 25,
+      screenPoint: { x: -8, y: 12 },
+    },
+    context,
+  );
+  assert.equal(result.command, null);
+  result = selectionPointer(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 25,
+      screenPoint: { x: -8, y: 12 },
+    },
+    context,
+  );
+  assert.deepEqual(result.state.selectedIds, [ids.rectangle]);
+  assert.equal(result.state.marquee, null);
+});
+
+test("direct and marquee selection exclude hidden and locked layers", () => {
+  assert.equal(typeof drawingTools.drawingSelectionEventTransition, "function");
+  let state = drawingTools.createDrawingSelectionState();
+  for (const candidateId of [ids.hiddenRectangle, ids.lockedRectangle]) {
+    state = selectionPointer(state, {
+      type: "pointer_down",
+      candidateId,
+      pointerId: 26,
+      screenPoint: { x: 110, y: 60 },
+      shiftKey: false,
+    }).state;
+    assert.deepEqual(state.selectedIds, []);
+  }
+  let result = selectionPointer(state, {
+    type: "pointer_down",
+    candidateId: null,
+    pointerId: 27,
+    screenPoint: { x: 98, y: 48 },
+    shiftKey: false,
+  });
+  result = selectionPointer(result.state, {
+    type: "pointer_move",
+    pointerId: 27,
+    screenPoint: { x: 142, y: 72 },
+  });
+  result = selectionPointer(result.state, {
+    type: "pointer_up",
+    pointerId: 27,
+    screenPoint: { x: 142, y: 72 },
+  });
+  assert.deepEqual(result.state.selectedIds, [ids.rectangle]);
+});
+
+test("selection drag keeps preview transient and emits one snapped multi-object update", () => {
+  assert.equal(typeof drawingTools.drawingSelectionEventTransition, "function");
+  const context = selectionContext({ viewport: { x: 0, y: 0, zoom: 1 } });
+  let state = {
+    ...drawingTools.createDrawingSelectionState(),
+    selectedIds: [ids.rectangle, ids.circle],
+  };
+  let result = selectionPointer(
+    state,
+    {
+      type: "pointer_down",
+      candidateId: ids.rectangle,
+      pointerId: 28,
+      screenPoint: { x: 5, y: 5 },
+      shiftKey: false,
+    },
+    context,
+  );
+  result = selectionPointer(
+    result.state,
+    {
+      type: "pointer_move",
+      pointerId: 28,
+      screenPoint: { x: 16, y: 5 },
+    },
+    context,
+  );
+  assert.equal(result.command, null);
+  assert.deepEqual(result.state.previewDelta, { x: 10, y: 0 });
+  assert.deepEqual(context.objects[ids.rectangle].geometry.origin, {
+    x: 0,
+    y: 0,
+  });
+  result = selectionPointer(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 28,
+      screenPoint: { x: 16, y: 5 },
+    },
+    context,
+  );
+  assert.equal(result.command.type, "update_objects");
+  assert.equal(result.command.updates.length, 2);
+  assert.deepEqual(result.command.updates[0], {
+    objectId: ids.rectangle,
+    baseVersion: 1,
+    patch: {
+      geometry: {
+        ...rectangle().geometry,
+        origin: { x: 10, y: 0 },
+      },
+    },
+  });
+  assert.deepEqual(result.command.updates[1].patch.geometry.center, {
+    x: 45,
+    y: 15,
+  });
+  assert.equal(result.state.drag, null);
+  assert.deepEqual(result.state.previewDelta, { x: 0, y: 0 });
+});
+
+test("selection handles stay screen-sized across zoom levels", () => {
+  assert.equal(typeof drawingTools.drawingSelectionHandleSize, "function");
+  assert.equal(drawingTools.drawingSelectionHandleSize(0.5), 16);
+  assert.equal(drawingTools.drawingSelectionHandleSize(4), 2);
+});
+
+test("arrow moves use millimeters and mutation commands filter locked or hidden objects", () => {
+  assert.equal(typeof drawingCommands.moveDrawingSelection, "function");
+  const context = selectionContext();
+  const state = createDrawingDocumentState({
+    revisionId: ids.revision,
+    layers: Object.values(context.layers),
+    objects: Object.values(context.objects),
+  });
+  const command = drawingCommands.moveDrawingSelection(
+    state,
+    [ids.rectangle, ids.hiddenRectangle, ids.lockedRectangle],
+    "actor-a",
+    { x: -10, y: 0 },
+  );
+  assert.deepEqual(command.updates, [
+    {
+      objectId: ids.rectangle,
+      baseVersion: 1,
+      patch: {
+        geometry: {
+          ...rectangle().geometry,
+          origin: { x: -10, y: 0 },
+        },
+      },
+    },
+  ]);
+});
+
+test("copy strips identity and paste creates fresh object and lineage IDs at 20 mm", () => {
+  assert.equal(typeof drawingCommands.copyDrawingSelection, "function");
+  assert.equal(typeof drawingCommands.pasteDrawingClipboard, "function");
+  const source = {
+    ...rectangle(),
+    lineageId: "source-lineage",
+    sourceLink: { kind: "ifc", id: "wall-1" },
+    createdBy: "actor-a",
+  };
+  const state = emptyState({ objects: [source] });
+  const clipboard = drawingCommands.copyDrawingSelection(state, [
+    ids.rectangle,
+  ]);
+  assert.deepEqual(clipboard, {
+    items: [
+      {
+        layerId: ids.layer,
+        geometry: rectangle().geometry,
+        style: rectangle().style,
+      },
+    ],
+  });
+  const freshIds = [
+    "00000000-0000-4000-8000-000000000040",
+    "00000000-0000-4000-8000-000000000041",
+  ];
+  const pasted = drawingCommands.pasteDrawingClipboard(
+    clipboard,
+    "actor-a",
+    () => freshIds.shift(),
+  );
+  assert.equal(pasted.objects[0].id, "00000000-0000-4000-8000-000000000040");
+  assert.equal(
+    pasted.objects[0].lineageId,
+    "00000000-0000-4000-8000-000000000041",
+  );
+  assert.equal(pasted.objects[0].version, 1);
+  assert.deepEqual(pasted.objects[0].geometry.origin, { x: 20, y: 20 });
+  assert.deepEqual(source.geometry.origin, { x: 0, y: 0 });
+});
+
+test("duplicate and Delete create add and delete commands without mutating originals", () => {
+  assert.equal(typeof drawingCommands.duplicateDrawingSelection, "function");
+  assert.equal(typeof drawingCommands.deleteDrawingSelection, "function");
+  const state = emptyState({ objects: [rectangle()] });
+  const freshIds = [
+    "00000000-0000-4000-8000-000000000042",
+    "00000000-0000-4000-8000-000000000043",
+  ];
+  const duplicate = drawingCommands.duplicateDrawingSelection(
+    state,
+    [ids.rectangle],
+    "actor-a",
+    () => freshIds.shift(),
+  );
+  assert.equal(duplicate.type, "add_objects");
+  assert.equal(duplicate.objects[0].id, "00000000-0000-4000-8000-000000000042");
+  assert.deepEqual(
+    drawingCommands.deleteDrawingSelection(state, [ids.rectangle], "actor-a"),
+    {
+      type: "delete_objects",
+      actorId: "actor-a",
+      objectIds: [ids.rectangle],
+    },
+  );
+  assert.deepEqual(state.objects[ids.rectangle], rectangle());
+});
+
+test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.client.tsx",
+  );
+  assert.equal(typeof shell.resolveDrawingWorkspaceShortcut, "function");
+  const shortcut = (overrides = {}) =>
+    shell.resolveDrawingWorkspaceShortcut({
+      key: "c",
+      code: "KeyC",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      target: null,
+      ...overrides,
+    });
+  assert.deepEqual(shortcut(), { type: "copy" });
+  assert.deepEqual(shortcut({ ctrlKey: true, metaKey: false, key: "v" }), {
+    type: "paste",
+  });
+  assert.deepEqual(shortcut({ key: "d" }), { type: "duplicate" });
+  assert.deepEqual(shortcut({ key: "z" }), { type: "undo" });
+  assert.deepEqual(shortcut({ key: "Z", shiftKey: true }), { type: "redo" });
+  assert.deepEqual(
+    shortcut({
+      key: "ArrowRight",
+      code: "ArrowRight",
+      metaKey: false,
+      shiftKey: false,
+    }),
+    { type: "move", delta: { x: 1, y: 0 } },
+  );
+  assert.deepEqual(
+    shortcut({
+      key: "ArrowUp",
+      code: "ArrowUp",
+      metaKey: false,
+      shiftKey: true,
+    }),
+    { type: "move", delta: { x: 0, y: -10 } },
+  );
+  assert.deepEqual(
+    shortcut({ key: "Delete", code: "Delete", metaKey: false }),
+    { type: "delete" },
+  );
+  for (const target of [
+    { tagName: "INPUT", isContentEditable: false },
+    { tagName: "TEXTAREA", isContentEditable: false },
+    { tagName: "SELECT", isContentEditable: false },
+    { tagName: "DIV", isContentEditable: true },
+    {
+      tagName: "BUTTON",
+      isContentEditable: false,
+      closest: (selector) => (selector.includes("role") ? {} : null),
+    },
+  ]) {
+    assert.equal(shortcut({ target }), null);
+  }
+  assert.equal(shortcut({ altKey: true }), null);
 });
 
 test("command registry filters Korean labels and stable IDs case-insensitively", async () => {

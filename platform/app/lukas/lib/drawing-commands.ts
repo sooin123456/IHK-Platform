@@ -1,14 +1,20 @@
 import type {
+  DrawingGeometry,
   DrawingLayer,
   DrawingObject,
   DrawingOperationInput,
+  Point,
 } from "./drawing-workspace.types.ts";
 
 export type ObjectPatch = Partial<
   Pick<DrawingObject, "layerId" | "geometry" | "style">
 >;
 
-export type ObjectUpdate = { objectId: string; patch: ObjectPatch };
+export type ObjectUpdate = {
+  objectId: string;
+  baseVersion?: number;
+  patch: ObjectPatch;
+};
 
 export type LayerPatch = Partial<
   Pick<DrawingLayer, "name" | "visible" | "locked">
@@ -130,7 +136,13 @@ function payloadFor(command: DrawingCommand): DrawingCommandPayload {
     case "add_objects":
       return { type: command.type, objects: clone(command.objects) };
     case "update_objects":
-      return { type: command.type, updates: clone(command.updates) };
+      return {
+        type: command.type,
+        updates: command.updates.map(({ objectId, patch }) => ({
+          objectId,
+          patch: clone(patch),
+        })),
+      };
     case "delete_objects":
       return { type: command.type, objectIds: [...command.objectIds] };
     case "add_layer":
@@ -238,6 +250,14 @@ function reduceCommand(
         objectIds.add(update.objectId);
         const object = requireObject(objects, update.objectId);
         requireUnlockedLayer(layers, object.layerId);
+        if (
+          update.baseVersion !== undefined &&
+          update.baseVersion !== object.version
+        ) {
+          throw new DrawingCommandError(
+            `Drawing object ${object.id} changed from version ${update.baseVersion} to ${object.version}.`,
+          );
+        }
         if (update.patch.layerId !== undefined) {
           requireUnlockedLayer(layers, update.patch.layerId);
         }
@@ -559,4 +579,141 @@ export function redoDrawingCommand(
       redoStack.slice(0, -1),
     ),
   };
+}
+
+export type DrawingClipboard = {
+  items: Array<Pick<DrawingObject, "layerId" | "geometry" | "style">>;
+};
+
+export type PastedDrawingObject = DrawingObject & { lineageId: string };
+
+function mutableDrawingObject(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  objectId: string,
+): DrawingObject | null {
+  const object = state.objects[objectId];
+  const layer = object ? state.layers[object.layerId] : undefined;
+  return object && layer?.visible && !layer.locked ? object : null;
+}
+
+/** Translates authored world geometry without storing a renderer transform. */
+export function translateDrawingGeometry(
+  geometry: DrawingGeometry,
+  delta: Point,
+): DrawingGeometry {
+  const point = ({ x, y }: Point) => ({ x: x + delta.x, y: y + delta.y });
+  switch (geometry.type) {
+    case "line":
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+      };
+    case "polyline":
+      return { ...geometry, points: geometry.points.map(point) };
+    case "rectangle":
+      return { ...geometry, origin: point(geometry.origin) };
+    case "circle":
+      return { ...geometry, center: point(geometry.center) };
+    case "text":
+      return { ...geometry, origin: point(geometry.origin) };
+    case "dimension":
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+      };
+  }
+}
+
+/** Creates one version-aware update command for a local selection move. */
+export function moveDrawingSelection(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  selectedIds: string[],
+  actorId: string,
+  delta: Point,
+): Extract<DrawingCommand, { type: "update_objects" }> | null {
+  const updates = [...new Set(selectedIds)].flatMap((objectId) => {
+    const object = mutableDrawingObject(state, objectId);
+    return object
+      ? [
+          {
+            objectId,
+            baseVersion: object.version,
+            patch: {
+              geometry: translateDrawingGeometry(object.geometry, delta),
+            },
+          },
+        ]
+      : [];
+  });
+  return updates.length > 0
+    ? { type: "update_objects", actorId, updates }
+    : null;
+}
+
+/** Creates a delete command only for visible, unlocked selected objects. */
+export function deleteDrawingSelection(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  selectedIds: string[],
+  actorId: string,
+): Extract<DrawingCommand, { type: "delete_objects" }> | null {
+  const objectIds = [...new Set(selectedIds)].filter((objectId) =>
+    Boolean(mutableDrawingObject(state, objectId)),
+  );
+  return objectIds.length > 0
+    ? { type: "delete_objects", actorId, objectIds }
+    : null;
+}
+
+/** Copies only portable authored fields, excluding identity and provenance. */
+export function copyDrawingSelection(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  selectedIds: string[],
+): DrawingClipboard {
+  return {
+    items: [...new Set(selectedIds)].flatMap((objectId) => {
+      const object = mutableDrawingObject(state, objectId);
+      return object
+        ? [
+            clone({
+              layerId: object.layerId,
+              geometry: object.geometry,
+              style: object.style,
+            }),
+          ]
+        : [];
+    }),
+  };
+}
+
+/** Pastes clipboard geometry with fresh identities and a deterministic 20 mm offset. */
+export function pasteDrawingClipboard(
+  clipboard: DrawingClipboard,
+  actorId: string,
+  createId: () => string = () => crypto.randomUUID(),
+): Extract<DrawingCommand, { type: "add_objects" }> | null {
+  if (clipboard.items.length === 0) return null;
+  const objects: PastedDrawingObject[] = clipboard.items.map((item) => ({
+    id: createId(),
+    lineageId: createId(),
+    layerId: item.layerId,
+    geometry: translateDrawingGeometry(item.geometry, { x: 20, y: 20 }),
+    style: clone(item.style),
+    version: 1,
+  }));
+  return { type: "add_objects", actorId, objects };
+}
+
+export function duplicateDrawingSelection(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  selectedIds: string[],
+  actorId: string,
+  createId?: () => string,
+): Extract<DrawingCommand, { type: "add_objects" }> | null {
+  return pasteDrawingClipboard(
+    copyDrawingSelection(state, selectedIds),
+    actorId,
+    createId,
+  );
 }

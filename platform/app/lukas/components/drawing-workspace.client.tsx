@@ -24,10 +24,16 @@ import { Form, Link } from "react-router";
 import { Button } from "~/core/components/ui/button";
 import {
   applyDrawingCommand,
+  copyDrawingSelection,
   createDrawingDocumentState,
+  deleteDrawingSelection,
+  duplicateDrawingSelection,
+  moveDrawingSelection,
+  pasteDrawingClipboard,
   redoDrawingCommand,
   undoDrawingCommand,
   type DrawingCommand,
+  type DrawingClipboard,
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import type {
@@ -65,6 +71,61 @@ type IfcComponent = IfcModule["default"];
 type WorkspaceLayer = NonNullable<
   DrawingWorkspace["document"]
 >["revision"]["layers"][number];
+
+export type DrawingWorkspaceShortcut =
+  | { type: "copy" | "paste" | "duplicate" | "delete" | "undo" | "redo" }
+  | { type: "move"; delta: { x: number; y: number } };
+
+type DrawingShortcutEvent = Pick<
+  KeyboardEvent,
+  "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
+> & { target: EventTarget | null };
+
+function drawingShortcutTargetIsEditable(target: EventTarget | null) {
+  if (!target || typeof target !== "object") return false;
+  const candidate = target as {
+    closest?: (selector: string) => unknown;
+    isContentEditable?: boolean;
+    tagName?: string;
+  };
+  const tagName = candidate.tagName?.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    candidate.isContentEditable === true ||
+    Boolean(
+      candidate.closest?.(
+        "input, textarea, select, [contenteditable='true'], [role='dialog']",
+      ),
+    )
+  );
+}
+
+/** Resolves only shortcuts owned by the drawing workspace. */
+export function resolveDrawingWorkspaceShortcut(
+  event: DrawingShortcutEvent,
+): DrawingWorkspaceShortcut | null {
+  if (event.altKey || drawingShortcutTargetIsEditable(event.target))
+    return null;
+  const modifier = event.metaKey || event.ctrlKey;
+  const key = event.key.toLowerCase();
+  if (modifier) {
+    if (key === "z") return { type: event.shiftKey ? "redo" : "undo" };
+    if (event.shiftKey) return null;
+    if (key === "c") return { type: "copy" };
+    if (key === "v") return { type: "paste" };
+    if (key === "d") return { type: "duplicate" };
+    return null;
+  }
+  if (key === "delete") return { type: "delete" };
+  const amount = event.shiftKey ? 10 : 1;
+  if (key === "arrowleft") return { type: "move", delta: { x: -amount, y: 0 } };
+  if (key === "arrowright") return { type: "move", delta: { x: amount, y: 0 } };
+  if (key === "arrowup") return { type: "move", delta: { x: 0, y: -amount } };
+  if (key === "arrowdown") return { type: "move", delta: { x: 0, y: amount } };
+  return null;
+}
 
 export function drawingEditingContext(
   capability: DrawingWorkspaceCapability,
@@ -139,8 +200,10 @@ export default function DrawingWorkspaceClient({
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [repeatMode, setRepeatMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [reviewNote, setReviewNote] = useState("");
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
+  const clipboardRef = useRef<DrawingClipboard>({ items: [] });
   const { file, document: drawingDocument } = workspace;
   const { revision } = drawingDocument;
   const [drawingState, setDrawingState] = useState(() =>
@@ -226,19 +289,10 @@ export default function DrawingWorkspaceClient({
   useEffect(() => {
     setDrawingState(drawingStateFromRevision(revision));
     setActiveTool("select");
+    setSelectedIds([]);
+    clipboardRef.current = { items: [] };
     setHasLocalChanges(false);
   }, [revision]);
-
-  useEffect(() => {
-    function openCommandMenu(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key.toLowerCase() !== "k") return;
-      event.preventDefault();
-      setCommandMenuOpen(true);
-    }
-    window.addEventListener("keydown", openCommandMenu);
-    return () => window.removeEventListener("keydown", openCommandMenu);
-  }, []);
 
   const applyCommand = useCallback((command: DrawingCommand) => {
     setDrawingState((state) => applyDrawingCommand(state, command).state);
@@ -259,6 +313,117 @@ export default function DrawingWorkspaceClient({
     setHasLocalChanges(true);
   }, [currentUserId, drawingState]);
 
+  const copySelection = useCallback(() => {
+    const clipboard = copyDrawingSelection(drawingState, selectedIds);
+    if (clipboard.items.length === 0) return false;
+    clipboardRef.current = clipboard;
+    return true;
+  }, [drawingState, selectedIds]);
+
+  const pasteSelection = useCallback(() => {
+    if (!editing.canEdit) return false;
+    if (
+      clipboardRef.current.items.some((item) => {
+        const targetLayer = drawingState.layers[item.layerId];
+        return !targetLayer?.visible || targetLayer.locked;
+      })
+    )
+      return false;
+    const command = pasteDrawingClipboard(clipboardRef.current, currentUserId);
+    if (!command) return false;
+    applyCommand(command);
+    setSelectedIds(command.objects.map((object) => object.id));
+    return true;
+  }, [applyCommand, currentUserId, drawingState.layers, editing.canEdit]);
+
+  const duplicateSelection = useCallback(() => {
+    if (!editing.canEdit) return false;
+    const command = duplicateDrawingSelection(
+      drawingState,
+      selectedIds,
+      currentUserId,
+    );
+    if (!command) return false;
+    applyCommand(command);
+    setSelectedIds(command.objects.map((object) => object.id));
+    return true;
+  }, [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds]);
+
+  const deleteSelection = useCallback(() => {
+    if (!editing.canEdit) return false;
+    const command = deleteDrawingSelection(
+      drawingState,
+      selectedIds,
+      currentUserId,
+    );
+    if (!command) return false;
+    applyCommand(command);
+    setSelectedIds([]);
+    return true;
+  }, [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds]);
+
+  const moveSelection = useCallback(
+    (delta: { x: number; y: number }) => {
+      if (!editing.canEdit) return false;
+      const command = moveDrawingSelection(
+        drawingState,
+        selectedIds,
+        currentUserId,
+        delta,
+      );
+      if (!command) return false;
+      applyCommand(command);
+      return true;
+    },
+    [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds],
+  );
+
+  useEffect(() => {
+    function openCommandMenu(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return false;
+      if (event.key.toLowerCase() !== "k") return false;
+      if (drawingShortcutTargetIsEditable(event.target)) return false;
+      event.preventDefault();
+      setCommandMenuOpen(true);
+      return true;
+    }
+    function handleWorkspaceShortcut(event: KeyboardEvent) {
+      if (openCommandMenu(event)) return;
+      const shortcut = resolveDrawingWorkspaceShortcut(event);
+      if (!shortcut) return;
+      let handled = false;
+      if (shortcut.type === "copy") handled = copySelection();
+      else if (shortcut.type === "paste") handled = pasteSelection();
+      else if (shortcut.type === "duplicate") handled = duplicateSelection();
+      else if (shortcut.type === "delete") handled = deleteSelection();
+      else if (shortcut.type === "move")
+        handled = moveSelection(shortcut.delta);
+      else if (shortcut.type === "undo") {
+        handled =
+          (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0;
+        if (handled) undo();
+      } else {
+        handled =
+          (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0;
+        if (handled) redo();
+      }
+      if (handled) event.preventDefault();
+    }
+    window.addEventListener("keydown", handleWorkspaceShortcut);
+    return () => window.removeEventListener("keydown", handleWorkspaceShortcut);
+  }, [
+    copySelection,
+    currentUserId,
+    deleteSelection,
+    drawingState.redoStackByActor,
+    drawingState.undoStackByActor,
+    duplicateSelection,
+    moveSelection,
+    pasteSelection,
+    redo,
+    undo,
+  ]);
+
   const commandEnabled = useCallback(
     (commandId: DrawingCommandId) => {
       if (commandId === "select" || commandId === "pan") return true;
@@ -267,10 +432,11 @@ export default function DrawingWorkspaceClient({
         return (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0;
       if (commandId === "redo")
         return (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0;
-      if (commandId === "duplicate" || commandId === "delete") return false;
+      if (commandId === "duplicate" || commandId === "delete")
+        return editing.canEdit && selectedIds.length > 0;
       return editing.canEdit;
     },
-    [currentUserId, drawingState, editing.canEdit],
+    [currentUserId, drawingState, editing.canEdit, selectedIds.length],
   );
 
   const runCommand = useCallback(
@@ -289,9 +455,11 @@ export default function DrawingWorkspaceClient({
         setActiveTool(commandId);
       } else if (commandId === "undo") undo();
       else if (commandId === "redo") redo();
+      else if (commandId === "duplicate") duplicateSelection();
+      else if (commandId === "delete") deleteSelection();
       else if (commandId === "zoom_to_fit") canvasRef.current?.resetViewport();
     },
-    [commandEnabled, redo, undo],
+    [commandEnabled, deleteSelection, duplicateSelection, redo, undo],
   );
   const background: DrawingCanvasBackground = surface.background;
   const decisionFields = reviewControls.decisionEvidence
@@ -474,11 +642,14 @@ export default function DrawingWorkspaceClient({
                   calibrationId={calibrationId}
                   canEdit={editing.canEdit}
                   layerId={editing.layerId}
+                  layers={Object.values(drawingState.layers)}
                   objects={visibleObjects}
                   onCommand={applyCommand}
+                  onSelectionChange={setSelectedIds}
                   onToolComplete={setActiveTool}
                   ref={canvasRef}
                   repeatMode={repeatMode}
+                  selectedIds={selectedIds}
                 />
               ) : canvasLoadError ? (
                 <div
