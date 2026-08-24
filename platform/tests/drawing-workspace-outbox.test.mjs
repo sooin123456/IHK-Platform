@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canPersistDrawingMutation,
   createDrawingOutbox,
   drawingSaveStatus,
   recoverPendingDrawingState,
+  restoreDrawingWorkspaceState,
   sendDrawingOperation,
 } from "../app/lukas/lib/drawing-outbox.client.ts";
 import { createDrawingDocumentState } from "../app/lukas/lib/drawing-commands.ts";
@@ -12,6 +14,8 @@ import { createDrawingDocumentState } from "../app/lukas/lib/drawing-commands.ts
 const ids = {
   revisionA: "00000000-0000-4000-8000-000000000001",
   revisionB: "00000000-0000-4000-8000-000000000002",
+  ownerA: "00000000-0000-4000-8000-000000000020",
+  ownerB: "00000000-0000-4000-8000-000000000021",
   layer: "00000000-0000-4000-8000-000000000003",
   object: "00000000-0000-4000-8000-000000000004",
   operation1: "00000000-0000-4000-8000-000000000005",
@@ -40,6 +44,7 @@ function operation(clientOperationId, overrides = {}) {
 
 function memoryAdapter(events = []) {
   const records = new Map();
+  let enqueueSequence = 0;
   return {
     async delete(clientOperationId) {
       events.push(`delete:${clientOperationId}`);
@@ -48,11 +53,25 @@ function memoryAdapter(events = []) {
     async list() {
       return structuredClone([...records.values()]);
     },
+    async enqueue(record) {
+      const stored = { ...record, enqueueSequence: ++enqueueSequence };
+      events.push(`put:${record.operation.clientOperationId}`);
+      records.set(record.operation.clientOperationId, structuredClone(stored));
+      return structuredClone(stored);
+    },
     async put(record) {
       events.push(`put:${record.operation.clientOperationId}`);
       records.set(record.operation.clientOperationId, structuredClone(record));
     },
   };
+}
+
+function scopedOutbox(adapter, options = {}) {
+  return createDrawingOutbox(adapter, {
+    ownerId: ids.ownerA,
+    revisionId: ids.revisionA,
+    ...options,
+  });
 }
 
 function rectangle(overrides = {}) {
@@ -92,7 +111,7 @@ function state() {
 
 test("enqueue is durable before send and stores only the canonical operation", async () => {
   const events = [];
-  const outbox = createDrawingOutbox(memoryAdapter(events));
+  const outbox = scopedOutbox(memoryAdapter(events));
   await outbox.enqueue({
     ...operation(ids.operation1),
     actorId: "local-only",
@@ -110,7 +129,7 @@ test("enqueue is durable before send and stores only the canonical operation", a
 
 test("enqueue rejects a malformed nested operation before durable storage", async () => {
   const events = [];
-  const outbox = createDrawingOutbox(memoryAdapter(events));
+  const outbox = scopedOutbox(memoryAdapter(events));
   await assert.rejects(
     outbox.enqueue(
       operation(ids.operation1, {
@@ -130,7 +149,7 @@ test("enqueue rejects a malformed nested operation before durable storage", asyn
 });
 
 test("a mismatched acknowledgement retains the operation and markAcked is idempotent", async () => {
-  const outbox = createDrawingOutbox(memoryAdapter());
+  const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(operation(ids.operation1));
 
   await assert.rejects(
@@ -148,19 +167,22 @@ test("a mismatched acknowledgement retains the operation and markAcked is idempo
   assert.equal(await outbox.markAcked(ids.operation1), false);
 });
 
-test("flush orders each revision and a conflict blocks only that revision", async () => {
-  const outbox = createDrawingOutbox(memoryAdapter());
+test("flush orders the scoped revision and never accepts another revision", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(
     operation(ids.operation2, { createdAt: "2026-08-24T02:00:00.000Z" }),
   );
   await outbox.enqueue(
     operation(ids.operation1, { createdAt: "2026-08-24T01:00:00.000Z" }),
   );
-  await outbox.enqueue(
-    operation(ids.operation3, {
-      revisionId: ids.revisionB,
-      createdAt: "2026-08-24T00:30:00.000Z",
-    }),
+  await assert.rejects(
+    outbox.enqueue(
+      operation(ids.operation3, {
+        revisionId: ids.revisionB,
+        createdAt: "2026-08-24T00:30:00.000Z",
+      }),
+    ),
+    /revision/i,
   );
   const sent = [];
 
@@ -175,7 +197,7 @@ test("flush orders each revision and a conflict blocks only that revision", asyn
       : { clientOperationId: queued.clientOperationId, status: "acked" };
   });
 
-  assert.deepEqual(sent, [ids.operation1, ids.operation3]);
+  assert.deepEqual(sent, [ids.operation2, ids.operation1]);
   assert.deepEqual(
     (await outbox.entries()).map(({ operation: queued, status }) => [
       queued.clientOperationId,
@@ -183,14 +205,13 @@ test("flush orders each revision and a conflict blocks only that revision", asyn
     ]),
     [
       [ids.operation1, "conflicted"],
-      [ids.operation2, "pending"],
     ],
   );
 });
 
 test("connection failures retain data and schedule bounded exponential retries", async () => {
   const scheduled = [];
-  const outbox = createDrawingOutbox(memoryAdapter(), {
+  const outbox = scopedOutbox(memoryAdapter(), {
     schedule(delayMs, retry) {
       scheduled.push({ delayMs, retry });
       return scheduled.length;
@@ -217,7 +238,7 @@ test("connection failures retain data and schedule bounded exponential retries",
 });
 
 test("concurrent flush calls never double-send an operation", async () => {
-  const outbox = createDrawingOutbox(memoryAdapter());
+  const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(operation(ids.operation1));
   let release;
   let sends = 0;
@@ -239,7 +260,136 @@ test("concurrent flush calls never double-send an operation", async () => {
   assert.equal(sends, 1);
 });
 
-test("reload recovery applies matching pending operations and reports stale bases", () => {
+test("owner and revision scope quarantines shared-browser entries", async () => {
+  const adapter = memoryAdapter();
+  await adapter.enqueue({
+    ownerId: ids.ownerB,
+    operation: operation(ids.operation1),
+    status: "pending",
+    retryCount: 0,
+  });
+  await adapter.enqueue({
+    ownerId: ids.ownerA,
+    operation: operation(ids.operation2),
+    status: "pending",
+    retryCount: 0,
+  });
+  await adapter.enqueue({
+    ownerId: ids.ownerA,
+    operation: operation(ids.operation3, { revisionId: ids.revisionB }),
+    status: "pending",
+    retryCount: 0,
+  });
+  const outbox = scopedOutbox(adapter);
+  const sent = [];
+
+  await outbox.flush(async (queued) => {
+    sent.push(queued.clientOperationId);
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+
+  assert.deepEqual(sent, [ids.operation2]);
+  assert.deepEqual(await outbox.pending(), []);
+  assert.equal((await adapter.list()).length, 2);
+  assert.deepEqual(
+    (await adapter.list()).map((entry) => [
+      entry.ownerId,
+      entry.operation.revisionId,
+    ]),
+    [
+      [ids.ownerB, ids.revisionA],
+      [ids.ownerA, ids.revisionB],
+    ],
+  );
+});
+
+test("adapter-assigned sequence preserves same-timestamp enqueue order", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation2));
+  await outbox.enqueue(operation(ids.operation1));
+  const sent = [];
+
+  await outbox.flush(async (queued) => {
+    sent.push(queued.clientOperationId);
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+
+  assert.deepEqual(sent, [ids.operation2, ids.operation1]);
+});
+
+test("an active flush drains operations durably enqueued before it completes", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const sent = [];
+  const flushing = outbox.flush(async (queued) => {
+    sent.push(queued.clientOperationId);
+    if (queued.clientOperationId === ids.operation1) await gate;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await outbox.enqueue(operation(ids.operation2));
+  release();
+  await flushing;
+
+  assert.deepEqual(sent, [ids.operation1, ids.operation2]);
+  assert.deepEqual(await outbox.pending(), []);
+});
+
+test("same-realm outbox instances coordinate one scoped send", async () => {
+  const adapter = memoryAdapter();
+  const first = scopedOutbox(adapter);
+  const second = scopedOutbox(adapter);
+  await first.enqueue(operation(ids.operation1));
+  let release;
+  let sends = 0;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const send = async (queued) => {
+    sends += 1;
+    await gate;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  };
+
+  const firstFlush = first.flush(send);
+  const secondFlush = second.flush(send);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sends, 1);
+  release();
+  await Promise.all([firstFlush, secondFlush]);
+  assert.equal(sends, 1);
+});
+
+test("dispose cancels scheduled retries and prevents the old instance from sending", async () => {
+  const scheduled = [];
+  const outbox = scopedOutbox(memoryAdapter(), {
+    schedule(delayMs, retry) {
+      const item = { cancelled: false, delayMs, retry };
+      scheduled.push(item);
+      return () => {
+        item.cancelled = true;
+      };
+    },
+  });
+  await outbox.enqueue(operation(ids.operation1));
+  let sends = 0;
+  const send = async () => {
+    sends += 1;
+    throw new Error("offline");
+  };
+  await assert.rejects(outbox.flush(send), /offline/);
+
+  outbox.dispose();
+  assert.equal(scheduled[0].cancelled, true);
+  await scheduled[0].retry();
+  assert.equal(sends, 1);
+});
+
+test("reload recovery applies exact-base work and retains ambiguous stale work", () => {
   const matching = recoverPendingDrawingState(state(), [
     operation(ids.operation1),
   ]);
@@ -253,7 +403,8 @@ test("reload recovery applies matching pending operations and reports stale base
     }),
   ]);
   assert.equal(stale.state.objects[ids.object].name, "Rectangle");
-  assert.deepEqual(stale.conflictedOperationIds, [ids.operation1]);
+  assert.deepEqual(stale.conflictedOperationIds, []);
+  assert.deepEqual(stale.ambiguousOperationIds, [ids.operation1]);
 });
 
 test("reload recovery never partially applies a conflicted multi-object operation", () => {
@@ -278,7 +429,8 @@ test("reload recovery never partially applies a conflicted multi-object operatio
   ]);
 
   assert.equal(recovered.state.objects[ids.object].name, "Rectangle");
-  assert.deepEqual(recovered.conflictedOperationIds, [ids.operation1]);
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, [ids.operation1]);
 });
 
 test("reload recovery restores a pending custom layer with its creation-version base", () => {
@@ -336,10 +488,34 @@ test("save status exposes only the four workspace states and never calls storage
     drawingSaveStatus({ pending: 1, conflicted: true }),
     "충돌 검토 필요",
   );
-  assert.equal(
-    drawingSaveStatus({ pending: 0, storageError: true }),
-    "오프라인 저장",
-  );
+  assert.equal(drawingSaveStatus({ pending: 0, storageError: true }), "저장 중");
+});
+
+test("a failed durable enqueue sends nothing and the same operation can be retried", async () => {
+  const adapter = memoryAdapter();
+  const durableEnqueue = adapter.enqueue;
+  let storageAvailable = false;
+  adapter.enqueue = async (entry) => {
+    if (!storageAvailable) throw new Error("quota exceeded");
+    return durableEnqueue(entry);
+  };
+  const outbox = scopedOutbox(adapter);
+  let sends = 0;
+
+  await assert.rejects(outbox.enqueue(operation(ids.operation1)), /quota/);
+  await outbox.flush(async (queued) => {
+    sends += 1;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+  assert.equal(sends, 0);
+
+  storageAvailable = true;
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.flush(async (queued) => {
+    sends += 1;
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  });
+  assert.equal(sends, 1);
 });
 
 test("workspace transport posts the canonical operation and requires the echoed acknowledgement id", async () => {
@@ -393,4 +569,79 @@ test("workspace transport posts the canonical operation and requires the echoed 
     })),
     /acknowledgement/i,
   );
+});
+
+test("transient RPC action failures remain retryable", async () => {
+  await assert.rejects(
+    sendDrawingOperation(operation(ids.operation1), "/workspace", async () => ({
+      ok: false,
+      status: 400,
+      async json() {
+        return {
+          ok: false,
+          kind: "rpc",
+          error: "temporary database failure",
+        };
+      },
+    })),
+    /temporary database failure/,
+  );
+});
+
+test("online reload resends an uncertain acknowledgement before recovery", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  const committed = state();
+  committed.objects[ids.object] = rectangle({ name: "Door", version: 2 });
+  let sends = 0;
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (queued) => {
+      sends += 1;
+      return { clientOperationId: queued.clientOperationId, status: "acked" };
+    },
+    serverState: committed,
+  });
+
+  assert.equal(sends, 1);
+  assert.equal(recovered.state.objects[ids.object].name, "Door");
+  assert.deepEqual(await outbox.pending(), []);
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+});
+
+test("offline reload keeps a possibly committed operation pending without false conflict", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  const committed = state();
+  committed.objects[ids.object] = rectangle({ name: "Door", version: 2 });
+  let sends = 0;
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: false,
+    outbox,
+    send: async (queued) => {
+      sends += 1;
+      return { clientOperationId: queued.clientOperationId, status: "acked" };
+    },
+    serverState: committed,
+  });
+
+  assert.equal(sends, 0);
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, [ids.operation1]);
+  assert.deepEqual(
+    (await outbox.entries()).map((entry) => entry.status),
+    ["pending"],
+  );
+});
+
+test("local persistence capability fails closed", () => {
+  assert.equal(canPersistDrawingMutation("admin"), true);
+  assert.equal(canPersistDrawingMutation("editor"), true);
+  assert.equal(canPersistDrawingMutation("reviewer"), false);
+  assert.equal(canPersistDrawingMutation("commenter"), false);
+  assert.equal(canPersistDrawingMutation("viewer"), false);
+  assert.equal(canPersistDrawingMutation("unknown"), false);
 });

@@ -40,9 +40,10 @@ import {
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import {
+  canPersistDrawingMutation,
   createDrawingOutbox,
   drawingSaveStatus,
-  recoverPendingDrawingState,
+  restoreDrawingWorkspaceState,
   sendDrawingOperation,
   type DrawingOutbox,
 } from "~/lukas/lib/drawing-outbox.client";
@@ -245,6 +246,7 @@ export default function DrawingWorkspaceClient({
     storageError: false,
   });
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
+  const failedPersistRef = useRef<AppliedDrawingCommand | null>(null);
   const outboxRef = useRef<DrawingOutbox | null>(null);
   const flushRef = useRef<() => Promise<void>>(async () => {});
   const { file, document: drawingDocument } = workspace;
@@ -359,6 +361,8 @@ export default function DrawingWorkspaceClient({
       }));
     };
     outbox = createDrawingOutbox(undefined, {
+      ownerId: currentUserId,
+      revisionId: revision.id,
       onChange: () => void refresh(),
     });
     outboxRef.current = outbox;
@@ -386,10 +390,12 @@ export default function DrawingWorkspaceClient({
     const initialize = async () => {
       const base = drawingStateFromRevision(revision);
       try {
-        const entries = (await outbox.entries()).filter(
-          (entry) => entry.operation.revisionId === revision.id,
-        );
-        const recovered = recoverPendingDrawingState(base, entries);
+        const recovered = await restoreDrawingWorkspaceState({
+          online: navigator.onLine,
+          outbox,
+          send: (operation) => sendDrawingOperation(operation, actionUrl),
+          serverState: base,
+        });
         for (const operationId of recovered.conflictedOperationIds)
           await outbox.markConflicted(
             operationId,
@@ -400,8 +406,8 @@ export default function DrawingWorkspaceClient({
         drawingStateRef.current = recovered.state;
         setDrawingState(recovered.state);
         setOutboxReady(true);
+        setSaveState((current) => ({ ...current, storageError: false }));
         await refresh();
-        await flush();
       } catch {
         if (active)
           setSaveState((current) => ({
@@ -420,6 +426,7 @@ export default function DrawingWorkspaceClient({
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     setOutboxReady(false);
+    failedPersistRef.current = null;
     setActiveTool("select");
     setActiveLayerId(null);
     setSelectedIds([]);
@@ -427,11 +434,13 @@ export default function DrawingWorkspaceClient({
     void initialize();
     return () => {
       active = false;
+      outbox.dispose();
+      failedPersistRef.current = null;
       if (outboxRef.current === outbox) outboxRef.current = null;
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, [revision]);
+  }, [currentUserId, revision]);
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -445,23 +454,31 @@ export default function DrawingWorkspaceClient({
     });
   }, [drawingState.layers, drawingState.objects]);
 
-  const persistApplied = useCallback(async (applied: AppliedDrawingCommand) => {
-    const outbox = outboxRef.current;
-    if (!outbox) {
-      setSaveState((current) => ({ ...current, storageError: true }));
-      return;
-    }
-    try {
-      await outbox.enqueue(applied.operation);
-      await flushRef.current();
-    } catch {
-      setSaveState((current) => ({
-        ...current,
-        storageError: true,
-        flushing: false,
-      }));
-    }
-  }, []);
+  const persistApplied = useCallback(
+    async (applied: AppliedDrawingCommand) => {
+      if (!canPersistDrawingMutation(capability)) return;
+      const outbox = outboxRef.current;
+      if (!outbox) {
+        setSaveState((current) => ({ ...current, storageError: true }));
+        return;
+      }
+      try {
+        await outbox.enqueue(applied.operation);
+        if (failedPersistRef.current === applied)
+          failedPersistRef.current = null;
+        setSaveState((current) => ({ ...current, storageError: false }));
+        await flushRef.current();
+      } catch {
+        failedPersistRef.current = applied;
+        setSaveState((current) => ({
+          ...current,
+          storageError: true,
+          flushing: false,
+        }));
+      }
+    },
+    [capability],
+  );
 
   const commitApplied = useCallback(
     (applied: AppliedDrawingCommand) => {
@@ -474,7 +491,7 @@ export default function DrawingWorkspaceClient({
 
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
-      if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+      if (!outboxReady || !canPersistDrawingMutation(capability))
         return;
       commitApplied(applyDrawingCommand(drawingStateRef.current, command));
     },
@@ -482,7 +499,7 @@ export default function DrawingWorkspaceClient({
   );
 
   const undo = useCallback(() => {
-    if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+    if (!outboxReady || !canPersistDrawingMutation(capability))
       return;
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
@@ -490,7 +507,7 @@ export default function DrawingWorkspaceClient({
   }, [capability, commitApplied, currentUserId, outboxReady]);
 
   const redo = useCallback(() => {
-    if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+    if (!outboxReady || !canPersistDrawingMutation(capability))
       return;
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
@@ -784,12 +801,23 @@ export default function DrawingWorkspaceClient({
       ) : null}
 
       {saveState.storageError ? (
-        <p
+        <div
           className="border-b border-red-500/30 bg-red-950 px-4 py-2 text-sm text-red-100"
           role="alert"
         >
-          로컬 저장 실패: 이 탭을 닫지 말고 브라우저 저장소 설정을 확인하세요.
-        </p>
+          로컬 저장 실패: 이 탭을 닫지 말고 브라우저 저장소 설정을 확인하세요.{" "}
+          <Button
+            onClick={() => {
+              const failed = failedPersistRef.current;
+              if (failed) void persistApplied(failed);
+            }}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            다시 시도
+          </Button>
+        </div>
       ) : null}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)_17rem]">
