@@ -135,6 +135,25 @@ type DrawingSnapshotRow = {
   created_at: string;
 };
 
+export type DrawingWorkspaceIssue = {
+  id: string;
+  project_id: string;
+  title: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  status: "open" | "in_progress" | "resolution_requested" | "closed";
+  updated_at: string;
+};
+
+export type DrawingObjectIssueLink = {
+  id: string;
+  object_id: string;
+  revision_id: string;
+  issue_id: string;
+  project_id: string;
+  created_by: string;
+  created_at: string;
+};
+
 type DrawingRpc<Args> = { Args: Args; Returns: Json };
 
 export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
@@ -146,6 +165,8 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_layers: TableDefinition<DrawingLayerRow>;
       lukas_drawing_objects: TableDefinition<DrawingObjectRow>;
       lukas_drawing_snapshots: TableDefinition<DrawingSnapshotRow>;
+      lukas_drawing_issues: TableDefinition<DrawingWorkspaceIssue>;
+      lukas_drawing_object_issue_links: TableDefinition<DrawingObjectIssueLink>;
     };
     Functions: Database["public"]["Functions"] & {
       lukas_drawing_create_document: DrawingRpc<{
@@ -169,6 +190,10 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_snapshot_sha256: string;
         p_decision: "approved" | "rejected";
         p_note: string;
+      }>;
+      lukas_drawing_link_object_issue: DrawingRpc<{
+        p_object_id: string;
+        p_issue_id: string;
       }>;
     };
   };
@@ -425,6 +450,8 @@ export type DrawingWorkspace = {
           pages: DrawingPageRow[];
           layers: DrawingLayerRow[];
           objects: DrawingObjectRow[];
+          issues: DrawingWorkspaceIssue[];
+          issueLinks: DrawingObjectIssueLink[];
           reviewEvidence: {
             subjectVersion: number;
             snapshotSha256: string;
@@ -481,36 +508,60 @@ export async function loadDrawingWorkspace(
     );
   if (!revision) return { file: file as DrawingWorkspaceFile, document: null };
 
-  const [pagesResult, layersResult, objectsResult] = await Promise.all([
-    client
-      .from("lukas_drawing_pages")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("revision_id", revision.id)
-      .order("page_number"),
-    client
-      .from("lukas_drawing_layers")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("revision_id", revision.id)
-      .order("sort_order"),
-    client
-      .from("lukas_drawing_objects")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("revision_id", revision.id)
-      .eq("status", "active")
-      .order("created_at"),
-  ]);
+  const [pagesResult, layersResult, objectsResult, issuesResult, linksResult] =
+    await Promise.all([
+      client
+        .from("lukas_drawing_pages")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("revision_id", revision.id)
+        .order("page_number"),
+      client
+        .from("lukas_drawing_layers")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("revision_id", revision.id)
+        .order("sort_order"),
+      client
+        .from("lukas_drawing_objects")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("revision_id", revision.id)
+        .eq("status", "active")
+        .order("created_at"),
+      client
+        .from("lukas_drawing_issues")
+        .select("id,project_id,title,priority,status,updated_at")
+        .eq("project_id", projectId)
+        .order("updated_at", { ascending: false }),
+      client
+        .from("lukas_drawing_object_issue_links")
+        .select(
+          "id,object_id,revision_id,issue_id,project_id,created_by,created_at",
+        )
+        .eq("project_id", projectId)
+        .eq("revision_id", revision.id)
+        .order("created_at"),
+    ]);
   const childError =
-    pagesResult.error ?? layersResult.error ?? objectsResult.error;
+    pagesResult.error ??
+    layersResult.error ??
+    objectsResult.error ??
+    issuesResult.error ??
+    linksResult.error;
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
   const layers = layersResult.data ?? [];
   const pages = pagesResult.data ?? [];
-  const sourceLayers = layers.filter(
-    (layer) => layer.system_kind === "source",
+  const objects = objectsResult.data ?? [];
+  const issues = issuesResult.data ?? [];
+  const activeObjectIds = new Set(objects.map((object) => object.id));
+  const issueIds = new Set(issues.map((issue) => issue.id));
+  const issueLinks = (linksResult.data ?? []).filter(
+    (link) =>
+      activeObjectIds.has(link.object_id) && issueIds.has(link.issue_id),
   );
+  const sourceLayers = layers.filter((layer) => layer.system_kind === "source");
   if (
     layers.some(
       (layer) =>
@@ -594,7 +645,9 @@ export async function loadDrawingWorkspace(
         ...revision,
         pages: pagesResult.data ?? [],
         layers,
-        objects: objectsResult.data ?? [],
+        objects,
+        issues,
+        issueLinks,
         reviewEvidence,
       },
     },
@@ -726,6 +779,30 @@ export async function applyDrawingOperation(
     p_inverse: operation.inverse as Json,
   });
   return rpcResult(data, error);
+}
+
+const DrawingObjectIssueLinkResultSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    issueId: Uuid,
+    createdBy: Uuid,
+    createdAt: z
+      .string()
+      .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid datetime"),
+  })
+  .strict();
+
+export async function linkDrawingObjectIssue(
+  client: DrawingWorkspaceClient,
+  objectId: string,
+  issueId: string,
+) {
+  const { data, error } = await client.rpc("lukas_drawing_link_object_issue", {
+    p_object_id: Uuid.parse(objectId),
+    p_issue_id: Uuid.parse(issueId),
+  });
+  return DrawingObjectIssueLinkResultSchema.parse(rpcResult(data, error));
 }
 
 export async function requestDrawingReview(
@@ -883,14 +960,28 @@ export async function handleWorkspaceMutation({
         assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
         result = await requestDrawingReview(client, mutation.revisionId);
       } else {
-        return {
-          status: 400,
-          body: {
-            ok: false,
-            kind: "validation",
-            error: "이슈 연결은 아직 사용할 수 없습니다.",
-          },
-        };
+        const revision = workspace.document?.revision;
+        if (!revision)
+          throw new DrawingWorkspaceConflictError(
+            "먼저 도면 문서를 만들어야 합니다.",
+          );
+        if (revision.status !== "draft")
+          throw new DrawingWorkspaceConflictError(
+            "초안 리비전에서만 이슈를 연결할 수 있습니다.",
+          );
+        if (!revision.objects.some((object) => object.id === mutation.objectId))
+          throw new DrawingWorkspaceConflictError(
+            "현재 도면의 객체를 찾을 수 없습니다.",
+          );
+        if (!revision.issues.some((issue) => issue.id === mutation.issueId))
+          throw new DrawingWorkspaceConflictError(
+            "현재 프로젝트의 이슈를 찾을 수 없습니다.",
+          );
+        result = await linkDrawingObjectIssue(
+          client,
+          mutation.objectId,
+          mutation.issueId,
+        );
       }
     }
     return {

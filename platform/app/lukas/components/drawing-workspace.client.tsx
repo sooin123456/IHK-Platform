@@ -291,7 +291,11 @@ export default function DrawingWorkspaceClient({
 
   useEffect(() => {
     if (navigationBlocker.state !== "blocked") return;
-    if (window.confirm("아직 브라우저 저장소에 저장되지 않은 도면 작업이 있습니다."))
+    if (
+      window.confirm(
+        "아직 브라우저 저장소에 저장되지 않은 도면 작업이 있습니다.",
+      )
+    )
       navigationBlocker.proceed();
     else navigationBlocker.reset();
   }, [navigationBlocker]);
@@ -482,8 +486,7 @@ export default function DrawingWorkspaceClient({
       active = false;
       persistence.dispose();
       outbox.dispose();
-      if (persistenceRef.current === persistence)
-        persistenceRef.current = null;
+      if (persistenceRef.current === persistence) persistenceRef.current = null;
       if (legacyOutboxRef.current === outbox) legacyOutboxRef.current = null;
       retryStorageRef.current = () => {};
       window.removeEventListener("online", online);
@@ -868,8 +871,8 @@ export default function DrawingWorkspaceClient({
           className="border-b border-amber-500/30 bg-amber-950 px-4 py-2 text-sm text-amber-100"
           role="status"
         >
-          이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다. 복구하면 현재
-          로그인 사용자가 복구 책임자로 기록됩니다.{" "}
+          이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다.
+          복구하면 현재 로그인 사용자가 복구 책임자로 기록됩니다.{" "}
           {canPersistDrawingMutation(capability, persistenceState) ? (
             <Button
               onClick={async () => {
@@ -1114,6 +1117,15 @@ export default function DrawingWorkspaceClient({
           <DrawingInspector
             actorId={currentUserId}
             canEdit={editing.canEdit}
+            canLinkIssues={
+              (capability === "admin" || capability === "editor") &&
+              revision.status === "draft" &&
+              saveStatus === "저장됨" &&
+              selectedIds.length === 1 &&
+              revision.objects.some((object) => object.id === selectedIds[0])
+            }
+            issueLinks={revision.issueLinks}
+            issues={revision.issues}
             onCommand={applyCommand}
             selectedIds={selectedIds}
             state={drawingState}

@@ -10,6 +10,8 @@ const upgradeMigration = () =>
   read(
     "supabase/migrations/20260824113000_drawing_workspace_layers_inspector_upgrade.sql",
   );
+const issueLinkMigration = () =>
+  read("supabase/migrations/20260824135829_drawing_workspace_issue_links.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -131,6 +133,52 @@ test("additive layers-inspector upgrade carries the full object and layer contra
     sql,
     /update public\.lukas_drawing_(?:operations|snapshots)/i,
   );
+});
+
+test("additive issue-link migration exposes only the guarded append-only RPC", async () => {
+  const sql = await issueLinkMigration();
+  assert.match(
+    sql,
+    /function public\.lukas_drawing_link_object_issue\s*\(\s*p_object_id uuid,\s*p_issue_id uuid\s*\)/i,
+  );
+  assert.match(sql, /security definer[\s\S]+set search_path\s*=\s*''/i);
+  assert.match(sql, /from public\.lukas_drawing_objects[\s\S]+for update/i);
+  assert.match(sql, /v_object\.status\s*<>\s*'active'/i);
+  assert.match(sql, /v_revision\.status\s*<>\s*'draft'/i);
+  assert.match(sql, /v_capability not in \('admin', 'editor'\)/i);
+  assert.match(
+    sql,
+    /insert into public\.lukas_drawing_object_issue_links[\s\S]+on conflict\s*\(object_id, issue_id\)\s*do nothing/i,
+  );
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.lukas_drawing_object_issue_links\s+from authenticated/i,
+  );
+  assert.match(
+    sql,
+    /grant select on public\.lukas_drawing_object_issue_links to authenticated/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.lukas_drawing_link_object_issue\(uuid, uuid\)\s+from public, anon/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.lukas_drawing_link_object_issue\(uuid, uuid\)\s+to authenticated, service_role/i,
+  );
+  assert.match(sql, /lukas_drawing_object_issue_links_append_only/i);
+  assert.doesNotMatch(sql, /lukas_drawing_issue_anchors/i);
+  const rpc = sql.slice(
+    sql.indexOf(
+      "create or replace function public.lukas_drawing_link_object_issue",
+    ),
+  );
+  const revisionLock = rpc.indexOf("from public.lukas_drawing_revisions r");
+  const lockedObject = rpc.indexOf(
+    "from public.lukas_drawing_objects o",
+    rpc.indexOf("from public.lukas_drawing_objects o") + 1,
+  );
+  assert.ok(revisionLock >= 0 && lockedObject > revisionLock);
 });
 
 test("parent deletion cascades are distinguished from direct layer deletion in both install paths", async () => {

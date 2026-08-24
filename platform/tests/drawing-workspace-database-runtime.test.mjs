@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { randomUUID } from "node:crypto";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -11,6 +14,7 @@ import { createServer } from "vite";
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const REVIEWER = "00000000-0000-4000-8000-000000000002";
 const OUTSIDER = "00000000-0000-4000-8000-000000000003";
+const EDITOR = "00000000-0000-4000-8000-000000000004";
 const PROJECT = "10000000-0000-4000-8000-000000000001";
 const PDF = "20000000-0000-4000-8000-000000000001";
 const PDF_SHA = "a".repeat(64);
@@ -34,6 +38,14 @@ const upgradeMigration = () =>
     ),
     "utf8",
   );
+const issueLinkMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260824135829_drawing_workspace_issue_links.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -49,6 +61,9 @@ const drawingCommands = await vite.ssrLoadModule(
 );
 const workspaceServer = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace.server.ts",
+);
+const { DrawingInspector } = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-inspector.tsx",
 );
 
 const foundationSql = `
@@ -160,10 +175,12 @@ before(async () => {
   await db.exec(foundationSql);
   await db.exec(await migration());
   await db.exec(await upgradeMigration());
-  await db.query("insert into auth.users(id) values ($1),($2),($3)", [
+  await db.exec(await issueLinkMigration());
+  await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
     OUTSIDER,
+    EDITOR,
   ]);
   await db.query(
     "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
@@ -171,8 +188,8 @@ before(async () => {
   );
   await db.query(
     `insert into public.lukas_qto_project_members(project_id,user_id,role)
-     values ($1,$2,'reviewer')`,
-    [PROJECT, REVIEWER],
+     values ($1,$2,'reviewer'),($1,$3,'estimator')`,
+    [PROJECT, REVIEWER, EDITOR],
   );
   await db.query(
     `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
@@ -480,46 +497,52 @@ test("authenticated direct layer SQL cannot bypass canonical layer integrity", a
     return id;
   };
 
-  await t.test("insert accepts custom but rejects manufactured system layers", async () => {
-    const ids = await createDocument();
-    const customId = await directLayer(ids);
-    const stored = await db.query(
-      "select system_kind from public.lukas_drawing_layers where id=$1",
-      [customId],
-    );
-    assert.equal(stored.rows[0].system_kind, "custom");
-    for (const systemKind of ["source", "work"]) {
-      await assert.rejects(
-        directLayer(ids, {
-          name: `Manufactured ${systemKind}`,
-          systemKind,
-          locked: systemKind === "source",
-        }),
-        /Only custom drawing layers may be inserted directly/i,
-      );
-    }
-  });
-
-  await t.test("update cannot change system kind or mutate a source", async () => {
-    const ids = await createDocument();
-    const customId = await directLayer(ids);
-    await assert.rejects(
-      db.query(
-        `update public.lukas_drawing_layers
-         set system_kind='source',locked=true,version=version+1 where id=$1`,
+  await t.test(
+    "insert accepts custom but rejects manufactured system layers",
+    async () => {
+      const ids = await createDocument();
+      const customId = await directLayer(ids);
+      const stored = await db.query(
+        "select system_kind from public.lukas_drawing_layers where id=$1",
         [customId],
-      ),
-      /Drawing layer identity is immutable/i,
-    );
-    await assert.rejects(
-      db.query(
-        `update public.lukas_drawing_layers
+      );
+      assert.equal(stored.rows[0].system_kind, "custom");
+      for (const systemKind of ["source", "work"]) {
+        await assert.rejects(
+          directLayer(ids, {
+            name: `Manufactured ${systemKind}`,
+            systemKind,
+            locked: systemKind === "source",
+          }),
+          /Only custom drawing layers may be inserted directly/i,
+        );
+      }
+    },
+  );
+
+  await t.test(
+    "update cannot change system kind or mutate a source",
+    async () => {
+      const ids = await createDocument();
+      const customId = await directLayer(ids);
+      await assert.rejects(
+        db.query(
+          `update public.lukas_drawing_layers
+         set system_kind='source',locked=true,version=version+1 where id=$1`,
+          [customId],
+        ),
+        /Drawing layer identity is immutable/i,
+      );
+      await assert.rejects(
+        db.query(
+          `update public.lukas_drawing_layers
          set name='Renamed source',version=version+1 where id=$1`,
-        [ids.sourceLayerId],
-      ),
-      /Source drawing layer is immutable/i,
-    );
-  });
+          [ids.sourceLayerId],
+        ),
+        /Source drawing layer is immutable/i,
+      );
+    },
+  );
 
   await t.test("update preserves a visible unlocked user layer", async () => {
     const ids = await createDocument();
@@ -539,37 +562,43 @@ test("authenticated direct layer SQL cannot bypass canonical layer integrity", a
     );
   });
 
-  await t.test("authenticated delete is revoked and has no policy path", async () => {
-    const ids = await createDocument();
-    await assert.rejects(
-      db.query("delete from public.lukas_drawing_layers where id=$1", [
-        ids.workLayerId,
-      ]),
-      /permission denied/i,
-    );
-    const privilege = await db.query(
-      `select has_table_privilege('authenticated',
+  await t.test(
+    "authenticated delete is revoked and has no policy path",
+    async () => {
+      const ids = await createDocument();
+      await assert.rejects(
+        db.query("delete from public.lukas_drawing_layers where id=$1", [
+          ids.workLayerId,
+        ]),
+        /permission denied/i,
+      );
+      const privilege = await db.query(
+        `select has_table_privilege('authenticated',
         'public.lukas_drawing_layers','DELETE') allowed`,
-    );
-    assert.equal(privilege.rows[0].allowed, false);
-  });
+      );
+      assert.equal(privilege.rows[0].allowed, false);
+    },
+  );
 
-  await t.test("trusted direct deletes still cannot break layer invariants", async () => {
-    const ids = await createDocument();
-    await db.exec("reset role");
-    await assert.rejects(
-      db.query("delete from public.lukas_drawing_layers where id=$1", [
-        ids.sourceLayerId,
-      ]),
-      /Source drawing layer is immutable/i,
-    );
-    await assert.rejects(
-      db.query("delete from public.lukas_drawing_layers where id=$1", [
-        ids.workLayerId,
-      ]),
-      /visible unlocked user drawing layer/i,
-    );
-  });
+  await t.test(
+    "trusted direct deletes still cannot break layer invariants",
+    async () => {
+      const ids = await createDocument();
+      await db.exec("reset role");
+      await assert.rejects(
+        db.query("delete from public.lukas_drawing_layers where id=$1", [
+          ids.sourceLayerId,
+        ]),
+        /Source drawing layer is immutable/i,
+      );
+      await assert.rejects(
+        db.query("delete from public.lukas_drawing_layers where id=$1", [
+          ids.workLayerId,
+        ]),
+        /visible unlocked user drawing layer/i,
+      );
+    },
+  );
 });
 
 async function addCustomLayer(ids, name) {
@@ -738,7 +767,10 @@ test("generated undo and redo operations parse on the server and replay through 
     { type: "add_objects", actorId: OWNER, objects: [object] },
     env,
   );
-  await workspaceServer.applyDrawingOperation(client, operationInput(added.operation));
+  await workspaceServer.applyDrawingOperation(
+    client,
+    operationInput(added.operation),
+  );
   local = added.state;
 
   const undoneAdd = drawingCommands.undoDrawingCommand(local, OWNER, env);
@@ -1215,4 +1247,282 @@ test("runtime privileged child and approval guards reject missing membership", a
       );
     },
   );
+});
+
+test("runtime issue links are same-project, idempotent, append-only, and draft-only", async (t) => {
+  const link = async (objectId, issueId) => {
+    const result = await db.query(
+      "select public.lukas_drawing_link_object_issue($1,$2) result",
+      [objectId, issueId],
+    );
+    return result.rows[0].result;
+  };
+  const makeObjectAndIssue = async () => {
+    const ids = await createDocument();
+    const object = circleObject(randomUUID(), ids.workLayerId);
+    await addObject(ids, object);
+    const issueId = randomUUID();
+    await db.exec("reset role");
+    await db.query(
+      "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+      [issueId, PROJECT],
+    );
+    await asActor(OWNER);
+    return { ids, object, issueId };
+  };
+
+  await t.test("editor retry returns one authoritative link", async () => {
+    const fixture = await makeObjectAndIssue();
+    await asActor(EDITOR);
+    const client = {
+      async rpc(name, args) {
+        assert.equal(name, "lukas_drawing_link_object_issue");
+        try {
+          const result = await db.query(
+            "select public.lukas_drawing_link_object_issue($1,$2) result",
+            [args.p_object_id, args.p_issue_id],
+          );
+          return { data: result.rows[0].result, error: null };
+        } catch (error) {
+          return { data: null, error: { message: error.message } };
+        }
+      },
+    };
+    const first = await workspaceServer.linkDrawingObjectIssue(
+      client,
+      fixture.object.id,
+      fixture.issueId,
+    );
+    const retry = await link(fixture.object.id, fixture.issueId);
+    assert.deepEqual(retry, first);
+    const count = await db.query(
+      `select count(*)::int count from public.lukas_drawing_object_issue_links
+       where object_id=$1 and issue_id=$2`,
+      [fixture.object.id, fixture.issueId],
+    );
+    assert.equal(count.rows[0].count, 1);
+    await asActor(REVIEWER);
+    const visible = await db.query(
+      `select count(*)::int count from public.lukas_drawing_object_issue_links
+       where object_id=$1`,
+      [fixture.object.id],
+    );
+    assert.equal(visible.rows[0].count, 1);
+    await asActor(OUTSIDER);
+    const hidden = await db.query(
+      `select count(*)::int count from public.lukas_drawing_object_issue_links
+       where object_id=$1`,
+      [fixture.object.id],
+    );
+    assert.equal(hidden.rows[0].count, 0);
+  });
+
+  await t.test("cross-project issue is rejected", async () => {
+    const fixture = await makeObjectAndIssue();
+    const otherProject = randomUUID();
+    const otherIssue = randomUUID();
+    await db.exec("reset role");
+    await db.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [otherProject, OUTSIDER],
+    );
+    await db.query(
+      "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+      [otherIssue, otherProject],
+    );
+    await asActor(OWNER);
+    await assert.rejects(
+      link(fixture.object.id, otherIssue),
+      /same project|issue does not exist/i,
+    );
+  });
+
+  await t.test("read-only project roles cannot link", async () => {
+    const fixture = await makeObjectAndIssue();
+    await asActor(REVIEWER);
+    await assert.rejects(
+      link(fixture.object.id, fixture.issueId),
+      /editor capability required/i,
+    );
+  });
+
+  for (const status of ["review_requested", "approved"]) {
+    await t.test(`${status} revision cannot be linked`, async () => {
+      const fixture = await makeObjectAndIssue();
+      const review = await db.query(
+        "select public.lukas_drawing_request_review($1) result",
+        [fixture.ids.revisionId],
+      );
+      if (status === "approved") {
+        await asActor(REVIEWER);
+        await db.query(
+          `select public.lukas_drawing_record_revision_decision(
+            $1,$2,$3,'approved','issue link freeze fixture'
+          )`,
+          [
+            fixture.ids.revisionId,
+            review.rows[0].result.subjectVersion,
+            review.rows[0].result.snapshotSha256,
+          ],
+        );
+        await asActor(OWNER);
+      }
+      await assert.rejects(
+        link(fixture.object.id, fixture.issueId),
+        /draft revision|required draft/i,
+      );
+    });
+  }
+
+  await t.test(
+    "authenticated direct writes have no mutation grant",
+    async () => {
+      const fixture = await makeObjectAndIssue();
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_object_issue_links(
+          object_id,revision_id,issue_id,project_id,created_by
+        ) values ($1,$2,$3,$4,$5)`,
+          [
+            fixture.object.id,
+            fixture.ids.revisionId,
+            fixture.issueId,
+            PROJECT,
+            OWNER,
+          ],
+        ),
+        /permission denied/i,
+      );
+      for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+        const result = await db.query(
+          `select has_table_privilege('authenticated',
+          'public.lukas_drawing_object_issue_links',$1) allowed`,
+          [privilege],
+        );
+        assert.equal(result.rows[0].allowed, false);
+      }
+    },
+  );
+
+  await t.test(
+    "trusted direct insert still enforces the authenticated actor",
+    async () => {
+      const fixture = await makeObjectAndIssue();
+      await db.exec("reset role");
+      await assert.rejects(
+        db.query(
+          `insert into public.lukas_drawing_object_issue_links(
+          object_id,revision_id,issue_id,project_id,created_by
+        ) values ($1,$2,$3,$4,$5)`,
+          [
+            fixture.object.id,
+            fixture.ids.revisionId,
+            fixture.issueId,
+            PROJECT,
+            REVIEWER,
+          ],
+        ),
+        /actor mismatch/i,
+      );
+    },
+  );
+
+  await t.test(
+    "trusted direct updates and deletes remain append-only",
+    async () => {
+      const fixture = await makeObjectAndIssue();
+      const linked = await link(fixture.object.id, fixture.issueId);
+      await db.exec("reset role");
+      await assert.rejects(
+        db.query(
+          "update public.lukas_drawing_object_issue_links set created_at=now() where id=$1",
+          [linked.id],
+        ),
+        /append-only/i,
+      );
+      await assert.rejects(
+        db.query(
+          "delete from public.lukas_drawing_object_issue_links where id=$1",
+          [linked.id],
+        ),
+        /append-only/i,
+      );
+    },
+  );
+});
+
+test("inspector renders linked issues read-only and draft editor controls accessibly", () => {
+  const objectId = randomUUID();
+  const layerId = randomUUID();
+  const issueId = randomUUID();
+  const props = {
+    actorId: OWNER,
+    canEdit: false,
+    canLinkIssues: false,
+    issueLinks: [
+      {
+        id: randomUUID(),
+        object_id: objectId,
+        revision_id: randomUUID(),
+        issue_id: issueId,
+        project_id: PROJECT,
+        created_by: OWNER,
+        created_at: "2026-08-24T00:00:00.000Z",
+      },
+    ],
+    issues: [
+      {
+        id: issueId,
+        project_id: PROJECT,
+        title: "출입문 치수 확인",
+        priority: "high",
+        status: "open",
+        updated_at: "2026-08-24T00:00:00.000Z",
+      },
+    ],
+    onCommand() {},
+    selectedIds: [objectId],
+    state: {
+      layers: {
+        [layerId]: {
+          id: layerId,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          version: 1,
+        },
+      },
+      objects: {
+        [objectId]: circleObject(objectId, layerId),
+      },
+    },
+  };
+  const render = (componentProps) =>
+    renderToStaticMarkup(
+      createElement(RouterProvider, {
+        router: createMemoryRouter(
+          [
+            {
+              path: "/",
+              element: createElement(DrawingInspector, componentProps),
+            },
+          ],
+          { initialEntries: ["/"] },
+        ),
+      }),
+    );
+  const readOnly = render(props);
+  assert.match(readOnly, /연결된 이슈/);
+  assert.match(readOnly, /출입문 치수 확인/);
+  assert.doesNotMatch(readOnly, /이슈 검색/);
+  assert.doesNotMatch(readOnly, /name="issue_id"/);
+
+  const editable = render({ ...props, canEdit: true, canLinkIssues: true });
+  assert.match(editable, /aria-label="이슈 연결"/);
+  assert.match(editable, /이슈 검색/);
+  assert.match(editable, /for="inspector-issue"/);
+  assert.match(editable, /name="issue_id"/);
+  assert.match(editable, /name="object_id"/);
+  assert.doesNotMatch(editable, /새 이슈 만들기/);
 });

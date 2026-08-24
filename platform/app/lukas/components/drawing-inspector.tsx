@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Form } from "react-router";
 
 import {
   isEditableDrawingLayer,
@@ -8,10 +9,17 @@ import {
   type DrawingInspectorPatch,
 } from "~/lukas/lib/drawing-commands";
 import type { DrawingObject } from "~/lukas/lib/drawing-workspace.types";
+import type {
+  DrawingObjectIssueLink,
+  DrawingWorkspaceIssue,
+} from "~/lukas/lib/drawing-workspace.server";
 
 type Props = {
   actorId: string;
   canEdit: boolean;
+  canLinkIssues: boolean;
+  issueLinks: DrawingObjectIssueLink[];
+  issues: DrawingWorkspaceIssue[];
   onCommand: (command: DrawingCommand) => void;
   selectedIds: string[];
   state: Pick<DrawingDocumentState, "layers" | "objects">;
@@ -32,12 +40,16 @@ function inspectorError(error: unknown) {
 export function DrawingInspector({
   actorId,
   canEdit,
+  canLinkIssues,
+  issueLinks,
+  issues,
   onCommand,
   selectedIds,
   state,
 }: Props) {
   const dirtyFields = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
+  const [issueSearch, setIssueSearch] = useState("");
   const selectedObjects = useMemo(
     () => selectedIds.map((id) => state.objects[id]).filter(Boolean),
     [selectedIds, state.objects],
@@ -48,6 +60,7 @@ export function DrawingInspector({
   useEffect(() => {
     dirtyFields.current.clear();
     setError(null);
+    setIssueSearch("");
   }, [selectionKey]);
 
   const selectionEligible =
@@ -61,6 +74,97 @@ export function DrawingInspector({
   const editableLayers = Object.values(state.layers).filter(
     isEditableDrawingLayer,
   );
+  const selectedObject =
+    selectedObjects.length === 1 ? selectedObjects[0] : null;
+  const linkedIssueIds = new Set(
+    selectedObject
+      ? issueLinks
+          .filter((link) => link.object_id === selectedObject.id)
+          .map((link) => link.issue_id)
+      : [],
+  );
+  const linkedIssues = issues.filter((issue) => linkedIssueIds.has(issue.id));
+  const issueQuery = issueSearch.trim().toLocaleLowerCase();
+  const availableIssues = issues.filter(
+    (issue) =>
+      !linkedIssueIds.has(issue.id) &&
+      (!issueQuery || issue.title.toLocaleLowerCase().includes(issueQuery)),
+  );
+  const issueSection = selectedObject ? (
+    <section
+      aria-labelledby="drawing-inspector-issues-title"
+      className="mt-6 border-t border-white/10 pt-4"
+    >
+      <h3 className="text-sm font-bold" id="drawing-inspector-issues-title">
+        연결된 이슈
+      </h3>
+      {linkedIssues.length ? (
+        <ul className="mt-2 grid gap-2 text-sm">
+          {linkedIssues.map((issue) => (
+            <li className="rounded-md bg-white/5 p-2" key={issue.id}>
+              <span className="font-medium">{issue.title}</span>
+              <span className="ml-2 text-xs text-slate-400">
+                {issue.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs text-slate-400">연결된 이슈가 없습니다.</p>
+      )}
+      {canLinkIssues ? (
+        <Form
+          aria-label="이슈 연결"
+          className="mt-3 grid gap-2"
+          data-drawing-shortcuts="ignore"
+          method="post"
+        >
+          <input name="intent" type="hidden" value="link_issue" />
+          <input name="object_id" type="hidden" value={selectedObject.id} />
+          <label
+            className="grid gap-1 text-xs"
+            htmlFor="inspector-issue-search"
+          >
+            이슈 검색
+            <input
+              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              id="inspector-issue-search"
+              onChange={(event) => setIssueSearch(event.target.value)}
+              type="search"
+              value={issueSearch}
+            />
+          </label>
+          <label className="grid gap-1 text-xs" htmlFor="inspector-issue">
+            이슈
+            <select
+              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              defaultValue=""
+              disabled={availableIssues.length === 0}
+              id="inspector-issue"
+              name="issue_id"
+              required
+            >
+              <option disabled value="">
+                연결할 이슈 선택
+              </option>
+              {availableIssues.map((issue) => (
+                <option key={issue.id} value={issue.id}>
+                  {issue.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white disabled:opacity-50"
+            disabled={availableIssues.length === 0}
+            type="submit"
+          >
+            이슈 연결
+          </button>
+        </Form>
+      ) : null}
+    </section>
+  ) : null;
 
   function markDirty(field: string) {
     dirtyFields.current.add(field);
@@ -118,6 +222,7 @@ export function DrawingInspector({
         <p className="mt-4 text-sm text-amber-300" role="status">
           숨김 또는 잠긴 레이어의 선택은 편집할 수 없습니다.
         </p>
+        {issueSection}
       </section>
     );
   }
@@ -255,6 +360,7 @@ export function DrawingInspector({
           {error}
         </p>
       ) : null}
+      {issueSection}
     </section>
   );
 }

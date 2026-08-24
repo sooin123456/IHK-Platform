@@ -12,6 +12,7 @@ import {
   applyDrawingOperation,
   createDrawingDocument,
   handleWorkspaceMutation,
+  linkDrawingObjectIssue,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
@@ -28,6 +29,8 @@ const ids = {
   workLayer: "00000000-0000-4000-8000-000000000008",
   object: "00000000-0000-4000-8000-000000000009",
   operation: "00000000-0000-4000-8000-000000000010",
+  issue: "00000000-0000-4000-8000-000000000011",
+  link: "00000000-0000-4000-8000-000000000012",
 };
 
 const sourceSha = "a".repeat(64);
@@ -278,6 +281,7 @@ function queryClient(responses) {
     from(table) {
       const call = { table, filters: [], orders: [] };
       calls.push(call);
+      const response = responses[table] ?? { data: [], error: null };
       const builder = {
         select(columns) {
           call.select = columns;
@@ -301,15 +305,15 @@ function queryClient(responses) {
         },
         single() {
           call.terminal = "single";
-          return Promise.resolve(responses[table]);
+          return Promise.resolve(response);
         },
         maybeSingle() {
           call.terminal = "maybeSingle";
-          return Promise.resolve(responses[table]);
+          return Promise.resolve(response);
         },
         then(resolve, reject) {
           call.terminal = "await";
-          return Promise.resolve(responses[table]).then(resolve, reject);
+          return Promise.resolve(response).then(resolve, reject);
         },
       };
       return builder;
@@ -317,7 +321,7 @@ function queryClient(responses) {
   };
 }
 
-function workspaceLoaderClient(layers) {
+function workspaceLoaderClient(layers, extraResponses = {}) {
   return queryClient({
     lukas_qto_files: {
       data: {
@@ -340,6 +344,7 @@ function workspaceLoaderClient(layers) {
     lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
     lukas_drawing_layers: { data: layers, error: null },
     lukas_drawing_objects: { data: [], error: null },
+    ...extraResponses,
   });
 }
 
@@ -427,6 +432,98 @@ test("workspace loading binds immutable PDF evidence to its project and performs
     false,
   );
   assert.equal(file.sha256, sourceSha);
+});
+
+test("workspace loading scopes searchable issues and current links to the project revision", async () => {
+  const activeObject = operation().forward.objects[0];
+  const objectRow = {
+    ...activeObject,
+    object_type: activeObject.geometry.type,
+    layer_id: activeObject.layerId,
+    status: "active",
+  };
+  const responses = {
+    lukas_drawing_objects: { data: [objectRow], error: null },
+    lukas_drawing_issues: {
+      data: [
+        {
+          id: ids.issue,
+          project_id: ids.project,
+          title: "출입문 치수 확인",
+          priority: "high",
+          status: "open",
+          updated_at: "2026-08-24T03:00:00.000Z",
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_object_issue_links: {
+      data: [
+        {
+          id: ids.link,
+          object_id: ids.object,
+          revision_id: ids.revision,
+          issue_id: ids.issue,
+          project_id: ids.project,
+          created_by: ids.actor,
+          created_at: "2026-08-24T03:00:00.000Z",
+        },
+        {
+          id: ids.operation,
+          object_id: "00000000-0000-4000-8000-000000000099",
+          revision_id: ids.revision,
+          issue_id: ids.issue,
+          project_id: ids.project,
+          created_by: ids.actor,
+          created_at: "2026-08-24T03:00:00.000Z",
+        },
+      ],
+      error: null,
+    },
+  };
+  const client = workspaceLoaderClient(
+    [
+      {
+        id: ids.sourceLayer,
+        page_id: ids.page,
+        name: "Source",
+        system_kind: "source",
+        visible: true,
+        locked: true,
+        version: 1,
+      },
+      {
+        id: ids.workLayer,
+        page_id: ids.page,
+        name: "Work",
+        system_kind: "work",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    ],
+    responses,
+  );
+
+  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  assert.deepEqual(
+    loaded.document.revision.issues,
+    responses.lukas_drawing_issues.data,
+  );
+  assert.deepEqual(loaded.document.revision.issueLinks, [
+    responses.lukas_drawing_object_issue_links.data[0],
+  ]);
+  const issueCall = client.calls.find(
+    (call) => call.table === "lukas_drawing_issues",
+  );
+  const linkCall = client.calls.find(
+    (call) => call.table === "lukas_drawing_object_issue_links",
+  );
+  assert.deepEqual(issueCall.filters, [["eq", "project_id", ids.project]]);
+  assert.deepEqual(linkCall.filters, [
+    ["eq", "project_id", ids.project],
+    ["eq", "revision_id", ids.revision],
+  ]);
 });
 
 test("workspace loading fails closed when source-layer metadata is missing", async () => {
@@ -1075,4 +1172,99 @@ test("action contract maps stable database conflict codes to 409 and validation 
   });
   assert.equal(rpcFailure.status, 400);
   assert.equal(rpcFailure.body.kind, "rpc");
+});
+
+test("issue linking uses the narrow RPC and returns its authoritative link", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return {
+        data: {
+          id: ids.link,
+          objectId: ids.object,
+          issueId: ids.issue,
+          createdBy: ids.actor,
+          createdAt: "2026-08-24T03:00:00.000Z",
+        },
+        error: null,
+      };
+    },
+  };
+  const result = await linkDrawingObjectIssue(client, ids.object, ids.issue);
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_link_object_issue",
+      { p_object_id: ids.object, p_issue_id: ids.issue },
+    ],
+  ]);
+  assert.equal(result.id, ids.link);
+});
+
+test("issue-link action permits only editors on the current draft", async () => {
+  let rpcCalls = 0;
+  const client = {
+    async rpc() {
+      rpcCalls += 1;
+      return {
+        data: {
+          id: ids.link,
+          objectId: ids.object,
+          issueId: ids.issue,
+          createdBy: ids.actor,
+          createdAt: "2026-08-24T03:00:00.000Z",
+        },
+        error: null,
+      };
+    },
+  };
+  const linkForm = form({
+    intent: "link_issue",
+    object_id: ids.object,
+    issue_id: ids.issue,
+  });
+  const currentWorkspace = () => {
+    const workspace = loadedWorkspace();
+    workspace.document.revision.objects = [{ id: ids.object }];
+    workspace.document.revision.issues = [{ id: ids.issue }];
+    workspace.document.revision.issueLinks = [];
+    return workspace;
+  };
+  for (const capability of ["admin", "editor"]) {
+    const response = await handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability,
+      workspace: currentWorkspace(),
+      form: linkForm,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+  }
+  for (const capability of ["viewer", "commenter", "reviewer"]) {
+    await assert.rejects(
+      handleWorkspaceMutation({
+        client,
+        projectId: ids.project,
+        capability,
+        workspace: currentWorkspace(),
+        form: linkForm,
+      }),
+      (error) => error instanceof Response && error.status === 403,
+    );
+  }
+  for (const status of ["review_requested", "approved"]) {
+    const workspace = currentWorkspace();
+    workspace.document.revision.status = status;
+    const response = await handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "editor",
+      workspace,
+      form: linkForm,
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.kind, "conflict");
+  }
+  assert.equal(rpcCalls, 2);
 });
