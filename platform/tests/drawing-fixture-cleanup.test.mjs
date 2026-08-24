@@ -64,8 +64,8 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
   );
 
   assert.deepEqual(calls, [
-    ["storage", "one.pdf", "two.ifc"],
     ["project", "id", "project-1"],
+    ["storage", "one.pdf", "two.ifc"],
     ["user", "owner"],
     ["user", "reviewer"],
     ["user", "viewer"],

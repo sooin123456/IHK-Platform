@@ -106,6 +106,48 @@ Do not mark the drawing room complete from build output alone. Production maker,
 reviewer, viewer, and non-member behavior must be verified by database enforcement,
 and two real users must complete the field flow.
 
+## Drawing Workspace P0/P1 release runbook
+
+The browser editor is an additive route. Keep the existing collaboration room
+available throughout rollout and use it as the immediate product rollback path.
+
+1. Take a database backup and a schema snapshot. Record the backup identifier,
+   current migration list, application deployment ID, and the SHA-256 values of
+   the representative immutable PDF and IFC files.
+2. Apply every drawing workspace migration in filename order. Never edit an
+   already-applied migration; ship an additive forward-fix migration instead.
+3. Run `npm run db:typegen` with `SUPABASE_PROJECT_REF` and commit/review the
+   generated database type diff before application promotion.
+4. Run `npm run test:drawing-workspace`, `node --test tests/*.test.mjs`,
+   `npm run test:ifc`, `npm run typecheck`, and `npm run build`.
+5. Deploy a Vercel preview. Smoke the PDF-backed and blank routes with an Editor,
+   then confirm a Viewer has disabled mutation controls and receives a database
+   rejection for an attempted mutation.
+6. Run the isolated production fixture only against the intended preview or
+   production target:
+
+   ```sh
+   E2E_BASE_URL=https://<target-domain> npm run test:e2e:drawing-workspace:production
+   ```
+
+   The process also requires `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
+   `SUPABASE_SERVICE_ROLE_KEY`. Never print their values. The fixture creates its
+   own project/users/files and deletes the project cascade, Storage objects, and
+   Auth users in dependency order while collecting every cleanup failure.
+7. Promote only after the Editor/Viewer smoke, exact PDF/IFC SHA comparison,
+   separate reviewer approval, and cleanup all pass. Record the Playwright browser,
+   viewport, 10,000-object composition, 120-frame median/p95, and selection
+   median/p95. The P0/P1 catastrophic threshold is 50 ms p95; 60fps remains an
+   unachieved P7 optimization target.
+
+If any required credential or target is absent, record this production gate as
+`unexecuted`, never as passed. If application behavior regresses, route users back
+to the existing collaboration room and roll back the application deployment. For
+an applied additive database migration, prefer a reviewed forward-fix; restore the
+backup only under the incident runbook after confirming no post-snapshot customer
+writes would be lost. Approved revisions and immutable source-file rows must never
+be directly rewritten during rollback.
+
 ## Commercial boundary
 
 The current Revit field beta is a free download, not a zero-value card charge.

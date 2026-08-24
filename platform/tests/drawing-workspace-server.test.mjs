@@ -13,6 +13,7 @@ import {
   createDrawingDocument,
   handleWorkspaceMutation,
   linkDrawingObjectIssue,
+  loadAllDrawingObjects,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
@@ -34,6 +35,50 @@ const ids = {
 };
 
 const sourceSha = "a".repeat(64);
+
+test("workspace object loading paginates beyond the Supabase response cap", async () => {
+  const calls = [];
+  const rows = Array.from({ length: 2_005 }, (_, index) => ({
+    id: String(index),
+  }));
+  const client = {
+    from(table) {
+      assert.equal(table, "lukas_drawing_objects");
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        range(from, to) {
+          calls.push([from, to]);
+          return Promise.resolve({
+            data: rows.slice(from, to + 1),
+            error: null,
+          });
+        },
+      };
+      return builder;
+    },
+  };
+
+  const loaded = await loadAllDrawingObjects(
+    client,
+    ids.project,
+    ids.revision,
+    1_000,
+  );
+  assert.equal(loaded.length, 2_005);
+  assert.deepEqual(calls, [
+    [0, 999],
+    [1_000, 1_999],
+    [2_000, 2_999],
+  ]);
+});
 
 function form(fields) {
   const result = new FormData();
@@ -298,6 +343,11 @@ function queryClient(responses) {
         order(column, options) {
           call.orders.push([column, options]);
           return builder;
+        },
+        range(from, to) {
+          call.range = [from, to];
+          call.terminal = "range";
+          return Promise.resolve(response);
         },
         limit(value) {
           call.limit = value;

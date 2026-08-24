@@ -201,6 +201,35 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
 
 export type DrawingWorkspaceClient = SupabaseClient<DrawingWorkspaceDatabase>;
 
+const drawingObjectPageSize = 1_000;
+
+export async function loadAllDrawingObjects(
+  client: DrawingWorkspaceClient,
+  projectId: string,
+  revisionId: string,
+  pageSize = drawingObjectPageSize,
+) {
+  if (!Number.isInteger(pageSize) || pageSize <= 0)
+    throw new Error("Drawing object page size must be a positive integer.");
+  const objects: DrawingObjectRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from("lukas_drawing_objects")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("revision_id", revisionId)
+      .eq("status", "active")
+      .order("created_at")
+      .order("id")
+      .range(from, from + pageSize - 1);
+    if (error)
+      throw new Error(`도면 객체를 불러오지 못했습니다: ${error.message}`);
+    const page = data ?? [];
+    objects.push(...page);
+    if (page.length < pageSize) return objects;
+  }
+}
+
 const Uuid = z.string().uuid();
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const Title = z.string().trim().min(1).max(240);
@@ -508,7 +537,7 @@ export async function loadDrawingWorkspace(
     );
   if (!revision) return { file: file as DrawingWorkspaceFile, document: null };
 
-  const [pagesResult, layersResult, objectsResult, issuesResult, linksResult] =
+  const [pagesResult, layersResult, objects, issuesResult, linksResult] =
     await Promise.all([
       client
         .from("lukas_drawing_pages")
@@ -522,13 +551,7 @@ export async function loadDrawingWorkspace(
         .eq("project_id", projectId)
         .eq("revision_id", revision.id)
         .order("sort_order"),
-      client
-        .from("lukas_drawing_objects")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("revision_id", revision.id)
-        .eq("status", "active")
-        .order("created_at"),
+      loadAllDrawingObjects(client, projectId, revision.id),
       client
         .from("lukas_drawing_issues")
         .select("id,project_id,title,priority,status,updated_at")
@@ -546,14 +569,12 @@ export async function loadDrawingWorkspace(
   const childError =
     pagesResult.error ??
     layersResult.error ??
-    objectsResult.error ??
     issuesResult.error ??
     linksResult.error;
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
   const layers = layersResult.data ?? [];
   const pages = pagesResult.data ?? [];
-  const objects = objectsResult.data ?? [];
   const issues = issuesResult.data ?? [];
   const activeObjectIds = new Set(objects.map((object) => object.id));
   const issueIds = new Set(issues.map((issue) => issue.id));

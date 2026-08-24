@@ -7,6 +7,21 @@ Windows/Revit 실기와 3개 현장 적용은 코드 완료와 분리된 외부 
 모델 제안은 기본 비활성인 한길 담당자 전용 파일럿에서만 가져올 수 있고, 고객
 화면의 자동 실행·자동 판정·수량 계산에는 연결되지 않는다.
 
+## Drawing Workspace P0/P1 추가 범위 (2026-08-24)
+
+| 요구사항 | 구현 증거 | 상태 |
+|---|---|---|
+| 편집 코어 | PDF/빈 배경, 6개 도구, 선택·이동·복사·삭제, undo/redo, 레이어·속성 검사기 계약 테스트 | 코드 완료 / 로컬 자동 검증 |
+| 저장·복구 | append-only operation RPC와 IndexedDB outbox의 ack·충돌·재시도·재로그인 복구 계약 | 코드 완료 / 로컬 자동 검증 |
+| 이슈·검토·승인 | 기존 이슈 객체 연결, maker-checker 검토 요청, 별도 Reviewer 승인, 승인 후 변경 차단 | 코드 완료 / 운영 E2E 외부 게이트 |
+| 원본 불변성 | fixture가 PDF/IFC 파일 행의 SHA-256을 작업 전후 정확히 비교 | 코드 완료 / 운영 E2E 미실행 |
+| 10,000 객체 | Chromium 1440×900, 120 프레임 및 선택 median/p95 측정; P0/P1 p95 50ms 파국 방지선 | 코드 완료 / 운영 성능 미실행 |
+| P3 실시간 공동 편집 | Yjs, y-indexeddb, Hocuspocus와 두 브라우저 live cursor/concurrent sync | 미구현 / P3 외부 게이트 |
+
+`완료`는 production Playwright 실행을 뜻하지 않는다. 운영 자격 증명과 격리된
+대상 환경이 없으면 `test:e2e:drawing-workspace:production`은 `unexecuted`로
+기록한다. 10,000 객체 60fps는 P7 목표이며 P0/P1에서 달성으로 표시하지 않는다.
+
 ## P0 — 보안·운영 기반
 
 | 요구사항 | 구현 증거 | 상태 |

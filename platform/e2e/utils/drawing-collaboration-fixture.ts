@@ -10,6 +10,15 @@ const IFC_SHA256 =
 
 type TestUser = { id: string; email: string };
 
+type WorkspaceFixture = {
+  documentId: string;
+  revisionId: string;
+  pageId: string;
+  sourceLayerId: string;
+  workLayerId: string;
+  fileId: string;
+};
+
 export type DrawingFixture = {
   admin: SupabaseClient;
   owner: TestUser;
@@ -21,6 +30,10 @@ export type DrawingFixture = {
   ifcFileId: string;
   revisedPdfFileId: string;
   revisedIfcFileId: string;
+  pdfWorkspace: WorkspaceFixture;
+  blankWorkspace: WorkspaceFixture;
+  existingIssueId: string;
+  sourceHashes: Record<string, string>;
   storagePaths: string[];
 };
 
@@ -30,7 +43,7 @@ async function cleanupDrawingResources(
   projectId: string | null | undefined,
   users: TestUser[],
 ) {
-  const errors: Error[] = [];
+  const cleanupErrors: Error[] = [];
   const attempt = async (
     label: string,
     operation: () => Promise<{ error: unknown }>,
@@ -38,14 +51,14 @@ async function cleanupDrawingResources(
     try {
       const result = await operation();
       if (result.error) {
-        errors.push(
+        cleanupErrors.push(
           new Error(
             `${label}: ${String((result.error as Error).message ?? result.error)}`,
           ),
         );
       }
     } catch (error) {
-      errors.push(
+      cleanupErrors.push(
         new Error(
           `${label}: ${error instanceof Error ? error.message : String(error)}`,
         ),
@@ -53,16 +66,18 @@ async function cleanupDrawingResources(
     }
   };
 
-  if (storagePaths.length > 0) {
-    await attempt("storage cleanup", () =>
-      admin.storage.from("lukas-qto").remove(storagePaths),
-    );
-  }
+  // Cleanup dependency order: project cascade releases DB/user references,
+  // Storage removes immutable fixture bytes, then Auth users are removed.
   if (projectId) {
     await attempt(
       "project cleanup",
       async () =>
         await admin.from("lukas_qto_projects").delete().eq("id", projectId),
+    );
+  }
+  if (storagePaths.length > 0) {
+    await attempt("storage cleanup", () =>
+      admin.storage.from("lukas-qto").remove(storagePaths),
     );
   }
   for (const user of users) {
@@ -71,9 +86,9 @@ async function cleanupDrawingResources(
     );
   }
 
-  if (errors.length > 0) {
+  if (cleanupErrors.length > 0) {
     throw new AggregateError(
-      errors,
+      cleanupErrors,
       "Drawing E2E cleanup left possible residue",
     );
   }
@@ -90,6 +105,20 @@ function required(name: string) {
 
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function parseWorkspace(value: unknown, fileId: string): WorkspaceFixture {
+  const row = value as Partial<Omit<WorkspaceFixture, "fileId">> | null;
+  if (
+    !row?.documentId ||
+    !row.revisionId ||
+    !row.pageId ||
+    !row.sourceLayerId ||
+    !row.workLayerId
+  ) {
+    throw new Error("Drawing workspace IDs missing after setup");
+  }
+  return { ...row, fileId } as WorkspaceFixture;
 }
 
 function twoPagePdf() {
@@ -306,6 +335,47 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
       ]);
     if (revisionError) throw revisionError;
 
+    const { data: pdfWorkspaceData, error: pdfWorkspaceError } =
+      await ownerAuth.rpc("lukas_drawing_create_document", {
+        p_project_id: project.id,
+        p_source_file_id: pdfFileId,
+        p_title: `1HK PDF workspace ${runId}`,
+        p_blank: false,
+      });
+    if (pdfWorkspaceError) throw pdfWorkspaceError;
+    const pdfWorkspace = parseWorkspace(pdfWorkspaceData, pdfFileId);
+
+    const { data: blankWorkspaceData, error: blankWorkspaceError } =
+      await ownerAuth.rpc("lukas_drawing_create_document", {
+        p_project_id: project.id,
+        p_source_file_id: revisedPdfFileId,
+        p_title: `1HK blank workspace ${runId}`,
+        p_blank: true,
+      });
+    if (blankWorkspaceError) throw blankWorkspaceError;
+    const blankWorkspace = parseWorkspace(blankWorkspaceData, revisedPdfFileId);
+
+    const { data: issue, error: issueError } = await ownerAuth
+      .from("lukas_drawing_issues")
+      .insert({
+        project_id: project.id,
+        title: `기존 창호 이슈 ${runId}`,
+        description: "도면 객체 연결 E2E용 기존 이슈",
+        priority: "normal",
+        created_by: owner.id,
+      })
+      .select("id")
+      .single();
+    if (issueError || !issue)
+      throw issueError ?? new Error("Existing issue setup failed");
+
+    const sourceHashes = Object.fromEntries([
+      [pdfFileId, sha256(pdf)],
+      [ifcFileId, sha256(ifc)],
+      [revisedPdfFileId, sha256(pdf)],
+      [revisedIfcFileId, sha256(ifc)],
+    ]);
+
     return {
       admin,
       owner,
@@ -317,6 +387,10 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
       ifcFileId,
       revisedPdfFileId,
       revisedIfcFileId,
+      pdfWorkspace,
+      blankWorkspace,
+      existingIssueId: issue.id,
+      sourceHashes,
       storagePaths,
     };
   } catch (error) {
@@ -335,6 +409,105 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     }
     throw error;
   }
+}
+
+export async function readSourceHashes(fixture: DrawingFixture) {
+  const fileIds = Object.keys(fixture.sourceHashes);
+  const { data, error } = await fixture.admin
+    .from("lukas_qto_files")
+    .select("id,sha256")
+    .in("id", fileIds);
+  if (error) throw error;
+  const hashes = Object.fromEntries(
+    (data ?? []).map((file) => [file.id, file.sha256]),
+  );
+  if (Object.keys(hashes).length !== fileIds.length)
+    throw new Error("Source hash evidence is incomplete");
+  return hashes;
+}
+
+export async function seedDrawingPerformanceObjects(
+  fixture: DrawingFixture,
+  count = 10_000,
+) {
+  if (count !== 10_000)
+    throw new Error(
+      "The release performance fixture requires exactly 10,000 objects",
+    );
+  const owner = await authenticateApiClient(fixture, fixture.owner);
+  const types = [
+    "line",
+    "polyline",
+    "rectangle",
+    "circle",
+    "text",
+    "dimension",
+  ] as const;
+  const composition = Object.fromEntries(
+    types.map((type) => [type, 0]),
+  ) as Record<(typeof types)[number], number>;
+  const objects = Array.from({ length: count }, (_, index) => {
+    const type = types[index % types.length];
+    composition[type] += 1;
+    const x = 12 + (index % 100) * 7;
+    const y = 12 + Math.floor(index / 100) * 5;
+    const geometry =
+      type === "line"
+        ? { type, start: { x, y }, end: { x: x + 4, y: y + 2 } }
+        : type === "polyline"
+          ? {
+              type,
+              points: [
+                { x, y },
+                { x: x + 3, y: y + 2 },
+                { x: x + 6, y },
+              ],
+              closed: false,
+            }
+          : type === "rectangle"
+            ? { type, origin: { x, y }, width: 5, height: 3, rotation: 0 }
+            : type === "circle"
+              ? { type, center: { x, y }, radius: 2 }
+              : type === "text"
+                ? { type, origin: { x, y }, width: 24, text: `T${index}` }
+                : {
+                    type,
+                    start: { x, y },
+                    end: { x: x + 5, y },
+                    offset: 2,
+                    calibrationId: null,
+                  };
+    return {
+      id: randomUUID(),
+      name: `${type}-${index + 1}`,
+      layerId: fixture.blankWorkspace.workLayerId,
+      geometry,
+      style: {
+        stroke: "#2563eb",
+        strokeWidth: 2,
+        fill: type === "rectangle" || type === "circle" ? "#bfdbfe33" : null,
+        ...(type === "text" ? { fontSize: 14 } : {}),
+      },
+      version: 1,
+    };
+  });
+
+  for (let offset = 0; offset < objects.length; offset += 250) {
+    const chunk = objects.slice(offset, offset + 250);
+    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.blankWorkspace.revisionId,
+      p_client_operation_id: randomUUID(),
+      p_operation_type: "add_objects",
+      p_base_versions: {},
+      p_forward: { type: "add_objects", objects: chunk },
+      p_inverse: {
+        type: "delete_objects",
+        objectIds: chunk.map((object) => object.id),
+      },
+    });
+    if (error) throw error;
+  }
+  return { composition, count };
 }
 
 export async function authenticateContext(
