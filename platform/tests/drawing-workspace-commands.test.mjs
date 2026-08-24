@@ -690,7 +690,6 @@ test("tool event adapter converts Stage-relative screen points to world points b
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 7,
       screenPoint: { x: 104, y: 52 },
       shiftKey: false,
@@ -707,7 +706,6 @@ test("tool event adapter converts Stage-relative screen points to world points b
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 7,
       screenPoint: { x: 140, y: 88 },
       shiftKey: false,
@@ -731,7 +729,6 @@ test("tool event adapter models drag preview and pointer capture through release
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 9,
       screenPoint: { x: 31, y: 39 },
       shiftKey: false,
@@ -770,47 +767,77 @@ test("tool event adapter models drag preview and pointer capture through release
   });
 });
 
-test("tool event adapter completes one polyline across click and double-click browser ordering", () => {
+test("tool event adapter ignores Chrome pointer detail and commits one terminal polyline vertex", () => {
   const context = controllerContext({
     activeTool: "polyline",
     viewport: { x: 0, y: 0, zoom: 1 },
   });
-  let state = drawingTools.createDrawingToolControllerState(context);
-  for (const [detail, screenPoint] of [
-    [1, { x: 1, y: 2 }],
-    [1, { x: 19, y: 18 }],
-    [1, { x: 31, y: 39 }],
-  ]) {
-    state = drawingTools.drawingToolEventTransition(
-      state,
-      {
-        type: "pointer_down",
-        button: 0,
-        detail,
-        pointerId: 1,
-        screenPoint,
-        shiftKey: false,
-      },
-      context,
-    ).state;
-  }
-  const completed = drawingTools.drawingToolEventTransition(
-    state,
+  let result = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(context),
     {
       type: "pointer_down",
       button: 0,
-      detail: 2,
       pointerId: 1,
-      screenPoint: { x: 31, y: 39 },
+      screenPoint: { x: 1, y: 2 },
       shiftKey: false,
     },
     context,
   );
-  assert.deepEqual(completed.command.objects[0].geometry.points, [
+  assert.equal(result.command, null);
+  // Chrome reports both pointer-downs in the terminal double-click as zero.
+  const commands = [];
+  for (let click = 0; click < 2; click += 1) {
+    result = drawingTools.drawingToolEventTransition(
+      result.state,
+      {
+        type: "pointer_down",
+        button: 0,
+        detail: 0,
+        pointerId: 1,
+        screenPoint: { x: 19, y: 18 },
+        shiftKey: false,
+      },
+      context,
+    );
+    if (result.command) commands.push(result.command);
+  }
+  result = drawingTools.drawingToolEventTransition(
+    result.state,
+    { type: "double_click" },
+    context,
+  );
+  if (result.command) commands.push(result.command);
+
+  assert.equal(commands.length, 1);
+  assert.deepEqual(commands[0].objects[0].geometry.points, [
     { x: 0, y: 0 },
     { x: 21, y: 19 },
-    { x: 30, y: 40 },
   ]);
+});
+
+test("double-click cannot create a polyline command with fewer than two vertices", () => {
+  const context = controllerContext({
+    activeTool: "polyline",
+    viewport: { x: 0, y: 0, zoom: 1 },
+  });
+  const oneVertex = drawingTools.drawingToolEventTransition(
+    drawingTools.createDrawingToolControllerState(context),
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 1,
+      screenPoint: { x: 1, y: 2 },
+      shiftKey: false,
+    },
+    context,
+  );
+  const completed = drawingTools.drawingToolEventTransition(
+    oneVertex.state,
+    { type: "double_click" },
+    context,
+  );
+
+  assert.equal(completed.command, null);
   assert.equal(
     drawingTools.drawingToolEventTransition(
       completed.state,
@@ -837,7 +864,6 @@ test("tool event adapter owns Enter, Backspace, Escape, and text submission", ()
       {
         type: "pointer_down",
         button: 0,
-        detail: 1,
         pointerId: 1,
         screenPoint,
         shiftKey: false,
@@ -864,7 +890,6 @@ test("tool event adapter owns Enter, Backspace, Escape, and text submission", ()
       {
         type: "pointer_down",
         button: 0,
-        detail: 1,
         pointerId: 1,
         screenPoint: { x: 100, y: 50 },
         shiftKey: false,
@@ -884,7 +909,6 @@ test("tool event adapter owns Enter, Backspace, Escape, and text submission", ()
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 1,
       screenPoint: { x: 100, y: 50 },
       shiftKey: false,
@@ -906,7 +930,6 @@ test("edit downgrade invalidates a live tool session before any later commit", (
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 1,
       screenPoint: { x: 100, y: 50 },
       shiftKey: false,
@@ -930,7 +953,6 @@ test("edit downgrade invalidates a live tool session before any later commit", (
       {
         type: "pointer_down",
         button: 0,
-        detail: 1,
         pointerId: 1,
         screenPoint: { x: 140, y: 90 },
         shiftKey: false,
@@ -951,7 +973,6 @@ test("layer switch cancels drag and releases capture instead of committing into 
     {
       type: "pointer_down",
       button: 0,
-      detail: 1,
       pointerId: 12,
       screenPoint: { x: 30, y: 40 },
       shiftKey: false,

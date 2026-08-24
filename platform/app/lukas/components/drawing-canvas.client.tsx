@@ -197,10 +197,15 @@ export function commitDrawingPoint(
   }
   const committed = snapPoint(candidate, options.snap);
   if (session.tool === "polyline") {
+    const lastPoint = session.points.at(-1);
+    const points =
+      lastPoint?.x === committed.x && lastPoint.y === committed.y
+        ? session.points
+        : [...session.points, committed];
     return {
       command: null,
       nextTool: "polyline",
-      session: { tool: "polyline", points: [...session.points, committed] },
+      session: { tool: "polyline", points },
     };
   }
   if (session.tool === "line") {
@@ -321,7 +326,6 @@ export type DrawingToolControllerEvent =
   | {
       type: "pointer_down";
       button: number;
-      detail: number;
       pointerId: number;
       screenPoint: Point;
       shiftKey: boolean;
@@ -484,15 +488,6 @@ export function drawingToolEventTransition(
       });
     }
     if (context.activeTool === "polyline") {
-      if (event.detail >= 2 && state.session.tool === "polyline") {
-        const options = controllerCommitOptions(context);
-        return options
-          ? completedControllerResult(
-              state,
-              completeDrawingToolSession(state.session, options),
-            )
-          : controllerResult(state);
-      }
       if (state.session.tool === "polyline") {
         const options = controllerCommitOptions(context);
         if (!options) return controllerResult(state);
@@ -1315,7 +1310,6 @@ export const DrawingCanvas = forwardRef<
       {
         type: "pointer_down",
         button: event.evt.button,
-        detail: event.evt.detail,
         pointerId: event.evt.pointerId,
         screenPoint: pointer,
         shiftKey: event.evt.shiftKey,

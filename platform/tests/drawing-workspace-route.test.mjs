@@ -407,6 +407,7 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.match(canvas, /name="drawing-preview"/);
   assert.match(canvas, /미보정/);
   assert.match(canvas, /drawingToolEventTransition\(/);
+  assert.doesNotMatch(canvas, /event\.evt\.detail/);
   assert.match(canvas, /geometrySnapPoints\(/);
   assert.match(canvas, /memo\(function CommittedDrawingLayer/);
   assert.match(canvas, /<CommittedDrawingLayer/);
