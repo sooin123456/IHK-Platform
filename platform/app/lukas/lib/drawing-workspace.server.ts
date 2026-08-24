@@ -514,7 +514,9 @@ export async function loadDrawingWorkspaceCapability(
   projectId: string,
   actorId: string,
   projectOwnerId: string,
+  trustedProjectRole: string | null = null,
 ): Promise<DrawingWorkspaceCapability | null> {
+  if (trustedProjectRole === "staff") return "admin";
   if (actorId === projectOwnerId) return "admin";
   const { data: membership, error } = await client
     .from("lukas_qto_project_members")
@@ -528,20 +530,34 @@ export async function loadDrawingWorkspaceCapability(
 }
 
 export class DrawingWorkspaceRpcError extends Error {
-  readonly kind: "conflict" | "rpc";
+  readonly kind = "rpc" as const;
 
   constructor(message: string) {
     super(message);
     this.name = "DrawingWorkspaceRpcError";
-    this.kind =
-      /conflict|subject version|version changed|lost its subject/i.test(message)
-        ? "conflict"
-        : "rpc";
   }
 }
 
-function rpcResult<T>(data: T | null, error: { message: string } | null): T {
-  if (error) throw new DrawingWorkspaceRpcError(error.message);
+export class DrawingWorkspaceConflictError extends Error {
+  readonly kind = "conflict" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DrawingWorkspaceConflictError";
+  }
+}
+
+const drawingConflictCodes = new Set(["23505", "23P01", "40001", "40P01"]);
+
+function rpcResult<T>(
+  data: T | null,
+  error: { code?: string; message: string } | null,
+): T {
+  if (error) {
+    if (error.code && drawingConflictCodes.has(error.code))
+      throw new DrawingWorkspaceConflictError(error.message);
+    throw new DrawingWorkspaceRpcError(error.message);
+  }
   if (data === null)
     throw new DrawingWorkspaceRpcError("도면 작업 결과가 없습니다.");
   return data;
@@ -610,4 +626,159 @@ export async function recordDrawingRevisionDecision(
     },
   );
   return rpcResult(data, error);
+}
+
+export type DrawingWorkspaceActionBody =
+  | { ok: true; kind: "success"; error: null; result: unknown }
+  | {
+      ok: false;
+      kind: "validation" | "rpc" | "conflict";
+      error: string;
+    };
+
+type WorkspaceMutationEnvironment = {
+  createId: () => string;
+  now: () => string;
+};
+
+function canEditWorkspace(capability: DrawingWorkspaceCapability) {
+  return capability === "admin" || capability === "editor";
+}
+
+function canReviewWorkspace(capability: DrawingWorkspaceCapability) {
+  return capability === "admin" || capability === "reviewer";
+}
+
+function currentWorkspaceRevisionId(workspace: DrawingWorkspace) {
+  if (!workspace.document) throw new Error("먼저 도면 문서를 만들어야 합니다.");
+  return workspace.document.revision.id;
+}
+
+function assertCurrentWorkspaceRevision(
+  workspace: DrawingWorkspace,
+  revisionId: string,
+) {
+  if (currentWorkspaceRevisionId(workspace) !== revisionId)
+    throw new DrawingWorkspaceConflictError(
+      "현재 파일의 도면 리비전과 요청이 일치하지 않습니다.",
+    );
+}
+
+const WorkspaceDocumentModeSchema = z.enum(["blank", "pdf_background"]);
+
+export async function handleWorkspaceMutation({
+  client,
+  projectId,
+  capability,
+  workspace,
+  form,
+  environment = {
+    createId: () => crypto.randomUUID(),
+    now: () => new Date().toISOString(),
+  },
+}: {
+  client: DrawingWorkspaceClient;
+  projectId: string;
+  capability: DrawingWorkspaceCapability;
+  workspace: DrawingWorkspace;
+  form: FormData;
+  environment?: WorkspaceMutationEnvironment;
+}): Promise<{ status: number; body: DrawingWorkspaceActionBody }> {
+  try {
+    const mutation = parseWorkspaceMutation(form);
+    let result: unknown;
+
+    if (mutation.intent === "record_revision_decision") {
+      if (!canReviewWorkspace(capability))
+        throw new Response("도면 리비전을 검토할 권한이 없습니다.", {
+          status: 403,
+        });
+      assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
+      result = await recordDrawingRevisionDecision(client, mutation);
+    } else {
+      if (!canEditWorkspace(capability))
+        throw new Response("도면을 편집할 권한이 없습니다.", { status: 403 });
+
+      if (mutation.intent === "create_document") {
+        if (workspace.document)
+          throw new DrawingWorkspaceConflictError(
+            "이 파일에는 이미 도면 문서가 있습니다.",
+          );
+        const mode = WorkspaceDocumentModeSchema.parse(
+          form.get("document_mode") ?? "blank",
+        );
+        result = await createDrawingDocument(
+          client,
+          projectId,
+          workspace.file,
+          {
+            title: mutation.title,
+            mode,
+          },
+        );
+      } else if (mutation.intent === "apply_operation") {
+        assertCurrentWorkspaceRevision(
+          workspace,
+          mutation.operation.revisionId,
+        );
+        result = await applyDrawingOperation(client, mutation.operation);
+      } else if (mutation.intent === "create_layer") {
+        const revisionId = currentWorkspaceRevisionId(workspace);
+        const operation = DrawingOperationInputSchema.parse({
+          clientOperationId: environment.createId(),
+          revisionId,
+          type: "add_layer",
+          baseVersions: {},
+          forward: {
+            type: "add_layer",
+            layer: {
+              id: environment.createId(),
+              name: mutation.name,
+              visible: true,
+              locked: false,
+              version: 1,
+            },
+          },
+          inverse: {},
+          createdAt: environment.now(),
+        });
+        result = await applyDrawingOperation(client, operation);
+      } else if (mutation.intent === "request_review") {
+        assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
+        result = await requestDrawingReview(client, mutation.revisionId);
+      } else {
+        return {
+          status: 400,
+          body: {
+            ok: false,
+            kind: "validation",
+            error: "이슈 연결은 아직 사용할 수 없습니다.",
+          },
+        };
+      }
+    }
+    return {
+      status: 200,
+      body: { ok: true, kind: "success", error: null, result },
+    };
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    const kind =
+      error instanceof DrawingWorkspaceConflictError
+        ? "conflict"
+        : error instanceof DrawingWorkspaceRpcError
+          ? "rpc"
+          : "validation";
+    return {
+      status: kind === "conflict" ? 409 : 400,
+      body: {
+        ok: false,
+        kind,
+        error:
+          error instanceof Error
+            ? error.message
+            : "도면 작업을 저장하지 못했습니다.",
+      },
+    };
+  }
 }

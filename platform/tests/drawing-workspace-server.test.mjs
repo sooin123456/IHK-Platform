@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DrawingWorkspaceRpcError,
   applyDrawingOperation,
   createDrawingDocument,
+  handleWorkspaceMutation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
@@ -372,14 +372,15 @@ test("operation RPC receives exact client operation fields and exposes conflicts
     async rpc() {
       return {
         data: null,
-        error: { message: "Drawing object version conflict" },
+        error: { code: "40001", message: "Drawing object version conflict" },
       };
     },
   };
   await assert.rejects(
     () => applyDrawingOperation(conflicting, input),
     (error) =>
-      error instanceof DrawingWorkspaceRpcError && error.kind === "conflict",
+      error.name === "DrawingWorkspaceConflictError" &&
+      error.kind === "conflict",
   );
 });
 
@@ -412,4 +413,222 @@ test("capability comes from project ownership or membership rows, never user met
     ["eq", "project_id", ids.project],
     ["eq", "user_id", ids.actor],
   ]);
+});
+
+test("trusted staff context is admin without membership while viewer and outsider stay constrained", async () => {
+  const staffClient = queryClient({});
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      staffClient,
+      ids.project,
+      ids.actor,
+      ids.document,
+      "staff",
+    ),
+    "admin",
+  );
+  assert.equal(staffClient.calls.length, 0);
+
+  const viewerClient = queryClient({
+    lukas_qto_project_members: { data: { role: "viewer" }, error: null },
+  });
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      viewerClient,
+      ids.project,
+      ids.actor,
+      ids.document,
+      "viewer",
+    ),
+    "viewer",
+  );
+
+  const outsiderClient = queryClient({
+    lukas_qto_project_members: { data: null, error: null },
+  });
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      outsiderClient,
+      ids.project,
+      ids.actor,
+      ids.document,
+      null,
+    ),
+    null,
+  );
+
+  await assert.rejects(
+    () =>
+      handleWorkspaceMutation({
+        client: { async rpc() {} },
+        projectId: ids.project,
+        capability: "viewer",
+        workspace: { ...loadedWorkspace(), document: null },
+        form: form({
+          intent: "create_document",
+          title: "A-101",
+          document_mode: "blank",
+        }),
+      }),
+    (error) => error instanceof Response && error.status === 403,
+  );
+});
+
+function loadedWorkspace(revisionId = ids.revision) {
+  return {
+    file: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "pdf",
+      original_filename: "A-101.pdf",
+      storage_path: "projects/source.pdf",
+      content_type: "application/pdf",
+      byte_size: 1234,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-08-24T00:00:00.000Z",
+    },
+    document: {
+      id: ids.document,
+      project_id: ids.project,
+      source_file_id: ids.file,
+      source_sha256: sourceSha,
+      title: "A-101",
+      created_by: ids.actor,
+      created_at: "2026-08-24T00:00:00.000Z",
+      updated_at: "2026-08-24T00:00:00.000Z",
+      revision: {
+        id: revisionId,
+        document_id: ids.document,
+        project_id: ids.project,
+        parent_revision_id: null,
+        sequence: 1,
+        status: "draft",
+        version: 1,
+        created_by: ids.actor,
+        review_requested_at: null,
+        approved_at: null,
+        created_at: "2026-08-24T00:00:00.000Z",
+        updated_at: "2026-08-24T00:00:00.000Z",
+        pages: [],
+        layers: [],
+        objects: [],
+      },
+    },
+  };
+}
+
+test("action contract returns 409 for stale revision and pre-existing document preconditions", async () => {
+  let rpcCalls = 0;
+  const client = {
+    async rpc() {
+      rpcCalls += 1;
+      return { data: {}, error: null };
+    },
+  };
+  const stale = operation({
+    revisionId: "00000000-0000-4000-8000-000000000099",
+  });
+  assert.deepEqual(
+    await handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "editor",
+      workspace: loadedWorkspace(),
+      form: form({ intent: "apply_operation", operation_json: stale }),
+    }),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "conflict",
+        error: "현재 파일의 도면 리비전과 요청이 일치하지 않습니다.",
+      },
+    },
+  );
+  assert.deepEqual(
+    await handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "editor",
+      workspace: loadedWorkspace(),
+      form: form({
+        intent: "create_document",
+        title: "A-101",
+        document_mode: "blank",
+      }),
+    }),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "conflict",
+        error: "이 파일에는 이미 도면 문서가 있습니다.",
+      },
+    },
+  );
+  assert.equal(rpcCalls, 0);
+});
+
+test("action contract maps stable database conflict codes to 409 and validation failures to 400", async () => {
+  const raceClient = {
+    async rpc() {
+      return {
+        data: null,
+        error: { code: "23505", message: "duplicate key value" },
+      };
+    },
+  };
+  assert.deepEqual(
+    await handleWorkspaceMutation({
+      client: raceClient,
+      projectId: ids.project,
+      capability: "editor",
+      workspace: { ...loadedWorkspace(), document: null },
+      form: form({
+        intent: "create_document",
+        title: "A-101",
+        document_mode: "blank",
+      }),
+    }),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "conflict",
+        error: "duplicate key value",
+      },
+    },
+  );
+
+  const validation = await handleWorkspaceMutation({
+    client: raceClient,
+    projectId: ids.project,
+    capability: "editor",
+    workspace: { ...loadedWorkspace(), document: null },
+    form: form({ intent: "unknown" }),
+  });
+  assert.equal(validation.status, 400);
+  assert.equal(validation.body.kind, "validation");
+
+  const rpcFailure = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: null,
+          error: { code: "P0001", message: "RPC precondition failed" },
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: { ...loadedWorkspace(), document: null },
+    form: form({
+      intent: "create_document",
+      title: "A-101",
+      document_mode: "blank",
+    }),
+  });
+  assert.equal(rpcFailure.status, 400);
+  assert.equal(rpcFailure.body.kind, "rpc");
 });

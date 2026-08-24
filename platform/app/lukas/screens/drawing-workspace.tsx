@@ -2,25 +2,18 @@ import type { Route } from "./+types/drawing-workspace";
 
 import { ArrowLeft } from "lucide-react";
 import { Form, Link, data } from "react-router";
-import { z } from "zod";
 
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
 import {
-  DrawingWorkspaceRpcError,
-  applyDrawingOperation,
-  createDrawingDocument,
+  handleWorkspaceMutation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
-  parseWorkspaceMutation,
-  recordDrawingRevisionDecision,
-  requestDrawingReview,
 } from "~/lukas/lib/drawing-workspace.server";
 import type {
   DrawingWorkspaceCapability,
   DrawingWorkspaceClient,
 } from "~/lukas/lib/drawing-workspace.server";
-import { DrawingOperationInputSchema } from "~/lukas/lib/drawing-workspace.types";
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
@@ -34,10 +27,6 @@ function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
 
-function canReview(capability: DrawingWorkspaceCapability) {
-  return capability === "admin" || capability === "reviewer";
-}
-
 async function workspaceContext(request: Request, projectId: string) {
   const context = await drawingContext(request, projectId);
   const client = context.client as unknown as DrawingWorkspaceClient;
@@ -46,6 +35,7 @@ async function workspaceContext(request: Request, projectId: string) {
     context.project.id,
     context.user.id,
     context.project.owner_id,
+    context.role,
   );
   if (!capability)
     throw new Response("도면 작업 권한이 없습니다.", { status: 403 });
@@ -68,121 +58,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 }
 
-const DocumentModeSchema = z.enum(["blank", "pdf_background"]);
-
-function currentRevisionId(
-  workspace: Awaited<ReturnType<typeof loadDrawingWorkspace>>,
-) {
-  if (!workspace.document) throw new Error("먼저 도면 문서를 만들어야 합니다.");
-  return workspace.document.revision.id;
-}
-
-function assertCurrentRevision(
-  workspace: Awaited<ReturnType<typeof loadDrawingWorkspace>>,
-  revisionId: string,
-) {
-  if (currentRevisionId(workspace) !== revisionId)
-    throw new Error("현재 파일의 도면 리비전과 요청이 일치하지 않습니다.");
-}
-
 export async function action({ request, params }: Route.ActionArgs) {
   const { client, headers, project, capability } = await workspaceContext(
     request,
     params.projectId!,
   );
-  try {
-    const workspace = await loadDrawingWorkspace(
-      client,
-      project.id,
-      params.fileId!,
-    );
-    const form = await request.formData();
-    const mutation = parseWorkspaceMutation(form);
-    let result: unknown;
-
-    if (mutation.intent === "record_revision_decision") {
-      if (!canReview(capability))
-        throw new Response("도면 리비전을 검토할 권한이 없습니다.", {
-          status: 403,
-        });
-      assertCurrentRevision(workspace, mutation.revisionId);
-      result = await recordDrawingRevisionDecision(client, mutation);
-    } else {
-      if (!canEdit(capability))
-        throw new Response("도면을 편집할 권한이 없습니다.", { status: 403 });
-
-      if (mutation.intent === "create_document") {
-        if (workspace.document)
-          throw new DrawingWorkspaceRpcError(
-            "이 파일에는 이미 도면 문서가 있습니다.",
-          );
-        const mode = DocumentModeSchema.parse(
-          form.get("document_mode") ?? "blank",
-        );
-        result = await createDrawingDocument(
-          client,
-          project.id,
-          workspace.file,
-          { title: mutation.title, mode },
-        );
-      } else if (mutation.intent === "apply_operation") {
-        assertCurrentRevision(workspace, mutation.operation.revisionId);
-        result = await applyDrawingOperation(client, mutation.operation);
-      } else if (mutation.intent === "create_layer") {
-        const revisionId = currentRevisionId(workspace);
-        const operation = DrawingOperationInputSchema.parse({
-          clientOperationId: crypto.randomUUID(),
-          revisionId,
-          type: "add_layer",
-          baseVersions: {},
-          forward: {
-            type: "add_layer",
-            layer: {
-              id: crypto.randomUUID(),
-              name: mutation.name,
-              visible: true,
-              locked: false,
-              version: 1,
-            },
-          },
-          inverse: {},
-          createdAt: new Date().toISOString(),
-        });
-        result = await applyDrawingOperation(client, operation);
-      } else if (mutation.intent === "request_review") {
-        assertCurrentRevision(workspace, mutation.revisionId);
-        result = await requestDrawingReview(client, mutation.revisionId);
-      } else {
-        return data(
-          {
-            ok: false as const,
-            kind: "validation" as const,
-            error: "이슈 연결은 아직 사용할 수 없습니다.",
-          },
-          { status: 400, headers },
-        );
-      }
-    }
-    return data(
-      { ok: true as const, kind: "success" as const, error: null, result },
-      { headers },
-    );
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    const kind =
-      error instanceof DrawingWorkspaceRpcError ? error.kind : "validation";
-    return data(
-      {
-        ok: false as const,
-        kind,
-        error:
-          error instanceof Error
-            ? error.message
-            : "도면 작업을 저장하지 못했습니다.",
-      },
-      { status: kind === "conflict" ? 409 : 400, headers },
-    );
-  }
+  const workspace = await loadDrawingWorkspace(
+    client,
+    project.id,
+    params.fileId!,
+  );
+  const result = await handleWorkspaceMutation({
+    client,
+    projectId: project.id,
+    capability,
+    workspace,
+    form: await request.formData(),
+  });
+  return data(result.body, { status: result.status, headers });
 }
 
 export default function DrawingWorkspaceScreen({
