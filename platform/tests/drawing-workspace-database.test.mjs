@@ -143,7 +143,7 @@ test("additive issue-link migration exposes only the guarded append-only RPC", a
   );
   assert.match(sql, /security definer[\s\S]+set search_path\s*=\s*''/i);
   assert.match(sql, /from public\.lukas_drawing_objects[\s\S]+for update/i);
-  assert.match(sql, /v_object\.status\s*<>\s*'active'/i);
+  assert.match(sql, /o\.status\s*=\s*'active'/i);
   assert.match(sql, /v_revision\.status\s*<>\s*'draft'/i);
   assert.match(sql, /v_capability not in \('admin', 'editor'\)/i);
   assert.match(
@@ -179,6 +179,43 @@ test("additive issue-link migration exposes only the guarded append-only RPC", a
     rpc.indexOf("from public.lukas_drawing_objects o") + 1,
   );
   assert.ok(revisionLock >= 0 && lockedObject > revisionLock);
+});
+
+test("additive issue-link migration closes direct object DML and target enumeration", async () => {
+  const sql = await issueLinkMigration();
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.lukas_drawing_objects\s+from authenticated/i,
+  );
+  for (const policy of ["add", "update", "delete"])
+    assert.match(
+      sql,
+      new RegExp(
+        `drop policy if exists "workspace editors ${policy} draft drawing objects"`,
+        "i",
+      ),
+    );
+  const rpc = sql.slice(
+    sql.indexOf(
+      "create or replace function public.lukas_drawing_link_object_issue",
+    ),
+  );
+  const guardedObjectReads = [
+    ...rpc.matchAll(
+      /from public\.lukas_drawing_objects o[\s\S]*?private\.lukas_drawing_workspace_capability\(o\.project_id\) in \('admin', 'editor'\)/gi,
+    ),
+  ];
+  assert.ok(guardedObjectReads.length >= 2);
+  assert.match(
+    rpc,
+    /from public\.lukas_drawing_issues i\s+where i\.id = p_issue_id\s+and i\.project_id = v_object\.project_id/i,
+  );
+  assert.doesNotMatch(rpc, /Drawing object does not exist/i);
+  assert.doesNotMatch(rpc, /Drawing issue does not exist/i);
+  assert.doesNotMatch(rpc, /same project/i);
+  assert.ok(
+    (rpc.match(/Drawing issue link target is unavailable/g) ?? []).length >= 4,
+  );
 });
 
 test("parent deletion cascades are distinguished from direct layer deletion in both install paths", async () => {

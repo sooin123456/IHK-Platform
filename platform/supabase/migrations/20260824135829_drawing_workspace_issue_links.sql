@@ -80,6 +80,18 @@ revoke insert, update, delete on public.lukas_drawing_object_issue_links
   from authenticated;
 grant select on public.lukas_drawing_object_issue_links to authenticated;
 
+-- Object writes are operation events. Closing the older direct-table path keeps
+-- every authenticated mutation behind the revision-first operation lock.
+drop policy if exists "workspace editors add draft drawing objects"
+  on public.lukas_drawing_objects;
+drop policy if exists "workspace editors update draft drawing objects"
+  on public.lukas_drawing_objects;
+drop policy if exists "workspace editors delete draft drawing objects"
+  on public.lukas_drawing_objects;
+revoke insert, update, delete on public.lukas_drawing_objects
+  from authenticated;
+grant select on public.lukas_drawing_objects to authenticated;
+
 create or replace function public.lukas_drawing_link_object_issue(
   p_object_id uuid,
   p_issue_id uuid
@@ -93,7 +105,6 @@ declare
   v_object record;
   v_revision record;
   v_issue_project_id uuid;
-  v_capability text;
   v_link record;
 begin
   if v_actor is null then
@@ -103,9 +114,11 @@ begin
   select o.id, o.revision_id, o.project_id, o.status
   into v_object
   from public.lukas_drawing_objects o
-  where o.id = p_object_id;
+  where o.id = p_object_id
+    and o.status = 'active'
+    and private.lukas_drawing_workspace_capability(o.project_id) in ('admin', 'editor');
   if v_object.id is null then
-    raise exception 'Drawing object does not exist';
+    raise exception 'Drawing issue link target is unavailable';
   end if;
 
   select r.id, r.project_id, r.status
@@ -115,7 +128,7 @@ begin
     and r.project_id = v_object.project_id
   for update;
   if v_revision.id is null then
-    raise exception 'Drawing revision does not exist';
+    raise exception 'Drawing issue link target is unavailable';
   end if;
 
   select o.id, o.revision_id, o.project_id, o.status
@@ -124,17 +137,11 @@ begin
   where o.id = p_object_id
     and o.revision_id = v_revision.id
     and o.project_id = v_revision.project_id
+    and o.status = 'active'
+    and private.lukas_drawing_workspace_capability(o.project_id) in ('admin', 'editor')
   for update;
   if v_object.id is null then
-    raise exception 'Drawing object does not exist';
-  end if;
-  if v_object.status <> 'active' then
-    raise exception 'Drawing issue link requires an active object';
-  end if;
-
-  v_capability := private.lukas_drawing_workspace_capability(v_object.project_id);
-  if v_capability is null or v_capability not in ('admin', 'editor') then
-    raise exception 'Drawing workspace editor capability required';
+    raise exception 'Drawing issue link target is unavailable';
   end if;
   if v_revision.status <> 'draft' then
     raise exception 'Drawing issue link requires a draft revision';
@@ -142,12 +149,10 @@ begin
 
   select i.project_id into v_issue_project_id
   from public.lukas_drawing_issues i
-  where i.id = p_issue_id;
+  where i.id = p_issue_id
+    and i.project_id = v_object.project_id;
   if v_issue_project_id is null then
-    raise exception 'Drawing issue does not exist';
-  end if;
-  if v_issue_project_id <> v_object.project_id then
-    raise exception 'Drawing object and issue must belong to the same project';
+    raise exception 'Drawing issue link target is unavailable';
   end if;
 
   insert into public.lukas_drawing_object_issue_links(

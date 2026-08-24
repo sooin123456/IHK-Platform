@@ -1333,7 +1333,7 @@ test("runtime issue links are same-project, idempotent, append-only, and draft-o
     await asActor(OWNER);
     await assert.rejects(
       link(fixture.object.id, otherIssue),
-      /same project|issue does not exist/i,
+      /target is unavailable/i,
     );
   });
 
@@ -1342,7 +1342,61 @@ test("runtime issue links are same-project, idempotent, append-only, and draft-o
     await asActor(REVIEWER);
     await assert.rejects(
       link(fixture.object.id, fixture.issueId),
-      /editor capability required/i,
+      /target is unavailable/i,
+    );
+  });
+
+  await t.test("missing and foreign targets have one fail-closed response", async () => {
+    const fixture = await makeObjectAndIssue();
+    const otherProject = randomUUID();
+    const otherFile = randomUUID();
+    const otherIssue = randomUUID();
+    await db.exec("reset role");
+    await db.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [otherProject, OUTSIDER],
+    );
+    await db.query(
+      `insert into public.lukas_qto_files(
+        id,project_id,uploaded_by,kind,sha256
+      ) values ($1,$2,$3,'pdf',$4)`,
+      [otherFile, otherProject, OUTSIDER, "c".repeat(64)],
+    );
+    await db.query(
+      "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+      [otherIssue, otherProject],
+    );
+    await asActor(OUTSIDER);
+    const other = await db.query(
+      "select public.lukas_drawing_create_document($1,$2,$3,true) result",
+      [otherProject, otherFile, "Foreign workspace"],
+    );
+    const foreignObject = circleObject(
+      randomUUID(),
+      other.rows[0].result.workLayerId,
+    );
+    await addObject(other.rows[0].result, foreignObject);
+    await asActor(EDITOR);
+
+    const unavailable = async (objectId, issueId) => {
+      try {
+        await link(objectId, issueId);
+        assert.fail("expected unavailable target");
+      } catch (error) {
+        return error.message;
+      }
+    };
+    const messages = [];
+    for (const [objectId, issueId] of [
+      [randomUUID(), fixture.issueId],
+      [foreignObject.id, fixture.issueId],
+      [fixture.object.id, randomUUID()],
+      [fixture.object.id, otherIssue],
+    ])
+      messages.push(await unavailable(objectId, issueId));
+    assert.deepEqual(
+      new Set(messages),
+      new Set(["Drawing issue link target is unavailable"]),
     );
   });
 
@@ -1449,6 +1503,110 @@ test("runtime issue links are same-project, idempotent, append-only, and draft-o
       );
     },
   );
+});
+
+test("authenticated editors mutate drawing objects only through the operation RPC", async () => {
+  const ids = await createDocument();
+  const directId = randomUUID();
+  await asActor(EDITOR);
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_objects(
+        id,lineage_id,page_id,layer_id,revision_id,project_id,
+        name,object_type,geometry,style,status,version,created_by,updated_by
+      ) values ($1,$1,$2,$3,$4,$5,'Direct','circle',$6,$7,'active',1,$8,$8)`,
+      [
+        directId,
+        ids.pageId,
+        ids.workLayerId,
+        ids.revisionId,
+        PROJECT,
+        circleObject(directId, ids.workLayerId).geometry,
+        STYLE,
+        EDITOR,
+      ],
+    ),
+    /permission denied/i,
+  );
+
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  await assert.rejects(
+    db.query(
+      "update public.lukas_drawing_objects set name='Direct update' where id=$1",
+      [object.id],
+    ),
+    /permission denied/i,
+  );
+  await assert.rejects(
+    db.query("delete from public.lukas_drawing_objects where id=$1", [object.id]),
+    /permission denied/i,
+  );
+  for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+    const result = await db.query(
+      `select has_table_privilege(
+        'authenticated','public.lukas_drawing_objects',$1
+      ) allowed`,
+      [privilege],
+    );
+    assert.equal(result.rows[0].allowed, false);
+  }
+  const mutationPolicies = await db.query(
+    `select count(*)::int count
+     from pg_catalog.pg_policies
+     where schemaname='public'
+       and tablename='lukas_drawing_objects'
+       and cmd in ('INSERT','UPDATE','DELETE')
+       and 'authenticated'=any(roles)`,
+  );
+  assert.equal(mutationPolicies.rows[0].count, 0);
+
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "RPC update" } }],
+    },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Circle" } }],
+    },
+  );
+  const issueId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(EDITOR);
+  await db.query(
+    "select public.lukas_drawing_link_object_issue($1,$2)",
+    [object.id, issueId],
+  );
+  await applyOperation(
+    ids.revisionId,
+    "delete_objects",
+    { [object.id]: 2 },
+    { type: "delete_objects", objectIds: [object.id] },
+    {
+      type: "add_objects",
+      objects: [{ ...object, name: "RPC update", version: 4 }],
+    },
+  );
+  const stored = await db.query(
+    `select o.status,o.version,
+      (select count(*)::int from public.lukas_drawing_object_issue_links l
+       where l.object_id=o.id) "linkCount"
+     from public.lukas_drawing_objects o where o.id=$1`,
+    [object.id],
+  );
+  assert.deepEqual(stored.rows[0], {
+    status: "deleted",
+    version: 3,
+    linkCount: 1,
+  });
 });
 
 test("inspector renders linked issues read-only and draft editor controls accessibly", () => {
