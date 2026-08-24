@@ -7,6 +7,20 @@ const read = (relativePath) =>
 const migration = () =>
   read("supabase/migrations/20260824110000_drawing_workspace_core.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const functionDefinition = (sql, name) => {
+  const start = sql.indexOf(`create or replace function private.${name}`);
+  assert.notEqual(start, -1, `missing private.${name}`);
+  const end = sql.indexOf("\n$$;", start);
+  assert.notEqual(end, -1, `unterminated private.${name}`);
+  return sql.slice(start, end + 4);
+};
+const triggerDefinition = (sql, name) => {
+  const start = sql.indexOf(`create trigger ${name}`);
+  assert.notEqual(start, -1, `missing trigger ${name}`);
+  const end = sql.indexOf(";", start);
+  assert.notEqual(end, -1, `unterminated trigger ${name}`);
+  return sql.slice(start, end + 1);
+};
 
 test("workspace migration binds sources by project and SHA and freezes approved revisions", async () => {
   const sql = await migration();
@@ -148,35 +162,100 @@ test("guards validate domain JSON and preserve approved and append-only records"
 
 test("every revision child INSERT serializes with review on the parent row", async () => {
   const sql = await migration();
-  assert.match(
+  const updateDeleteGuard = functionDefinition(
     sql,
-    /function private\.lukas_drawing_draft_child_insert_guard[\s\S]+from public\.lukas_drawing_revisions[\s\S]+for update[\s\S]+v_status <> 'draft'/i,
+    "lukas_drawing_draft_child_guard",
   );
-  for (const table of [
-    "pages",
-    "layers",
-    "objects",
-    "operations",
-    "snapshots",
-    "object_sources",
-    "object_issue_links",
+  assert.match(updateDeleteGuard, /from public\.lukas_drawing_revisions/i);
+  assert.match(updateDeleteGuard, /for update/i);
+  assert.match(updateDeleteGuard, /v_status <> 'draft'/i);
+  for (const [table, trigger] of [
+    ["pages", "lukas_drawing_pages_revision_guard"],
+    ["layers", "lukas_drawing_layers_revision_guard"],
+    ["objects", "lukas_drawing_objects_revision_guard"],
+    ["object_sources", "lukas_drawing_object_sources_revision_guard"],
+    ["object_issue_links", "lukas_drawing_object_issue_links_revision_guard"],
   ]) {
+    const definition = triggerDefinition(sql, trigger);
     assert.match(
-      sql,
+      definition,
       new RegExp(
-        `before insert on public\\.lukas_drawing_${escaped(table)}[\\s\\S]{0,160}lukas_drawing_draft_child_insert_guard`,
+        `before update or delete on public\\.lukas_drawing_${escaped(table)}`,
         "i",
       ),
     );
+    assert.match(definition, /lukas_drawing_draft_child_guard\(\)/i);
   }
-  assert.match(
+  const insertGuard = functionDefinition(
     sql,
-    /function private\.lukas_drawing_request_review[\s\S]+where r\.id = p_revision_id for update/i,
+    "lukas_drawing_draft_child_insert_guard",
+  );
+  assert.match(insertGuard, /from public\.lukas_drawing_revisions/i);
+  assert.match(insertGuard, /for update/i);
+  assert.match(insertGuard, /v_status <> 'draft'/i);
+  for (const [table, trigger] of [
+    ["pages", "lukas_drawing_pages_insert_revision_guard"],
+    ["layers", "lukas_drawing_layers_insert_revision_guard"],
+    ["objects", "lukas_drawing_objects_insert_revision_guard"],
+    ["operations", "lukas_drawing_operations_insert_revision_guard"],
+    ["snapshots", "lukas_drawing_snapshots_insert_revision_guard"],
+    ["object_sources", "lukas_drawing_object_sources_insert_revision_guard"],
+    [
+      "object_issue_links",
+      "lukas_drawing_object_issue_links_insert_revision_guard",
+    ],
+  ]) {
+    const definition = triggerDefinition(sql, trigger);
+    assert.match(
+      definition,
+      new RegExp(`before insert on public\\.lukas_drawing_${escaped(table)}`, "i"),
+    );
+    assert.match(definition, /lukas_drawing_draft_child_insert_guard\(\)/i);
+  }
+  const requestReview = functionDefinition(
+    sql,
+    "lukas_drawing_request_review",
+  );
+  assert.match(requestReview, /where r\.id = p_revision_id for update/i);
+  const approvalGuard = functionDefinition(
+    sql,
+    "lukas_drawing_revision_approval_guard",
+  );
+  assert.match(approvalGuard, /where r\.id = new\.revision_id/i);
+  assert.match(approvalGuard, /for update/i);
+  assert.match(approvalGuard, /v_revision\.status <> 'review_requested'/i);
+  const approvalTrigger = triggerDefinition(
+    sql,
+    "lukas_drawing_revision_approvals_validate",
   );
   assert.match(
-    sql,
-    /function private\.lukas_drawing_revision_approval_guard[\s\S]+where r\.id = new\.revision_id[\s\S]+for update/i,
+    approvalTrigger,
+    /before insert on public\.lukas_drawing_revision_approvals/i,
   );
+  assert.match(approvalTrigger, /lukas_drawing_revision_approval_guard\(\)/i);
+});
+
+test("capability and role checks fail closed inside each privileged function", async () => {
+  const sql = await migration();
+  for (const helper of [
+    "lukas_drawing_draft_child_guard",
+    "lukas_drawing_draft_child_insert_guard",
+    "lukas_drawing_create_document",
+    "lukas_drawing_apply_operation",
+    "lukas_drawing_request_review",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    assert.match(definition, /v_capability is null/i);
+    assert.match(definition, /v_capability not in \('admin', 'editor'\)/i);
+  }
+  for (const helper of [
+    "lukas_drawing_revision_approval_guard",
+    "lukas_drawing_record_revision_decision",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    assert.match(definition, /v_role is null/i);
+    assert.match(definition, /v_role not in \('owner', 'staff', 'reviewer'\)/i);
+  }
 });
 
 test("domain and inverse validation fails closed", async () => {
@@ -212,10 +291,14 @@ test("document creation and operation RPCs are atomic, authorized, and idempoten
     sql,
     /function public\.lukas_drawing_apply_operation\s*\(\s*p_revision_id uuid,\s*p_client_operation_id uuid,\s*p_operation_type text,\s*p_base_versions jsonb,\s*p_forward jsonb,\s*p_inverse jsonb\s*\)/i,
   );
-  assert.match(sql, /select auth\.uid\(\)/i);
-  assert.match(sql, /for update/i);
-  assert.match(
+  const applyOperation = functionDefinition(
     sql,
+    "lukas_drawing_apply_operation",
+  );
+  assert.match(applyOperation, /select auth\.uid\(\)/i);
+  assert.match(applyOperation, /from public\.lukas_drawing_revisions[\s\S]+for update/i);
+  assert.match(
+    applyOperation,
     /where o\.revision_id\s*=\s*p_revision_id[\s\S]+o\.client_operation_id\s*=\s*p_client_operation_id/i,
   );
   for (const operation of [
@@ -225,10 +308,13 @@ test("document creation and operation RPCs are atomic, authorized, and idempoten
     "add_layer",
     "update_layer",
   ]) {
-    assert.match(sql, new RegExp(`p_operation_type = '${operation}'`, "i"));
+    assert.match(
+      applyOperation,
+      new RegExp(`p_operation_type = '${operation}'`, "i"),
+    );
   }
-  assert.match(sql, /Drawing object version conflict/i);
-  assert.match(sql, /result_versions/i);
+  assert.match(applyOperation, /Drawing object version conflict/i);
+  assert.match(applyOperation, /result_versions/i);
 });
 
 test("review RPCs hash canonical stable ordering and enforce maker-checker", async () => {
@@ -286,11 +372,8 @@ test("trigger privilege modes match their required authority", async () => {
     "object_source_guard",
   ]) {
     assert.match(
-      sql,
-      new RegExp(
-        `function private\\.lukas_drawing_${helper}\\(\\)[\\s\\S]{0,100}security invoker`,
-        "i",
-      ),
+      functionDefinition(sql, `lukas_drawing_${helper}`),
+      /security invoker/i,
     );
   }
   for (const helper of [
@@ -299,13 +382,9 @@ test("trigger privilege modes match their required authority", async () => {
     "revision_approval_guard",
     "apply_revision_approval",
   ]) {
-    assert.match(
-      sql,
-      new RegExp(
-        `function private\\.lukas_drawing_${helper}\\(\\)[\\s\\S]{0,140}security definer[\\s\\S]+?select auth\\.uid\\(\\)`,
-        "i",
-      ),
-    );
+    const definition = functionDefinition(sql, `lukas_drawing_${helper}`);
+    assert.match(definition, /security definer/i);
+    assert.match(definition, /select auth\.uid\(\)/i);
   }
 });
 

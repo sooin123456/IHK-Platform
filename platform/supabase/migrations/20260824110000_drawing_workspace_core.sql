@@ -410,10 +410,11 @@ declare
   v_project_id uuid := (v_old ->> 'project_id')::uuid;
   v_status text;
   v_actor uuid := (select auth.uid());
+  v_capability text;
 begin
-  if v_actor is null
-     or private.lukas_drawing_workspace_capability(v_project_id)
-       not in ('admin', 'editor') then
+  v_capability := private.lukas_drawing_workspace_capability(v_project_id);
+  if v_actor is null or v_capability is null
+     or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
   select r.status into v_status
@@ -457,10 +458,11 @@ declare
   v_project_id uuid := (v_new ->> 'project_id')::uuid;
   v_status text;
   v_actor uuid := (select auth.uid());
+  v_capability text;
 begin
-  if v_actor is null
-     or private.lukas_drawing_workspace_capability(v_project_id)
-       not in ('admin', 'editor') then
+  v_capability := private.lukas_drawing_workspace_capability(v_project_id);
+  if v_actor is null or v_capability is null
+     or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
   select r.status into v_status
@@ -892,7 +894,7 @@ begin
   for update;
   if not found then raise exception 'Drawing revision does not exist'; end if;
   v_role := private.lukas_qto_project_role(v_revision.project_id);
-  if v_role not in ('owner', 'staff', 'reviewer') then
+  if v_role is null or v_role not in ('owner', 'staff', 'reviewer') then
     raise exception 'Project role cannot approve drawing revisions';
   end if;
   if v_revision.created_by = v_actor then
@@ -992,9 +994,11 @@ declare
   v_page_id uuid;
   v_source_layer_id uuid;
   v_work_layer_id uuid;
+  v_capability text;
 begin
   if v_actor is null then raise exception 'Authenticated drawing actor required'; end if;
-  if private.lukas_drawing_workspace_capability(p_project_id) not in ('admin', 'editor') then
+  v_capability := private.lukas_drawing_workspace_capability(p_project_id);
+  if v_capability is null or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
   if p_title is null or pg_catalog.char_length(pg_catalog.btrim(p_title)) not between 1 and 240 then
@@ -1295,6 +1299,7 @@ declare
   v_layer public.lukas_drawing_layers%rowtype;
   v_new_layer public.lukas_drawing_layers%rowtype;
   v_item jsonb;
+  v_inverse_item jsonb;
   v_patch jsonb;
   v_object_id uuid;
   v_layer_id uuid;
@@ -1303,6 +1308,8 @@ declare
   v_sequence bigint;
   v_result_versions jsonb := '{}'::jsonb;
   v_count integer;
+  v_restore_count integer := 0;
+  v_capability text;
 begin
   if v_actor is null then raise exception 'Authenticated drawing actor required'; end if;
   if p_client_operation_id is null then raise exception 'Client operation ID is required'; end if;
@@ -1331,8 +1338,8 @@ begin
   where r.id = p_revision_id
   for update;
   if not found then raise exception 'Drawing revision does not exist'; end if;
-  if private.lukas_drawing_workspace_capability(v_revision.project_id)
-      not in ('admin', 'editor') then
+  v_capability := private.lukas_drawing_workspace_capability(v_revision.project_id);
+  if v_capability is null or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
 
@@ -1354,8 +1361,7 @@ begin
   if p_operation_type = 'add_objects' then
     if p_forward - array['type', 'objects'] <> '{}'::jsonb
        or pg_catalog.jsonb_typeof(p_forward -> 'objects') <> 'array'
-       or pg_catalog.jsonb_array_length(p_forward -> 'objects') = 0
-       or p_base_versions <> '{}'::jsonb then
+       or pg_catalog.jsonb_array_length(p_forward -> 'objects') = 0 then
       raise exception 'Invalid add_objects payload';
     end if;
     if exists (
@@ -1366,8 +1372,7 @@ begin
       if v_item - array['id', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
          or pg_catalog.jsonb_typeof(v_item -> 'geometry') <> 'object'
          or pg_catalog.jsonb_typeof(v_item -> 'style') <> 'object'
-         or pg_catalog.jsonb_typeof(v_item -> 'version') <> 'number'
-         or (v_item ->> 'version')::numeric <> 1 then
+         or pg_catalog.jsonb_typeof(v_item -> 'version') <> 'number' then
         raise exception 'Invalid drawing object payload';
       end if;
       v_object_id := (v_item ->> 'id')::uuid;
@@ -1384,8 +1389,32 @@ begin
       select * into v_object from public.lukas_drawing_objects o
       where o.id = v_object_id for update;
       if found then
-        raise exception 'Drawing object already exists';
+        if v_object.revision_id <> p_revision_id
+           or v_object.project_id <> v_revision.project_id
+           or v_object.status <> 'deleted' then
+          raise exception 'Drawing object already exists';
+        end if;
+        if p_base_versions -> v_object_id::text is null
+           or (p_base_versions ->> v_object_id::text)::bigint <> v_object.version
+           or (v_item ->> 'version')::bigint <> v_object.version + 1 then
+          raise exception 'Drawing object restore version conflict';
+        end if;
+        update public.lukas_drawing_objects
+        set page_id = v_layer.page_id, layer_id = v_layer.id,
+            geometry = v_item -> 'geometry', style = v_item -> 'style',
+            status = 'active', version = (v_item ->> 'version')::bigint,
+            updated_by = v_actor
+        where id = v_object_id;
+        v_restore_count := v_restore_count + 1;
+        v_result_versions := v_result_versions ||
+          pg_catalog.jsonb_build_object(
+            v_object_id::text, (v_item ->> 'version')::bigint
+          );
       else
+        if p_base_versions ? v_object_id::text
+           or (v_item ->> 'version')::numeric <> 1 then
+          raise exception 'Invalid new drawing object version';
+        end if;
         insert into public.lukas_drawing_objects(
           id, lineage_id, page_id, layer_id, revision_id, project_id,
           object_type, geometry, style, status, version, created_by, updated_by
@@ -1399,6 +1428,10 @@ begin
           pg_catalog.jsonb_build_object(v_object_id::text, 1);
       end if;
     end loop;
+    if (select pg_catalog.count(*) from pg_catalog.jsonb_each(p_base_versions))
+         <> v_restore_count then
+      raise exception 'Drawing restore base versions are incomplete';
+    end if;
 
   elsif p_operation_type = 'update_objects' then
     if p_forward - array['type', 'updates'] <> '{}'::jsonb
@@ -1482,6 +1515,18 @@ begin
       if not found or p_base_versions -> v_object_id::text is null
          or (p_base_versions ->> v_object_id::text)::bigint <> v_object.version then
         raise exception 'Drawing object version conflict';
+      end if;
+      select item into v_inverse_item
+      from pg_catalog.jsonb_array_elements(p_inverse -> 'objects') item
+      where item ->> 'id' = v_object_id::text;
+      if v_inverse_item is distinct from pg_catalog.jsonb_build_object(
+        'id', v_object.id,
+        'layerId', v_object.layer_id,
+        'geometry', v_object.geometry,
+        'style', v_object.style,
+        'version', v_object.version + 2
+      ) then
+        raise exception 'Drawing delete inverse is not replayable';
       end if;
       select * into v_layer from public.lukas_drawing_layers l
       where l.id = v_object.layer_id and l.revision_id = p_revision_id for update;
@@ -1600,13 +1645,14 @@ declare
   v_sha256 text;
   v_operation_sequence bigint;
   v_snapshot_id uuid;
+  v_capability text;
 begin
   if v_actor is null then raise exception 'Authenticated drawing actor required'; end if;
   select * into v_revision from public.lukas_drawing_revisions r
   where r.id = p_revision_id for update;
   if not found then raise exception 'Drawing revision does not exist'; end if;
-  if private.lukas_drawing_workspace_capability(v_revision.project_id)
-      not in ('admin', 'editor') then
+  v_capability := private.lukas_drawing_workspace_capability(v_revision.project_id);
+  if v_capability is null or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
   if v_revision.status <> 'draft' then raise exception 'Only a draft drawing revision can request review'; end if;
@@ -1717,7 +1763,7 @@ begin
   where r.id = p_revision_id for update;
   if not found then raise exception 'Drawing revision does not exist'; end if;
   v_role := private.lukas_qto_project_role(v_revision.project_id);
-  if v_role not in ('owner', 'staff', 'reviewer') then
+  if v_role is null or v_role not in ('owner', 'staff', 'reviewer') then
     raise exception 'Project role cannot approve drawing revisions';
   end if;
   if v_revision.created_by = v_actor then
