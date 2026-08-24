@@ -123,3 +123,47 @@
 - `platform/tests/drawing-workspace-outbox.test.mjs`
 - `platform/tests/drawing-workspace-route.test.mjs`
 - `.superpowers/sdd/2026-08-24-drawing-workspace-p0-p1/task-10-report.md`
+
+## Fix round 2 — volatile zero-loss window and upgrade takeover
+
+### Findings addressed
+
+- Replaced the single failed-command reference with a minimal ordered volatile persistence queue. Capture is synchronous, durable enqueue attempts are serialized, rapid commands cannot complete out of order, and the full remaining queue retries in causal order.
+- A durable storage failure immediately makes the persistence capability fail closed. Command, undo, redo, canvas, layer, and inspector mutation paths remain disabled until every volatile operation is durable. The existing non-saved label and alert now retry the complete queue.
+- Added native `beforeunload` protection plus React Router navigation blocking whenever volatile work exists.
+- Online uncertain-ack recovery now snapshots the pre-send queue, identifies exact acknowledged removals, deterministically replays those operations over the captured loader snapshot, and only then overlays remaining pending work. Realized versions therefore remain current for the next command.
+- A replacement same-realm instance now takes over whether an inherited active flush fulfills or rejects; a disposed predecessor cannot strand its pending operation or suppress the replacement retry schedule.
+- IndexedDB open now rejects visibly on `onblocked`, closes every successful connection on `onversionchange`, closes late-success connections after a blocked rejection, and keeps the existing object store during v1→v2 index installation.
+
+### Strict TDD evidence
+
+1. Outbox/controller RED:
+
+   `cd platform && node --test --import tsx tests/drawing-workspace-outbox.test.mjs`
+
+   Failed at module loading because the requested volatile queue seam did not exist. The new behavioral probes cover two rapid failed captures and ordered retry, fail-closed capability, disposed-A/rejected-flush B takeover, acknowledged snapshot replay with a version-correct next edit, v1 record preservation, version-change close, blocked rejection, and late-success close.
+
+2. Client integration RED:
+
+   `cd platform && node --test --import tsx --test-name-pattern='durable outbox recovery' tests/drawing-workspace-route.test.mjs`
+
+   Failed because the workspace had no volatile queue, navigation blocker, or `beforeunload` integration.
+
+3. Focused GREEN:
+
+   `cd platform && node --test --import tsx tests/drawing-workspace-outbox.test.mjs tests/drawing-workspace-commands.test.mjs tests/drawing-workspace-route.test.mjs tests/drawing-workspace-server.test.mjs`
+
+   Passed 117/117.
+
+4. Final gates:
+
+   - `cd platform && node --test --import tsx tests/*.test.mjs` — passed 294/294.
+   - `cd platform && npm run typecheck` — passed after correcting the client-only type import found by the first full typecheck.
+   - `cd platform && npm run build` — passed client and SSR production builds.
+   - `cd platform && git diff --check` — passed.
+
+   Build output retained only the baseline large-chunk, React Router future-flag, and unsigned theme-cookie warnings.
+
+### Known limit
+
+- The volatile queue prevents loss while the current browser page remains alive and warns before navigation. If IndexedDB is completely unavailable and the browser process, tab, device, or OS crashes before retry succeeds, volatile memory cannot survive that crash. Removing this limit requires a second durable browser/native storage channel; adding one is outside the approved native minimal P0/P1 scope.

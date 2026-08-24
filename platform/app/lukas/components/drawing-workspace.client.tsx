@@ -19,7 +19,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { Form, Link } from "react-router";
+import { Form, Link, useBlocker } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import {
@@ -42,10 +42,12 @@ import {
 import {
   canPersistDrawingMutation,
   createDrawingOutbox,
+  createDrawingPersistenceQueue,
   drawingSaveStatus,
   restoreDrawingWorkspaceState,
   sendDrawingOperation,
   type DrawingOutbox,
+  type DrawingPersistenceSnapshot,
 } from "~/lukas/lib/drawing-outbox.client";
 import type {
   DrawingWorkspace,
@@ -245,10 +247,13 @@ export default function DrawingWorkspaceClient({
     online: true,
     storageError: false,
   });
+  const [persistenceState, setPersistenceState] =
+    useState<DrawingPersistenceSnapshot>({ failed: false, volatileCount: 0 });
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
-  const failedPersistRef = useRef<AppliedDrawingCommand | null>(null);
-  const outboxRef = useRef<DrawingOutbox | null>(null);
-  const flushRef = useRef<() => Promise<void>>(async () => {});
+  const persistenceRef = useRef<ReturnType<
+    typeof createDrawingPersistenceQueue
+  > | null>(null);
+  const retryStorageRef = useRef<() => void>(() => {});
   const { file, document: drawingDocument } = workspace;
   const { revision } = drawingDocument;
   const [drawingState, setDrawingState] = useState(() =>
@@ -274,8 +279,29 @@ export default function DrawingWorkspaceClient({
   );
   const editing = {
     ...editingContext,
-    canEdit: outboxReady && editingContext.canEdit,
+    canEdit:
+      outboxReady &&
+      editingContext.canEdit &&
+      canPersistDrawingMutation(capability, persistenceState),
   };
+  const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
+
+  useEffect(() => {
+    if (navigationBlocker.state !== "blocked") return;
+    if (window.confirm("아직 브라우저 저장소에 저장되지 않은 도면 작업이 있습니다."))
+      navigationBlocker.proceed();
+    else navigationBlocker.reset();
+  }, [navigationBlocker]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!persistenceRef.current?.snapshot().volatileCount) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   const calibration = useMemo<DimensionCalibrationEvidence | null>(() => {
     const parsed = PdfCalibrationSchema.safeParse(page?.calibration);
     return page && parsed.success
@@ -365,7 +391,6 @@ export default function DrawingWorkspaceClient({
       revisionId: revision.id,
       onChange: () => void refresh(),
     });
-    outboxRef.current = outbox;
 
     const flush = async () => {
       if (!active || !navigator.onLine) {
@@ -385,7 +410,19 @@ export default function DrawingWorkspaceClient({
         await refresh();
       }
     };
-    flushRef.current = flush;
+    const persistence = createDrawingPersistenceQueue({
+      flush,
+      outbox,
+      onChange: (snapshot) => {
+        if (!active) return;
+        setPersistenceState(snapshot);
+        setSaveState((current) => ({
+          ...current,
+          storageError: snapshot.failed,
+        }));
+      },
+    });
+    persistenceRef.current = persistence;
 
     const initialize = async () => {
       const base = drawingStateFromRevision(revision);
@@ -417,6 +454,7 @@ export default function DrawingWorkspaceClient({
           }));
       }
     };
+    retryStorageRef.current = () => void initialize();
     const online = () => {
       setSaveState((current) => ({ ...current, online: true }));
       void flush();
@@ -426,7 +464,7 @@ export default function DrawingWorkspaceClient({
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     setOutboxReady(false);
-    failedPersistRef.current = null;
+    setPersistenceState({ failed: false, volatileCount: 0 });
     setActiveTool("select");
     setActiveLayerId(null);
     setSelectedIds([]);
@@ -434,9 +472,11 @@ export default function DrawingWorkspaceClient({
     void initialize();
     return () => {
       active = false;
+      persistence.dispose();
       outbox.dispose();
-      failedPersistRef.current = null;
-      if (outboxRef.current === outbox) outboxRef.current = null;
+      if (persistenceRef.current === persistence)
+        persistenceRef.current = null;
+      retryStorageRef.current = () => {};
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
@@ -454,65 +494,54 @@ export default function DrawingWorkspaceClient({
     });
   }, [drawingState.layers, drawingState.objects]);
 
-  const persistApplied = useCallback(
-    async (applied: AppliedDrawingCommand) => {
-      if (!canPersistDrawingMutation(capability)) return;
-      const outbox = outboxRef.current;
-      if (!outbox) {
-        setSaveState((current) => ({ ...current, storageError: true }));
+  const commitApplied = useCallback(
+    (applied: AppliedDrawingCommand) => {
+      const persistence = persistenceRef.current;
+      if (
+        !persistence ||
+        !canPersistDrawingMutation(capability, persistence.snapshot())
+      )
         return;
-      }
-      try {
-        await outbox.enqueue(applied.operation);
-        if (failedPersistRef.current === applied)
-          failedPersistRef.current = null;
-        setSaveState((current) => ({ ...current, storageError: false }));
-        await flushRef.current();
-      } catch {
-        failedPersistRef.current = applied;
-        setSaveState((current) => ({
-          ...current,
-          storageError: true,
-          flushing: false,
-        }));
-      }
+      void persistence.capture(applied.operation);
+      drawingStateRef.current = applied.state;
+      setDrawingState(applied.state);
     },
     [capability],
   );
 
-  const commitApplied = useCallback(
-    (applied: AppliedDrawingCommand) => {
-      drawingStateRef.current = applied.state;
-      setDrawingState(applied.state);
-      void persistApplied(applied);
-    },
-    [persistApplied],
-  );
-
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
-      if (!outboxReady || !canPersistDrawingMutation(capability))
+      if (
+        !outboxReady ||
+        !canPersistDrawingMutation(capability, persistenceState)
+      )
         return;
       commitApplied(applyDrawingCommand(drawingStateRef.current, command));
     },
-    [capability, commitApplied, outboxReady],
+    [capability, commitApplied, outboxReady, persistenceState],
   );
 
   const undo = useCallback(() => {
-    if (!outboxReady || !canPersistDrawingMutation(capability))
+    if (
+      !outboxReady ||
+      !canPersistDrawingMutation(capability, persistenceState)
+    )
       return;
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady]);
+  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState]);
 
   const redo = useCallback(() => {
-    if (!outboxReady || !canPersistDrawingMutation(capability))
+    if (
+      !outboxReady ||
+      !canPersistDrawingMutation(capability, persistenceState)
+    )
       return;
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady]);
+  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState]);
 
   const copySelection = useCallback(() => {
     const clipboard = copyDrawingSelection(drawingState, selectedIds);
@@ -808,8 +837,10 @@ export default function DrawingWorkspaceClient({
           로컬 저장 실패: 이 탭을 닫지 말고 브라우저 저장소 설정을 확인하세요.{" "}
           <Button
             onClick={() => {
-              const failed = failedPersistRef.current;
-              if (failed) void persistApplied(failed);
+              const persistence = persistenceRef.current;
+              if (persistence?.snapshot().volatileCount)
+                void persistence.retry();
+              else retryStorageRef.current();
             }}
             size="sm"
             type="button"

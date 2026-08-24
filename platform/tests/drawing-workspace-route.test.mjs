@@ -93,14 +93,17 @@ test("workspace wires durable outbox recovery and the four visible save states",
     "utf8",
   );
   assert.match(shell, /createDrawingOutbox/);
+  assert.match(shell, /createDrawingPersistenceQueue/);
   assert.match(shell, /restoreDrawingWorkspaceState/);
   assert.match(shell, /sendDrawingOperation/);
-  assert.match(shell, /await outbox\.enqueue/);
+  assert.match(shell, /persistence\.capture/);
   assert.match(shell, /const saveStatus = drawingSaveStatus\(saveState\)/);
   assert.match(shell, /\{saveStatus\}/);
-  assert.match(shell, /outboxReady && editingContext\.canEdit/);
+  assert.match(shell, /canPersistDrawingMutation\(capability, persistenceState\)/);
   assert.match(shell, /로컬 저장 실패/);
   assert.match(shell, /다시 시도/);
+  assert.match(shell, /beforeunload/);
+  assert.match(shell, /useBlocker/);
 });
 
 test("layers and inspector expose native labeled controls", async () => {

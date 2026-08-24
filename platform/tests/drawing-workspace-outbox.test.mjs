@@ -4,12 +4,17 @@ import test from "node:test";
 import {
   canPersistDrawingMutation,
   createDrawingOutbox,
+  createDrawingPersistenceQueue,
+  createIndexedDbDrawingOutboxAdapter,
   drawingSaveStatus,
   recoverPendingDrawingState,
   restoreDrawingWorkspaceState,
   sendDrawingOperation,
 } from "../app/lukas/lib/drawing-outbox.client.ts";
-import { createDrawingDocumentState } from "../app/lukas/lib/drawing-commands.ts";
+import {
+  applyDrawingCommand,
+  createDrawingDocumentState,
+} from "../app/lukas/lib/drawing-commands.ts";
 
 const ids = {
   revisionA: "00000000-0000-4000-8000-000000000001",
@@ -64,6 +69,60 @@ function memoryAdapter(events = []) {
       records.set(record.operation.clientOperationId, structuredClone(record));
     },
   };
+}
+
+function fakeIndexedDb({ blocked = false, records = [] } = {}) {
+  const store = {
+    createdIndexes: [],
+    indexNames: {
+      contains(name) {
+        return name === "revision_created_at" || name === "status";
+      },
+    },
+    createIndex(name) {
+      this.createdIndexes.push(name);
+    },
+    getAll() {
+      const request = {};
+      queueMicrotask(() => {
+        request.result = structuredClone(records);
+        request.onsuccess?.();
+      });
+      return request;
+    },
+  };
+  const database = {
+    closed: false,
+    objectStoreNames: { contains: () => true },
+    close() {
+      this.closed = true;
+    },
+    transaction() {
+      const transaction = { objectStore: () => store };
+      setTimeout(() => transaction.oncomplete?.(), 0);
+      return transaction;
+    },
+  };
+  const request = {
+    result: database,
+    transaction: { objectStore: () => store },
+    succeedLate() {
+      this.onsuccess?.();
+    },
+  };
+  const factory = {
+    open() {
+      queueMicrotask(() => {
+        if (blocked) request.onblocked?.();
+        else {
+          request.onupgradeneeded?.();
+          request.onsuccess?.();
+        }
+      });
+      return request;
+    },
+  };
+  return { database, factory, request, store };
 }
 
 function scopedOutbox(adapter, options = {}) {
@@ -389,6 +448,77 @@ test("dispose cancels scheduled retries and prevents the old instance from sendi
   assert.equal(sends, 1);
 });
 
+test("a replacement instance takes over after the disposed active flush rejects", async () => {
+  const adapter = memoryAdapter();
+  const first = scopedOutbox(adapter);
+  const scheduled = [];
+  const second = scopedOutbox(adapter, {
+    schedule(delayMs, retry) {
+      scheduled.push({ delayMs, retry });
+    },
+  });
+  await first.enqueue(operation(ids.operation1));
+  let rejectFirst;
+  const firstSend = new Promise((_, reject) => {
+    rejectFirst = reject;
+  });
+  const oldFlush = first.flush(async () => firstSend);
+  await new Promise((resolve) => setImmediate(resolve));
+  first.dispose();
+  let replacementSends = 0;
+  let online = false;
+  const replacementFlush = second.flush(async () => {
+    replacementSends += 1;
+    if (!online) throw new Error("still offline");
+    return { clientOperationId: ids.operation1, status: "acked" };
+  });
+
+  rejectFirst(new Error("old transport failed"));
+  await assert.rejects(oldFlush, /old transport/);
+  await assert.rejects(replacementFlush, /still offline/);
+  assert.equal(replacementSends, 1);
+  assert.equal(scheduled.length, 1);
+
+  online = true;
+  await scheduled[0].retry();
+  assert.equal(replacementSends, 2);
+  assert.deepEqual(await second.pending(), []);
+});
+
+test("volatile persistence queues rapid commands and retries all failures in causal order", async () => {
+  const persisted = [];
+  let storageAvailable = false;
+  const outbox = {
+    async enqueue(queued) {
+      if (!storageAvailable) throw new Error("quota exceeded");
+      persisted.push(queued.clientOperationId);
+    },
+  };
+  const snapshots = [];
+  const queue = createDrawingPersistenceQueue({
+    flush: async () => {},
+    onChange: (snapshot) => snapshots.push(snapshot),
+    outbox,
+  });
+
+  const first = queue.capture(operation(ids.operation1));
+  const second = queue.capture(operation(ids.operation2));
+  assert.equal(await first, false);
+  assert.equal(await second, false);
+  assert.deepEqual(queue.snapshot(), {
+    failed: true,
+    volatileCount: 2,
+  });
+  assert.equal(canPersistDrawingMutation("editor", queue.snapshot()), false);
+
+  storageAvailable = true;
+  assert.equal(await queue.retry(), true);
+  assert.deepEqual(persisted, [ids.operation1, ids.operation2]);
+  assert.deepEqual(queue.snapshot(), { failed: false, volatileCount: 0 });
+  assert.equal(canPersistDrawingMutation("editor", queue.snapshot()), true);
+  assert.ok(snapshots.some((snapshot) => snapshot.failed));
+});
+
 test("reload recovery applies exact-base work and retains ambiguous stale work", () => {
   const matching = recoverPendingDrawingState(state(), [
     operation(ids.operation1),
@@ -609,6 +739,62 @@ test("online reload resends an uncertain acknowledgement before recovery", async
   assert.equal(recovered.state.objects[ids.object].name, "Door");
   assert.deepEqual(await outbox.pending(), []);
   assert.deepEqual(recovered.ambiguousOperationIds, []);
+});
+
+test("online acknowledgement replays over the captured snapshot with server-current versions", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (queued) => ({
+      clientOperationId: queued.clientOperationId,
+      status: "acked",
+    }),
+    serverState: state(),
+  });
+  const next = applyDrawingCommand(recovered.state, {
+    type: "update_objects",
+    actorId: ids.ownerA,
+    updates: [{ objectId: ids.object, patch: { name: "Door 2" } }],
+  });
+
+  assert.equal(recovered.state.objects[ids.object].name, "Door");
+  assert.equal(recovered.state.objects[ids.object].version, 2);
+  assert.deepEqual(next.operation.baseVersions, { [ids.object]: 2 });
+  assert.equal(next.state.objects[ids.object].version, 3);
+});
+
+test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange", async () => {
+  const record = {
+    ownerId: ids.ownerA,
+    operation: operation(ids.operation1),
+    status: "pending",
+    retryCount: 0,
+    enqueueSequence: 1,
+    clientOperationId: ids.operation1,
+    revisionId: ids.revisionA,
+    createdAt: operation(ids.operation1).createdAt,
+  };
+  const { factory, database, store } = fakeIndexedDb({ records: [record] });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory);
+
+  assert.deepEqual((await adapter.list()).map((entry) => entry.operation), [
+    operation(ids.operation1),
+  ]);
+  assert.equal(store.createdIndexes.includes("enqueue_sequence"), true);
+  database.onversionchange();
+  assert.equal(database.closed, true);
+});
+
+test("blocked IndexedDB initialization rejects and closes a late-success connection", async () => {
+  const { factory, database, request } = fakeIndexedDb({ blocked: true });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory);
+
+  await assert.rejects(adapter.list(), /blocked/i);
+  request.succeedLate();
+  assert.equal(database.closed, true);
 });
 
 test("offline reload keeps a possibly committed operation pending without false conflict", async () => {

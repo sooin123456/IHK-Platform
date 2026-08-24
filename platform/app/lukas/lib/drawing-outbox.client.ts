@@ -223,8 +223,9 @@ export function createDrawingOutbox(
     flush(send) {
       if (disposed) return Promise.resolve();
       if (coordinator.active)
-        return coordinator.active.then(() =>
-          disposed ? undefined : api.flush(send),
+        return coordinator.active.then(
+          () => (disposed ? undefined : api.flush(send)),
+          () => (disposed ? undefined : api.flush(send)),
         );
       coordinator.active = flushOnce(send).finally(() => {
         coordinator.active = null;
@@ -274,16 +275,19 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 }
 
 /** Native browser persistence; opening remains lazy so SSR never touches IndexedDB. */
-export function createIndexedDbDrawingOutboxAdapter(): DrawingOutboxAdapter {
+export function createIndexedDbDrawingOutboxAdapter(
+  factory: IDBFactory | undefined = globalThis.indexedDB,
+): DrawingOutboxAdapter {
   let database: Promise<IDBDatabase> | null = null;
   const open = () => {
     if (database) return database;
     database = new Promise((resolve, reject) => {
-      if (!globalThis.indexedDB) {
+      if (!factory) {
         reject(new Error("IndexedDB is unavailable."));
         return;
       }
-      const request = globalThis.indexedDB.open("1hk-drawing-workspace", 2);
+      let settled = false;
+      const request = factory.open("1hk-drawing-workspace", 2);
       request.onupgradeneeded = () => {
         const store = request.result.objectStoreNames.contains("operations")
           ? request.transaction!.objectStore("operations")
@@ -297,8 +301,25 @@ export function createIndexedDbDrawingOutboxAdapter(): DrawingOutboxAdapter {
         if (!store.indexNames.contains("enqueue_sequence"))
           store.createIndex("enqueue_sequence", "enqueueSequence");
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onblocked = () => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("IndexedDB upgrade was blocked by another tab."));
+      };
+      request.onsuccess = () => {
+        if (settled) {
+          request.result.close();
+          return;
+        }
+        settled = true;
+        request.result.onversionchange = () => request.result.close();
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        if (settled) return;
+        settled = true;
+        reject(request.error);
+      };
     });
     void database.catch(() => {
       database = null;
@@ -549,6 +570,7 @@ export async function restoreDrawingWorkspaceState({
   send: (operation: DrawingOperationInput) => Promise<DrawingOutboxResponse>;
   serverState: DrawingDocumentState;
 }) {
+  const before = await outbox.entries();
   if (online) {
     try {
       await outbox.flush(send);
@@ -556,11 +578,94 @@ export async function restoreDrawingWorkspaceState({
       // The durable pending entry remains eligible for exact-base recovery.
     }
   }
-  return recoverPendingDrawingState(serverState, await outbox.entries());
+  const remaining = await outbox.entries();
+  const remainingIds = new Set(
+    remaining.map((entry) => entry.operation.clientOperationId),
+  );
+  const acknowledged = before.filter(
+    (entry) =>
+      entry.status === "pending" &&
+      !remainingIds.has(entry.operation.clientOperationId),
+  );
+  const withAcknowledged = recoverPendingDrawingState(
+    serverState,
+    acknowledged,
+  ).state;
+  return recoverPendingDrawingState(withAcknowledged, remaining);
 }
 
-export function canPersistDrawingMutation(capability: string) {
-  return capability === "admin" || capability === "editor";
+export type DrawingPersistenceSnapshot = {
+  failed: boolean;
+  volatileCount: number;
+};
+
+export function createDrawingPersistenceQueue({
+  flush,
+  onChange,
+  outbox,
+}: {
+  flush: () => Promise<void>;
+  onChange?: (snapshot: DrawingPersistenceSnapshot) => void;
+  outbox: Pick<DrawingOutbox, "enqueue">;
+}) {
+  const volatile: DrawingOperationInput[] = [];
+  let active: Promise<boolean> | null = null;
+  let failed = false;
+  let disposed = false;
+  const snapshot = (): DrawingPersistenceSnapshot => ({
+    failed,
+    volatileCount: volatile.length,
+  });
+  const changed = () => onChange?.(snapshot());
+  const drain = () => {
+    if (disposed) return Promise.resolve(false);
+    if (active) return active;
+    active = (async () => {
+      while (!disposed) {
+        while (volatile.length > 0) {
+          try {
+            await outbox.enqueue(volatile[0]);
+          } catch {
+            failed = true;
+            changed();
+            return false;
+          }
+          volatile.shift();
+          changed();
+        }
+        failed = false;
+        changed();
+        await flush();
+        if (volatile.length === 0) return true;
+      }
+      return false;
+    })().finally(() => {
+      active = null;
+    });
+    return active;
+  };
+  return {
+    capture(input: unknown) {
+      volatile.push(DrawingOperationInputSchema.parse(input));
+      changed();
+      return drain();
+    },
+    dispose() {
+      disposed = true;
+    },
+    retry: drain,
+    snapshot,
+  };
+}
+
+export function canPersistDrawingMutation(
+  capability: string,
+  persistence?: Pick<DrawingPersistenceSnapshot, "failed">,
+) {
+  return (
+    !persistence?.failed &&
+    (capability === "admin" || capability === "editor")
+  );
 }
 
 export function drawingSaveStatus({
