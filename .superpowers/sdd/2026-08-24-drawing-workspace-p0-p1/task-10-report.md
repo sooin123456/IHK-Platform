@@ -212,3 +212,28 @@
 
 - Legacy attribution is local privacy/audit metadata and does not replace server authorization. Every claimed operation still passes through the canonical server action, authenticated capability checks, revision checks, version checks, and idempotency contract.
 - Delete acknowledgement recognition is conservative: absence is accepted only for an acknowledged delete carrying the target's base-version contract. Any other mismatched acknowledged state is retained visibly as conflicted recovery evidence.
+
+## Fix round 4 — causal ordering for claimed v1 work
+
+### Finding addressed
+
+- Legacy claim now gathers only ownerless rows for the requested revision and sorts them by the canonical v1 delivery order `(operation.createdAt, clientOperationId)` before assigning the current owner and monotonic enqueue sequences. The read, global maximum-sequence calculation, ordered writes, and commit remain in one IndexedDB readwrite transaction, preserving revision quarantine and sequence-collision protection.
+
+### Strict TDD evidence
+
+1. RED:
+
+   `cd platform && node --test --import tsx --test-name-pattern='legacy claim assigns sequences' tests/drawing-workspace-outbox.test.mjs`
+
+   Failed 0/1 as intended. With UUID/primary-key order opposite causal `createdAt` order, the old implementation assigned sequence 10 to the later operation and 11 to the earlier operation.
+
+2. GREEN:
+
+   - The same focused regression passed 1/1 after the minimal transaction-local sort.
+   - `cd platform && node --test --import tsx tests/drawing-workspace-outbox.test.mjs tests/drawing-workspace-commands.test.mjs tests/drawing-workspace-route.test.mjs tests/drawing-workspace-server.test.mjs` — passed 124/124.
+   - `cd platform && node --test --import tsx tests/*.test.mjs` — passed 301/301.
+   - `cd platform && npm run typecheck` — passed.
+   - `cd platform && npm run build` — passed client and SSR production builds.
+   - `git diff --check` — passed.
+
+The regression fixture also proves assignment starts after an existing global sequence 9 and leaves a different revision's owned record unchanged.

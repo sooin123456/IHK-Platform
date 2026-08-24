@@ -401,10 +401,19 @@ export function createIndexedDbDrawingOutboxAdapter(
             : highest,
         0,
       );
-      let claimed = 0;
-      for (const entry of stored) {
-        if (entry.ownerId || entry.operation.revisionId !== revisionId)
-          continue;
+      const legacy = stored
+        .filter(
+          (entry) =>
+            !entry.ownerId && entry.operation.revisionId === revisionId,
+        )
+        .sort(
+          (left, right) =>
+            left.operation.createdAt.localeCompare(right.operation.createdAt) ||
+            left.operation.clientOperationId.localeCompare(
+              right.operation.clientOperationId,
+            ),
+        );
+      for (const entry of legacy) {
         const claimedEntry = {
           ...entry,
           ownerId,
@@ -416,10 +425,9 @@ export function createIndexedDbDrawingOutboxAdapter(
           revisionId: claimedEntry.operation.revisionId,
           createdAt: claimedEntry.operation.createdAt,
         });
-        claimed += 1;
       }
       await transactionDone(transaction);
-      return claimed;
+      return legacy.length;
     },
     async delete(clientOperationId) {
       const db = await open();

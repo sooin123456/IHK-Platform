@@ -993,6 +993,66 @@ test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange
   assert.equal(database.closed, true);
 });
 
+test("legacy claim assigns sequences by causal v1 delivery order instead of UUID order", async () => {
+  const laterByTime = operation(ids.operation1, {
+    createdAt: "2026-08-24T02:00:00.000Z",
+  });
+  const earlierByTime = operation(ids.operation2, {
+    createdAt: "2026-08-24T01:00:00.000Z",
+  });
+  const records = [
+    {
+      operation: laterByTime,
+      status: "pending",
+      retryCount: 0,
+      clientOperationId: laterByTime.clientOperationId,
+      revisionId: laterByTime.revisionId,
+      createdAt: laterByTime.createdAt,
+    },
+    {
+      operation: earlierByTime,
+      status: "pending",
+      retryCount: 0,
+      clientOperationId: earlierByTime.clientOperationId,
+      revisionId: earlierByTime.revisionId,
+      createdAt: earlierByTime.createdAt,
+    },
+    {
+      ownerId: ids.ownerB,
+      enqueueSequence: 9,
+      operation: operation(ids.operation3, { revisionId: ids.revisionB }),
+      status: "pending",
+      retryCount: 0,
+      clientOperationId: ids.operation3,
+      revisionId: ids.revisionB,
+      createdAt: "2026-08-24T00:00:00.000Z",
+    },
+  ];
+  const { factory } = fakeIndexedDb({ records });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory);
+
+  assert.equal(await adapter.claimLegacy(ids.revisionA, ids.ownerA), 2);
+  const claimed = (await adapter.list()).filter(
+    (entry) => entry.operation.revisionId === ids.revisionA,
+  );
+  assert.deepEqual(
+    claimed.map((entry) => [
+      entry.operation.clientOperationId,
+      entry.ownerId,
+      entry.enqueueSequence,
+    ]),
+    [
+      [ids.operation1, ids.ownerA, 11],
+      [ids.operation2, ids.ownerA, 10],
+    ],
+  );
+  const untouched = (await adapter.list()).find(
+    (entry) => entry.operation.revisionId === ids.revisionB,
+  );
+  assert.equal(untouched.ownerId, ids.ownerB);
+  assert.equal(untouched.enqueueSequence, 9);
+});
+
 test("versionchange invalidates the cached handle and the adapter reopens", async () => {
   const { factory, database } = fakeIndexedDb();
   const adapter = createIndexedDbDrawingOutboxAdapter(factory);
