@@ -34,9 +34,10 @@ import {
   type DrawingPanGesture,
 } from "~/lukas/lib/drawing-geometry";
 import {
-  moveDrawingSelection,
+  moveDrawingSnapshots,
   translateDrawingGeometry,
   type DrawingCommand,
+  type DrawingMoveSnapshot,
 } from "~/lukas/lib/drawing-commands";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
@@ -55,6 +56,7 @@ import type {
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
 const BASE_GRID_SIZE = 10;
+const SELECTION_HIT_TOLERANCE_PIXELS = 6;
 
 export type DrawingTool =
   | "select"
@@ -376,6 +378,16 @@ export function createDrawingToolControllerState(
   };
 }
 
+export function drawingToolSessionOwnsKey(
+  state: DrawingToolControllerState,
+  key: string,
+) {
+  if (state.session.tool === "idle") return false;
+  if (key === "Backspace")
+    return state.session.tool === "polyline" || state.session.tool === "text";
+  return key === "Escape" || key === "Enter";
+}
+
 function controllerResult(
   state: DrawingToolControllerState,
   changes: Partial<
@@ -639,7 +651,11 @@ export type DrawingSelectionState = {
     additive: boolean;
     initialSelectedIds: string[];
   } | null;
-  drag: { pointerId: number; start: Point } | null;
+  drag: {
+    pointerId: number;
+    start: Point;
+    snapshots: DrawingMoveSnapshot[];
+  } | null;
   previewDelta: Point;
 };
 
@@ -667,6 +683,7 @@ export type DrawingSelectionEvent =
 
 export type DrawingSelectionResult = {
   command: Extract<DrawingCommand, { type: "update_objects" }> | null;
+  pointerCapture?: DrawingPointerCaptureIntent | null;
   state: DrawingSelectionState;
 };
 
@@ -688,6 +705,42 @@ function selectableDrawingObject(
   const object = context.objects[objectId];
   const layer = object ? context.layers[object.layerId] : undefined;
   return object && layer?.visible && !layer.locked ? object : null;
+}
+
+/** Expands canonical object bounds by a fixed screen-space hit tolerance. */
+export function drawingSelectionHitBounds(
+  geometry: DrawingGeometry,
+  zoom: number,
+  tolerancePixels = SELECTION_HIT_TOLERANCE_PIXELS,
+) {
+  if (!Number.isFinite(zoom) || zoom <= 0)
+    throw new Error("확대 배율이 올바르지 않습니다.");
+  const bounds = geometryBounds(geometry);
+  const tolerance = tolerancePixels / zoom;
+  return {
+    x: bounds.x - tolerance,
+    y: bounds.y - tolerance,
+    width: bounds.width + tolerance * 2,
+    height: bounds.height + tolerance * 2,
+  };
+}
+
+export function drawingSelectionCandidates(
+  objects: DrawingObject[],
+  layers: Record<string, DrawingLayer>,
+  zoom: number,
+) {
+  return objects.flatMap((object) => {
+    const layer = layers[object.layerId];
+    return layer?.visible && !layer.locked
+      ? [
+          {
+            id: object.id,
+            bounds: drawingSelectionHitBounds(object.geometry, zoom),
+          },
+        ]
+      : [];
+  });
 }
 
 function pointInBounds(
@@ -736,6 +789,42 @@ function snappedDragDelta(
   };
 }
 
+function drawingSelectionSnapshots(
+  selectedIds: string[],
+  context: DrawingSelectionContext,
+): DrawingMoveSnapshot[] {
+  return selectedIds.flatMap((objectId) => {
+    const object = selectableDrawingObject(context, objectId);
+    return object
+      ? [
+          {
+            id: object.id,
+            layerId: object.layerId,
+            geometry: structuredClone(object.geometry),
+            version: object.version,
+          },
+        ]
+      : [];
+  });
+}
+
+function drawingSelectionDragIsValid(
+  state: DrawingSelectionState,
+  context: DrawingSelectionContext,
+) {
+  if (!state.drag || !context.canEdit) return false;
+  if (state.drag.snapshots.length !== state.selectedIds.length) return false;
+  return state.drag.snapshots.every((snapshot, index) => {
+    if (state.selectedIds[index] !== snapshot.id) return false;
+    const current = selectableDrawingObject(context, snapshot.id);
+    return (
+      current?.version === snapshot.version &&
+      current.layerId === snapshot.layerId &&
+      JSON.stringify(current.geometry) === JSON.stringify(snapshot.geometry)
+    );
+  });
+}
+
 function selectionPointerMove(
   state: DrawingSelectionState,
   pointerId: number,
@@ -769,15 +858,25 @@ export function drawingSelectionEventTransition(
   context: DrawingSelectionContext,
 ): DrawingSelectionResult {
   if (event.type === "sync_context") {
+    const selectedIds = state.selectedIds.filter((objectId) =>
+      Boolean(selectableDrawingObject(context, objectId)),
+    );
+    const invalidDrag = Boolean(
+      state.drag &&
+        (!drawingSelectionDragIsValid(state, context) ||
+          selectedIds.length !== state.selectedIds.length),
+    );
     return {
       command: null,
+      pointerCapture:
+        invalidDrag && state.drag
+          ? { type: "release", pointerId: state.drag.pointerId }
+          : null,
       state: {
         ...state,
-        selectedIds: state.selectedIds.filter((objectId) =>
-          Boolean(selectableDrawingObject(context, objectId)),
-        ),
-        drag: context.canEdit ? state.drag : null,
-        previewDelta: context.canEdit ? state.previewDelta : { x: 0, y: 0 },
+        selectedIds,
+        drag: invalidDrag ? null : state.drag,
+        previewDelta: invalidDrag ? { x: 0, y: 0 } : state.previewDelta,
       },
     };
   }
@@ -789,6 +888,7 @@ export function drawingSelectionEventTransition(
       return { command: null, state };
     return {
       command: null,
+      pointerCapture: { type: "release", pointerId: event.pointerId },
       state: {
         ...state,
         drag: null,
@@ -814,25 +914,34 @@ export function drawingSelectionEventTransition(
       const candidate = selectableDrawingObject(context, event.candidateId);
       if (
         !candidate ||
-        !pointInBounds(point, geometryBounds(candidate.geometry))
+        !pointInBounds(
+          point,
+          drawingSelectionHitBounds(candidate.geometry, context.viewport.zoom),
+        )
       )
         return { command: null, state };
-      const alreadySelected = state.selectedIds.includes(candidate.id);
+      const eligibleSelectedIds = state.selectedIds.filter((objectId) =>
+        Boolean(selectableDrawingObject(context, objectId)),
+      );
+      const alreadySelected = eligibleSelectedIds.includes(candidate.id);
       const selectedIds = event.shiftKey
         ? alreadySelected
-          ? state.selectedIds.filter((objectId) => objectId !== candidate.id)
-          : [...state.selectedIds, candidate.id]
+          ? eligibleSelectedIds.filter((objectId) => objectId !== candidate.id)
+          : [...eligibleSelectedIds, candidate.id]
         : alreadySelected
-          ? state.selectedIds
+          ? eligibleSelectedIds
           : [candidate.id];
+      const snapshots = drawingSelectionSnapshots(selectedIds, context);
       return {
         command: null,
         state: {
           selectedIds,
           marquee: null,
           drag:
-            context.canEdit && selectedIds.includes(candidate.id)
-              ? { pointerId: event.pointerId, start: point }
+            context.canEdit &&
+            selectedIds.includes(candidate.id) &&
+            snapshots.length === selectedIds.length
+              ? { pointerId: event.pointerId, start: point, snapshots }
               : null,
           previewDelta: { x: 0, y: 0 },
         },
@@ -847,7 +956,9 @@ export function drawingSelectionEventTransition(
           start: point,
           current: point,
           additive: event.shiftKey,
-          initialSelectedIds: state.selectedIds,
+          initialSelectedIds: state.selectedIds.filter((objectId) =>
+            Boolean(selectableDrawingObject(context, objectId)),
+          ),
         },
         drag: null,
         previewDelta: { x: 0, y: 0 },
@@ -862,18 +973,20 @@ export function drawingSelectionEventTransition(
     context,
   );
   if (moved.drag?.pointerId === event.pointerId) {
+    const valid = drawingSelectionDragIsValid(moved, context);
     const command =
-      context.canEdit &&
-      (moved.previewDelta.x !== 0 || moved.previewDelta.y !== 0)
-        ? moveDrawingSelection(
-            context,
-            moved.selectedIds,
+      valid && (moved.previewDelta.x !== 0 || moved.previewDelta.y !== 0)
+        ? moveDrawingSnapshots(
+            moved.drag.snapshots,
             context.actorId,
             moved.previewDelta,
           )
         : null;
     return {
       command,
+      pointerCapture: valid
+        ? null
+        : { type: "release", pointerId: event.pointerId },
       state: {
         ...moved,
         drag: null,
@@ -1545,6 +1658,12 @@ export const DrawingCanvas = forwardRef<
   const applySelectionResult = useCallback(
     (result: DrawingSelectionResult) => {
       const previous = selectionRef.current;
+      const captureTarget = capturedSelectionTargetRef.current;
+      if (result.pointerCapture?.type === "release") {
+        if (captureTarget?.hasPointerCapture?.(result.pointerCapture.pointerId))
+          captureTarget.releasePointerCapture(result.pointerCapture.pointerId);
+        capturedSelectionTargetRef.current = null;
+      }
       selectionRef.current = result.state;
       if (result.state !== previous) setSelectionState(result.state);
       if (
@@ -1643,13 +1762,9 @@ export const DrawingCanvas = forwardRef<
     controllerState.session.tool === "text"
       ? worldToScreen(controllerState.session.origin, viewport)
       : null;
-  const selectableObjects = useMemo(
-    () =>
-      objects.filter((object) => {
-        const objectLayer = layersById[object.layerId];
-        return objectLayer?.visible && !objectLayer.locked;
-      }),
-    [layersById, objects],
+  const selectionCandidates = useMemo(
+    () => drawingSelectionCandidates(objects, layersById, viewport.zoom),
+    [layersById, objects, viewport.zoom],
   );
   const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
     const object = objectsById[objectId];
@@ -1849,13 +1964,9 @@ export const DrawingCanvas = forwardRef<
           });
       }}
       onKeyDown={(event) => {
-        if (
-          (event.key === "Escape" ||
-            event.key === "Enter" ||
-            event.key === "Backspace") &&
-          controllerRef.current.session.tool !== "idle"
-        ) {
+        if (drawingToolSessionOwnsKey(controllerRef.current, event.key)) {
           event.preventDefault();
+          event.stopPropagation();
           runToolEvent({ type: "key_down", key: event.key });
           return;
         }
@@ -1993,14 +2104,14 @@ export const DrawingCanvas = forwardRef<
             y={viewport.y}
           >
             {activeTool === "select"
-              ? selectableObjects.map((object) => {
-                  const bounds = geometryBounds(object.geometry);
+              ? selectionCandidates.map((candidate) => {
+                  const { bounds } = candidate;
                   return (
                     <Rect
-                      drawingObjectId={object.id}
+                      drawingObjectId={candidate.id}
                       fill="rgba(0,0,0,0.001)"
                       height={bounds.height}
-                      key={`hit-${object.id}`}
+                      key={`hit-${candidate.id}`}
                       width={bounds.width}
                       x={bounds.x}
                       y={bounds.y}

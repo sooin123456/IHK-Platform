@@ -118,7 +118,7 @@ export function resolveDrawingWorkspaceShortcut(
     if (key === "d") return { type: "duplicate" };
     return null;
   }
-  if (key === "delete") return { type: "delete" };
+  if (key === "delete" || key === "backspace") return { type: "delete" };
   const amount = event.shiftKey ? 10 : 1;
   if (key === "arrowleft") return { type: "move", delta: { x: -amount, y: 0 } };
   if (key === "arrowright") return { type: "move", delta: { x: amount, y: 0 } };

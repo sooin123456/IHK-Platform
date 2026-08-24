@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createServer } from "vite";
 import * as drawingCommands from "../app/lukas/lib/drawing-commands.ts";
+import { DrawingObjectSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const {
   applyDrawingCommand,
@@ -943,6 +944,21 @@ test("tool event adapter owns Enter, Backspace, Escape, and text submission", ()
     textContext,
   );
   assert.equal(textEntered.command.objects[0].geometry.text, "메모");
+  assert.equal(
+    drawingTools.drawingToolSessionOwnsKey(state, "Backspace"),
+    true,
+  );
+  assert.equal(
+    drawingTools.drawingToolSessionOwnsKey(textStarted.state, "Backspace"),
+    true,
+  );
+  assert.equal(
+    drawingTools.drawingToolSessionOwnsKey(
+      drawingTools.createDrawingToolControllerState(textContext),
+      "Backspace",
+    ),
+    false,
+  );
 });
 
 test("edit downgrade invalidates a live tool session before any later commit", () => {
@@ -1248,10 +1264,194 @@ test("selection drag keeps preview transient and emits one snapped multi-object 
   assert.deepEqual(result.state.previewDelta, { x: 0, y: 0 });
 });
 
+function beginMultiObjectSelectionDrag(context = selectionContext()) {
+  return selectionPointer(
+    {
+      ...drawingTools.createDrawingSelectionState(),
+      selectedIds: [ids.rectangle, ids.circle],
+    },
+    {
+      type: "pointer_down",
+      candidateId: ids.rectangle,
+      pointerId: 29,
+      screenPoint: { x: 110, y: 60 },
+      shiftKey: false,
+    },
+    context,
+  );
+}
+
+function finishMultiObjectSelectionDrag(state, context) {
+  return selectionPointer(
+    state,
+    {
+      type: "pointer_up",
+      pointerId: 29,
+      screenPoint: { x: 130, y: 60 },
+    },
+    context,
+  );
+}
+
+test("drag snapshots selected versions and rejects a mid-drag version change", () => {
+  const context = selectionContext();
+  const started = beginMultiObjectSelectionDrag(context);
+  assert.deepEqual(
+    started.state.drag.snapshots.map(({ id, version }) => ({ id, version })),
+    [
+      { id: ids.rectangle, version: 1 },
+      { id: ids.circle, version: 1 },
+    ],
+  );
+  const changed = {
+    ...context,
+    objects: {
+      ...context.objects,
+      [ids.rectangle]: { ...context.objects[ids.rectangle], version: 2 },
+    },
+  };
+  const finished = finishMultiObjectSelectionDrag(started.state, changed);
+  assert.equal(finished.command, null);
+  assert.equal(finished.state.drag, null);
+});
+
+test("drag rejects same-version geometry replacement instead of moving newer geometry", () => {
+  const context = selectionContext();
+  const started = beginMultiObjectSelectionDrag(context);
+  const changed = {
+    ...context,
+    objects: {
+      ...context.objects,
+      [ids.circle]: {
+        ...context.objects[ids.circle],
+        geometry: {
+          ...context.objects[ids.circle].geometry,
+          center: { x: 45, y: 15 },
+        },
+      },
+    },
+  };
+  const finished = finishMultiObjectSelectionDrag(started.state, changed);
+  assert.equal(finished.command, null);
+  assert.equal(finished.state.drag, null);
+});
+
+test("drag sync releases capture when one snapshot layer becomes ineligible", () => {
+  const secondLayerId = "00000000-0000-4000-8000-000000000031";
+  const base = selectionContext();
+  const context = {
+    ...base,
+    layers: {
+      ...base.layers,
+      [secondLayerId]: layer({ id: secondLayerId }),
+    },
+    objects: {
+      ...base.objects,
+      [ids.circle]: { ...base.objects[ids.circle], layerId: secondLayerId },
+    },
+  };
+  const started = beginMultiObjectSelectionDrag(context);
+  const changed = {
+    ...context,
+    layers: {
+      ...context.layers,
+      [secondLayerId]: { ...context.layers[secondLayerId], locked: true },
+    },
+  };
+  const synced = selectionPointer(
+    started.state,
+    { type: "sync_context" },
+    changed,
+  );
+  assert.equal(synced.command, null);
+  assert.equal(synced.state.drag, null);
+  assert.deepEqual(synced.pointerCapture, { type: "release", pointerId: 29 });
+});
+
 test("selection handles stay screen-sized across zoom levels", () => {
   assert.equal(typeof drawingTools.drawingSelectionHandleSize, "function");
   assert.equal(drawingTools.drawingSelectionHandleSize(0.5), 16);
   assert.equal(drawingTools.drawingSelectionHandleSize(4), 2);
+});
+
+test("selection hit bounds expand thin canonical bounds by a fixed screen tolerance", () => {
+  assert.equal(typeof drawingTools.drawingSelectionHitBounds, "function");
+  const cases = [
+    {
+      geometry: {
+        type: "text",
+        origin: { x: 10, y: 20 },
+        width: 40,
+        text: "note",
+      },
+      expected: { x: 4, y: 14, width: 52, height: 12 },
+    },
+    {
+      geometry: {
+        type: "line",
+        start: { x: 0, y: 5 },
+        end: { x: 20, y: 5 },
+      },
+      expected: { x: -6, y: -1, width: 32, height: 12 },
+    },
+    {
+      geometry: {
+        type: "line",
+        start: { x: 5, y: 0 },
+        end: { x: 5, y: 20 },
+      },
+      expected: { x: -1, y: -6, width: 12, height: 32 },
+    },
+    {
+      geometry: {
+        type: "polyline",
+        points: [
+          { x: 7, y: 0 },
+          { x: 7, y: 20 },
+        ],
+        closed: false,
+      },
+      expected: { x: 1, y: -6, width: 12, height: 32 },
+    },
+    {
+      geometry: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 20,
+        height: 10,
+        rotation: 90,
+      },
+      expected: { x: -16, y: -6, width: 22, height: 32 },
+    },
+  ];
+  for (const { geometry, expected } of cases)
+    assert.deepEqual(
+      drawingTools.drawingSelectionHitBounds(geometry, 1),
+      expected,
+    );
+  assert.deepEqual(
+    drawingTools.drawingSelectionHitBounds(cases[0].geometry, 2),
+    { x: 7, y: 17, width: 46, height: 6 },
+  );
+  assert.deepEqual(
+    drawingTools.drawingSelectionHitBounds(cases[0].geometry, 0.5),
+    { x: -2, y: 8, width: 64, height: 24 },
+  );
+});
+
+test("selection candidates expand hits only after hidden and locked exclusion", () => {
+  assert.equal(typeof drawingTools.drawingSelectionCandidates, "function");
+  const context = selectionContext();
+  assert.deepEqual(
+    drawingTools
+      .drawingSelectionCandidates(
+        Object.values(context.objects),
+        context.layers,
+        2,
+      )
+      .map((candidate) => candidate.id),
+    [ids.rectangle, ids.circle],
+  );
 });
 
 test("arrow moves use millimeters and mutation commands filter locked or hidden objects", () => {
@@ -1282,7 +1482,7 @@ test("arrow moves use millimeters and mutation commands filter locked or hidden 
   ]);
 });
 
-test("copy strips identity and paste creates fresh object and lineage IDs at 20 mm", () => {
+test("copy strips identity and paste creates strict fresh objects at 20 mm", () => {
   assert.equal(typeof drawingCommands.copyDrawingSelection, "function");
   assert.equal(typeof drawingCommands.pasteDrawingClipboard, "function");
   const source = {
@@ -1304,22 +1504,26 @@ test("copy strips identity and paste creates fresh object and lineage IDs at 20 
       },
     ],
   });
-  const freshIds = [
-    "00000000-0000-4000-8000-000000000040",
-    "00000000-0000-4000-8000-000000000041",
-  ];
+  const freshIds = ["00000000-0000-4000-8000-000000000040"];
   const pasted = drawingCommands.pasteDrawingClipboard(
     clipboard,
     "actor-a",
     () => freshIds.shift(),
   );
   assert.equal(pasted.objects[0].id, "00000000-0000-4000-8000-000000000040");
-  assert.equal(
-    pasted.objects[0].lineageId,
-    "00000000-0000-4000-8000-000000000041",
-  );
   assert.equal(pasted.objects[0].version, 1);
   assert.deepEqual(pasted.objects[0].geometry.origin, { x: 20, y: 20 });
+  assert.deepEqual(Object.keys(pasted.objects[0]).sort(), [
+    "geometry",
+    "id",
+    "layerId",
+    "style",
+    "version",
+  ]);
+  assert.deepEqual(
+    DrawingObjectSchema.strict().parse(pasted.objects[0]),
+    pasted.objects[0],
+  );
   assert.deepEqual(source.geometry.origin, { x: 0, y: 0 });
 });
 
@@ -1395,6 +1599,10 @@ test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", asy
     shortcut({ key: "Delete", code: "Delete", metaKey: false }),
     { type: "delete" },
   );
+  assert.deepEqual(
+    shortcut({ key: "Backspace", code: "Backspace", metaKey: false }),
+    { type: "delete" },
+  );
   for (const target of [
     { tagName: "INPUT", isContentEditable: false },
     { tagName: "TEXTAREA", isContentEditable: false },
@@ -1407,6 +1615,15 @@ test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", asy
     },
   ]) {
     assert.equal(shortcut({ target }), null);
+    assert.equal(
+      shortcut({
+        key: "Backspace",
+        code: "Backspace",
+        metaKey: false,
+        target,
+      }),
+      null,
+    );
   }
   assert.equal(shortcut({ altKey: true }), null);
 });

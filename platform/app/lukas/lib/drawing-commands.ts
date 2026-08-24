@@ -585,7 +585,10 @@ export type DrawingClipboard = {
   items: Array<Pick<DrawingObject, "layerId" | "geometry" | "style">>;
 };
 
-export type PastedDrawingObject = DrawingObject & { lineageId: string };
+export type DrawingMoveSnapshot = Pick<
+  DrawingObject,
+  "id" | "layerId" | "geometry" | "version"
+>;
 
 function mutableDrawingObject(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
@@ -633,20 +636,35 @@ export function moveDrawingSelection(
   actorId: string,
   delta: Point,
 ): Extract<DrawingCommand, { type: "update_objects" }> | null {
-  const updates = [...new Set(selectedIds)].flatMap((objectId) => {
+  const snapshots = [...new Set(selectedIds)].flatMap((objectId) => {
     const object = mutableDrawingObject(state, objectId);
     return object
       ? [
           {
-            objectId,
-            baseVersion: object.version,
-            patch: {
-              geometry: translateDrawingGeometry(object.geometry, delta),
-            },
+            id: object.id,
+            layerId: object.layerId,
+            geometry: clone(object.geometry),
+            version: object.version,
           },
         ]
       : [];
   });
+  return moveDrawingSnapshots(snapshots, actorId, delta);
+}
+
+/** Creates a move from immutable pointer-down object snapshots. */
+export function moveDrawingSnapshots(
+  snapshots: DrawingMoveSnapshot[],
+  actorId: string,
+  delta: Point,
+): Extract<DrawingCommand, { type: "update_objects" }> | null {
+  const updates = snapshots.map((snapshot) => ({
+    objectId: snapshot.id,
+    baseVersion: snapshot.version,
+    patch: {
+      geometry: translateDrawingGeometry(snapshot.geometry, delta),
+    },
+  }));
   return updates.length > 0
     ? { type: "update_objects", actorId, updates }
     : null;
@@ -694,9 +712,8 @@ export function pasteDrawingClipboard(
   createId: () => string = () => crypto.randomUUID(),
 ): Extract<DrawingCommand, { type: "add_objects" }> | null {
   if (clipboard.items.length === 0) return null;
-  const objects: PastedDrawingObject[] = clipboard.items.map((item) => ({
+  const objects: DrawingObject[] = clipboard.items.map((item) => ({
     id: createId(),
-    lineageId: createId(),
     layerId: item.layerId,
     geometry: translateDrawingGeometry(item.geometry, { x: 20, y: 20 }),
     style: clone(item.style),

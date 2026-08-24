@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {
+  applyDrawingCommand,
+  copyDrawingSelection,
+  createDrawingDocumentState,
+  pasteDrawingClipboard,
+} from "../app/lukas/lib/drawing-commands.ts";
 import * as workspaceServer from "../app/lukas/lib/drawing-workspace.server.ts";
 import {
   applyDrawingOperation,
@@ -107,6 +113,69 @@ test("mutation parsing rejects unknown nested renderer fields instead of strippi
   assert.throws(() =>
     parseWorkspaceMutation(
       form({ intent: "apply_operation", operation_json: rendererShaped }),
+    ),
+  );
+});
+
+test("pasted add payload is exact canonical DrawingObject input for server parsing", () => {
+  const source = {
+    id: ids.object,
+    layerId: ids.workLayer,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 20,
+      height: 10,
+      rotation: 0,
+    },
+    style: { stroke: "#112233", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const state = createDrawingDocumentState({
+    revisionId: ids.revision,
+    layers: [
+      {
+        id: ids.workLayer,
+        name: "Work",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    ],
+    objects: [source],
+  });
+  const pasted = pasteDrawingClipboard(
+    copyDrawingSelection(state, [ids.object]),
+    ids.actor,
+    () => "00000000-0000-4000-8000-000000000011",
+  );
+  const applied = applyDrawingCommand(state, pasted, {
+    createId: () => ids.operation,
+    now: () => "2026-08-24T02:00:00.000Z",
+  });
+  const recorded = Object.fromEntries(
+    [
+      "baseVersions",
+      "clientOperationId",
+      "createdAt",
+      "forward",
+      "inverse",
+      "revisionId",
+      "type",
+    ].map((key) => [key, applied.operation[key]]),
+  );
+
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: recorded }),
+    ),
+    { intent: "apply_operation", operation: recorded },
+  );
+  const noncanonical = structuredClone(recorded);
+  noncanonical.forward.objects[0].lineageId = ids.object;
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: noncanonical }),
     ),
   );
 });
