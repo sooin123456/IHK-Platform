@@ -422,6 +422,9 @@ begin
      or v_capability not in ('admin', 'editor') then
     raise exception 'Drawing workspace editor capability required';
   end if;
+  if tg_op = 'DELETE' and pg_catalog.pg_trigger_depth() > 1 then
+    return old;
+  end if;
   select r.status into v_status
   from public.lukas_drawing_revisions r
   where r.id = v_revision_id and r.project_id = v_project_id
@@ -512,6 +515,9 @@ language plpgsql security invoker
 set search_path = ''
 as $$
 begin
+  if tg_op = 'DELETE' and pg_catalog.pg_trigger_depth() > 1 then
+    return old;
+  end if;
   raise exception '% is append-only', tg_table_name;
 end;
 $$;
@@ -760,6 +766,9 @@ begin
       raise exception 'Drawing layer creator and initial version are invalid';
     end if;
   elsif tg_op = 'DELETE' then
+    if pg_catalog.pg_trigger_depth() > 1 then
+      return old;
+    end if;
     if old.system_kind = 'source' then
       raise exception 'Source drawing layer is immutable';
     end if;

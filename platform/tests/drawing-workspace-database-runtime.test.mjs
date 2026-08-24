@@ -572,6 +572,109 @@ test("authenticated direct layer SQL cannot bypass canonical layer integrity", a
   });
 });
 
+async function addCustomLayer(ids, name) {
+  const layerId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    {},
+    {
+      type: "add_layer",
+      layer: {
+        id: layerId,
+        name,
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  return layerId;
+}
+
+test("authorized draft parent deletion cascades through system and custom layers", async (t) => {
+  await t.test("page deletion", async () => {
+    const ids = await createDocument();
+    await addCustomLayer(ids, "Page cascade custom");
+
+    await db.query("delete from public.lukas_drawing_pages where id=$1", [
+      ids.pageId,
+    ]);
+
+    const remaining = await db.query(
+      `select
+        (select count(*)::int from public.lukas_drawing_pages where id=$1) pages,
+        (select count(*)::int from public.lukas_drawing_layers
+          where revision_id=$2) layers`,
+      [ids.pageId, ids.revisionId],
+    );
+    assert.deepEqual(remaining.rows[0], { pages: 0, layers: 0 });
+  });
+
+  await t.test("document deletion", async () => {
+    const ids = await createDocument();
+    await addCustomLayer(ids, "Document cascade custom");
+
+    await db.query("delete from public.lukas_drawing_documents where id=$1", [
+      ids.documentId,
+    ]);
+
+    const remaining = await db.query(
+      `select
+        (select count(*)::int from public.lukas_drawing_documents where id=$1) documents,
+        (select count(*)::int from public.lukas_drawing_revisions where id=$2) revisions,
+        (select count(*)::int from public.lukas_drawing_pages where revision_id=$2) pages,
+        (select count(*)::int from public.lukas_drawing_layers where revision_id=$2) layers`,
+      [ids.documentId, ids.revisionId],
+    );
+    assert.deepEqual(remaining.rows[0], {
+      documents: 0,
+      revisions: 0,
+      pages: 0,
+      layers: 0,
+    });
+  });
+});
+
+test("approved parent deletion remains denied", async () => {
+  const ids = await createDocument();
+  await addCustomLayer(ids, "Approved custom");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'approved','cascade denial fixture'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+
+  await db.query("delete from public.lukas_drawing_pages where id=$1", [
+    ids.pageId,
+  ]);
+  await db.query("delete from public.lukas_drawing_documents where id=$1", [
+    ids.documentId,
+  ]);
+
+  const remaining = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_documents where id=$1) documents,
+      (select count(*)::int from public.lukas_drawing_pages where id=$2) pages,
+      (select count(*)::int from public.lukas_drawing_layers
+        where revision_id=$3) layers`,
+    [ids.documentId, ids.pageId, ids.revisionId],
+  );
+  assert.deepEqual(remaining.rows[0], { documents: 1, pages: 1, layers: 3 });
+});
+
 function operationInput(recorded) {
   return {
     clientOperationId: recorded.clientOperationId,

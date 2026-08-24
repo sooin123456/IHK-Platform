@@ -65,3 +65,23 @@ Fix-round verification evidence:
 Legacy evidence limitation:
 
 - The repository does not retain a separately versioned, byte-for-byte pre-Task-9 core migration fixture. The runtime upgrade test therefore reproducibly installs the core, removes the object-name column, and seeds pre-name approved JSON/evidence before applying the additive migration. This proves the schema/state upgrade and evidence-preservation behavior, but does not execute historical DDL bytes from an external deployed database dump.
+
+## Fix round 2 — 2026-08-24
+
+Review finding addressed:
+
+- Authorized draft page and document DELETE operations now cascade through their source, work, and custom layers. The fresh core and additive upgrade both replace the draft-child, layer-domain, and append-only guards with the same narrow distinction: after the existing actor/capability check where applicable, only a trigger-nested FK DELETE cascade (`pg_trigger_depth() > 1`) may return the old row.
+- Depth-one direct layer DELETE remains unavailable to authenticated callers through the revoked table privilege and absent DELETE policy. Trusted depth-one deletes still encounter the source and last-edit-layer guards. Direct layer INSERT/UPDATE rules, source visibility/locking, immutable `system_kind`, and the editable-layer fallback are unchanged.
+- Approved parent deletion remains denied by the parent RLS/draft contract, so immutable operations, snapshots, approvals, and layers cannot be removed through a non-draft parent.
+
+Fix-round verification evidence:
+
+- RED: draft page deletion reached the source-layer domain guard; draft document deletion additionally reached a missing-revision child check and then the append-only operation guard. These failures established each nested cascade boundary before the SQL change.
+- PGlite parent-delete tests cover authorized draft page and document cascades with source/work/custom layers, plus approved page/document row preservation.
+- PGlite direct layer integrity subtests retain authenticated DELETE privilege denial and trusted depth-one source/last-edit-layer trigger denial.
+- Focused database static and PGlite runtime suites: **42/42 passed**.
+- Full Node suite: **265/265 passed**.
+- `npm run typecheck`: passed.
+- `npm run build`: passed (2,333 client modules and 112 SSR modules transformed).
+- `git diff --check`: passed.
+- Build warnings remain the pre-existing chunk-size, React Router v8 future-flag, and unsigned `theme` cookie warnings.

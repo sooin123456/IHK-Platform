@@ -107,6 +107,8 @@ test("additive layers-inspector upgrade carries the full object and layer contra
   assert.match(sql, /alter column name set not null/i);
   for (const helper of [
     "lukas_drawing_create_document",
+    "lukas_drawing_append_only_guard",
+    "lukas_drawing_draft_child_guard",
     "lukas_drawing_layer_guard",
     "lukas_drawing_operation_payload_valid",
     "lukas_drawing_apply_operation",
@@ -129,6 +131,22 @@ test("additive layers-inspector upgrade carries the full object and layer contra
     sql,
     /update public\.lukas_drawing_(?:operations|snapshots)/i,
   );
+});
+
+test("parent deletion cascades are distinguished from direct layer deletion in both install paths", async () => {
+  for (const sql of [await migration(), await upgradeMigration()]) {
+    for (const helper of [
+      "lukas_drawing_draft_child_guard",
+      "lukas_drawing_layer_guard",
+      "lukas_drawing_append_only_guard",
+    ]) {
+      const definition = functionDefinition(sql, helper);
+      assert.match(
+        definition,
+        /tg_op\s*=\s*'DELETE'[\s\S]+(?:pg_catalog\.)?pg_trigger_depth\(\)\s*>\s*1/i,
+      );
+    }
+  }
 });
 
 test("capability mapping, RLS, and grants expose only project-scoped operations", async () => {

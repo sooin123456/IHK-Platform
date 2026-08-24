@@ -103,6 +103,61 @@ alter table public.lukas_drawing_layers
     system_kind <> 'source' or (visible and locked)
   );
 
+create or replace function private.lukas_drawing_draft_child_guard()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+declare
+  v_old jsonb := pg_catalog.to_jsonb(old);
+  v_new jsonb := pg_catalog.to_jsonb(new);
+  v_revision_id uuid := (v_old ->> 'revision_id')::uuid;
+  v_project_id uuid := (v_old ->> 'project_id')::uuid;
+  v_status text;
+  v_actor uuid := (select auth.uid());
+  v_capability text;
+begin
+  v_capability := private.lukas_drawing_workspace_capability(v_project_id);
+  if v_actor is null or v_capability is null
+     or v_capability not in ('admin', 'editor') then
+    raise exception 'Drawing workspace editor capability required';
+  end if;
+  if tg_op = 'DELETE' and pg_catalog.pg_trigger_depth() > 1 then
+    return old;
+  end if;
+  select r.status into v_status
+  from public.lukas_drawing_revisions r
+  where r.id = v_revision_id and r.project_id = v_project_id
+  for update;
+  if v_status is null then
+    raise exception 'Drawing revision does not exist';
+  end if;
+  if v_status <> 'draft' then
+    raise exception 'Approved drawing revision is immutable';
+  end if;
+  if tg_op = 'UPDATE'
+     and ((v_new ->> 'revision_id') is distinct from (v_old ->> 'revision_id')
+       or (v_new ->> 'project_id') is distinct from (v_old ->> 'project_id')) then
+    raise exception 'Drawing child revision identity is immutable';
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+create or replace function private.lukas_drawing_append_only_guard()
+returns trigger
+language plpgsql security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op = 'DELETE' and pg_catalog.pg_trigger_depth() > 1 then
+    return old;
+  end if;
+  raise exception '% is append-only', tg_table_name;
+end;
+$$;
+
 create or replace function private.lukas_drawing_create_document(
   p_project_id uuid,
   p_source_file_id uuid,
@@ -210,6 +265,9 @@ begin
       raise exception 'Drawing layer creator and initial version are invalid';
     end if;
   elsif tg_op = 'DELETE' then
+    if pg_catalog.pg_trigger_depth() > 1 then
+      return old;
+    end if;
     if old.system_kind = 'source' then
       raise exception 'Source drawing layer is immutable';
     end if;
