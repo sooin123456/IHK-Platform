@@ -752,9 +752,27 @@ declare
 begin
   if v_actor is null then raise exception 'Authenticated drawing actor required'; end if;
   if tg_op = 'INSERT' then
+    if current_user = 'authenticated'
+       and new.system_kind <> 'custom' then
+      raise exception 'Only custom drawing layers may be inserted directly';
+    end if;
     if new.created_by <> v_actor or new.version <> 1 then
       raise exception 'Drawing layer creator and initial version are invalid';
     end if;
+  elsif tg_op = 'DELETE' then
+    if old.system_kind = 'source' then
+      raise exception 'Source drawing layer is immutable';
+    end if;
+    if not exists (
+      select 1 from public.lukas_drawing_layers l
+      where l.page_id = old.page_id
+        and l.id <> old.id
+        and l.system_kind <> 'source'
+        and l.visible and not l.locked
+    ) then
+      raise exception 'At least one visible unlocked user drawing layer is required';
+    end if;
+    return old;
   else
     if old.system_kind = 'source' then
       raise exception 'Source drawing layer is immutable';
@@ -772,8 +790,8 @@ begin
       raise exception 'Drawing layer version must increase by one';
     end if;
   end if;
-  if new.system_kind = 'source' and not new.locked then
-    raise exception 'Source drawing layer must remain locked';
+  if new.system_kind = 'source' and (not new.locked or not new.visible) then
+    raise exception 'Source drawing layer must remain visible and locked';
   end if;
   if new.system_kind <> 'source'
      and (not new.visible or new.locked)
@@ -792,7 +810,7 @@ end;
 $$;
 
 create trigger lukas_drawing_layers_domain_guard
-before insert or update on public.lukas_drawing_layers
+before insert or update or delete on public.lukas_drawing_layers
 for each row execute function private.lukas_drawing_layer_guard();
 
 create or replace function private.lukas_drawing_object_guard()
@@ -1063,17 +1081,17 @@ begin
     page_id, revision_id, project_id, name, sort_order,
     visible, locked, system_kind, version, created_by
   ) values (
-    v_page_id, v_revision_id, p_project_id, '원본', 0,
-    true, true, 'source', 1, v_actor
-  ) returning id into v_source_layer_id;
+    v_page_id, v_revision_id, p_project_id, '작업', 1,
+    true, false, 'work', 1, v_actor
+  ) returning id into v_work_layer_id;
 
   insert into public.lukas_drawing_layers(
     page_id, revision_id, project_id, name, sort_order,
     visible, locked, system_kind, version, created_by
   ) values (
-    v_page_id, v_revision_id, p_project_id, '작업', 1,
-    true, false, 'work', 1, v_actor
-  ) returning id into v_work_layer_id;
+    v_page_id, v_revision_id, p_project_id, '원본', 0,
+    true, true, 'source', 1, v_actor
+  ) returning id into v_source_layer_id;
 
   return pg_catalog.jsonb_build_object(
     'documentId', v_document_id,
@@ -1900,8 +1918,10 @@ from public, anon, authenticated;
 grant select, update, delete on public.lukas_drawing_documents to authenticated;
 grant select on public.lukas_drawing_revisions to authenticated;
 grant select, insert, update, delete on public.lukas_drawing_pages,
-  public.lukas_drawing_layers, public.lukas_drawing_objects,
+  public.lukas_drawing_objects,
   public.lukas_drawing_object_sources to authenticated;
+grant select, insert, update on public.lukas_drawing_layers to authenticated;
+revoke delete on public.lukas_drawing_layers from authenticated;
 grant select, insert, delete on public.lukas_drawing_object_issue_links
   to authenticated;
 grant select on public.lukas_drawing_operations,
@@ -1993,6 +2013,7 @@ create policy "workspace editors add draft drawing layers"
 on public.lukas_drawing_layers for insert to authenticated
 with check (
   created_by = (select auth.uid())
+  and system_kind = 'custom'
   and private.lukas_drawing_workspace_capability(project_id) in ('admin', 'editor')
   and exists (select 1 from public.lukas_drawing_revisions r
     where r.id = lukas_drawing_layers.revision_id
@@ -2013,15 +2034,6 @@ with check (
     where r.id = lukas_drawing_layers.revision_id
       and r.project_id = lukas_drawing_layers.project_id and r.status = 'draft')
 );
-create policy "workspace editors delete draft drawing layers"
-on public.lukas_drawing_layers for delete to authenticated
-using (
-  private.lukas_drawing_workspace_capability(project_id) in ('admin', 'editor')
-  and exists (select 1 from public.lukas_drawing_revisions r
-    where r.id = lukas_drawing_layers.revision_id
-      and r.project_id = lukas_drawing_layers.project_id and r.status = 'draft')
-);
-
 create policy "project members read drawing objects"
 on public.lukas_drawing_objects for select to authenticated
 using (private.lukas_drawing_workspace_capability(project_id) is not null);

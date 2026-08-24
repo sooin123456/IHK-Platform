@@ -3,7 +3,11 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createServer } from "vite";
 import * as drawingCommands from "../app/lukas/lib/drawing-commands.ts";
-import { DrawingObjectSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  DrawingLayerInputSchema,
+  DrawingLayerSchema,
+  DrawingObjectSchema,
+} from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const {
   applyDrawingCommand,
@@ -109,6 +113,26 @@ test("canonical drawing objects require an exact trimmed name", () => {
   const { name: _name, ...missingName } = rectangle();
   assert.equal(
     DrawingObjectSchema.strict().safeParse(missingName).success,
+    false,
+  );
+});
+
+test("canonical loaded layers reject corrupt source state without widening browser input", () => {
+  for (const corruptSource of [
+    layer({ systemKind: "source", visible: false, locked: true }),
+    layer({ systemKind: "source", visible: true, locked: false }),
+  ]) {
+    assert.equal(DrawingLayerSchema.safeParse(corruptSource).success, false);
+  }
+  assert.equal(
+    DrawingLayerInputSchema.safeParse({
+      id: ids.layer,
+      name: "Injected source",
+      visible: true,
+      locked: true,
+      version: 1,
+      systemKind: "source",
+    }).success,
     false,
   );
 });
@@ -304,6 +328,61 @@ test("undo appends an inverse without deleting another actor's separate command"
     ),
     true,
   );
+});
+
+test("add undo redo realizes exact tombstone bases and monotonic versions", () => {
+  const env = environment();
+  const added = applyDrawingCommand(
+    emptyState(),
+    { type: "add_objects", actorId: "actor-a", objects: [rectangle()] },
+    env,
+  );
+  const undone = undoDrawingCommand(added.state, "actor-a", env);
+  const redone = redoDrawingCommand(undone.state, "actor-a", env);
+
+  assert.deepEqual(added.operation.realizedVersions, { [ids.rectangle]: 1 });
+  assert.deepEqual(undone.operation.baseVersions, { [ids.rectangle]: 1 });
+  assert.deepEqual(undone.operation.realizedVersions, { [ids.rectangle]: 2 });
+  assert.deepEqual(redone.operation.baseVersions, { [ids.rectangle]: 2 });
+  assert.deepEqual(redone.operation.forward, {
+    type: "add_objects",
+    objects: [rectangle({ version: 3 })],
+  });
+  assert.deepEqual(redone.operation.realizedVersions, { [ids.rectangle]: 3 });
+  assert.equal(redone.state.objects[ids.rectangle].version, 3);
+});
+
+test("delete undo redo advances through tombstone restore and tombstone versions", () => {
+  const env = environment();
+  const initial = rectangle({ version: 7 });
+  const deleted = applyDrawingCommand(
+    emptyState({ objects: [initial] }),
+    { type: "delete_objects", actorId: "actor-a", objectIds: [ids.rectangle] },
+    env,
+  );
+  const restored = undoDrawingCommand(deleted.state, "actor-a", env);
+  const deletedAgain = redoDrawingCommand(restored.state, "actor-a", env);
+  const restoredAgain = undoDrawingCommand(deletedAgain.state, "actor-a", env);
+
+  assert.deepEqual(deleted.operation.baseVersions, { [ids.rectangle]: 7 });
+  assert.deepEqual(deleted.operation.realizedVersions, { [ids.rectangle]: 8 });
+  assert.deepEqual(restored.operation.baseVersions, { [ids.rectangle]: 8 });
+  assert.deepEqual(restored.operation.realizedVersions, { [ids.rectangle]: 9 });
+  assert.equal(restored.state.objects[ids.rectangle].version, 9);
+  assert.deepEqual(deletedAgain.operation.baseVersions, {
+    [ids.rectangle]: 9,
+  });
+  assert.deepEqual(deletedAgain.operation.realizedVersions, {
+    [ids.rectangle]: 10,
+  });
+  assert.equal(deletedAgain.state.objects[ids.rectangle], undefined);
+  assert.deepEqual(restoredAgain.operation.baseVersions, {
+    [ids.rectangle]: 10,
+  });
+  assert.deepEqual(restoredAgain.operation.realizedVersions, {
+    [ids.rectangle]: 11,
+  });
+  assert.equal(restoredAgain.state.objects[ids.rectangle].version, 11);
 });
 
 test("undo returns a conflict when another actor changed its target object", () => {

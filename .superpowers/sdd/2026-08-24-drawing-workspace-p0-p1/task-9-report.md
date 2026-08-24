@@ -40,3 +40,28 @@ Status: Complete
 - The current P0/P1 workspace has one page. Its local duplicate-name precheck is consequently revision-wide; the database remains correctly page-scoped and is the authoritative guard for future multi-page support.
 - Production build warnings are pre-existing/non-blocking: large chunks, React Router v8 future flags, and the unsigned `theme` cookie.
 - Task 10 persistence is intentionally not present; Task 9 changes remain local commands.
+
+## Fix round 1 — 2026-08-24
+
+Review findings addressed:
+
+- Added `20260824113000_drawing_workspace_layers_inspector_upgrade.sql`. It adds the object `name` column when absent, deterministically backfills geometry-neutral names, enforces exact-trim/not-null constraints, repairs historical source/edit-layer invariants, and replaces the affected document creation, layer guard, operation validator/application, review snapshot, grants, and policies.
+- The upgrade disables only user triggers around deterministic table backfills so approved rows can be upgraded. It never updates `lukas_drawing_operations`, `lukas_drawing_snapshots`, or `lukas_drawing_revision_approvals`.
+- Authenticated layer DELETE privilege and policy paths are removed. Direct INSERT accepts only `system_kind='custom'`; direct UPDATE cannot change `system_kind`; source rename/hide/unlock/delete and loss of the last editable layer are blocked by constraints, RLS, and the layer trigger. Controlled document creation inserts the editable work layer before the immutable source layer.
+- Command history now records realized database versions separately from local presence. Add/delete undo and redo emit exact tombstone bases and monotonically increasing restore/delete versions while local state continues to omit tombstones.
+- Loaded layer validation now rejects invalid `systemKind`, multiple/missing sources, invisible or unlocked sources, layers detached from loaded pages, and pages without a visible unlocked non-source layer. Browser layer input remains strict and excludes `systemKind`.
+
+Fix-round verification evidence:
+
+- Focused commands, static database, PGlite runtime, server, and route suites: **125/125 passed**.
+- PGlite direct integrity subtests: authenticated custom/system INSERT behavior, immutable identity/source UPDATE behavior, editable fallback, revoked DELETE privilege, and trusted-trigger DELETE fallback all passed.
+- End-to-end history test serialized generated add/undo/redo/delete operations through the strict server parser and replayed them through the PGlite RPC to tombstone version 6 and repeated restore version 7.
+- Reproducible upgrade test began with a schema lacking `lukas_drawing_objects.name` plus approved legacy-shaped object/operation/snapshot/approval state. It backfilled `Circle`, retained object version/status, byte-preserved parsed operation and snapshot JSON, and preserved snapshot/approval SHA values; post-upgrade create/apply/review also passed.
+- Full Node suite: **260/260 passed**.
+- `npm run typecheck`: passed.
+- `npm run build`: passed (2,333 client modules and 112 SSR modules transformed).
+- `git diff --check`: passed.
+
+Legacy evidence limitation:
+
+- The repository does not retain a separately versioned, byte-for-byte pre-Task-9 core migration fixture. The runtime upgrade test therefore reproducibly installs the core, removes the object-name column, and seeds pre-name approved JSON/evidence before applying the additive migration. This proves the schema/state upgrade and evidence-preservation behavior, but does not execute historical DDL bytes from an external deployed database dump.

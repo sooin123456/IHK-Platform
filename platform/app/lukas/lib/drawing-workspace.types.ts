@@ -187,7 +187,16 @@ export const DrawingLayerInputSchema = z
 
 export const DrawingLayerSchema = DrawingLayerInputSchema.extend({
   systemKind: z.enum(["source", "work", "custom"]),
-}).strict();
+})
+  .strict()
+  .superRefine((layer, context) => {
+    if (layer.systemKind === "source" && (!layer.visible || !layer.locked)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "원본 레이어는 표시되고 잠겨 있어야 합니다.",
+      });
+    }
+  });
 
 export const DrawingOperationInputSchema = z.object({
   clientOperationId: Uuid,

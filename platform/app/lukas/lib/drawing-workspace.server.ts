@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   DrawingGeometrySchema,
   DrawingLayerInputSchema,
+  DrawingLayerSchema,
   DrawingObjectNameSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
@@ -506,6 +507,10 @@ export async function loadDrawingWorkspace(
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
   const layers = layersResult.data ?? [];
+  const pages = pagesResult.data ?? [];
+  const sourceLayers = layers.filter(
+    (layer) => layer.system_kind === "source",
+  );
   if (
     layers.some(
       (layer) =>
@@ -513,9 +518,50 @@ export async function loadDrawingWorkspace(
         layer.system_kind !== "work" &&
         layer.system_kind !== "custom",
     ) ||
-    !layers.some((layer) => layer.system_kind === "source")
+    sourceLayers.length !== 1 ||
+    !sourceLayers[0]?.visible ||
+    !sourceLayers[0]?.locked ||
+    !DrawingLayerSchema.safeParse({
+      id: sourceLayers[0]?.id,
+      name: sourceLayers[0]?.name,
+      visible: sourceLayers[0]?.visible,
+      locked: sourceLayers[0]?.locked,
+      systemKind: sourceLayers[0]?.system_kind,
+      version: sourceLayers[0]?.version,
+    }).success
   ) {
     throw new Error("Drawing source layer metadata is missing.");
+  }
+  const pageIds = new Set(pages.map((page) => page.id));
+  if (
+    layers.some(
+      (layer) =>
+        !pageIds.has(layer.page_id) ||
+        !DrawingLayerSchema.safeParse({
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          locked: layer.locked,
+          systemKind: layer.system_kind,
+          version: layer.version,
+        }).success,
+    )
+  ) {
+    throw new Error("Drawing layer metadata is invalid.");
+  }
+  if (
+    pages.some(
+      (page) =>
+        !layers.some(
+          (layer) =>
+            layer.page_id === page.id &&
+            layer.system_kind !== "source" &&
+            layer.visible &&
+            !layer.locked,
+        ),
+    )
+  ) {
+    throw new Error("Drawing editable layer metadata is missing.");
   }
   let reviewEvidence: {
     subjectVersion: number;

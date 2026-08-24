@@ -6,6 +6,10 @@ const read = (relativePath) =>
   readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
 const migration = () =>
   read("supabase/migrations/20260824110000_drawing_workspace_core.sql");
+const upgradeMigration = () =>
+  read(
+    "supabase/migrations/20260824113000_drawing_workspace_layers_inspector_upgrade.sql",
+  );
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -91,6 +95,40 @@ test("workspace creates only the ten approved P0/P1 tables with domain checks", 
     /status\s+text[\s\S]*status in\s*\('draft',\s*'review_requested',\s*'approved',\s*'superseded'\)/i,
   );
   assert.doesNotMatch(sql, /konva/i);
+});
+
+test("additive layers-inspector upgrade carries the full object and layer contract", async () => {
+  const sql = await upgradeMigration();
+  assert.match(
+    sql,
+    /alter table public\.lukas_drawing_objects\s+add column if not exists name text/i,
+  );
+  assert.match(sql, /update public\.lukas_drawing_objects[\s\S]+object_type/i);
+  assert.match(sql, /alter column name set not null/i);
+  for (const helper of [
+    "lukas_drawing_create_document",
+    "lukas_drawing_layer_guard",
+    "lukas_drawing_operation_payload_valid",
+    "lukas_drawing_apply_operation",
+    "lukas_drawing_request_review",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(`create or replace function private\\.${helper}`, "i"),
+    );
+  }
+  assert.match(
+    sql,
+    /revoke delete on public\.lukas_drawing_layers from authenticated/i,
+  );
+  assert.match(
+    sql,
+    /drop policy if exists "workspace editors delete draft drawing layers"/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /update public\.lukas_drawing_(?:operations|snapshots)/i,
+  );
 });
 
 test("capability mapping, RLS, and grants expose only project-scoped operations", async () => {

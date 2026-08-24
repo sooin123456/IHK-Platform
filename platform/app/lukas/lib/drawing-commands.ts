@@ -57,6 +57,8 @@ export type DrawingRecordedOperation = DrawingOperationInput & {
   undoable: boolean;
   /** Expected target versions after this operation; null means an object is absent. */
   resultVersions: Record<string, number | null>;
+  /** Real database versions, including tombstones omitted from local object state. */
+  realizedVersions: Record<string, number>;
   originalOperationId?: string;
   historyAction?: "undo" | "redo";
 };
@@ -110,12 +112,17 @@ type Reduction = {
   forward: DrawingCommandPayload;
   inverse: DrawingCommandPayload | Record<string, never>;
   resultVersions: Record<string, number | null>;
+  realizedVersions: Record<string, number>;
   undoable: boolean;
 };
 
 type CommandHistoryMetadata = {
   originalOperationId?: string;
   historyAction?: "undo" | "redo";
+};
+
+type ReductionOptions = {
+  restoreBaseVersions?: Record<string, number>;
 };
 
 function clone<T>(value: T): T {
@@ -219,11 +226,13 @@ function layerPatchBefore(layer: DrawingLayer, patch: LayerPatch): LayerPatch {
 function reduceCommand(
   state: DrawingDocumentState,
   command: DrawingCommand,
+  options: ReductionOptions = {},
 ): Reduction {
   const objects = { ...state.objects };
   const layers = { ...state.layers };
   const baseVersions: Record<string, number> = {};
   const resultVersions: Record<string, number | null> = {};
+  const realizedVersions: Record<string, number> = {};
   const forward = payloadFor(command);
 
   switch (command.type) {
@@ -238,8 +247,24 @@ function reduceCommand(
         objectIds.add(object.id);
         requireUnlockedLayer(layers, object.layerId);
         const added = DrawingObjectSchema.parse(clone(object));
+        const restoreBaseVersion = options.restoreBaseVersions?.[added.id];
+        if (restoreBaseVersion === undefined) {
+          if (added.version !== 1) {
+            throw new DrawingCommandError(
+              `New drawing object ${added.id} must start at version 1.`,
+            );
+          }
+        } else {
+          if (added.version !== restoreBaseVersion + 1) {
+            throw new DrawingCommandError(
+              `Drawing object ${added.id} restore version must follow tombstone ${restoreBaseVersion}.`,
+            );
+          }
+          baseVersions[added.id] = restoreBaseVersion;
+        }
         objects[added.id] = added;
         resultVersions[added.id] = added.version;
+        realizedVersions[added.id] = added.version;
       }
       return {
         objects,
@@ -248,6 +273,7 @@ function reduceCommand(
         forward,
         inverse: { type: "delete_objects", objectIds: [...objectIds] },
         resultVersions,
+        realizedVersions,
         undoable: true,
       };
     }
@@ -289,6 +315,7 @@ function reduceCommand(
         });
         objects[object.id] = updated;
         resultVersions[object.id] = updated.version;
+        realizedVersions[object.id] = updated.version;
       }
       return {
         objects,
@@ -297,6 +324,7 @@ function reduceCommand(
         forward,
         inverse: { type: "update_objects", updates: inverseUpdates },
         resultVersions,
+        realizedVersions,
         undoable: true,
       };
     }
@@ -314,6 +342,7 @@ function reduceCommand(
         requireUnlockedLayer(layers, object.layerId);
         baseVersions[object.id] = object.version;
         resultVersions[object.id] = null;
+        realizedVersions[object.id] = object.version + 1;
         deleted.push({ ...clone(object), version: object.version + 2 });
         delete objects[object.id];
       }
@@ -324,6 +353,7 @@ function reduceCommand(
         forward,
         inverse: { type: "add_objects", objects: deleted },
         resultVersions,
+        realizedVersions,
         undoable: true,
       };
     }
@@ -346,6 +376,7 @@ function reduceCommand(
       layers[added.id] = added;
       baseVersions[added.id] = added.version;
       resultVersions[added.id] = added.version;
+      realizedVersions[added.id] = added.version;
       return {
         objects,
         layers,
@@ -353,6 +384,7 @@ function reduceCommand(
         forward,
         inverse: {},
         resultVersions,
+        realizedVersions,
         undoable: false,
       };
     }
@@ -395,6 +427,7 @@ function reduceCommand(
       }
       layers[layer.id] = updated;
       resultVersions[layer.id] = updated.version;
+      realizedVersions[layer.id] = updated.version;
       return {
         objects,
         layers,
@@ -402,6 +435,7 @@ function reduceCommand(
         forward,
         inverse: { type: "update_layer", layerId: layer.id, patch: inverse },
         resultVersions,
+        realizedVersions,
         undoable: true,
       };
     }
@@ -413,8 +447,9 @@ function appendOperation(
   command: DrawingCommand,
   environment: DrawingCommandEnvironment,
   metadata: CommandHistoryMetadata = {},
+  options: ReductionOptions = {},
 ): AppliedDrawingCommand {
-  const reduced = reduceCommand(state, command);
+  const reduced = reduceCommand(state, command, options);
   const operation: DrawingRecordedOperation = {
     clientOperationId: environment.createId?.() ?? crypto.randomUUID(),
     revisionId: state.revisionId,
@@ -425,6 +460,7 @@ function appendOperation(
     inverse: reduced.inverse,
     createdAt: environment.now?.() ?? new Date().toISOString(),
     resultVersions: reduced.resultVersions,
+    realizedVersions: reduced.realizedVersions,
     undoable: reduced.undoable,
     ...metadata,
   };
@@ -498,6 +534,24 @@ function latestUndoOperationFor(
         operation.originalOperationId === originalOperationId &&
         operation.historyAction === "undo",
     );
+}
+
+function realizeAddPayload(
+  payload: Extract<DrawingCommandPayload, { type: "add_objects" }>,
+  tombstoneVersions: Record<string, number>,
+): Extract<DrawingCommandPayload, { type: "add_objects" }> {
+  return {
+    type: "add_objects",
+    objects: payload.objects.map((object) => {
+      const tombstoneVersion = tombstoneVersions[object.id];
+      if (tombstoneVersion === undefined) {
+        throw new DrawingCommandError(
+          `Drawing object ${object.id} tombstone realization is missing.`,
+        );
+      }
+      return { ...clone(object), version: tombstoneVersion + 1 };
+    }),
+  };
 }
 
 function updateHistory(
@@ -581,12 +635,19 @@ export function undoDrawingCommand(
     );
   const conflict = conflictFor(state, latestApplied);
   if (conflict) return conflict;
-  const payload = original.inverse as DrawingCommandPayload;
+  const originalPayload = original.inverse as DrawingCommandPayload;
+  const payload =
+    originalPayload.type === "add_objects"
+      ? realizeAddPayload(originalPayload, latestApplied.realizedVersions)
+      : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
     environment,
     { originalOperationId, historyAction: "undo" },
+    payload.type === "add_objects"
+      ? { restoreBaseVersions: latestApplied.realizedVersions }
+      : {},
   );
   return {
     ...applied,
@@ -618,12 +679,19 @@ export function redoDrawingCommand(
     );
   const conflict = conflictFor(state, inverse);
   if (conflict) return conflict;
-  const payload = original.forward as DrawingCommandPayload;
+  const originalPayload = original.forward as DrawingCommandPayload;
+  const payload: DrawingCommandPayload =
+    originalPayload.type === "add_objects"
+      ? realizeAddPayload(originalPayload, inverse.realizedVersions)
+      : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
     environment,
     { originalOperationId, historyAction: "redo" },
+    payload.type === "add_objects"
+      ? { restoreBaseVersions: inverse.realizedVersions }
+      : {},
   );
   return {
     ...applied,

@@ -317,6 +317,32 @@ function queryClient(responses) {
   };
 }
 
+function workspaceLoaderClient(layers) {
+  return queryClient({
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        sha256: sourceSha,
+        immutable: true,
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: { id: ids.document, project_id: ids.project },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: { id: ids.revision, status: "draft", version: 1 },
+      error: null,
+    },
+    lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
+    lukas_drawing_layers: { data: layers, error: null },
+    lukas_drawing_objects: { data: [], error: null },
+  });
+}
+
 test("workspace loading binds immutable PDF evidence to its project and performs no insert", async () => {
   const file = {
     id: ids.file,
@@ -363,10 +389,20 @@ test("workspace loading binds immutable PDF evidence to its project and performs
       data: [
         {
           id: ids.sourceLayer,
+          page_id: ids.page,
           name: "Source",
           locked: true,
           visible: true,
           system_kind: "source",
+          version: 1,
+        },
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          name: "Work",
+          locked: false,
+          visible: true,
+          system_kind: "work",
           version: 1,
         },
       ],
@@ -427,6 +463,66 @@ test("workspace loading fails closed when source-layer metadata is missing", asy
   await assert.rejects(
     loadDrawingWorkspace(client, ids.project, ids.file),
     /source layer metadata/i,
+  );
+});
+
+test("workspace loading rejects invisible or unlocked source metadata", async () => {
+  for (const source of [
+    { visible: false, locked: true },
+    { visible: true, locked: false },
+  ]) {
+    const client = workspaceLoaderClient([
+      {
+        id: ids.sourceLayer,
+        page_id: ids.page,
+        name: "Source",
+        system_kind: "source",
+        version: 1,
+        ...source,
+      },
+      {
+        id: ids.workLayer,
+        page_id: ids.page,
+        name: "Work",
+        system_kind: "work",
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    ]);
+
+    await assert.rejects(
+      loadDrawingWorkspace(client, ids.project, ids.file),
+      /source layer metadata/i,
+    );
+  }
+});
+
+test("workspace loading rejects a page without an editable user layer", async () => {
+  const client = workspaceLoaderClient([
+    {
+      id: ids.sourceLayer,
+      page_id: ids.page,
+      name: "Source",
+      system_kind: "source",
+      visible: true,
+      locked: true,
+      version: 1,
+    },
+    {
+      id: ids.workLayer,
+      page_id: ids.page,
+      name: "Work",
+      system_kind: "work",
+      visible: true,
+      locked: true,
+      version: 1,
+    },
+  ]);
+
+  await assert.rejects(
+    loadDrawingWorkspace(client, ids.project, ids.file),
+    /editable layer metadata/i,
   );
 });
 
@@ -494,15 +590,25 @@ test("review-requested workspace loads its exact project-bound snapshot evidence
     lukas_qto_files: { data: file, error: null },
     lukas_drawing_documents: { data: document, error: null },
     lukas_drawing_revisions: { data: revision, error: null },
-    lukas_drawing_pages: { data: [], error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
     lukas_drawing_layers: {
       data: [
         {
           id: ids.sourceLayer,
+          page_id: ids.page,
           name: "Source",
           locked: true,
           visible: true,
           system_kind: "source",
+          version: 1,
+        },
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          name: "Work",
+          locked: false,
+          visible: true,
+          system_kind: "work",
           version: 1,
         },
       ],
