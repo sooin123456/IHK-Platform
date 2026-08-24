@@ -34,10 +34,18 @@ import {
   redoDrawingCommand,
   resolveActiveDrawingLayerId,
   undoDrawingCommand,
+  type AppliedDrawingCommand,
   type DrawingCommand,
   type DrawingClipboard,
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
+import {
+  createDrawingOutbox,
+  drawingSaveStatus,
+  recoverPendingDrawingState,
+  sendDrawingOperation,
+  type DrawingOutbox,
+} from "~/lukas/lib/drawing-outbox.client";
 import type {
   DrawingWorkspace,
   DrawingWorkspaceCapability,
@@ -228,13 +236,23 @@ export default function DrawingWorkspaceClient({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
-  const [hasLocalChanges, setHasLocalChanges] = useState(false);
+  const [outboxReady, setOutboxReady] = useState(false);
+  const [saveState, setSaveState] = useState({
+    pending: 0,
+    conflicted: false,
+    flushing: false,
+    online: true,
+    storageError: false,
+  });
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
+  const outboxRef = useRef<DrawingOutbox | null>(null);
+  const flushRef = useRef<() => Promise<void>>(async () => {});
   const { file, document: drawingDocument } = workspace;
   const { revision } = drawingDocument;
   const [drawingState, setDrawingState] = useState(() =>
     drawingStateFromRevision(revision),
   );
+  const drawingStateRef = useRef(drawingState);
   const visibleObjects = useMemo(
     () =>
       Object.values(drawingState.objects).filter(
@@ -247,11 +265,15 @@ export default function DrawingWorkspaceClient({
     [activeLayerId, drawingState.layers],
   );
   const page = revision.pages[0];
-  const editing = drawingEditingContext(
+  const editingContext = drawingEditingContext(
     capability,
     Object.values(drawingState.layers),
     resolvedActiveLayerId,
   );
+  const editing = {
+    ...editingContext,
+    canEdit: outboxReady && editingContext.canEdit,
+  };
   const calibration = useMemo<DimensionCalibrationEvidence | null>(() => {
     const parsed = PdfCalibrationSchema.safeParse(page?.calibration);
     return page && parsed.success
@@ -321,12 +343,94 @@ export default function DrawingWorkspaceClient({
   }, [surface.layout]);
 
   useEffect(() => {
-    setDrawingState(drawingStateFromRevision(revision));
+    let active = true;
+    let outbox: DrawingOutbox;
+    const actionUrl = window.location.href;
+    const refresh = async () => {
+      const entries = (await outbox.entries()).filter(
+        (entry) => entry.operation.revisionId === revision.id,
+      );
+      if (!active) return;
+      setSaveState((current) => ({
+        ...current,
+        pending: entries.length,
+        conflicted: entries.some((entry) => entry.status !== "pending"),
+        online: navigator.onLine,
+      }));
+    };
+    outbox = createDrawingOutbox(undefined, {
+      onChange: () => void refresh(),
+    });
+    outboxRef.current = outbox;
+
+    const flush = async () => {
+      if (!active || !navigator.onLine) {
+        await refresh();
+        return;
+      }
+      setSaveState((current) => ({ ...current, flushing: true }));
+      try {
+        await outbox.flush((operation) =>
+          sendDrawingOperation(operation, actionUrl),
+        );
+      } catch {
+        // The outbox retains the operation and schedules the bounded retry.
+      } finally {
+        if (active)
+          setSaveState((current) => ({ ...current, flushing: false }));
+        await refresh();
+      }
+    };
+    flushRef.current = flush;
+
+    const initialize = async () => {
+      const base = drawingStateFromRevision(revision);
+      try {
+        const entries = (await outbox.entries()).filter(
+          (entry) => entry.operation.revisionId === revision.id,
+        );
+        const recovered = recoverPendingDrawingState(base, entries);
+        for (const operationId of recovered.conflictedOperationIds)
+          await outbox.markConflicted(
+            operationId,
+            "conflicted",
+            "서버 상태와 로컬 작업의 기준 버전이 다릅니다.",
+          );
+        if (!active) return;
+        drawingStateRef.current = recovered.state;
+        setDrawingState(recovered.state);
+        setOutboxReady(true);
+        await refresh();
+        await flush();
+      } catch {
+        if (active)
+          setSaveState((current) => ({
+            ...current,
+            storageError: true,
+            flushing: false,
+          }));
+      }
+    };
+    const online = () => {
+      setSaveState((current) => ({ ...current, online: true }));
+      void flush();
+    };
+    const offline = () =>
+      setSaveState((current) => ({ ...current, online: false }));
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    setOutboxReady(false);
     setActiveTool("select");
     setActiveLayerId(null);
     setSelectedIds([]);
     clipboardRef.current = { items: [] };
-    setHasLocalChanges(false);
+    void initialize();
+    return () => {
+      active = false;
+      if (outboxRef.current === outbox) outboxRef.current = null;
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+    };
   }, [revision]);
 
   useEffect(() => {
@@ -341,24 +445,57 @@ export default function DrawingWorkspaceClient({
     });
   }, [drawingState.layers, drawingState.objects]);
 
-  const applyCommand = useCallback((command: DrawingCommand) => {
-    setDrawingState((state) => applyDrawingCommand(state, command).state);
-    setHasLocalChanges(true);
+  const persistApplied = useCallback(async (applied: AppliedDrawingCommand) => {
+    const outbox = outboxRef.current;
+    if (!outbox) {
+      setSaveState((current) => ({ ...current, storageError: true }));
+      return;
+    }
+    try {
+      await outbox.enqueue(applied.operation);
+      await flushRef.current();
+    } catch {
+      setSaveState((current) => ({
+        ...current,
+        storageError: true,
+        flushing: false,
+      }));
+    }
   }, []);
 
+  const commitApplied = useCallback(
+    (applied: AppliedDrawingCommand) => {
+      drawingStateRef.current = applied.state;
+      setDrawingState(applied.state);
+      void persistApplied(applied);
+    },
+    [persistApplied],
+  );
+
+  const applyCommand = useCallback(
+    (command: DrawingCommand) => {
+      if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+        return;
+      commitApplied(applyDrawingCommand(drawingStateRef.current, command));
+    },
+    [capability, commitApplied, outboxReady],
+  );
+
   const undo = useCallback(() => {
-    const result = undoDrawingCommand(drawingState, currentUserId);
+    if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+      return;
+    const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
-    setDrawingState(result.state);
-    setHasLocalChanges(true);
-  }, [currentUserId, drawingState]);
+    commitApplied(result);
+  }, [capability, commitApplied, currentUserId, outboxReady]);
 
   const redo = useCallback(() => {
-    const result = redoDrawingCommand(drawingState, currentUserId);
+    if (!outboxReady || (capability !== "admin" && capability !== "editor"))
+      return;
+    const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
-    setDrawingState(result.state);
-    setHasLocalChanges(true);
-  }, [currentUserId, drawingState]);
+    commitApplied(result);
+  }, [capability, commitApplied, currentUserId, outboxReady]);
 
   const copySelection = useCallback(() => {
     const clipboard = copyDrawingSelection(drawingState, selectedIds);
@@ -476,9 +613,15 @@ export default function DrawingWorkspaceClient({
       if (commandId === "select" || commandId === "pan") return true;
       if (commandId === "zoom_to_fit") return true;
       if (commandId === "undo")
-        return (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0;
+        return (
+          editing.canEdit &&
+          (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0
+        );
       if (commandId === "redo")
-        return (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0;
+        return (
+          editing.canEdit &&
+          (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0
+        );
       if (commandId === "duplicate" || commandId === "delete")
         return editing.canEdit && selectedIds.length > 0;
       return editing.canEdit;
@@ -509,6 +652,7 @@ export default function DrawingWorkspaceClient({
     [commandEnabled, deleteSelection, duplicateSelection, redo, undo],
   );
   const background: DrawingCanvasBackground = surface.background;
+  const saveStatus = drawingSaveStatus(saveState);
   const decisionFields = reviewControls.decisionEvidence
     ? drawingRevisionDecisionFields({
         revisionId: revision.id,
@@ -539,18 +683,18 @@ export default function DrawingWorkspaceClient({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <span
-            aria-label={`저장 상태: ${hasLocalChanges ? "로컬 변경(저장되지 않음)" : "저장됨"}`}
-            className={`inline-flex min-h-9 items-center gap-1 px-2 text-xs ${hasLocalChanges ? "text-amber-300" : "text-emerald-300"}`}
+            aria-label={`저장 상태: ${saveStatus}`}
+            className={`inline-flex min-h-9 items-center gap-1 px-2 text-xs ${saveStatus === "저장됨" ? "text-emerald-300" : saveStatus === "충돌 검토 필요" ? "text-red-300" : "text-amber-300"}`}
             role="status"
           >
             <Cloud className="size-4" />
-            {hasLocalChanges ? "로컬 변경" : "저장됨"}
+            {saveStatus}
           </span>
           <Button
             aria-label="저장"
             disabled
             size="icon"
-            title="저장됨"
+            title={saveStatus}
             variant="ghost"
           >
             <Save className="size-4" />
@@ -639,6 +783,15 @@ export default function DrawingWorkspaceClient({
         </p>
       ) : null}
 
+      {saveState.storageError ? (
+        <p
+          className="border-b border-red-500/30 bg-red-950 px-4 py-2 text-sm text-red-100"
+          role="alert"
+        >
+          로컬 저장 실패: 이 탭을 닫지 말고 브라우저 저장소 설정을 확인하세요.
+        </p>
+      ) : null}
+
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)_17rem]">
         <aside
           aria-label="레이어 패널"
@@ -647,7 +800,7 @@ export default function DrawingWorkspaceClient({
           <DrawingLayersPanel
             activeLayerId={resolvedActiveLayerId}
             actorId={currentUserId}
-            canEdit={capability === "admin" || capability === "editor"}
+            canEdit={editing.canEdit}
             onActiveLayerChange={setActiveLayerId}
             onCommand={applyCommand}
             state={drawingState}

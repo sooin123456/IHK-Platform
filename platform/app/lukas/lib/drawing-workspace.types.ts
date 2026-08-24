@@ -198,21 +198,105 @@ export const DrawingLayerSchema = DrawingLayerInputSchema.extend({
     }
   });
 
-export const DrawingOperationInputSchema = z.object({
-  clientOperationId: Uuid,
-  revisionId: Uuid,
-  type: z.enum([
-    "add_objects",
-    "update_objects",
-    "delete_objects",
-    "add_layer",
-    "update_layer",
-  ]),
-  baseVersions: z.record(Uuid, z.number().int().positive()),
-  forward: z.record(z.string(), z.unknown()),
-  inverse: z.record(z.string(), z.unknown()),
-  createdAt: z.string().datetime(),
-});
+const DrawingOperationObjectPatchSchema = z
+  .object({
+    name: DrawingObjectNameSchema.optional(),
+    layerId: Uuid.optional(),
+    geometry: DrawingGeometrySchema.optional(),
+    style: DrawingStyleSchema.optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0);
+const DrawingOperationLayerPatchSchema = z
+  .object({
+    name: DrawingLayerNameSchema.optional(),
+    visible: z.boolean().optional(),
+    locked: z.boolean().optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0);
+const DrawingOperationPayloadSchemas = {
+  add_objects: z
+    .object({
+      type: z.literal("add_objects"),
+      objects: z.array(DrawingObjectSchema).min(1),
+    })
+    .strict(),
+  update_objects: z
+    .object({
+      type: z.literal("update_objects"),
+      updates: z
+        .array(
+          z
+            .object({
+              objectId: Uuid,
+              patch: DrawingOperationObjectPatchSchema,
+            })
+            .strict(),
+        )
+        .min(1),
+    })
+    .strict(),
+  delete_objects: z
+    .object({
+      type: z.literal("delete_objects"),
+      objectIds: z.array(Uuid).min(1),
+    })
+    .strict(),
+  add_layer: z
+    .object({ type: z.literal("add_layer"), layer: DrawingLayerInputSchema })
+    .strict(),
+  update_layer: z
+    .object({
+      type: z.literal("update_layer"),
+      layerId: Uuid,
+      patch: DrawingOperationLayerPatchSchema,
+    })
+    .strict(),
+} as const;
+
+export const DrawingOperationInputSchema = z
+  .object({
+    clientOperationId: Uuid,
+    revisionId: Uuid,
+    type: z.enum([
+      "add_objects",
+      "update_objects",
+      "delete_objects",
+      "add_layer",
+      "update_layer",
+    ]),
+    baseVersions: z.record(Uuid, z.number().int().positive()),
+    forward: z.record(z.string(), z.unknown()),
+    inverse: z.record(z.string(), z.unknown()),
+    createdAt: z.string().datetime(),
+  })
+  .superRefine((operation, context) => {
+    const forward = DrawingOperationPayloadSchemas[operation.type].safeParse(
+      operation.forward,
+    );
+    const inverseSchema =
+      operation.type === "add_objects"
+        ? DrawingOperationPayloadSchemas.delete_objects
+        : operation.type === "delete_objects"
+          ? DrawingOperationPayloadSchemas.add_objects
+          : operation.type === "add_layer"
+            ? z.object({}).strict()
+            : DrawingOperationPayloadSchemas[operation.type];
+    const inverse = inverseSchema.safeParse(operation.inverse);
+    if (!forward.success)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["forward"],
+        message: "도면 작업 payload가 올바르지 않습니다.",
+      });
+    if (!inverse.success)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inverse"],
+        message: "도면 작업 inverse가 올바르지 않습니다.",
+      });
+  });
 
 export type PdfCalibration = z.infer<typeof PdfCalibrationSchema>;
 export type DrawingStyle = z.infer<typeof DrawingStyleSchema>;

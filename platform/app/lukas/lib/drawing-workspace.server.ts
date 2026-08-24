@@ -757,7 +757,13 @@ export async function recordDrawingRevisionDecision(
 }
 
 export type DrawingWorkspaceActionBody =
-  | { ok: true; kind: "success"; error: null; result: unknown }
+  | {
+      ok: true;
+      kind: "success";
+      error: null;
+      result: unknown;
+      clientOperationId?: string;
+    }
   | {
       ok: false;
       kind: "validation" | "rpc" | "conflict";
@@ -815,6 +821,7 @@ export async function handleWorkspaceMutation({
   try {
     const mutation = parseWorkspaceMutation(form);
     let result: unknown;
+    let clientOperationId: string | undefined;
 
     if (mutation.intent === "record_revision_decision") {
       if (!canReviewWorkspace(capability))
@@ -850,6 +857,7 @@ export async function handleWorkspaceMutation({
           mutation.operation.revisionId,
         );
         result = await applyDrawingOperation(client, mutation.operation);
+        clientOperationId = mutation.operation.clientOperationId;
       } else if (mutation.intent === "create_layer") {
         const revisionId = currentWorkspaceRevisionId(workspace);
         const operation = DrawingOperationInputSchema.parse({
@@ -887,7 +895,13 @@ export async function handleWorkspaceMutation({
     }
     return {
       status: 200,
-      body: { ok: true, kind: "success", error: null, result },
+      body: {
+        ok: true,
+        kind: "success",
+        error: null,
+        ...(clientOperationId ? { clientOperationId } : {}),
+        result,
+      },
     };
   } catch (error) {
     if (error instanceof Response) throw error;

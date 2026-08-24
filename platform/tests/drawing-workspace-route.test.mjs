@@ -84,6 +84,24 @@ test("workspace document renders the accessible editor shell", async () => {
   assert.match(shell, /aria-label="속성 검사기"/);
 });
 
+test("workspace wires durable outbox recovery and the four visible save states", async () => {
+  const shell = await readFile(
+    new URL(
+      "../app/lukas/components/drawing-workspace.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(shell, /createDrawingOutbox/);
+  assert.match(shell, /recoverPendingDrawingState/);
+  assert.match(shell, /sendDrawingOperation/);
+  assert.match(shell, /await outbox\.enqueue/);
+  assert.match(shell, /const saveStatus = drawingSaveStatus\(saveState\)/);
+  assert.match(shell, /\{saveStatus\}/);
+  assert.match(shell, /outboxReady && editingContext\.canEdit/);
+  assert.match(shell, /로컬 저장 실패/);
+});
+
 test("layers and inspector expose native labeled controls", async () => {
   const [shell, layers, inspector] = await Promise.all([
     readFile(

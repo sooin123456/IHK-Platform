@@ -933,6 +933,35 @@ function loadedWorkspace(revisionId = ids.revision) {
   };
 }
 
+test("apply action echoes the server-validated client operation id for exact outbox acknowledgement", async () => {
+  const input = operation();
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: { operationId: "00000000-0000-4000-8000-000000000011" },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: loadedWorkspace(),
+    form: form({ intent: "apply_operation", operation_json: input }),
+  });
+
+  assert.deepEqual(result, {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "success",
+      error: null,
+      clientOperationId: input.clientOperationId,
+      result: { operationId: "00000000-0000-4000-8000-000000000011" },
+    },
+  });
+});
+
 test("action contract returns 409 for stale revision and pre-existing document preconditions", async () => {
   let rpcCalls = 0;
   const client = {
