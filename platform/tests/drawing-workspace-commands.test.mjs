@@ -88,7 +88,7 @@ test("add appends an operation with an inverse and leaves its input state unchan
     added.operation.clientOperationId,
     "00000000-0000-4000-8000-000000000010",
   );
-  assert.deepEqual(added.operation.baseVersions, { [ids.rectangle]: 1 });
+  assert.deepEqual(added.operation.baseVersions, {});
   assert.deepEqual(added.operation.inverse, {
     type: "delete_objects",
     objectIds: [ids.rectangle],
@@ -162,6 +162,7 @@ test("adding a copy uses its supplied new ID without changing the source object"
 
   assert.deepEqual(added.state.objects[ids.rectangle], source);
   assert.deepEqual(added.state.objects[ids.copiedRectangle], copied);
+  assert.deepEqual(added.operation.baseVersions, {});
 });
 
 test("object mutations on a locked layer fail with the domain lock error", () => {
@@ -321,24 +322,69 @@ test("a redone operation can be undone again without a false version conflict", 
   assert.equal(secondUndo.state.objects[ids.rectangle].version, 5);
 });
 
-test("layer commands apply but are not undo candidates in this command union", () => {
+test("update_layer appends a valid inverse and supports actor-scoped undo and redo", () => {
   const env = environment();
-  const addedLayer = applyDrawingCommand(
-    createDrawingDocumentState({ revisionId: ids.revision }),
-    { type: "add_layer", actorId: "actor-a", layer: layer() },
-    env,
-  );
-  const lockedLayer = applyDrawingCommand(
-    addedLayer.state,
+  const updated = applyDrawingCommand(
+    emptyState(),
     {
       type: "update_layer",
       actorId: "actor-a",
       layerId: ids.layer,
-      patch: { locked: true },
+      patch: { name: "Review notes" },
+    },
+    env,
+  );
+  const undone = undoDrawingCommand(updated.state, "actor-a", env);
+  const redone = redoDrawingCommand(undone.state, "actor-a", env);
+
+  assert.deepEqual(updated.operation.baseVersions, { [ids.layer]: 1 });
+  assert.deepEqual(updated.operation.inverse, {
+    type: "update_layer",
+    layerId: ids.layer,
+    patch: { name: "Annotations" },
+  });
+  assert.equal(undone.operation.type, "update_layer");
+  assert.equal(undone.state.layers[ids.layer].name, "Annotations");
+  assert.equal(undone.state.layers[ids.layer].version, 3);
+  assert.equal(redone.state.layers[ids.layer].name, "Review notes");
+  assert.equal(redone.state.layers[ids.layer].version, 4);
+});
+
+test("undo of a layer update conflicts when another actor changed that layer", () => {
+  const env = environment();
+  const updatedByA = applyDrawingCommand(
+    emptyState(),
+    {
+      type: "update_layer",
+      actorId: "actor-a",
+      layerId: ids.layer,
+      patch: { name: "Review notes" },
+    },
+    env,
+  );
+  const updatedByB = applyDrawingCommand(
+    updatedByA.state,
+    {
+      type: "update_layer",
+      actorId: "actor-b",
+      layerId: ids.layer,
+      patch: { visible: false },
     },
     env,
   );
 
-  assert.equal(lockedLayer.state.layers[ids.layer].locked, true);
-  assert.equal(undoDrawingCommand(lockedLayer.state, "actor-a", env), null);
+  assert.deepEqual(undoDrawingCommand(updatedByB.state, "actor-a", env), {
+    kind: "conflict",
+    objectIds: [ids.layer],
+  });
+});
+
+test("add_layer remains non-undoable without a delete_layer command", () => {
+  const added = applyDrawingCommand(
+    createDrawingDocumentState({ revisionId: ids.revision }),
+    { type: "add_layer", actorId: "actor-a", layer: layer() },
+    environment(),
+  );
+
+  assert.equal(undoDrawingCommand(added.state, "actor-a", environment()), null);
 });

@@ -35,9 +35,9 @@ type DrawingCommandPayload =
 
 export type DrawingRecordedOperation = DrawingOperationInput & {
   actorId: string;
-  /** Layer commands deliberately have no inverse in the P0/P1 command union. */
+  /** add_layer has no inverse until the command union gains delete_layer. */
   undoable: boolean;
-  /** Expected object versions after this operation; null means the object is absent. */
+  /** Expected target versions after this operation; null means an object is absent. */
   resultVersions: Record<string, number | null>;
   originalOperationId?: string;
   historyAction?: "undo" | "redo";
@@ -183,6 +183,14 @@ function objectPatchBefore(
   return inverse;
 }
 
+function layerPatchBefore(layer: DrawingLayer, patch: LayerPatch): LayerPatch {
+  const inverse: LayerPatch = {};
+  if (patch.name !== undefined) inverse.name = layer.name;
+  if (patch.visible !== undefined) inverse.visible = layer.visible;
+  if (patch.locked !== undefined) inverse.locked = layer.locked;
+  return inverse;
+}
+
 function reduceCommand(
   state: DrawingDocumentState,
   command: DrawingCommand,
@@ -206,7 +214,6 @@ function reduceCommand(
         requireUnlockedLayer(layers, object.layerId);
         const added = clone(object);
         objects[added.id] = added;
-        baseVersions[added.id] = added.version;
         resultVersions[added.id] = added.version;
       }
       return {
@@ -307,6 +314,7 @@ function reduceCommand(
     case "update_layer": {
       const layer = requireLayer(layers, command.layerId);
       baseVersions[layer.id] = layer.version;
+      const inverse = layerPatchBefore(layer, command.patch);
       const updated = {
         ...layer,
         ...clone(command.patch),
@@ -319,9 +327,9 @@ function reduceCommand(
         layers,
         baseVersions,
         forward,
-        inverse: {},
+        inverse: { type: "update_layer", layerId: layer.id, patch: inverse },
         resultVersions,
-        undoable: false,
+        undoable: true,
       };
     }
   }
@@ -380,7 +388,10 @@ function conflictFor(
 ): DrawingCommandConflict | undefined {
   const objectIds = Object.entries(operation.resultVersions)
     .filter(([objectId, expectedVersion]) => {
-      const current = state.objects[objectId];
+      const current =
+        operation.type === "update_layer"
+          ? state.layers[objectId]
+          : state.objects[objectId];
       return expectedVersion === null
         ? current !== undefined
         : current?.version !== expectedVersion;
@@ -472,9 +483,8 @@ export function applyDrawingCommand(
 }
 
 /**
- * Appends an inverse of the requesting actor's latest undoable object operation.
- * Layer operations are intentionally not undoable until the command union supports
- * a valid delete-layer inverse.
+ * Appends an inverse of the requesting actor's latest undoable operation.
+ * add_layer remains non-undoable until the command union supports delete_layer.
  */
 export function undoDrawingCommand(
   state: DrawingDocumentState,
