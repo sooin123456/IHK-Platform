@@ -15,4 +15,5 @@ platform/.env.*
 !platform/.env.example
 platform/test-results/
 platform/playwright-report/
+.worktrees/
 .DS_Store
