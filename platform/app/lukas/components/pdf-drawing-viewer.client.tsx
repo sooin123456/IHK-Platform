@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-import type {
-  PDFDocumentLoadingTask,
-  PDFDocumentProxy,
-  PDFPageProxy,
-  RenderTask,
-} from "pdfjs-dist";
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,8 +9,6 @@ import {
   MousePointer2,
   Plus,
 } from "lucide-react";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
 import { Button } from "~/core/components/ui/button";
 import {
   denormalizeRegion,
@@ -24,6 +16,11 @@ import {
   type PdfNormalizedRegion,
 } from "~/lukas/lib/pdf-anchor";
 import { markDrawingFirstUsable } from "~/lukas/lib/drawing-runtime";
+import {
+  openPdfDocument,
+  renderPdfPageToCanvas,
+  type OpenPdfDocument,
+} from "~/lukas/lib/pdf-page-renderer.client";
 
 type Props = {
   signedUrl: string;
@@ -45,10 +42,8 @@ export default function PdfDrawingViewer({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const documentRef = useRef<PDFDocumentProxy | null>(null);
-  const pageRef = useRef<PDFPageProxy | null>(null);
-  const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
-  const renderTaskRef = useRef<RenderTask | null>(null);
+  const documentRef = useRef<OpenPdfDocument | null>(null);
+  const renderCleanupRef = useRef<(() => void) | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [message, setMessage] = useState("PDF를 여는 중입니다.");
   const [pageNumber, setPageNumber] = useState(1);
@@ -76,25 +71,19 @@ export default function PdfDrawingViewer({
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
+    let openedDocument: OpenPdfDocument | null = null;
     setPhase("loading");
     setMessage("PDF를 여는 중입니다.");
-    void import("pdfjs-dist")
-      .then(async (pdfjs) => {
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-        const task = pdfjs.getDocument({
-          url: signedUrl,
-          cMapUrl: "/pdfjs/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: "/pdfjs/standard_fonts/",
-        });
-        loadingTaskRef.current = task;
-        const document = await task.promise;
+    void openPdfDocument(signedUrl, controller.signal)
+      .then(async (nextDocument) => {
         if (!alive) {
-          await task.destroy();
+          await nextDocument.destroy();
           return;
         }
-        documentRef.current = document;
-        setPageCount(document.numPages);
+        openedDocument = nextDocument;
+        documentRef.current = nextDocument;
+        setPageCount(nextDocument.document.numPages);
         setPageNumber(1);
       })
       .catch((error: unknown) => {
@@ -106,51 +95,39 @@ export default function PdfDrawingViewer({
       });
     return () => {
       alive = false;
-      renderTaskRef.current?.cancel();
-      pageRef.current?.cleanup();
-      void loadingTaskRef.current?.destroy();
+      controller.abort();
+      renderCleanupRef.current?.();
+      renderCleanupRef.current = null;
+      void openedDocument?.destroy();
       documentRef.current = null;
-      pageRef.current = null;
     };
   }, [signedUrl]);
 
   useEffect(() => {
-    const document = documentRef.current;
+    const openedDocument = documentRef.current;
     const canvas = canvasRef.current;
-    if (!document || !canvas || hostWidth <= 0 || pageCount === 0) return;
+    if (!openedDocument || !canvas || hostWidth <= 0 || pageCount === 0) return;
     let alive = true;
+    const controller = new AbortController();
     setPhase("loading");
     setMessage(`${pageNumber}쪽을 그리는 중입니다.`);
-    renderTaskRef.current?.cancel();
-    void document
-      .getPage(pageNumber)
-      .then(async (page) => {
-        if (!alive) return;
-        pageRef.current?.cleanup();
-        pageRef.current = page;
-        const base = page.getViewport({ scale: 1 });
-        const scale = (hostWidth / base.width) * zoom;
-        const viewport = page.getViewport({ scale });
-        const deviceScale = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.floor(viewport.width * deviceScale);
-        canvas.height = Math.floor(viewport.height * deviceScale);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        setCanvasSize({ width: viewport.width, height: viewport.height });
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("PDF Canvas를 만들지 못했습니다.");
-        const task = page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-          transform:
-            deviceScale === 1
-              ? undefined
-              : [deviceScale, 0, 0, deviceScale, 0, 0],
-        });
-        renderTaskRef.current = task;
-        await task.promise;
-        if (!alive) return;
+    renderCleanupRef.current?.();
+    renderCleanupRef.current = null;
+    void renderPdfPageToCanvas({
+      document: openedDocument.document,
+      pageNumber,
+      canvas,
+      hostWidth,
+      zoom,
+      signal: controller.signal,
+    })
+      .then((render) => {
+        if (!alive) {
+          render.cleanup();
+          return;
+        }
+        renderCleanupRef.current = render.cleanup;
+        setCanvasSize(render.canvasSize);
         markDrawingFirstUsable("pdf");
         setPhase("ready");
         setMessage(`${pageNumber}/${pageCount}쪽을 열었습니다.`);
@@ -171,7 +148,7 @@ export default function PdfDrawingViewer({
       });
     return () => {
       alive = false;
-      renderTaskRef.current?.cancel();
+      controller.abort();
     };
   }, [hostWidth, pageCount, pageNumber, zoom]);
 

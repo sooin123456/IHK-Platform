@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-const componentUrl = new URL(
-  "../app/lukas/components/pdf-drawing-viewer.client.tsx",
+const rendererUrl = new URL(
+  "../app/lukas/lib/pdf-page-renderer.client.ts",
   import.meta.url,
 );
 
-test("PDF viewer self-hosts character maps and standard fonts", async () => {
-  const source = await readFile(componentUrl, "utf8");
+test("shared PDF renderer self-hosts character maps and standard fonts", async () => {
+  const source = await readFile(rendererUrl, "utf8");
 
   assert.match(source, /cMapUrl:\s*["']\/pdfjs\/cmaps\/["']/);
   assert.match(source, /cMapPacked:\s*true/);
