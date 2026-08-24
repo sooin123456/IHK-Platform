@@ -1,4 +1,5 @@
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
+import { containPdfSource } from "./drawing-geometry.ts";
 
 type RevisionStatus = "draft" | "review_requested" | "approved" | "superseded";
 
@@ -6,6 +7,54 @@ export type DrawingReviewEvidence = {
   subjectVersion: number;
   snapshotSha256: string;
 };
+
+export type DrawingClientModuleState<T> =
+  | { status: "loading" }
+  | { status: "ready"; value: T }
+  | { status: "error"; message: string };
+
+export function loadDrawingClientModule<T>(input: {
+  load: () => Promise<T>;
+  errorMessage: string;
+  onState: (state: DrawingClientModuleState<T>) => void;
+}) {
+  let disposed = false;
+  input.onState({ status: "loading" });
+  let loading: Promise<T>;
+  try {
+    loading = input.load();
+  } catch {
+    if (!disposed)
+      input.onState({ status: "error", message: input.errorMessage });
+    return () => {
+      disposed = true;
+    };
+  }
+  void loading.then(
+    (value) => {
+      if (!disposed) input.onState({ status: "ready", value });
+    },
+    () => {
+      if (!disposed)
+        input.onState({ status: "error", message: input.errorMessage });
+    },
+  );
+  return () => {
+    disposed = true;
+  };
+}
+
+export function drawingPdfImagePlacement(
+  source: { width: number; height: number },
+  page: { width: number; height: number },
+) {
+  return containPdfSource(source, {
+    x: 0,
+    y: 0,
+    width: page.width,
+    height: page.height,
+  });
+}
 
 export function drawingWorkspaceReviewControls(input: {
   capability: DrawingWorkspaceCapability;
@@ -58,6 +107,7 @@ type WorkspaceSurfaceInput = {
   file: {
     id: string;
     kind: "pdf" | "ifc";
+    immutable: boolean;
     originalFilename: string;
     byteSize: number;
   };
@@ -75,24 +125,29 @@ export function drawingWorkspaceSurface(input: WorkspaceSurfaceInput) {
     width: input.page?.width ?? 841,
     height: input.page?.height ?? 594,
   };
-  if (input.file.kind === "ifc") {
+  if (input.file.kind === "ifc" && input.file.immutable && input.sourceUrl) {
     return {
+      layout: "ifc_split" as const,
       background: blank,
-      ifcViewer: input.sourceUrl
-        ? {
-            byteSize: input.file.byteSize,
-            fileName: input.file.originalFilename,
-            signedUrl: input.sourceUrl,
-            sourceKey: input.file.id,
-          }
-        : null,
-      sourceError: input.sourceUrl
-        ? null
-        : "IFC 원본 화면을 불러올 수 없습니다.",
+      ifcViewer: {
+        byteSize: input.file.byteSize,
+        fileName: input.file.originalFilename,
+        signedUrl: input.sourceUrl,
+        sourceKey: input.file.id,
+      },
+      sourceError: null,
     };
   }
+  if (input.file.kind === "ifc")
+    return {
+      layout: "canvas" as const,
+      background: blank,
+      ifcViewer: null,
+      sourceError: "IFC 원본 화면을 불러올 수 없습니다.",
+    };
   if (input.page && input.page.backgroundPdfPage !== null) {
     return {
+      layout: "canvas" as const,
       background: input.sourceUrl
         ? {
             kind: "pdf" as const,
@@ -108,5 +163,10 @@ export function drawingWorkspaceSurface(input: WorkspaceSurfaceInput) {
         : "PDF 원본 배경을 불러올 수 없습니다.",
     };
   }
-  return { background: blank, ifcViewer: null, sourceError: null };
+  return {
+    layout: "canvas" as const,
+    background: blank,
+    ifcViewer: null,
+    sourceError: null,
+  };
 }

@@ -23,6 +23,8 @@ import {
   drawingRevisionDecisionFields,
   drawingWorkspaceReviewControls,
   drawingWorkspaceSurface,
+  loadDrawingClientModule,
+  type DrawingClientModuleState,
 } from "~/lukas/lib/drawing-workspace-view";
 import type {
   DrawingCanvasBackground,
@@ -54,10 +56,12 @@ export default function DrawingWorkspaceClient({
   workspace,
 }: Props) {
   const canvasRef = useRef<DrawingCanvasHandle>(null);
-  const [Canvas, setCanvas] = useState<CanvasComponent | null>(null);
-  const [canvasLoadError, setCanvasLoadError] = useState<string | null>(null);
-  const [IfcViewer, setIfcViewer] = useState<IfcComponent | null>(null);
-  const [ifcLoadError, setIfcLoadError] = useState<string | null>(null);
+  const [canvasModule, setCanvasModule] = useState<
+    DrawingClientModuleState<CanvasComponent>
+  >({ status: "loading" });
+  const [ifcModule, setIfcModule] = useState<
+    DrawingClientModuleState<IfcComponent>
+  >({ status: "loading" });
   const [activeTool, setActiveTool] = useState<"select" | "pan">("select");
   const [reviewNote, setReviewNote] = useState("");
   const { file, document: drawingDocument } = workspace;
@@ -72,40 +76,11 @@ export default function DrawingWorkspaceClient({
     revisionVersion: revision.version,
     status: revision.status,
   });
-
-  useEffect(() => {
-    let alive = true;
-    void import("./drawing-canvas.client")
-      .then((module) => {
-        if (alive) setCanvas(() => module.DrawingCanvas);
-      })
-      .catch(() => {
-        if (alive) setCanvasLoadError("도면 캔버스를 불러오지 못했습니다.");
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (file.kind !== "ifc") return;
-    let alive = true;
-    void import("./ifc-property-browser.client")
-      .then((module) => {
-        if (alive) setIfcViewer(() => module.default);
-      })
-      .catch(() => {
-        if (alive) setIfcLoadError("IFC 원본 화면을 불러오지 못했습니다.");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [file.kind]);
-
   const surface = drawingWorkspaceSurface({
     file: {
       id: file.id,
       kind: file.kind,
+      immutable: file.immutable,
       originalFilename: file.original_filename,
       byteSize: file.byte_size,
     },
@@ -118,6 +93,34 @@ export default function DrawingWorkspaceClient({
       : null,
     sourceUrl,
   });
+  const Canvas = canvasModule.status === "ready" ? canvasModule.value : null;
+  const canvasLoadError =
+    canvasModule.status === "error" ? canvasModule.message : null;
+  const IfcViewer = ifcModule.status === "ready" ? ifcModule.value : null;
+  const ifcLoadError = ifcModule.status === "error" ? ifcModule.message : null;
+
+  useEffect(() => {
+    return loadDrawingClientModule({
+      load: () =>
+        import("./drawing-canvas.client").then(
+          (module) => module.DrawingCanvas,
+        ),
+      errorMessage: "도면 캔버스를 불러오지 못했습니다.",
+      onState: setCanvasModule,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (surface.layout !== "ifc_split") return;
+    return loadDrawingClientModule({
+      load: () =>
+        import("./ifc-property-browser.client").then(
+          (module) => module.default,
+        ),
+      errorMessage: "IFC 원본 화면을 불러오지 못했습니다.",
+      onState: setIfcModule,
+    });
+  }, [surface.layout]);
   const background: DrawingCanvasBackground = surface.background;
   const decisionFields = reviewControls.decisionEvidence
     ? drawingRevisionDecisionFields({
@@ -273,12 +276,20 @@ export default function DrawingWorkspaceClient({
         >
           <div
             className={
-              file.kind === "ifc"
+              surface.layout === "ifc_split"
                 ? "grid h-full min-h-[34rem] xl:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]"
                 : "h-full min-h-[34rem]"
             }
           >
             <div className="min-h-0 min-w-0">
+              {surface.layout === "canvas" && surface.sourceError ? (
+                <p
+                  className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
+                  role="alert"
+                >
+                  {surface.sourceError}
+                </p>
+              ) : null}
               {Canvas ? (
                 <Canvas
                   activeTool={activeTool}
@@ -301,7 +312,7 @@ export default function DrawingWorkspaceClient({
                 </div>
               )}
             </div>
-            {file.kind === "ifc" ? (
+            {surface.layout === "ifc_split" ? (
               <aside
                 aria-label="IFC 3D 원본"
                 className="max-h-[calc(100vh-4rem)] overflow-auto border-t border-white/10 bg-background p-4 text-foreground xl:border-l xl:border-t-0"

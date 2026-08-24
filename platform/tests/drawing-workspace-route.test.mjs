@@ -160,12 +160,63 @@ test("revision decision form fields bind the exact immutable snapshot", () => {
   );
 });
 
+test("client module loading resolves, rejects, and ignores completion after disposal", async () => {
+  assert.ok(workspaceView);
+  assert.equal(typeof workspaceView.loadDrawingClientModule, "function");
+
+  const resolved = [];
+  let resolveModule;
+  workspaceView.loadDrawingClientModule({
+    load: () =>
+      new Promise((resolve) => {
+        resolveModule = resolve;
+      }),
+    errorMessage: "failed",
+    onState: (state) => resolved.push(state),
+  });
+  assert.deepEqual(resolved, [{ status: "loading" }]);
+  resolveModule("canvas");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(resolved, [
+    { status: "loading" },
+    { status: "ready", value: "canvas" },
+  ]);
+
+  const rejected = [];
+  workspaceView.loadDrawingClientModule({
+    load: () => Promise.reject(new Error("network")),
+    errorMessage: "stable error",
+    onState: (state) => rejected.push(state),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(rejected, [
+    { status: "loading" },
+    { status: "error", message: "stable error" },
+  ]);
+
+  const disposed = [];
+  let resolveDisposed;
+  const dispose = workspaceView.loadDrawingClientModule({
+    load: () =>
+      new Promise((resolve) => {
+        resolveDisposed = resolve;
+      }),
+    errorMessage: "failed",
+    onState: (state) => disposed.push(state),
+  });
+  dispose();
+  resolveDisposed("late module");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(disposed, [{ status: "loading" }]);
+});
+
 test("IFC workspace surface pairs a blank overlay with the signed existing viewer", () => {
   assert.ok(workspaceView);
   const surface = workspaceView.drawingWorkspaceSurface({
     file: {
       id: "00000000-0000-4000-8000-000000000003",
       kind: "ifc",
+      immutable: true,
       originalFilename: "model.ifc",
       byteSize: 2048,
     },
@@ -173,6 +224,7 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
     sourceUrl: "https://storage.test/model",
   });
   assert.deepEqual(surface, {
+    layout: "ifc_split",
     background: { kind: "blank", width: 841, height: 594 },
     ifcViewer: {
       byteSize: 2048,
@@ -187,6 +239,7 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
       file: {
         id: "00000000-0000-4000-8000-000000000003",
         kind: "ifc",
+        immutable: true,
         originalFilename: "model.ifc",
         byteSize: 2048,
       },
@@ -194,6 +247,83 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
       sourceUrl: null,
     }).sourceError,
     "IFC 원본 화면을 불러올 수 없습니다.",
+  );
+  for (const changes of [
+    { immutable: true, sourceUrl: null },
+    { immutable: false, sourceUrl: "https://storage.test/model" },
+  ]) {
+    const failedClosed = workspaceView.drawingWorkspaceSurface({
+      file: {
+        id: "00000000-0000-4000-8000-000000000003",
+        kind: "ifc",
+        immutable: changes.immutable,
+        originalFilename: "model.ifc",
+        byteSize: 2048,
+      },
+      page: null,
+      sourceUrl: changes.sourceUrl,
+    });
+    assert.equal(failedClosed.layout, "canvas");
+    assert.equal(failedClosed.ifcViewer, null);
+    assert.equal(
+      failedClosed.sourceError,
+      "IFC 원본 화면을 불러올 수 없습니다.",
+    );
+  }
+});
+
+test("PDF and blank workspace surfaces remain a single canvas", () => {
+  assert.ok(workspaceView);
+  const file = {
+    id: "00000000-0000-4000-8000-000000000003",
+    kind: "pdf",
+    immutable: true,
+    originalFilename: "plan.pdf",
+    byteSize: 2048,
+  };
+  assert.deepEqual(
+    workspaceView.drawingWorkspaceSurface({
+      file,
+      page: { width: 200, height: 100, backgroundPdfPage: 2 },
+      sourceUrl: "https://storage.test/plan",
+    }),
+    {
+      layout: "canvas",
+      background: {
+        kind: "pdf",
+        width: 200,
+        height: 100,
+        pageNumber: 2,
+        signedUrl: "https://storage.test/plan",
+      },
+      ifcViewer: null,
+      sourceError: null,
+    },
+  );
+  assert.deepEqual(
+    workspaceView.drawingWorkspaceSurface({
+      file,
+      page: { width: 200, height: 100, backgroundPdfPage: null },
+      sourceUrl: null,
+    }),
+    {
+      layout: "canvas",
+      background: { kind: "blank", width: 200, height: 100 },
+      ifcViewer: null,
+      sourceError: null,
+    },
+  );
+});
+
+test("PDF image placement view model contains rendered pixels in page world bounds", () => {
+  assert.ok(workspaceView);
+  assert.equal(typeof workspaceView.drawingPdfImagePlacement, "function");
+  assert.deepEqual(
+    workspaceView.drawingPdfImagePlacement(
+      { width: 400, height: 200 },
+      { width: 100, height: 100 },
+    ),
+    { x: 0, y: 25, width: 100, height: 50 },
   );
 });
 
@@ -225,17 +355,14 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
   assert.doesNotMatch(shell, /name="review"/);
   assert.match(shell, /value="approved"/);
   assert.match(shell, /value="rejected"/);
-  assert.match(
-    shell,
-    /import\("\.\/drawing-canvas\.client"\)[\s\S]*?\.catch\(/,
-  );
-  assert.match(
-    shell,
-    /import\("\.\/ifc-property-browser\.client"\)[\s\S]*?\.catch\(/,
-  );
+  assert.equal(shell.match(/loadDrawingClientModule\(/g)?.length, 2);
+  assert.match(shell, /surface\.layout === "ifc_split"/);
+  assert.doesNotMatch(shell, /file\.kind === "ifc"/);
   assert.match(shell, /<IfcViewer \{\.\.\.surface\.ifcViewer\} \/>/);
   assert.doesNotMatch(shell, /target="_blank"/);
-  assert.match(canvas, /containPdfSource\(rendered\.canvasSize/);
+  assert.equal(canvas.match(/drawingPanGestureTransition\(/g)?.length, 4);
+  assert.match(canvas, /drawingPdfImagePlacement\(rendered\.canvasSize/);
+  assert.doesNotMatch(canvas, /containPdfSource/);
   assert.match(canvas, /x=\{pdfSource\.bounds\.x\}/);
   assert.match(canvas, /y=\{pdfSource\.bounds\.y\}/);
 });

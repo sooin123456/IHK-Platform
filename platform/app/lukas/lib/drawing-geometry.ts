@@ -104,6 +104,59 @@ export function drawingCanvasCursor(
   return activeTool === "pan" || spacePressed ? "grab" : "default";
 }
 
+export type DrawingPanGesture = {
+  pointerId: number;
+  pointer: Point;
+  viewport: Viewport;
+};
+
+type DrawingPanGestureEvent =
+  | {
+      type: "begin";
+      activeTool: "select" | "pan";
+      spacePressed: boolean;
+      button: number;
+      pointerId: number;
+      pointer: Point;
+      viewport: Viewport;
+    }
+  | { type: "move"; pointerId: number; pointer: Point }
+  | { type: "end" | "cancel"; pointerId: number }
+  | { type: "blur" };
+
+export function drawingPanGestureTransition(
+  gesture: DrawingPanGesture | null,
+  event: DrawingPanGestureEvent,
+): { gesture: DrawingPanGesture | null; viewport: Viewport | null } {
+  if (event.type === "blur") return { gesture: null, viewport: null };
+  if (event.type === "begin") {
+    const shouldPan =
+      event.button === 1 || event.activeTool === "pan" || event.spacePressed;
+    return {
+      gesture: shouldPan
+        ? {
+            pointerId: event.pointerId,
+            pointer: event.pointer,
+            viewport: event.viewport,
+          }
+        : gesture,
+      viewport: null,
+    };
+  }
+  if (!gesture || gesture.pointerId !== event.pointerId)
+    return { gesture, viewport: null };
+  if (event.type === "move")
+    return {
+      gesture,
+      viewport: {
+        ...gesture.viewport,
+        x: gesture.viewport.x + event.pointer.x - gesture.pointer.x,
+        y: gesture.viewport.y + event.pointer.y - gesture.pointer.y,
+      },
+    };
+  return { gesture: null, viewport: null };
+}
+
 export function calibratePdf(
   normalizedStart: Point,
   normalizedEnd: Point,

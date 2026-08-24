@@ -87,6 +87,80 @@ test("canvas cursor follows Space and pan transitions without stale ref state", 
   assert.equal(drawingCanvasCursor("pan", true, true), "grabbing");
 });
 
+test("pan gesture activates only for pan tool, Space, or middle button", () => {
+  assert.equal(typeof drawingGeometry.drawingPanGestureTransition, "function");
+  const { drawingPanGestureTransition } = drawingGeometry;
+  const viewport = { x: 100, y: 50, zoom: 2 };
+  const primarySelection = drawingPanGestureTransition(null, {
+    type: "begin",
+    activeTool: "select",
+    spacePressed: false,
+    button: 0,
+    pointerId: 1,
+    pointer: { x: 10, y: 20 },
+    viewport,
+  });
+  assert.deepEqual(primarySelection, { gesture: null, viewport: null });
+
+  for (const activation of [
+    { activeTool: "pan", spacePressed: false, button: 0 },
+    { activeTool: "select", spacePressed: true, button: 0 },
+    { activeTool: "select", spacePressed: false, button: 1 },
+  ]) {
+    assert.deepEqual(
+      drawingPanGestureTransition(null, {
+        type: "begin",
+        ...activation,
+        pointerId: 1,
+        pointer: { x: 10, y: 20 },
+        viewport,
+      }).gesture,
+      {
+        pointerId: 1,
+        pointer: { x: 10, y: 20 },
+        viewport,
+      },
+    );
+  }
+});
+
+test("pan gesture moves from its start viewport and ends on release, cancel, or blur", () => {
+  const { drawingPanGestureTransition } = drawingGeometry;
+  const begun = drawingPanGestureTransition(null, {
+    type: "begin",
+    activeTool: "pan",
+    spacePressed: false,
+    button: 0,
+    pointerId: 4,
+    pointer: { x: 10, y: 20 },
+    viewport: { x: 100, y: 50, zoom: 2 },
+  });
+  const moved = drawingPanGestureTransition(begun.gesture, {
+    type: "move",
+    pointerId: 4,
+    pointer: { x: 25, y: 5 },
+  });
+  assert.deepEqual(moved.viewport, { x: 115, y: 35, zoom: 2 });
+  assert.deepEqual(
+    drawingPanGestureTransition(moved.gesture, {
+      type: "end",
+      pointerId: 4,
+    }),
+    { gesture: null, viewport: null },
+  );
+  assert.equal(
+    drawingPanGestureTransition(begun.gesture, {
+      type: "cancel",
+      pointerId: 4,
+    }).gesture,
+    null,
+  );
+  assert.equal(
+    drawingPanGestureTransition(begun.gesture, { type: "blur" }).gesture,
+    null,
+  );
+});
+
 test("PDF calibration converts normalized page distance to millimeters", () => {
   const calibration = calibratePdf(
     { x: 0.1, y: 0.2 },

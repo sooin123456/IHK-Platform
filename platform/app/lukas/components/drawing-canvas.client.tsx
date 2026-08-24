@@ -13,17 +13,19 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konva";
 
 import {
-  containPdfSource,
   drawingCanvasCursor,
+  drawingPanGestureTransition,
   screenToWorld,
   zoomViewportAroundPointer,
+  type DrawingPanGesture,
 } from "~/lukas/lib/drawing-geometry";
+import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
   openPdfDocument,
   renderPdfPageToCanvas,
   type OpenPdfDocument,
 } from "~/lukas/lib/pdf-page-renderer.client";
-import type { Point, Viewport } from "~/lukas/lib/drawing-workspace.types";
+import type { Viewport } from "~/lukas/lib/drawing-workspace.types";
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
@@ -122,14 +124,10 @@ export const DrawingCanvas = forwardRef<
   const hostRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<Viewport>({ x: 40, y: 40, zoom: 1 });
   const fitPendingRef = useRef(true);
-  const panStartRef = useRef<{
-    pointer: Point;
-    viewport: Viewport;
-    pointerId: number;
-  } | null>(null);
+  const panGestureRef = useRef<DrawingPanGesture | null>(null);
   const spacePressedRef = useRef(false);
   const [spacePressed, setSpacePressed] = useState(false);
-  const [panning, setPanning] = useState(false);
+  const [panGesture, setPanGesture] = useState<DrawingPanGesture | null>(null);
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [viewport, setViewportState] = useState<Viewport>(viewportRef.current);
   const [pdfSource, setPdfSource] = useState<{
@@ -219,9 +217,7 @@ export const DrawingCanvas = forwardRef<
           signal: controller.signal,
         });
         renderCleanup = rendered.cleanup;
-        const sourceBounds = containPdfSource(rendered.canvasSize, {
-          x: 0,
-          y: 0,
+        const sourceBounds = drawingPdfImagePlacement(rendered.canvasSize, {
           width: background.width,
           height: background.height,
         });
@@ -269,51 +265,63 @@ export const DrawingCanvas = forwardRef<
   useEffect(
     () => () => {
       spacePressedRef.current = false;
-      panStartRef.current = null;
+      panGestureRef.current = null;
     },
     [],
   );
 
   const grid = useMemo(() => visibleGrid(size, viewport), [size, viewport]);
-  const cursor = drawingCanvasCursor(activeTool, spacePressed, panning);
+  const cursor = drawingCanvasCursor(
+    activeTool,
+    spacePressed,
+    panGesture !== null,
+  );
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
     const nativeEvent = event.evt;
-    const shouldPan =
-      nativeEvent.button === 1 ||
-      activeTool === "pan" ||
-      spacePressedRef.current;
-    if (!shouldPan) return;
+    const previous = panGestureRef.current;
+    const result = drawingPanGestureTransition(previous, {
+      type: "begin",
+      activeTool,
+      spacePressed: spacePressedRef.current,
+      button: nativeEvent.button,
+      pointerId: nativeEvent.pointerId,
+      pointer: { x: nativeEvent.clientX, y: nativeEvent.clientY },
+      viewport: viewportRef.current,
+    });
+    if (result.gesture === previous) return;
     nativeEvent.preventDefault();
     (nativeEvent.currentTarget as HTMLElement | null)?.setPointerCapture?.(
       nativeEvent.pointerId,
     );
-    panStartRef.current = {
-      pointer: { x: nativeEvent.clientX, y: nativeEvent.clientY },
-      viewport: viewportRef.current,
-      pointerId: nativeEvent.pointerId,
-    };
-    setPanning(true);
+    panGestureRef.current = result.gesture;
+    setPanGesture(result.gesture);
   }
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
-    const start = panStartRef.current;
-    if (!start || start.pointerId !== event.evt.pointerId) return;
-    setViewport({
-      ...start.viewport,
-      x: start.viewport.x + event.evt.clientX - start.pointer.x,
-      y: start.viewport.y + event.evt.clientY - start.pointer.y,
+    const result = drawingPanGestureTransition(panGestureRef.current, {
+      type: "move",
+      pointerId: event.evt.pointerId,
+      pointer: { x: event.evt.clientX, y: event.evt.clientY },
     });
+    if (result.viewport) setViewport(result.viewport);
   }
 
-  function endPan(event: KonvaEventObject<PointerEvent>) {
-    const start = panStartRef.current;
-    if (!start || start.pointerId !== event.evt.pointerId) return;
+  function endPan(
+    event: KonvaEventObject<PointerEvent>,
+    type: "end" | "cancel",
+  ) {
+    const previous = panGestureRef.current;
+    const result = drawingPanGestureTransition(previous, {
+      type,
+      pointerId: event.evt.pointerId,
+    });
+    if (result.gesture === previous) return;
     const target = event.evt.currentTarget as HTMLElement | null;
     if (target?.hasPointerCapture?.(event.evt.pointerId))
       target.releasePointerCapture(event.evt.pointerId);
-    panStartRef.current = null;
-    setPanning(false);
+    panGestureRef.current = result.gesture;
+    setPanGesture(result.gesture);
   }
 
   return (
@@ -322,9 +330,12 @@ export const DrawingCanvas = forwardRef<
       className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       onBlur={() => {
         spacePressedRef.current = false;
-        panStartRef.current = null;
+        const result = drawingPanGestureTransition(panGestureRef.current, {
+          type: "blur",
+        });
+        panGestureRef.current = result.gesture;
         setSpacePressed(false);
-        setPanning(false);
+        setPanGesture(result.gesture);
       }}
       onKeyDown={(event) => {
         if (event.code !== "Space") return;
@@ -345,10 +356,10 @@ export const DrawingCanvas = forwardRef<
       {size.width > 0 && size.height > 0 ? (
         <Stage
           height={size.height}
-          onPointerCancel={endPan}
+          onPointerCancel={(event) => endPan(event, "cancel")}
           onPointerDown={beginPan}
           onPointerMove={continuePan}
-          onPointerUp={endPan}
+          onPointerUp={(event) => endPan(event, "end")}
           onWheel={(event) => {
             event.evt.preventDefault();
             const pointer = event.target.getStage()?.getPointerPosition();
