@@ -76,6 +76,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.3",
     "@playwright/test": "1.62.1",
     "@react-router/dev": "7.18.2",
     "@tailwindcss/vite": "^4.3.3",

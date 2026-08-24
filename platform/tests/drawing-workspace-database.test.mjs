@@ -146,6 +146,59 @@ test("guards validate domain JSON and preserve approved and append-only records"
   assert.doesNotMatch(sql, /update\s+public\.lukas_qto_files/i);
 });
 
+test("every revision child INSERT serializes with review on the parent row", async () => {
+  const sql = await migration();
+  assert.match(
+    sql,
+    /function private\.lukas_drawing_draft_child_insert_guard[\s\S]+from public\.lukas_drawing_revisions[\s\S]+for update[\s\S]+v_status <> 'draft'/i,
+  );
+  for (const table of [
+    "pages",
+    "layers",
+    "objects",
+    "operations",
+    "snapshots",
+    "object_sources",
+    "object_issue_links",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(
+        `before insert on public\\.lukas_drawing_${escaped(table)}[\\s\\S]{0,160}lukas_drawing_draft_child_insert_guard`,
+        "i",
+      ),
+    );
+  }
+  assert.match(
+    sql,
+    /function private\.lukas_drawing_request_review[\s\S]+where r\.id = p_revision_id for update/i,
+  );
+  assert.match(
+    sql,
+    /function private\.lukas_drawing_revision_approval_guard[\s\S]+where r\.id = new\.revision_id[\s\S]+for update/i,
+  );
+});
+
+test("domain and inverse validation fails closed", async () => {
+  const sql = await migration();
+  assert.match(
+    sql,
+    /function private\.lukas_drawing_point_valid[\s\S]+select coalesce\([\s\S]+p_point \?& array\['x', 'y'\][\s\S]+false/i,
+  );
+  assert.match(
+    sql,
+    /function private\.lukas_drawing_style_valid[\s\S]+p_style \?& array\['stroke', 'strokeWidth', 'fill'\][\s\S]+false/i,
+  );
+  assert.match(sql, /private\.lukas_drawing_geometry_valid\([^;]+\) is not true/i);
+  assert.match(sql, /private\.lukas_drawing_style_valid\([^;]+\) is not true/i);
+  assert.match(sql, /function private\.lukas_drawing_operation_payload_valid/i);
+  assert.match(sql, /Drawing operation inverse payload is invalid/i);
+  assert.match(
+    sql,
+    /source_kind = 'pdf_region'[\s\S]+pdf_page_number is not null[\s\S]+x is not null[\s\S]+height is not null/i,
+  );
+});
+
 test("document creation and operation RPCs are atomic, authorized, and idempotent", async () => {
   const sql = await migration();
   assert.match(
@@ -219,6 +272,41 @@ test("security-definer helpers and public RPCs have explicit execution privilege
   assert.match(sql, /revoke all on function private\.[^;]+from public, anon/i);
   assert.match(sql, /revoke all on function public\.[^;]+from public, anon/i);
   assert.match(sql, /grant execute on function public\.[^;]+to authenticated/i);
+});
+
+test("trigger privilege modes match their required authority", async () => {
+  const sql = await migration();
+  for (const helper of [
+    "revision_guard",
+    "append_only_guard",
+    "document_guard",
+    "page_source_guard",
+    "layer_guard",
+    "object_guard",
+    "object_source_guard",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(
+        `function private\\.lukas_drawing_${helper}\\(\\)[\\s\\S]{0,100}security invoker`,
+        "i",
+      ),
+    );
+  }
+  for (const helper of [
+    "draft_child_guard",
+    "draft_child_insert_guard",
+    "revision_approval_guard",
+    "apply_revision_approval",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(
+        `function private\\.lukas_drawing_${helper}\\(\\)[\\s\\S]{0,140}security definer[\\s\\S]+?select auth\\.uid\\(\\)`,
+        "i",
+      ),
+    );
+  }
 });
 
 test("every workspace foreign-key path has a covering index", async () => {

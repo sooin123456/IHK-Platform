@@ -218,6 +218,9 @@ create table public.lukas_drawing_object_sources (
     references public.lukas_qto_files(id, project_id, sha256) on delete restrict,
   check (
     (source_kind = 'pdf_region'
+      and pdf_page_number is not null
+      and x is not null and y is not null
+      and width is not null and height is not null
       and pdf_page_number > 0
       and x >= 0 and y >= 0 and width > 0 and height > 0
       and x + width <= 1 and y + height <= 1
@@ -328,7 +331,7 @@ create index lukas_drawing_object_issue_links_created_by_idx
 
 create or replace function private.lukas_drawing_revision_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 begin
@@ -406,7 +409,13 @@ declare
   v_revision_id uuid := (v_old ->> 'revision_id')::uuid;
   v_project_id uuid := (v_old ->> 'project_id')::uuid;
   v_status text;
+  v_actor uuid := (select auth.uid());
 begin
+  if v_actor is null
+     or private.lukas_drawing_workspace_capability(v_project_id)
+       not in ('admin', 'editor') then
+    raise exception 'Drawing workspace editor capability required';
+  end if;
   select r.status into v_status
   from public.lukas_drawing_revisions r
   where r.id = v_revision_id and r.project_id = v_project_id
@@ -437,9 +446,62 @@ create trigger lukas_drawing_objects_revision_guard
 before update or delete on public.lukas_drawing_objects
 for each row execute function private.lukas_drawing_draft_child_guard();
 
-create or replace function private.lukas_drawing_append_only_guard()
+create or replace function private.lukas_drawing_draft_child_insert_guard()
 returns trigger
 language plpgsql security definer
+set search_path = ''
+as $$
+declare
+  v_new jsonb := pg_catalog.to_jsonb(new);
+  v_revision_id uuid := (v_new ->> 'revision_id')::uuid;
+  v_project_id uuid := (v_new ->> 'project_id')::uuid;
+  v_status text;
+  v_actor uuid := (select auth.uid());
+begin
+  if v_actor is null
+     or private.lukas_drawing_workspace_capability(v_project_id)
+       not in ('admin', 'editor') then
+    raise exception 'Drawing workspace editor capability required';
+  end if;
+  select r.status into v_status
+  from public.lukas_drawing_revisions r
+  where r.id = v_revision_id and r.project_id = v_project_id
+  for update;
+  if v_status is null then
+    raise exception 'Drawing revision does not exist';
+  end if;
+  if v_status <> 'draft' then
+    raise exception 'Drawing revision is immutable outside draft';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger lukas_drawing_pages_insert_revision_guard
+before insert on public.lukas_drawing_pages
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_layers_insert_revision_guard
+before insert on public.lukas_drawing_layers
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_objects_insert_revision_guard
+before insert on public.lukas_drawing_objects
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_operations_insert_revision_guard
+before insert on public.lukas_drawing_operations
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_snapshots_insert_revision_guard
+before insert on public.lukas_drawing_snapshots
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_object_sources_insert_revision_guard
+before insert on public.lukas_drawing_object_sources
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+create trigger lukas_drawing_object_issue_links_insert_revision_guard
+before insert on public.lukas_drawing_object_issue_links
+for each row execute function private.lukas_drawing_draft_child_insert_guard();
+
+create or replace function private.lukas_drawing_append_only_guard()
+returns trigger
+language plpgsql security invoker
 set search_path = ''
 as $$
 begin
@@ -469,10 +531,14 @@ returns boolean
 language sql immutable security invoker
 set search_path = ''
 as $$
-  select pg_catalog.jsonb_typeof(p_point) = 'object'
-    and p_point - array['x', 'y'] = '{}'::jsonb
-    and pg_catalog.jsonb_typeof(p_point -> 'x') = 'number'
-    and pg_catalog.jsonb_typeof(p_point -> 'y') = 'number'
+  select coalesce(
+    pg_catalog.jsonb_typeof(p_point) = 'object'
+      and p_point ?& array['x', 'y']
+      and p_point - array['x', 'y'] = '{}'::jsonb
+      and pg_catalog.jsonb_typeof(p_point -> 'x') = 'number'
+      and pg_catalog.jsonb_typeof(p_point -> 'y') = 'number',
+    false
+  )
 $$;
 
 create or replace function private.lukas_drawing_style_valid(p_style jsonb)
@@ -480,24 +546,28 @@ returns boolean
 language sql immutable security invoker
 set search_path = ''
 as $$
-  select pg_catalog.jsonb_typeof(p_style) = 'object'
-    and p_style - array['stroke', 'strokeWidth', 'fill', 'fontSize'] = '{}'::jsonb
-    and pg_catalog.jsonb_typeof(p_style -> 'stroke') = 'string'
-    and (p_style ->> 'stroke') ~ '^#[0-9A-Fa-f]{6}$'
-    and pg_catalog.jsonb_typeof(p_style -> 'strokeWidth') = 'number'
-    and (p_style ->> 'strokeWidth')::numeric > 0
-    and (p_style ->> 'strokeWidth')::numeric <= 1000
-    and (
-      pg_catalog.jsonb_typeof(p_style -> 'fill') = 'null'
-      or (pg_catalog.jsonb_typeof(p_style -> 'fill') = 'string'
-        and (p_style ->> 'fill') ~ '^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$')
-    )
-    and (
-      not (p_style ? 'fontSize')
-      or (pg_catalog.jsonb_typeof(p_style -> 'fontSize') = 'number'
-        and (p_style ->> 'fontSize')::numeric > 0
-        and (p_style ->> 'fontSize')::numeric <= 10000)
-    )
+  select coalesce(
+    pg_catalog.jsonb_typeof(p_style) = 'object'
+      and p_style ?& array['stroke', 'strokeWidth', 'fill']
+      and p_style - array['stroke', 'strokeWidth', 'fill', 'fontSize'] = '{}'::jsonb
+      and pg_catalog.jsonb_typeof(p_style -> 'stroke') = 'string'
+      and (p_style ->> 'stroke') ~ '^#[0-9A-Fa-f]{6}$'
+      and pg_catalog.jsonb_typeof(p_style -> 'strokeWidth') = 'number'
+      and (p_style ->> 'strokeWidth')::numeric > 0
+      and (p_style ->> 'strokeWidth')::numeric <= 1000
+      and (
+        pg_catalog.jsonb_typeof(p_style -> 'fill') = 'null'
+        or (pg_catalog.jsonb_typeof(p_style -> 'fill') = 'string'
+          and (p_style ->> 'fill') ~ '^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$')
+      )
+      and (
+        not (p_style ? 'fontSize')
+        or (pg_catalog.jsonb_typeof(p_style -> 'fontSize') = 'number'
+          and (p_style ->> 'fontSize')::numeric > 0
+          and (p_style ->> 'fontSize')::numeric <= 10000)
+      ),
+    false
+  )
 $$;
 
 create or replace function private.lukas_drawing_geometry_valid(
@@ -517,57 +587,77 @@ begin
   end if;
 
   if p_object_type = 'line' then
-    return p_geometry - array['type', 'start', 'end'] = '{}'::jsonb
-      and private.lukas_drawing_point_valid(p_geometry -> 'start')
-      and private.lukas_drawing_point_valid(p_geometry -> 'end')
-      and p_geometry -> 'start' <> p_geometry -> 'end';
+    return coalesce(
+      p_geometry ?& array['type', 'start', 'end']
+        and p_geometry - array['type', 'start', 'end'] = '{}'::jsonb
+        and private.lukas_drawing_point_valid(p_geometry -> 'start') is true
+        and private.lukas_drawing_point_valid(p_geometry -> 'end') is true
+        and p_geometry -> 'start' <> p_geometry -> 'end',
+      false
+    );
   elsif p_object_type = 'polyline' then
-    if p_geometry - array['type', 'points', 'closed'] <> '{}'::jsonb
+    if not (p_geometry ?& array['type', 'points', 'closed'])
+       or p_geometry - array['type', 'points', 'closed'] <> '{}'::jsonb
        or pg_catalog.jsonb_typeof(p_geometry -> 'points') <> 'array'
        or pg_catalog.jsonb_array_length(p_geometry -> 'points') < 2
        or pg_catalog.jsonb_typeof(p_geometry -> 'closed') <> 'boolean' then
       return false;
     end if;
     for v_point in select value from pg_catalog.jsonb_array_elements(p_geometry -> 'points') loop
-      if not private.lukas_drawing_point_valid(v_point) then return false; end if;
+      if private.lukas_drawing_point_valid(v_point) is not true then return false; end if;
     end loop;
     return (
       select pg_catalog.count(distinct value::text) > 1
       from pg_catalog.jsonb_array_elements(p_geometry -> 'points')
     );
   elsif p_object_type = 'rectangle' then
-    return p_geometry - array['type', 'origin', 'width', 'height', 'rotation'] = '{}'::jsonb
-      and private.lukas_drawing_point_valid(p_geometry -> 'origin')
-      and pg_catalog.jsonb_typeof(p_geometry -> 'width') = 'number'
-      and (p_geometry ->> 'width')::numeric > 0
-      and pg_catalog.jsonb_typeof(p_geometry -> 'height') = 'number'
-      and (p_geometry ->> 'height')::numeric > 0
-      and pg_catalog.jsonb_typeof(p_geometry -> 'rotation') = 'number';
+    return coalesce(
+      p_geometry ?& array['type', 'origin', 'width', 'height', 'rotation']
+        and p_geometry - array['type', 'origin', 'width', 'height', 'rotation'] = '{}'::jsonb
+        and private.lukas_drawing_point_valid(p_geometry -> 'origin') is true
+        and pg_catalog.jsonb_typeof(p_geometry -> 'width') = 'number'
+        and (p_geometry ->> 'width')::numeric > 0
+        and pg_catalog.jsonb_typeof(p_geometry -> 'height') = 'number'
+        and (p_geometry ->> 'height')::numeric > 0
+        and pg_catalog.jsonb_typeof(p_geometry -> 'rotation') = 'number',
+      false
+    );
   elsif p_object_type = 'circle' then
-    return p_geometry - array['type', 'center', 'radius'] = '{}'::jsonb
-      and private.lukas_drawing_point_valid(p_geometry -> 'center')
-      and pg_catalog.jsonb_typeof(p_geometry -> 'radius') = 'number'
-      and (p_geometry ->> 'radius')::numeric > 0;
+    return coalesce(
+      p_geometry ?& array['type', 'center', 'radius']
+        and p_geometry - array['type', 'center', 'radius'] = '{}'::jsonb
+        and private.lukas_drawing_point_valid(p_geometry -> 'center') is true
+        and pg_catalog.jsonb_typeof(p_geometry -> 'radius') = 'number'
+        and (p_geometry ->> 'radius')::numeric > 0,
+      false
+    );
   elsif p_object_type = 'text' then
-    return p_geometry - array['type', 'origin', 'width', 'text'] = '{}'::jsonb
-      and private.lukas_drawing_point_valid(p_geometry -> 'origin')
-      and pg_catalog.jsonb_typeof(p_geometry -> 'width') = 'number'
-      and (p_geometry ->> 'width')::numeric > 0
-      and pg_catalog.jsonb_typeof(p_geometry -> 'text') = 'string'
-      and pg_catalog.char_length(p_geometry ->> 'text') <= 10000;
+    return coalesce(
+      p_geometry ?& array['type', 'origin', 'width', 'text']
+        and p_geometry - array['type', 'origin', 'width', 'text'] = '{}'::jsonb
+        and private.lukas_drawing_point_valid(p_geometry -> 'origin') is true
+        and pg_catalog.jsonb_typeof(p_geometry -> 'width') = 'number'
+        and (p_geometry ->> 'width')::numeric > 0
+        and pg_catalog.jsonb_typeof(p_geometry -> 'text') = 'string'
+        and pg_catalog.char_length(p_geometry ->> 'text') <= 10000,
+      false
+    );
   elsif p_object_type = 'dimension' then
-    return p_geometry - array['type', 'start', 'end', 'offset', 'calibrationId'] = '{}'::jsonb
-      and private.lukas_drawing_point_valid(p_geometry -> 'start')
-      and private.lukas_drawing_point_valid(p_geometry -> 'end')
-      and p_geometry -> 'start' <> p_geometry -> 'end'
-      and pg_catalog.jsonb_typeof(p_geometry -> 'offset') = 'number'
-      and (p_geometry ? 'calibrationId')
-      and (
-        pg_catalog.jsonb_typeof(p_geometry -> 'calibrationId') = 'null'
-        or (pg_catalog.jsonb_typeof(p_geometry -> 'calibrationId') = 'string'
-          and (p_geometry ->> 'calibrationId') ~
-            '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
-      );
+    return coalesce(
+      p_geometry ?& array['type', 'start', 'end', 'offset', 'calibrationId']
+        and p_geometry - array['type', 'start', 'end', 'offset', 'calibrationId'] = '{}'::jsonb
+        and private.lukas_drawing_point_valid(p_geometry -> 'start') is true
+        and private.lukas_drawing_point_valid(p_geometry -> 'end') is true
+        and p_geometry -> 'start' <> p_geometry -> 'end'
+        and pg_catalog.jsonb_typeof(p_geometry -> 'offset') = 'number'
+        and (
+          pg_catalog.jsonb_typeof(p_geometry -> 'calibrationId') = 'null'
+          or (pg_catalog.jsonb_typeof(p_geometry -> 'calibrationId') = 'string'
+            and (p_geometry ->> 'calibrationId') ~
+              '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
+        ),
+      false
+    );
   end if;
   return false;
 end;
@@ -575,7 +665,7 @@ $$;
 
 create or replace function private.lukas_drawing_document_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 declare
@@ -622,7 +712,7 @@ for each row execute function private.lukas_drawing_document_guard();
 
 create or replace function private.lukas_drawing_page_source_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 begin
@@ -647,7 +737,7 @@ for each row execute function private.lukas_drawing_page_source_guard();
 
 create or replace function private.lukas_drawing_layer_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 declare
@@ -686,15 +776,15 @@ for each row execute function private.lukas_drawing_layer_guard();
 
 create or replace function private.lukas_drawing_object_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 declare
   v_actor uuid := (select auth.uid());
 begin
   if v_actor is null then raise exception 'Authenticated drawing actor required'; end if;
-  if not private.lukas_drawing_geometry_valid(new.object_type, new.geometry)
-     or not private.lukas_drawing_style_valid(new.style) then
+  if private.lukas_drawing_geometry_valid(new.object_type, new.geometry) is not true
+     or private.lukas_drawing_style_valid(new.style) is not true then
     raise exception 'Drawing object domain JSON is invalid';
   end if;
   if new.geometry ->> 'type' is distinct from new.object_type then
@@ -740,7 +830,7 @@ for each row execute function private.lukas_drawing_object_guard();
 
 create or replace function private.lukas_drawing_object_source_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 begin
@@ -835,7 +925,12 @@ returns trigger
 language plpgsql security definer
 set search_path = ''
 as $$
+declare
+  v_actor uuid := (select auth.uid());
 begin
+  if v_actor is null or new.decided_by <> v_actor then
+    raise exception 'Drawing decision reviewer must be the authenticated user';
+  end if;
   if new.decision = 'approved' then
     update public.lukas_drawing_revisions
     set status = 'approved', approved_at = pg_catalog.now(), updated_at = pg_catalog.now()
@@ -967,6 +1062,220 @@ begin
 end;
 $$;
 
+create or replace function private.lukas_drawing_operation_payload_valid(p_payload jsonb)
+returns boolean
+language plpgsql immutable security invoker
+set search_path = ''
+as $$
+declare
+  v_type text;
+  v_item jsonb;
+  v_patch jsonb;
+begin
+  if pg_catalog.jsonb_typeof(p_payload) <> 'object'
+     or not (p_payload ? 'type')
+     or pg_catalog.jsonb_typeof(p_payload -> 'type') <> 'string' then
+    return false;
+  end if;
+  v_type := p_payload ->> 'type';
+
+  if v_type = 'add_objects' then
+    if not (p_payload ?& array['type', 'objects'])
+       or p_payload - array['type', 'objects'] <> '{}'::jsonb
+       or pg_catalog.jsonb_typeof(p_payload -> 'objects') <> 'array'
+       or pg_catalog.jsonb_array_length(p_payload -> 'objects') = 0 then
+      return false;
+    end if;
+    for v_item in select value from pg_catalog.jsonb_array_elements(p_payload -> 'objects') loop
+      if pg_catalog.jsonb_typeof(v_item) <> 'object'
+         or not (v_item ?& array['id', 'layerId', 'geometry', 'style', 'version'])
+         or v_item - array['id', 'layerId', 'geometry', 'style', 'version'] <> '{}'::jsonb
+         or pg_catalog.jsonb_typeof(v_item -> 'id') <> 'string'
+         or (v_item ->> 'id') !~
+           '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+         or pg_catalog.jsonb_typeof(v_item -> 'layerId') <> 'string'
+         or (v_item ->> 'layerId') !~
+           '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+         or private.lukas_drawing_geometry_valid(
+           v_item -> 'geometry' ->> 'type', v_item -> 'geometry'
+         ) is not true
+         or private.lukas_drawing_style_valid(v_item -> 'style') is not true
+         or pg_catalog.jsonb_typeof(v_item -> 'version') <> 'number'
+         or (v_item ->> 'version')::numeric <= 0
+         or (v_item ->> 'version')::numeric <>
+           pg_catalog.trunc((v_item ->> 'version')::numeric) then
+        return false;
+      end if;
+    end loop;
+    if exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_payload -> 'objects') item
+      group by item ->> 'id' having pg_catalog.count(*) > 1
+    ) then return false; end if;
+    return true;
+
+  elsif v_type = 'update_objects' then
+    if not (p_payload ?& array['type', 'updates'])
+       or p_payload - array['type', 'updates'] <> '{}'::jsonb
+       or pg_catalog.jsonb_typeof(p_payload -> 'updates') <> 'array'
+       or pg_catalog.jsonb_array_length(p_payload -> 'updates') = 0 then
+      return false;
+    end if;
+    for v_item in select value from pg_catalog.jsonb_array_elements(p_payload -> 'updates') loop
+      v_patch := v_item -> 'patch';
+      if pg_catalog.jsonb_typeof(v_item) <> 'object'
+         or not (v_item ?& array['objectId', 'patch'])
+         or v_item - array['objectId', 'patch'] <> '{}'::jsonb
+         or pg_catalog.jsonb_typeof(v_item -> 'objectId') <> 'string'
+         or (v_item ->> 'objectId') !~
+           '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+         or pg_catalog.jsonb_typeof(v_patch) <> 'object'
+         or v_patch = '{}'::jsonb
+         or v_patch - array['layerId', 'geometry', 'style'] <> '{}'::jsonb
+         or (v_patch ? 'layerId' and (
+           pg_catalog.jsonb_typeof(v_patch -> 'layerId') <> 'string'
+           or (v_patch ->> 'layerId') !~
+             '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+         ))
+         or (v_patch ? 'geometry' and private.lukas_drawing_geometry_valid(
+           v_patch -> 'geometry' ->> 'type', v_patch -> 'geometry'
+         ) is not true)
+         or (v_patch ? 'style'
+           and private.lukas_drawing_style_valid(v_patch -> 'style') is not true) then
+        return false;
+      end if;
+    end loop;
+    if exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_payload -> 'updates') item
+      group by item ->> 'objectId' having pg_catalog.count(*) > 1
+    ) then return false; end if;
+    return true;
+
+  elsif v_type = 'delete_objects' then
+    if not (p_payload ?& array['type', 'objectIds'])
+       or p_payload - array['type', 'objectIds'] <> '{}'::jsonb
+       or pg_catalog.jsonb_typeof(p_payload -> 'objectIds') <> 'array'
+       or pg_catalog.jsonb_array_length(p_payload -> 'objectIds') = 0
+       or exists (
+         select 1
+         from pg_catalog.jsonb_array_elements(p_payload -> 'objectIds') item
+         where pg_catalog.jsonb_typeof(item) <> 'string'
+           or item #>> '{}' !~
+             '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+       )
+       or exists (
+         select 1
+         from pg_catalog.jsonb_array_elements_text(p_payload -> 'objectIds') object_id
+         group by object_id having pg_catalog.count(*) > 1
+       ) then
+      return false;
+    end if;
+    return true;
+
+  elsif v_type = 'add_layer' then
+    v_item := p_payload -> 'layer';
+    return coalesce(
+      p_payload ?& array['type', 'layer']
+        and p_payload - array['type', 'layer'] = '{}'::jsonb
+        and pg_catalog.jsonb_typeof(v_item) = 'object'
+        and v_item ?& array['id', 'name', 'visible', 'locked', 'version']
+        and v_item - array['id', 'name', 'visible', 'locked', 'version'] = '{}'::jsonb
+        and pg_catalog.jsonb_typeof(v_item -> 'id') = 'string'
+        and (v_item ->> 'id') ~
+          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+        and pg_catalog.jsonb_typeof(v_item -> 'name') = 'string'
+        and pg_catalog.char_length(pg_catalog.btrim(v_item ->> 'name')) between 1 and 255
+        and pg_catalog.jsonb_typeof(v_item -> 'visible') = 'boolean'
+        and pg_catalog.jsonb_typeof(v_item -> 'locked') = 'boolean'
+        and pg_catalog.jsonb_typeof(v_item -> 'version') = 'number'
+        and (v_item ->> 'version')::numeric = 1,
+      false
+    );
+
+  elsif v_type = 'update_layer' then
+    v_patch := p_payload -> 'patch';
+    return coalesce(
+      p_payload ?& array['type', 'layerId', 'patch']
+        and p_payload - array['type', 'layerId', 'patch'] = '{}'::jsonb
+        and pg_catalog.jsonb_typeof(p_payload -> 'layerId') = 'string'
+        and (p_payload ->> 'layerId') ~
+          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+        and pg_catalog.jsonb_typeof(v_patch) = 'object'
+        and v_patch <> '{}'::jsonb
+        and v_patch - array['name', 'visible', 'locked'] = '{}'::jsonb
+        and (not (v_patch ? 'name') or (
+          pg_catalog.jsonb_typeof(v_patch -> 'name') = 'string'
+          and pg_catalog.char_length(pg_catalog.btrim(v_patch ->> 'name')) between 1 and 255
+        ))
+        and (not (v_patch ? 'visible')
+          or pg_catalog.jsonb_typeof(v_patch -> 'visible') = 'boolean')
+        and (not (v_patch ? 'locked')
+          or pg_catalog.jsonb_typeof(v_patch -> 'locked') = 'boolean'),
+      false
+    );
+  end if;
+  return false;
+end;
+$$;
+
+create or replace function private.lukas_drawing_operation_inverse_valid(
+  p_operation_type text,
+  p_forward jsonb,
+  p_inverse jsonb
+) returns boolean
+language plpgsql immutable security invoker
+set search_path = ''
+as $$
+begin
+  if p_operation_type = 'add_layer' then
+    return p_inverse = '{}'::jsonb;
+  end if;
+  if private.lukas_drawing_operation_payload_valid(p_inverse) is not true then
+    return false;
+  end if;
+  if p_operation_type = 'add_objects' then
+    return p_inverse ->> 'type' = 'delete_objects' and (
+      select pg_catalog.jsonb_agg(id order by id)
+      from (
+        select item ->> 'id' id
+        from pg_catalog.jsonb_array_elements(p_forward -> 'objects') item
+      ) ids
+    ) = (
+      select pg_catalog.jsonb_agg(id order by id)
+      from pg_catalog.jsonb_array_elements_text(p_inverse -> 'objectIds') id
+    );
+  elsif p_operation_type = 'update_objects' then
+    return p_inverse ->> 'type' = 'update_objects' and (
+      select pg_catalog.jsonb_agg(id order by id)
+      from (
+        select item ->> 'objectId' id
+        from pg_catalog.jsonb_array_elements(p_forward -> 'updates') item
+      ) ids
+    ) = (
+      select pg_catalog.jsonb_agg(id order by id)
+      from (
+        select item ->> 'objectId' id
+        from pg_catalog.jsonb_array_elements(p_inverse -> 'updates') item
+      ) ids
+    );
+  elsif p_operation_type = 'delete_objects' then
+    return p_inverse ->> 'type' = 'add_objects' and (
+      select pg_catalog.jsonb_agg(id order by id)
+      from pg_catalog.jsonb_array_elements_text(p_forward -> 'objectIds') id
+    ) = (
+      select pg_catalog.jsonb_agg(id order by id)
+      from (
+        select item ->> 'id' id
+        from pg_catalog.jsonb_array_elements(p_inverse -> 'objects') item
+      ) ids
+    );
+  elsif p_operation_type = 'update_layer' then
+    return p_inverse ->> 'type' = 'update_layer'
+      and p_inverse ->> 'layerId' = p_forward ->> 'layerId';
+  end if;
+  return false;
+end;
+$$;
+
 create or replace function private.lukas_drawing_apply_operation(
   p_revision_id uuid,
   p_client_operation_id uuid,
@@ -1001,10 +1310,14 @@ begin
     'add_objects', 'update_objects', 'delete_objects', 'add_layer', 'update_layer'
   ) then raise exception 'Unsupported drawing operation type'; end if;
   if pg_catalog.jsonb_typeof(p_base_versions) <> 'object'
-     or pg_catalog.jsonb_typeof(p_forward) <> 'object'
-     or pg_catalog.jsonb_typeof(p_inverse) <> 'object'
-     or p_forward ->> 'type' is distinct from p_operation_type then
+     or p_forward ->> 'type' is distinct from p_operation_type
+     or private.lukas_drawing_operation_payload_valid(p_forward) is not true then
     raise exception 'Drawing operation domain JSON is invalid';
+  end if;
+  if private.lukas_drawing_operation_inverse_valid(
+       p_operation_type, p_forward, p_inverse
+     ) is not true then
+    raise exception 'Drawing operation inverse payload is invalid';
   end if;
   if exists (
     select 1 from pg_catalog.jsonb_each(p_base_versions) b
@@ -1054,7 +1367,7 @@ begin
          or pg_catalog.jsonb_typeof(v_item -> 'geometry') <> 'object'
          or pg_catalog.jsonb_typeof(v_item -> 'style') <> 'object'
          or pg_catalog.jsonb_typeof(v_item -> 'version') <> 'number'
-         or (v_item ->> 'version')::bigint <= 0 then
+         or (v_item ->> 'version')::numeric <> 1 then
         raise exception 'Invalid drawing object payload';
       end if;
       v_object_id := (v_item ->> 'id')::uuid;
@@ -1063,23 +1376,15 @@ begin
       where l.id = v_layer_id and l.revision_id = p_revision_id
         and l.project_id = v_revision.project_id for update;
       if not found or v_layer.locked then raise exception 'Drawing layer is locked or missing'; end if;
-      if not private.lukas_drawing_geometry_valid(
+      if private.lukas_drawing_geometry_valid(
           v_item -> 'geometry' ->> 'type', v_item -> 'geometry'
-        ) or not private.lukas_drawing_style_valid(v_item -> 'style') then
+        ) is not true or private.lukas_drawing_style_valid(v_item -> 'style') is not true then
         raise exception 'Drawing object domain JSON is invalid';
       end if;
       select * into v_object from public.lukas_drawing_objects o
-      where o.id = v_object_id and o.revision_id = p_revision_id for update;
+      where o.id = v_object_id for update;
       if found then
-        if v_object.status <> 'deleted' then raise exception 'Drawing object already exists'; end if;
-        update public.lukas_drawing_objects
-        set page_id = v_layer.page_id, layer_id = v_layer.id,
-            geometry = v_item -> 'geometry', style = v_item -> 'style',
-            status = 'active', version = v_object.version + 1,
-            updated_by = v_actor
-        where id = v_object.id;
-        v_result_versions := v_result_versions ||
-          pg_catalog.jsonb_build_object(v_object.id::text, v_object.version + 1);
+        raise exception 'Drawing object already exists';
       else
         insert into public.lukas_drawing_objects(
           id, lineage_id, page_id, layer_id, revision_id, project_id,
@@ -1136,10 +1441,13 @@ begin
         if not found or v_new_layer.locked then raise exception 'Target drawing layer is locked or missing'; end if;
       end if;
       if v_patch ? 'geometry'
-         and not private.lukas_drawing_geometry_valid(v_object.object_type, v_patch -> 'geometry') then
+         and private.lukas_drawing_geometry_valid(
+           v_object.object_type, v_patch -> 'geometry'
+         ) is not true then
         raise exception 'Drawing object geometry is invalid';
       end if;
-      if v_patch ? 'style' and not private.lukas_drawing_style_valid(v_patch -> 'style') then
+      if v_patch ? 'style'
+         and private.lukas_drawing_style_valid(v_patch -> 'style') is not true then
         raise exception 'Drawing object style is invalid';
       end if;
       update public.lukas_drawing_objects
@@ -1746,6 +2054,10 @@ using (
 revoke all on function private.lukas_drawing_point_valid(jsonb) from public, anon, authenticated;
 revoke all on function private.lukas_drawing_style_valid(jsonb) from public, anon, authenticated;
 revoke all on function private.lukas_drawing_geometry_valid(text, jsonb) from public, anon, authenticated;
+revoke all on function private.lukas_drawing_operation_payload_valid(jsonb)
+  from public, anon, authenticated;
+revoke all on function private.lukas_drawing_operation_inverse_valid(text, jsonb, jsonb)
+  from public, anon, authenticated;
 revoke all on function private.lukas_drawing_document_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_page_source_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_layer_guard() from public, anon, authenticated;
@@ -1753,6 +2065,8 @@ revoke all on function private.lukas_drawing_object_guard() from public, anon, a
 revoke all on function private.lukas_drawing_object_source_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_revision_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_draft_child_guard() from public, anon, authenticated;
+revoke all on function private.lukas_drawing_draft_child_insert_guard()
+  from public, anon, authenticated;
 revoke all on function private.lukas_drawing_append_only_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_revision_approval_guard() from public, anon, authenticated;
 revoke all on function private.lukas_drawing_apply_revision_approval() from public, anon, authenticated;
