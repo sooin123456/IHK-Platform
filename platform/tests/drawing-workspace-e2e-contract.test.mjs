@@ -61,7 +61,7 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(spec, /toEqual\(fixture\.sourceEvidence\)/);
   assert.match(spec, /10,000 canonical objects/);
   assert.match(spec, /seedDrawingPerformanceObjects/);
-  assert.match(spec, /frameCount:\s*120/);
+  assert.match(spec, /expect\(gestureMetrics\.frameCount\)\.toBe\(120\)/);
   assert.match(spec, /performance\.now\(\)/);
   assert.match(spec, /getByLabel\("이동 도구"\)\.click\(\)/);
   assert.match(spec, /page\.mouse\.wheel/);
@@ -69,6 +69,13 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(spec, /selectionCount/);
   assert.match(spec, /inspectorObjectName/);
   assert.match(spec, /seeded\.selectionTarget\.name/);
+  assert.match(
+    spec,
+    /const gestureMetrics[\s\S]*getByRole\("button", \{ name: "화면 맞춤" \}\)\.click\(\)/,
+  );
+  assert.match(spec, /selectionSafetyMargin/);
+  assert.match(spec, /targetScreenPoint/);
+  assert.match(spec, /expect\s*\.poll/);
   assert.match(spec, /p95.*50/is);
   assert.doesNotMatch(spec, /live cursor|Yjs|Hocuspocus/i);
 
@@ -125,6 +132,7 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(ifcRunner, /spawnSync/);
   assert.doesNotMatch(canvas, /<output/);
   assert.match(canvas, /data-viewport-zoom=\{viewport\.zoom\}/);
+  assert.match(canvas, /export function drawingFittedViewport/);
   assert.match(
     canvas,
     /data-selection-count=\{selectionState\.selectedIds\.length\}/,

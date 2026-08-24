@@ -71,8 +71,12 @@ const { DrawingLayersPanel } = await vite.ssrLoadModule(
 const { buildDrawingPerformanceFixture } = await vite.ssrLoadModule(
   "/e2e/utils/drawing-collaboration-fixture.ts",
 );
-const { drawingSelectionHitBounds } = await vite.ssrLoadModule(
-  "/app/lukas/components/drawing-canvas.client.tsx",
+const { drawingFittedViewport, drawingSelectionHitBounds } =
+  await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-canvas.client.tsx",
+  );
+const { worldToScreen, zoomViewportAroundPointer } = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-geometry.ts",
 );
 
 const foundationSql = `
@@ -1748,4 +1752,42 @@ test("performance selection target intersects exactly one tolerance-expanded obj
   assert.equal(hits.length, 1);
   assert.equal(hits[0].id, fixture.selectionTarget.id);
   assert.equal(hits[0].name, fixture.selectionTarget.name);
+});
+
+test("1440x900 performance gestures move the isolated target off-canvas until fit view resets it", () => {
+  assert.equal(typeof drawingFittedViewport, "function");
+  const fixture = buildDrawingPerformanceFixture(
+    10_000,
+    "00000000-0000-4000-8000-000000000099",
+    (index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const browser = { width: 1440, height: 900 };
+  const surface = {
+    width: browser.width - 14 * 16 - 17 * 16,
+    height: browser.height - 64,
+  };
+  assert.deepEqual(fixture.canvas, { width: 420, height: 297 });
+  const background = { kind: "blank", ...fixture.canvas };
+  const target = fixture.selectionTarget.world;
+  const pointer = { x: surface.width / 2, y: surface.height / 2 };
+  let viewport = drawingFittedViewport(surface, background);
+  for (let frame = 0; frame < 60; frame += 1) {
+    const deltaY = frame < 30 ? -3 : 1;
+    viewport = zoomViewportAroundPointer(
+      pointer,
+      viewport,
+      viewport.zoom * Math.exp(-deltaY * 0.002),
+    );
+  }
+  viewport = { ...viewport, x: viewport.x + 90, y: viewport.y + 60 };
+  const displaced = worldToScreen(target, viewport);
+  assert.ok(displaced.x > surface.width || displaced.y > surface.height);
+
+  const reset = drawingFittedViewport(surface, background);
+  const visible = worldToScreen(target, reset);
+  const safetyMargin = 40;
+  assert.ok(visible.x >= safetyMargin);
+  assert.ok(visible.y >= safetyMargin);
+  assert.ok(visible.x <= surface.width - safetyMargin);
+  assert.ok(visible.y <= surface.height - safetyMargin);
 });

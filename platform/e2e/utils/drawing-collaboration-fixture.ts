@@ -480,13 +480,17 @@ export function buildDrawingPerformanceFixture(
   const composition = Object.fromEntries(
     types.map((type) => [type, 0]),
   ) as Record<(typeof types)[number], number>;
+  const canvas = { width: 420, height: 297 };
+  const selectionTargetWorld = { x: 400, y: 280 };
   const objects = Array.from({ length: count }, (_, index) => {
     const isolated = index === 0;
     const gridIndex = index - 1;
     const type = isolated ? "circle" : types[gridIndex % types.length];
     composition[type] += 1;
-    const x = isolated ? 820 : 12 + (gridIndex % 100) * 7;
-    const y = isolated ? 580 : 12 + Math.floor(gridIndex / 100) * 5;
+    const x = isolated ? selectionTargetWorld.x : 12 + (gridIndex % 100) * 3;
+    const y = isolated
+      ? selectionTargetWorld.y
+      : 12 + Math.floor(gridIndex / 100) * 2;
     const geometry =
       isolated
         ? { type: "circle" as const, center: { x, y }, radius: 2 }
@@ -531,13 +535,14 @@ export function buildDrawingPerformanceFixture(
   });
   const target = objects[0];
   return {
+    canvas,
     composition,
     count,
     objects,
     selectionTarget: {
       id: target.id,
       name: target.name,
-      world: { x: 820, y: 580 },
+      world: selectionTargetWorld,
       minimumZoom: 0.5,
       tolerancePixels: 6,
     },

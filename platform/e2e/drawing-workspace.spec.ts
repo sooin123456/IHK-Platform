@@ -594,6 +594,95 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       y: afterZoom.viewportY,
     });
 
+    const gestureMetrics = await surface.evaluate(
+      (element, input) => {
+        const evidence = (
+          element as HTMLElement & {
+            __drawingPerformanceEvidence: {
+              zoom: number[];
+              pan: number[];
+            };
+          }
+        ).__drawingPerformanceEvidence;
+        const percentile = (values: number[], ratio: number) => {
+          const sorted = [...values].sort((a, b) => a - b);
+          return sorted[Math.ceil(sorted.length * ratio) - 1] ?? 0;
+        };
+        const frameDurations = [...evidence.zoom, ...evidence.pan];
+        return {
+          browser: navigator.userAgent,
+          viewport: { width: innerWidth, height: innerHeight },
+          composition: input.composition,
+          frameCount: frameDurations.length,
+          zoomFrameCount: evidence.zoom.length,
+          panFrameCount: evidence.pan.length,
+          frameMedianMs: percentile(frameDurations, 0.5),
+          frameP95Ms: percentile(frameDurations, 0.95),
+          initialViewport: input.initial,
+          gestureViewport: input.afterPan,
+        };
+      },
+      { composition: seeded.composition, initial, afterPan },
+    );
+    expect(gestureMetrics.frameCount).toBe(120);
+    expect(gestureMetrics.zoomFrameCount).toBe(60);
+    expect(gestureMetrics.panFrameCount).toBe(60);
+    expect(
+      gestureMetrics.frameP95Ms,
+      JSON.stringify(gestureMetrics),
+    ).toBeLessThanOrEqual(50);
+
+    await page.getByRole("button", { name: "화면 맞춤" }).click();
+    const fitBox = await surface.boundingBox();
+    if (!fitBox) throw new Error("Performance canvas lost its layout box");
+    const fitSize = {
+      width: Math.floor(fitBox.width),
+      height: Math.floor(fitBox.height),
+    };
+    const fitZoom = Math.min(
+      32,
+      Math.max(
+        0.05,
+        Math.min(
+          Math.max(1, fitSize.width - 80) / seeded.canvas.width,
+          Math.max(1, fitSize.height - 80) / seeded.canvas.height,
+        ),
+      ),
+    );
+    const fitViewport = {
+      x: (fitSize.width - seeded.canvas.width * fitZoom) / 2,
+      y: (fitSize.height - seeded.canvas.height * fitZoom) / 2,
+      zoom: fitZoom,
+    };
+    await expect
+      .poll(async () => {
+        const current = await readState();
+        return Math.max(
+          Math.abs(current.viewportX - fitViewport.x),
+          Math.abs(current.viewportY - fitViewport.y),
+          Math.abs(current.viewportZoom - fitViewport.zoom),
+        );
+      })
+      .toBeLessThan(0.001);
+    const fittedState = await readState();
+    const targetScreenPoint = {
+      x:
+        fittedState.viewportX +
+        seeded.selectionTarget.world.x * fittedState.viewportZoom,
+      y:
+        fittedState.viewportY +
+        seeded.selectionTarget.world.y * fittedState.viewportZoom,
+    };
+    const selectionSafetyMargin = 12;
+    expect(targetScreenPoint.x).toBeGreaterThanOrEqual(selectionSafetyMargin);
+    expect(targetScreenPoint.y).toBeGreaterThanOrEqual(selectionSafetyMargin);
+    expect(targetScreenPoint.x).toBeLessThanOrEqual(
+      fitBox.width - selectionSafetyMargin,
+    );
+    expect(targetScreenPoint.y).toBeLessThanOrEqual(
+      fitBox.height - selectionSafetyMargin,
+    );
+
     await page.getByRole("button", { name: "선택 도구" }).click();
     await surface.evaluate((element) => {
       (
@@ -604,10 +693,9 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     });
     for (let query = 0; query < 20; query += 1) {
       const target = seeded.selectionTarget;
-      const current = await readState();
       await page.mouse.click(
-        box.x + current.viewportX + target.world.x * current.viewportZoom,
-        box.y + current.viewportY + target.world.y * current.viewportZoom,
+        fitBox.x + targetScreenPoint.x,
+        fitBox.y + targetScreenPoint.y,
       );
       await page.evaluate(
         () =>
@@ -648,28 +736,17 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
           const sorted = [...values].sort((a, b) => a - b);
           return sorted[Math.ceil(sorted.length * ratio) - 1] ?? 0;
         };
-        const frameDurations = [...evidence.zoom, ...evidence.pan];
         return {
-          browser: navigator.userAgent,
-          viewport: { width: innerWidth, height: innerHeight },
-          composition: input.composition,
-          frameCount: frameDurations.length,
-          zoomFrameCount: evidence.zoom.length,
-          panFrameCount: evidence.pan.length,
-          frameMedianMs: percentile(frameDurations, 0.5),
-          frameP95Ms: percentile(frameDurations, 0.95),
+          ...input.gestureMetrics,
           selectionCount: evidence.selection.length,
           selectionMedianMs: percentile(evidence.selection, 0.5),
           selectionP95Ms: percentile(evidence.selection, 0.95),
-          initialViewport: input.initial,
-          finalViewport: input.finalState,
+          selectionViewport: input.finalState,
           inspectorObjectName: input.inspectorObjectName,
         };
       },
       {
-        composition: seeded.composition,
-        frameCount: 120,
-        initial,
+        gestureMetrics,
         finalState,
         inspectorObjectName,
       },
@@ -682,7 +759,6 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       type: "performance",
       description: JSON.stringify(metrics),
     });
-    expect(metrics.frameP95Ms, JSON.stringify(metrics)).toBeLessThanOrEqual(50);
     expect(metrics.selectionP95Ms, JSON.stringify(metrics)).toBeLessThanOrEqual(
       50,
     );

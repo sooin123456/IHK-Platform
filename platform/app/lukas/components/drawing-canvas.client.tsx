@@ -1131,7 +1131,10 @@ function safeViewport(viewport: Viewport): Viewport {
   };
 }
 
-function fittedViewport(size: CanvasSize, background: DrawingCanvasBackground) {
+export function drawingFittedViewport(
+  size: CanvasSize,
+  background: DrawingCanvasBackground,
+) {
   const availableWidth = Math.max(1, size.width - 80);
   const availableHeight = Math.max(1, size.height - 80);
   const zoom = clampZoom(
@@ -1516,7 +1519,7 @@ export const DrawingCanvas = forwardRef<
 
   const resetViewport = useCallback(() => {
     if (size.width <= 0 || size.height <= 0) return;
-    setViewport(fittedViewport(size, background));
+    setViewport(drawingFittedViewport(size, background));
   }, [background, setViewport, size]);
 
   useImperativeHandle(
@@ -1553,7 +1556,7 @@ export const DrawingCanvas = forwardRef<
   useEffect(() => {
     if (!fitPendingRef.current || size.width <= 0 || size.height <= 0) return;
     fitPendingRef.current = false;
-    setViewport(fittedViewport(size, background));
+    setViewport(drawingFittedViewport(size, background));
   }, [background, setViewport, size]);
 
   useEffect(() => {
