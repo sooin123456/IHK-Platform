@@ -52,3 +52,30 @@ test("workspace screen offers blank and PDF-background creation without replacin
   assert.match(source, /document_mode/);
   assert.match(source, /actionData\?\.error/);
 });
+
+test("workspace document renders the accessible editor shell", async () => {
+  const [screen, shell] = await Promise.all([
+    readFile(
+      new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-workspace.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(screen, /DrawingWorkspaceClient/);
+  assert.match(screen, /협업 도면실/);
+  assert.match(shell, /도면 작업실/);
+  assert.match(shell, /저장됨/);
+  assert.match(shell, /aria-label="저장"/);
+  assert.match(shell, /aria-label="실행 취소"/);
+  assert.match(shell, /aria-label="다시 실행"/);
+  assert.match(shell, /aria-label="레이어 패널"/);
+  assert.match(shell, /aria-label="도면 캔버스"/);
+  assert.match(shell, /aria-label="속성 검사기"/);
+});
