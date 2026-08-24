@@ -1,0 +1,415 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  DrawingWorkspaceRpcError,
+  applyDrawingOperation,
+  createDrawingDocument,
+  loadDrawingWorkspace,
+  loadDrawingWorkspaceCapability,
+  parseWorkspaceMutation,
+} from "../app/lukas/lib/drawing-workspace.server.ts";
+
+const ids = {
+  actor: "00000000-0000-4000-8000-000000000001",
+  project: "00000000-0000-4000-8000-000000000002",
+  file: "00000000-0000-4000-8000-000000000003",
+  document: "00000000-0000-4000-8000-000000000004",
+  revision: "00000000-0000-4000-8000-000000000005",
+  page: "00000000-0000-4000-8000-000000000006",
+  sourceLayer: "00000000-0000-4000-8000-000000000007",
+  workLayer: "00000000-0000-4000-8000-000000000008",
+  object: "00000000-0000-4000-8000-000000000009",
+  operation: "00000000-0000-4000-8000-000000000010",
+};
+
+const sourceSha = "a".repeat(64);
+
+function form(fields) {
+  const result = new FormData();
+  for (const [key, value] of Object.entries(fields))
+    result.set(key, typeof value === "string" ? value : JSON.stringify(value));
+  return result;
+}
+
+function operation(overrides = {}) {
+  return {
+    clientOperationId: ids.operation,
+    revisionId: ids.revision,
+    type: "add_objects",
+    baseVersions: {},
+    forward: {
+      type: "add_objects",
+      objects: [
+        {
+          id: ids.object,
+          layerId: ids.workLayer,
+          geometry: {
+            type: "circle",
+            center: { x: 10, y: 20 },
+            radius: 4,
+          },
+          style: { stroke: "#112233", strokeWidth: 2, fill: null },
+          version: 1,
+        },
+      ],
+    },
+    inverse: { type: "delete_objects", objectIds: [ids.object] },
+    createdAt: "2026-08-24T02:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("mutation parsing preserves a valid operation without accepting authority fields", () => {
+  const input = operation();
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: input }),
+    ),
+    { intent: "apply_operation", operation: input },
+  );
+
+  for (const authority of ["actor_id", "actorId", "project_id", "capability"])
+    assert.throws(() =>
+      parseWorkspaceMutation(
+        form({
+          intent: "apply_operation",
+          operation_json: input,
+          [authority]: ids.actor,
+        }),
+      ),
+    );
+
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({
+        intent: "apply_operation",
+        operation_json: { ...input, actorId: ids.actor },
+      }),
+    ),
+  );
+});
+
+test("mutation parsing rejects malformed canonical geometry before an RPC", () => {
+  const malformed = operation();
+  malformed.forward.objects[0].geometry.radius = -1;
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: malformed }),
+    ),
+  );
+});
+
+test("mutation parsing rejects unknown nested renderer fields instead of stripping them", () => {
+  const rendererShaped = operation();
+  rendererShaped.forward.objects[0].geometry.attrs = { radius: 4 };
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: rendererShaped }),
+    ),
+  );
+});
+
+test("mutation parsing accepts only the approved narrow intent shapes", () => {
+  const revision = ids.revision;
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({ intent: "create_document", title: " A-101 " }),
+    ),
+    { intent: "create_document", title: "A-101" },
+  );
+  assert.deepEqual(
+    parseWorkspaceMutation(form({ intent: "create_layer", name: " 주석 " })),
+    { intent: "create_layer", name: "주석" },
+  );
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({
+        intent: "link_issue",
+        object_id: ids.object,
+        issue_id: ids.actor,
+      }),
+    ),
+    { intent: "link_issue", objectId: ids.object, issueId: ids.actor },
+  );
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({ intent: "request_review", revision_id: revision }),
+    ),
+    { intent: "request_review", revisionId: revision },
+  );
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({
+        intent: "record_revision_decision",
+        revision_id: revision,
+        subject_version: "7",
+        snapshot_sha256: sourceSha,
+        decision: "rejected",
+        note: " 치수 근거 보완 ",
+      }),
+    ),
+    {
+      intent: "record_revision_decision",
+      revisionId: revision,
+      subjectVersion: 7,
+      snapshotSha256: sourceSha,
+      decision: "rejected",
+      note: "치수 근거 보완",
+    },
+  );
+
+  assert.throws(() => parseWorkspaceMutation(form({ intent: "unknown" })));
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({ intent: "create_document", title: "A-101", role: "owner" }),
+    ),
+  );
+});
+
+function queryClient(responses) {
+  const calls = [];
+  return {
+    calls,
+    from(table) {
+      const call = { table, filters: [], orders: [] };
+      calls.push(call);
+      const builder = {
+        select(columns) {
+          call.select = columns;
+          return builder;
+        },
+        eq(column, value) {
+          call.filters.push(["eq", column, value]);
+          return builder;
+        },
+        in(column, values) {
+          call.filters.push(["in", column, values]);
+          return builder;
+        },
+        order(column, options) {
+          call.orders.push([column, options]);
+          return builder;
+        },
+        limit(value) {
+          call.limit = value;
+          return builder;
+        },
+        single() {
+          call.terminal = "single";
+          return Promise.resolve(responses[table]);
+        },
+        maybeSingle() {
+          call.terminal = "maybeSingle";
+          return Promise.resolve(responses[table]);
+        },
+        then(resolve, reject) {
+          call.terminal = "await";
+          return Promise.resolve(responses[table]).then(resolve, reject);
+        },
+      };
+      return builder;
+    },
+  };
+}
+
+test("workspace loading binds immutable PDF evidence to its project and performs no insert", async () => {
+  const file = {
+    id: ids.file,
+    project_id: ids.project,
+    kind: "pdf",
+    original_filename: "A-101.pdf",
+    storage_path: "projects/source.pdf",
+    content_type: "application/pdf",
+    byte_size: 1234,
+    sha256: sourceSha,
+    immutable: true,
+    created_at: "2026-08-24T00:00:00.000Z",
+  };
+  const document = {
+    id: ids.document,
+    project_id: ids.project,
+    source_file_id: ids.file,
+    source_sha256: sourceSha,
+    title: "A-101",
+    created_by: ids.actor,
+    created_at: "2026-08-24T00:00:00.000Z",
+    updated_at: "2026-08-24T01:00:00.000Z",
+  };
+  const revision = {
+    id: ids.revision,
+    document_id: ids.document,
+    project_id: ids.project,
+    parent_revision_id: null,
+    sequence: 1,
+    status: "draft",
+    version: 1,
+    created_by: ids.actor,
+    review_requested_at: null,
+    approved_at: null,
+    created_at: "2026-08-24T00:00:00.000Z",
+    updated_at: "2026-08-24T01:00:00.000Z",
+  };
+  const client = queryClient({
+    lukas_qto_files: { data: file, error: null },
+    lukas_drawing_documents: { data: document, error: null },
+    lukas_drawing_revisions: { data: revision, error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
+    lukas_drawing_layers: {
+      data: [{ id: ids.sourceLayer, locked: true }],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+  });
+
+  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+
+  assert.equal(loaded.file.sha256, sourceSha);
+  assert.equal(loaded.document.revision.id, ids.revision);
+  assert.deepEqual(loaded.document.revision.pages, [{ id: ids.page }]);
+  assert.deepEqual(client.calls[0].filters, [
+    ["eq", "project_id", ids.project],
+    ["eq", "id", ids.file],
+    ["in", "kind", ["pdf", "ifc"]],
+    ["eq", "immutable", true],
+  ]);
+  assert.equal(
+    client.calls.some((call) => call.mutation),
+    false,
+  );
+  assert.equal(file.sha256, sourceSha);
+});
+
+test("workspace loading returns a null document without creating one", async () => {
+  const client = queryClient({
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "ifc",
+        sha256: sourceSha,
+        immutable: true,
+      },
+      error: null,
+    },
+    lukas_drawing_documents: { data: null, error: null },
+  });
+  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  assert.equal(loaded.document, null);
+  assert.deepEqual(
+    client.calls.map((call) => call.table),
+    ["lukas_qto_files", "lukas_drawing_documents"],
+  );
+});
+
+test("document creation derives blank/background behavior from the authoritative file kind", async () => {
+  const rpcCalls = [];
+  const client = {
+    async rpc(name, args) {
+      rpcCalls.push([name, args]);
+      return { data: { documentId: ids.document }, error: null };
+    },
+  };
+  await createDrawingDocument(
+    client,
+    ids.project,
+    { id: ids.file, kind: "pdf" },
+    { title: " A-101 ", mode: "pdf_background" },
+  );
+  await createDrawingDocument(
+    client,
+    ids.project,
+    { id: ids.file, kind: "ifc" },
+    { title: " IFC 스케치 ", mode: "pdf_background" },
+  );
+  assert.deepEqual(rpcCalls, [
+    [
+      "lukas_drawing_create_document",
+      {
+        p_project_id: ids.project,
+        p_source_file_id: ids.file,
+        p_title: "A-101",
+        p_blank: false,
+      },
+    ],
+    [
+      "lukas_drawing_create_document",
+      {
+        p_project_id: ids.project,
+        p_source_file_id: ids.file,
+        p_title: "IFC 스케치",
+        p_blank: true,
+      },
+    ],
+  ]);
+});
+
+test("operation RPC receives exact client operation fields and exposes conflicts", async () => {
+  const input = operation();
+  const calls = [];
+  const successful = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return { data: { operationId: ids.operation }, error: null };
+    },
+  };
+  await applyDrawingOperation(successful, input);
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_apply_operation",
+      {
+        p_revision_id: input.revisionId,
+        p_client_operation_id: input.clientOperationId,
+        p_operation_type: input.type,
+        p_base_versions: input.baseVersions,
+        p_forward: input.forward,
+        p_inverse: input.inverse,
+      },
+    ],
+  ]);
+
+  const conflicting = {
+    async rpc() {
+      return {
+        data: null,
+        error: { message: "Drawing object version conflict" },
+      };
+    },
+  };
+  await assert.rejects(
+    () => applyDrawingOperation(conflicting, input),
+    (error) =>
+      error instanceof DrawingWorkspaceRpcError && error.kind === "conflict",
+  );
+});
+
+test("capability comes from project ownership or membership rows, never user metadata", async () => {
+  const ownerClient = queryClient({});
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      ownerClient,
+      ids.project,
+      ids.actor,
+      ids.actor,
+    ),
+    "admin",
+  );
+  assert.equal(ownerClient.calls.length, 0);
+
+  const memberClient = queryClient({
+    lukas_qto_project_members: { data: { role: "estimator" }, error: null },
+  });
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      memberClient,
+      ids.project,
+      ids.actor,
+      ids.document,
+    ),
+    "editor",
+  );
+  assert.deepEqual(memberClient.calls[0].filters, [
+    ["eq", "project_id", ids.project],
+    ["eq", "user_id", ids.actor],
+  ]);
+});

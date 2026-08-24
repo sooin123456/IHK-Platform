@@ -131,13 +131,21 @@ export default function DrawingRoom({
       >
         <ArrowLeft className="size-4" /> 도면 파일함
       </Link>
-      <header className="mt-3 border-b pb-5">
-        <p className="text-sm font-semibold text-primary">
-          {project.name} · 도면 작업실
-        </p>
-        <h1 className="mt-2 truncate text-2xl font-bold">
-          {room.file.original_filename}
-        </h1>
+      <header className="mt-3 flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-primary">
+            {project.name} · 도면 작업실
+          </p>
+          <h1 className="mt-2 truncate text-2xl font-bold">
+            {room.file.original_filename}
+          </h1>
+        </div>
+        <Link
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg border px-4 text-sm font-semibold underline-offset-4 hover:underline"
+          to={`/projects/${project.id}/drawings/${room.file.id}/workspace`}
+        >
+          도면 편집 작업실
+        </Link>
       </header>
       <ProjectWorkspaceNav current="drawings" projectId={project.id} />
 
