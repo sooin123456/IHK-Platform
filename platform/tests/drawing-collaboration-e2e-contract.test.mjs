@@ -6,6 +6,23 @@ import test from "node:test";
 const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
 
+test("local Playwright server binds the same explicit host as its readiness URL", async () => {
+  const config = await read("playwright.config.ts");
+  const baseHost = config.match(
+    /const BASE_URL =[^\n]*`http:\/\/([^:$`]+):\$\{PORT\}`/,
+  )?.[1];
+  const commandHost = config.match(
+    /command:\s*`npm run dev -- --port \$\{PORT\} --host ([^\s`]+)`/,
+  )?.[1];
+
+  assert.ok(baseHost, "local BASE_URL must declare an explicit host");
+  assert.ok(
+    commandHost,
+    "local webServer command must declare an explicit host",
+  );
+  assert.equal(commandHost, baseHost);
+});
+
 test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", async () => {
   const config = await read("playwright.config.ts");
   const spec = await read("e2e/drawing-collaboration.spec.ts");

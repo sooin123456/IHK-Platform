@@ -52,7 +52,7 @@ export default defineConfig({
   webServer: remote
     ? undefined
     : {
-        command: `npm run dev -- --port ${PORT}`,
+        command: `npm run dev -- --port ${PORT} --host 127.0.0.1`,
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         env: {

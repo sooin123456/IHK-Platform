@@ -82,3 +82,28 @@ An earlier no-placeholder probe was intentionally not counted as a pass: it retu
 - No earlier migration was rewritten and no migration was applied remotely.
 - No Yjs, separate collaboration server, state-management package, or other new dependency was introduced.
 - P3 live multi-user synchronization and the production-only performance/SHA/role fixture remain outside this release-hardening change and are not claimed complete here.
+
+## Fix round 2 — local Playwright host alignment
+
+### RED and root cause
+
+- Added `local Playwright server binds the same explicit host as its readiness URL` before changing the config.
+- `node --test tests/drawing-collaboration-e2e-contract.test.mjs`: 2/3 passed and the new test failed with `local webServer command must declare an explicit host`.
+- `BASE_URL` used `127.0.0.1`, while the local web-server command allowed the development server to bind its default `localhost`. Playwright therefore polled a different interface until its 60-second timeout.
+
+### Correction
+
+- Changed only the non-remote `webServer.command` to `npm run dev -- --port ${PORT} --host 127.0.0.1`.
+- The `remote` branch remains `undefined`, so a supplied `E2E_BASE_URL` still starts no local server and is unchanged.
+- No dependency, server abstraction, or additional configuration path was introduced.
+
+### GREEN and environment evidence
+
+- Focused config contract: 3/3 passed.
+- The literal no-environment preview command reached `127.0.0.1:4000` after the host correction, then timed out because the root loader returned the existing HTTP 500 `Missing Supabase environment variables`; this was not counted as a product pass.
+- In a clean shell with non-secret local placeholder publishable Supabase values exported, the requested command itself was run unchanged: `npx playwright test e2e/workspace-preview-room.spec.ts --project=chromium`. It started the configured local server and passed 1/1 in 5.7 seconds.
+- Focused config/workspace E2E contracts: 5/5 passed.
+- `npm run test:drawing-workspace`: 222/222 passed.
+- `node --test tests/*.test.mjs`: 338/338 passed.
+- `npm run test:ifc`: passed with 413,681 bytes, 120 selectable elements, 115 geometric elements, 119 placements, and 14,694 triangles.
+- `npm run typecheck`, `npm run build`, and `git diff --check`: passed. Build output contained only the already-recorded warnings.
