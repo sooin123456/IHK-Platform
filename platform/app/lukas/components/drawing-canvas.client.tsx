@@ -1946,8 +1946,14 @@ export const DrawingCanvas = forwardRef<
 
   return (
     <div
+      aria-describedby="drawing-canvas-input-description"
       aria-label="도면 화면. 스페이스 키와 드래그 또는 가운데 단추 드래그로 이동합니다."
       className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      data-selected-object-name={selectedObjects[0]?.name ?? ""}
+      data-selection-count={selectionState.selectedIds.length}
+      data-viewport-x={viewport.x}
+      data-viewport-y={viewport.y}
+      data-viewport-zoom={viewport.zoom}
       onBlur={() => {
         spacePressedRef.current = false;
         const result = drawingPanGestureTransition(panGestureRef.current, {
@@ -1988,20 +1994,9 @@ export const DrawingCanvas = forwardRef<
       ref={hostRef}
       tabIndex={0}
     >
-      {/* Read-only diagnostics let assistive and release-test clients confirm that
-          input changed the rendered view without treating DOM state as canonical. */}
-      <output
-        aria-label="도면 상태"
-        className="sr-only"
-        data-selected-object-name={selectedObjects[0]?.name ?? ""}
-        data-selection-count={selectionState.selectedIds.length}
-        data-viewport-x={viewport.x}
-        data-viewport-y={viewport.y}
-        data-viewport-zoom={viewport.zoom}
-      >
-        확대 {viewport.zoom.toFixed(3)}, 선택{" "}
-        {selectionState.selectedIds.length}개
-      </output>
+      <p className="sr-only" id="drawing-canvas-input-description">
+        휠로 확대하고 이동 도구 또는 스페이스 키와 드래그로 화면을 이동합니다.
+      </p>
       {size.width > 0 && size.height > 0 ? (
         <Stage
           height={size.height}

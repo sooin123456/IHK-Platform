@@ -4,7 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BrowserContext } from "@playwright/test";
 
 const IFC_URL =
-  "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/main/examples/example.ifc";
+  "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
 const IFC_SHA256 =
   "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
 
@@ -460,15 +460,15 @@ export async function readSourceEvidence(fixture: DrawingFixture) {
   );
 }
 
-export async function seedDrawingPerformanceObjects(
-  fixture: DrawingFixture,
-  count = 10_000,
+export function buildDrawingPerformanceFixture(
+  count: number,
+  layerId: string,
+  makeId: (index: number) => string = () => randomUUID(),
 ) {
   if (count !== 10_000)
     throw new Error(
       "The release performance fixture requires exactly 10,000 objects",
     );
-  const owner = await authenticateApiClient(fixture, fixture.owner);
   const types = [
     "line",
     "polyline",
@@ -481,12 +481,16 @@ export async function seedDrawingPerformanceObjects(
     types.map((type) => [type, 0]),
   ) as Record<(typeof types)[number], number>;
   const objects = Array.from({ length: count }, (_, index) => {
-    const type = types[index % types.length];
+    const isolated = index === 0;
+    const gridIndex = index - 1;
+    const type = isolated ? "circle" : types[gridIndex % types.length];
     composition[type] += 1;
-    const x = 12 + (index % 100) * 7;
-    const y = 12 + Math.floor(index / 100) * 5;
+    const x = isolated ? 820 : 12 + (gridIndex % 100) * 7;
+    const y = isolated ? 580 : 12 + Math.floor(gridIndex / 100) * 5;
     const geometry =
-      type === "line"
+      isolated
+        ? { type: "circle" as const, center: { x, y }, radius: 2 }
+        : type === "line"
         ? { type, start: { x, y }, end: { x: x + 4, y: y + 2 } }
         : type === "polyline"
           ? {
@@ -512,9 +516,9 @@ export async function seedDrawingPerformanceObjects(
                     calibrationId: null,
                   };
     return {
-      id: randomUUID(),
-      name: `${type}-${index + 1}`,
-      layerId: fixture.blankWorkspace.workLayerId,
+      id: makeId(index),
+      name: isolated ? "isolated-selection-target" : `${type}-${index + 1}`,
+      layerId,
       geometry,
       style: {
         stroke: "#2563eb",
@@ -525,6 +529,31 @@ export async function seedDrawingPerformanceObjects(
       version: 1,
     };
   });
+  const target = objects[0];
+  return {
+    composition,
+    count,
+    objects,
+    selectionTarget: {
+      id: target.id,
+      name: target.name,
+      world: { x: 820, y: 580 },
+      minimumZoom: 0.5,
+      tolerancePixels: 6,
+    },
+  };
+}
+
+export async function seedDrawingPerformanceObjects(
+  fixture: DrawingFixture,
+  count = 10_000,
+) {
+  const owner = await authenticateApiClient(fixture, fixture.owner);
+  const performanceFixture = buildDrawingPerformanceFixture(
+    count,
+    fixture.blankWorkspace.workLayerId,
+  );
+  const { objects } = performanceFixture;
 
   for (let offset = 0; offset < objects.length; offset += 250) {
     const chunk = objects.slice(offset, offset + 250);
@@ -541,14 +570,7 @@ export async function seedDrawingPerformanceObjects(
     });
     if (error) throw error;
   }
-  return {
-    composition,
-    count,
-    selectionTargets: [
-      { name: objects[2].name, world: { x: 28.5, y: 13.5 } },
-      { name: objects[8].name, world: { x: 70.5, y: 13.5 } },
-    ],
-  };
+  return performanceFixture;
 }
 
 export async function authenticateContext(

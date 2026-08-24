@@ -9,6 +9,7 @@ const read = (file) => readFile(path.join(root, file), "utf8");
 test("drawing workspace has one complete serial production contract", async () => {
   const spec = await read("e2e/drawing-workspace.spec.ts");
   const fixture = await read("e2e/utils/drawing-collaboration-fixture.ts");
+  const canvas = await read("app/lukas/components/drawing-canvas.client.tsx");
   const ifcRunner = await read("tests/run-ifc-geometry-smoke.mjs");
   const packageJson = JSON.parse(await read("package.json"));
 
@@ -67,6 +68,7 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(spec, /viewportZoom/);
   assert.match(spec, /selectionCount/);
   assert.match(spec, /inspectorObjectName/);
+  assert.match(spec, /seeded\.selectionTarget\.name/);
   assert.match(spec, /p95.*50/is);
   assert.doesNotMatch(spec, /live cursor|Yjs|Hocuspocus/i);
 
@@ -82,6 +84,13 @@ test("drawing workspace has one complete serial production contract", async () =
     /\.storage\s*[\s\S]*\.from\("lukas-qto"\)\s*[\s\S]*\.download/,
   );
   assert.match(fixture, /seedDrawingPerformanceObjects/);
+  assert.match(fixture, /buildDrawingPerformanceFixture/);
+  assert.match(fixture, /selectionTarget/);
+  assert.match(
+    fixture,
+    /raw\.githubusercontent\.com\/ThatOpen\/engine_web-ifc\/[0-9a-f]{40}\/examples\/example\.ifc/,
+  );
+  assert.doesNotMatch(fixture, /engine_web-ifc\/main\//);
   assert.match(fixture, /10_000/);
   assert.match(fixture, /cleanupErrors/);
   assert.match(fixture, /AggregateError/);
@@ -104,11 +113,22 @@ test("drawing workspace has one complete serial production contract", async () =
   assert.match(ifcRunner, /ThatOpen\/engine_web-ifc/);
   assert.match(
     ifcRunner,
+    /raw\.githubusercontent\.com\/ThatOpen\/engine_web-ifc\/[0-9a-f]{40}\/examples\/example\.ifc/,
+  );
+  assert.doesNotMatch(ifcRunner, /engine_web-ifc\/main\//);
+  assert.match(
+    ifcRunner,
     /db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d/,
   );
   assert.match(ifcRunner, /mkdtemp/);
   assert.match(ifcRunner, /rm\(temporaryDirectory/);
   assert.match(ifcRunner, /spawnSync/);
+  assert.doesNotMatch(canvas, /<output/);
+  assert.match(canvas, /data-viewport-zoom=\{viewport\.zoom\}/);
+  assert.match(
+    canvas,
+    /data-selection-count=\{selectionState\.selectedIds\.length\}/,
+  );
 });
 
 test("release documentation keeps local evidence separate from external gates", async () => {

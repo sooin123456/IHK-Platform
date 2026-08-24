@@ -68,6 +68,12 @@ const { DrawingInspector } = await vite.ssrLoadModule(
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",
 );
+const { buildDrawingPerformanceFixture } = await vite.ssrLoadModule(
+  "/e2e/utils/drawing-collaboration-fixture.ts",
+);
+const { drawingSelectionHitBounds } = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-canvas.client.tsx",
+);
 
 const foundationSql = `
     create role anon nologin;
@@ -1720,4 +1726,26 @@ test("viewer layer panel keeps read surfaces but omits every mutation control", 
   assert.doesNotMatch(readOnly, /<form/);
   assert.doesNotMatch(readOnly, /<input/);
   assert.doesNotMatch(readOnly, /<button/);
+});
+
+test("performance selection target intersects exactly one tolerance-expanded object", () => {
+  const fixture = buildDrawingPerformanceFixture(
+    10_000,
+    "00000000-0000-4000-8000-000000000099",
+    (index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const zoom = 0.5;
+  const point = fixture.selectionTarget.world;
+  const hits = fixture.objects.filter((object) => {
+    const bounds = drawingSelectionHitBounds(object.geometry, zoom, 6);
+    return (
+      point.x >= bounds.x &&
+      point.x <= bounds.x + bounds.width &&
+      point.y >= bounds.y &&
+      point.y <= bounds.y + bounds.height
+    );
+  });
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].id, fixture.selectionTarget.id);
+  assert.equal(hits[0].name, fixture.selectionTarget.name);
 });

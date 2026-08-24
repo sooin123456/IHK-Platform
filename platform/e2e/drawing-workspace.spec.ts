@@ -506,7 +506,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     );
     await waitUntilSaved(page);
     const surface = page.getByLabel(/도면 화면/);
-    const state = page.getByLabel("도면 상태");
+    const state = surface;
     const readState = async () => ({
       viewportX: Number(await state.getAttribute("data-viewport-x")),
       viewportY: Number(await state.getAttribute("data-viewport-y")),
@@ -516,6 +516,9 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
         (await state.getAttribute("data-selected-object-name")) ?? "",
     });
     const initial = await readState();
+    expect(initial.viewportZoom).toBeGreaterThanOrEqual(
+      seeded.selectionTarget.minimumZoom,
+    );
     await surface.evaluate((element) => {
       const evidence = {
         mode: "zoom" as "zoom" | "pan" | "selection",
@@ -600,8 +603,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       ).__drawingPerformanceEvidence.mode = "selection";
     });
     for (let query = 0; query < 20; query += 1) {
-      const target =
-        seeded.selectionTargets[query % seeded.selectionTargets.length];
+      const target = seeded.selectionTarget;
       const current = await readState();
       await page.mouse.click(
         box.x + current.viewportX + target.world.x * current.viewportZoom,
@@ -628,6 +630,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
       .getByLabel("객체 이름", { exact: true })
       .inputValue();
     expect(finalState.selectionCount).toBe(1);
+    expect(finalState.selectedObjectName).toBe(seeded.selectionTarget.name);
     expect(inspectorObjectName).toBe(finalState.selectedObjectName);
 
     const metrics = await surface.evaluate(
