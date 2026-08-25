@@ -237,8 +237,16 @@ export type DrawingWorkspaceClient = SupabaseClient<DrawingWorkspaceDatabase>;
 
 const drawingObjectPageSize = 1_000;
 
+type DrawingRowsTable =
+  | "lukas_drawing_pages" | "lukas_drawing_canvases" | "lukas_drawing_layers"
+  | "lukas_drawing_objects" | "lukas_drawing_styles" | "lukas_drawing_blocks"
+  | "lukas_drawing_block_instances" | "lukas_drawing_property_schemas"
+  | "lukas_drawing_property_values" | "lukas_drawing_tables" | "lukas_drawing_revisions"
+  | "lukas_drawing_documents" | "lukas_drawing_snapshots" | "lukas_drawing_issues"
+  | "lukas_drawing_object_issue_links";
+
 type DrawingRowsQuery = {
-  table: string;
+  table: DrawingRowsTable;
   projectId: string;
   revisionId?: string;
   order: readonly string[];
@@ -273,7 +281,7 @@ export async function loadAllDrawingRows<TRow extends { id: string }>(
 
   const rows = new Map<string, TRow>();
   for (let from = 0; ; from += pageSize) {
-    let request = (client as unknown as { from: (table: string) => DrawingRowsRequest })
+    let request = (client as unknown as { from: (table: DrawingRowsTable) => DrawingRowsRequest })
       .from(query.table)
       .select(query.select ?? "*")
       .eq("project_id", query.projectId);
@@ -286,7 +294,8 @@ export async function loadAllDrawingRows<TRow extends { id: string }>(
       throw new Error(`도면 ${query.table}을 불러오지 못했습니다: ${error.message}`);
     if (!Array.isArray(data) || data.some((row) => !row || typeof row !== "object" || typeof (row as { id?: unknown }).id !== "string"))
       throw new Error(`도면 ${query.table} 응답 형식이 올바르지 않습니다.`);
-    const page = data as TRow[];
+    const page: TRow[] = [];
+    for (const row of data) page.push(row as TRow);
     for (const row of page) rows.set(row.id, row);
     if (page.length < pageSize)
       return [...rows.values()].sort((left, right) =>
@@ -590,9 +599,18 @@ export type DrawingWorkspace = {
   document:
     | (DrawingDocumentRow & {
         revision: DrawingRevisionRow & {
-          pages: DrawingPageRow[];
-          layers: DrawingLayerRow[];
-          objects: DrawingObjectRow[];
+          pages: Array<DrawingPageRow | DrawingWorkspaceP2Page>;
+          layers: Array<DrawingLayerRow | DrawingLayer>;
+          objects: Array<DrawingObjectRow | DrawingObject>;
+          activePageId?: string;
+          activeCanvasId?: string;
+          canvases?: DrawingCanvas[];
+          styles?: DrawingStyleDefinition[];
+          blocks?: DrawingBlock[];
+          blockInstances?: DrawingBlockInstance[];
+          propertySchemas?: DrawingPropertySchema[];
+          propertyValues?: DrawingPropertyValue[];
+          tables?: DrawingTable[];
           issues: DrawingWorkspaceIssue[];
           issueLinks: DrawingObjectIssueLink[];
           reviewEvidence: {
@@ -612,6 +630,8 @@ type DrawingWorkspaceP2Page = DrawingPage & {
 };
 
 type DrawingWorkspaceP2 = {
+  activePageId: string;
+  activeCanvasId: string;
   pages: DrawingWorkspaceP2Page[];
   canvases: DrawingCanvas[];
   layers: DrawingLayer[];
@@ -636,7 +656,7 @@ const P2PageRowSchema = z.object({
   revision_id: Uuid,
   project_id: Uuid,
   name: z.string(),
-  page_number: z.number().int().nonnegative(),
+  sort_order: z.number().int().nonnegative(),
   version: z.number().int().positive(),
 }).strict();
 const P2CanvasRowSchema = z.object({
@@ -653,7 +673,7 @@ const P2LayerRowSchema = z.object({
   version: z.number().int().positive(),
 }).strict();
 const P2ObjectRowSchema = z.object({
-  id: Uuid, name: z.string(), layer_id: Uuid, revision_id: Uuid, project_id: Uuid,
+  id: Uuid, name: z.string(), page_id: Uuid, layer_id: Uuid, revision_id: Uuid, project_id: Uuid,
   geometry: z.unknown(), style_id: Uuid.nullable(), style: z.unknown(),
   version: z.number().int().positive(),
 }).strict();
@@ -708,7 +728,7 @@ function parseP2Workspace(
   const pages = rows.pages.map((row) => {
     const value = P2PageRowSchema.safeParse(row);
     if (!value.success) return p2RowError("page");
-    return DrawingPageSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, sortOrder: value.data.page_number, version: value.data.version });
+    return DrawingPageSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, sortOrder: value.data.sort_order, version: value.data.version });
   });
   const canvases = rows.canvases.map((row) => {
     const value = P2CanvasRowSchema.safeParse(row);
@@ -778,11 +798,21 @@ function parseP2Workspace(
   const pageIds = byId(pages), canvasIds = byId(canvases), layerIds = byId(layers), blockIds = byId(blocks), objectIds = byId(objects), instanceIds = byId(blockInstances), propertySchemaIds = byId(propertySchemas);
   requireP2Ancestry(pages.every((page) => page.revisionId === revisionId));
   requireP2Ancestry(canvases.every((canvas) => pageIds.has(canvas.pageId)));
+  requireP2Ancestry(rows.canvases.every((row) => {
+    const canvas = P2CanvasRowSchema.parse(row);
+    const fields = [canvas.background_source_file_id, canvas.background_source_sha256, canvas.background_pdf_page, canvas.calibration];
+    return fields.every((field) => field === null) || (canvas.background_source_file_id !== null && canvas.background_source_sha256 !== null);
+  }), "Drawing canvas background evidence is invalid.");
   requireP2Ancestry(canvases.every((canvas) => canvas.background === null || (canvas.background.sourceFileId === file.id && canvas.background.sourceSha256 === file.sha256)), "Drawing canvas source evidence is invalid.");
-  requireP2Ancestry(layers.every((layer) => canvasIds.has(layer.canvasId)));
-  requireP2Ancestry(objects.every((object) => layerIds.has(object.layerId)));
+  requireP2Ancestry(layers.every((layer, index) => canvasIds.has(layer.canvasId) && P2LayerRowSchema.parse(rows.layers[index]).page_id === canvases.find((canvas) => canvas.id === layer.canvasId)?.pageId));
+  requireP2Ancestry(objects.every((object, index) => {
+    const layer = layers.find((candidate) => candidate.id === object.layerId);
+    return layerIds.has(object.layerId) && layer && P2ObjectRowSchema.parse(rows.objects[index]).page_id === canvases.find((canvas) => canvas.id === layer.canvasId)?.pageId;
+  }));
   requireP2Ancestry(blocks.every((block) => block.revisionId === revisionId) && styles.every((style) => style.revisionId === revisionId) && propertySchemas.every((schema) => schema.revisionId === revisionId) && tables.every((table) => table.revisionId === revisionId));
   requireP2Ancestry(blockInstances.every((instance) => blockIds.has(instance.blockId) && layerIds.has(instance.layerId)));
+  const styleIds = byId(styles);
+  requireP2Ancestry(objects.every((object) => object.styleId == null || styleIds.has(object.styleId)) && blocks.every((block) => block.primitives.every((primitive) => primitive.styleId === null || styleIds.has(primitive.styleId))));
   requireP2Ancestry(propertyValues.every((value) => propertySchemaIds.has(value.schemaId) && (value.objectId === null || objectIds.has(value.objectId)) && (value.blockInstanceId === null || instanceIds.has(value.blockInstanceId))));
   requireP2Ancestry(tables.every((table) => table.columns.every((column) => column.propertySchemaId === null || propertySchemaIds.has(column.propertySchemaId)) && table.rows.every((row) => (row.objectId === null || objectIds.has(row.objectId)) && (row.blockInstanceId === null || instanceIds.has(row.blockInstanceId)))));
   for (const page of pages) {
@@ -791,8 +821,14 @@ function parseP2Workspace(
     requireP2Ancestry(pageCanvases.every((canvas) => layers.some((layer) => layer.canvasId === canvas.id && layer.systemKind !== "source" && layer.visible && !layer.locked)), "Drawing canvas editable layer is missing.");
   }
   const sorted = <T extends { id: string }>(values: T[], order: (value: T) => number) => [...values].sort((left, right) => order(left) - order(right) || left.id.localeCompare(right.id));
+  const orderedPages = sorted(pages, (page) => page.sortOrder);
+  const activePage = orderedPages[0];
+  const activeCanvas = activePage && sorted(canvases.filter((canvas) => canvas.pageId === activePage.id && canvas.spaceKind === "paper" && canvas.sortOrder === 0), (canvas) => canvas.sortOrder)[0];
+  requireP2Ancestry(activePage && activeCanvas, "Drawing default canvas is missing.");
   return {
-    pages: sorted(pages, (page) => page.sortOrder).map((page) => ({ ...page, canvases: sorted(canvases.filter((canvas) => canvas.pageId === page.id), (canvas) => canvas.sortOrder), layers: sorted(layers.filter((layer) => canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId)), (layer) => layer.sortOrder), objects: sorted(objects.filter((object) => layers.some((layer) => layer.id === object.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0), blockInstances: sorted(blockInstances.filter((instance) => layers.some((layer) => layer.id === instance.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0) })),
+    activePageId: activePage.id,
+    activeCanvasId: activeCanvas.id,
+    pages: orderedPages.map((page) => ({ ...page, canvases: sorted(canvases.filter((canvas) => canvas.pageId === page.id), (canvas) => canvas.sortOrder), layers: sorted(layers.filter((layer) => canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId)), (layer) => layer.sortOrder), objects: sorted(objects.filter((object) => layers.some((layer) => layer.id === object.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0), blockInstances: sorted(blockInstances.filter((instance) => layers.some((layer) => layer.id === instance.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0) })),
     canvases: sorted(canvases, (canvas) => canvas.sortOrder), layers: sorted(layers, (layer) => layer.sortOrder), objects: sorted(objects, () => 0), styles: sorted(styles, () => 0), blocks: sorted(blocks, () => 0), blockInstances: sorted(blockInstances, () => 0), propertySchemas: sorted(propertySchemas, () => 0), propertyValues: sorted(propertyValues, () => 0), tables: sorted(tables, () => 0),
   };
 }
@@ -832,6 +868,24 @@ export async function loadDrawingTemplateCandidates(
       return p2RowError("template candidate ancestry");
     return { revisionId: revision.data.id, title: Title.parse(document.title), approvedAt: revision.data.approved_at, snapshotSha256: snapshot.sha256 };
   }).sort((left, right) => left.approvedAt.localeCompare(right.approvedAt) || left.revisionId.localeCompare(right.revisionId));
+}
+
+async function loadReviewEvidence(
+  client: DrawingWorkspaceClient,
+  projectId: string,
+  revision: Pick<DrawingRevisionRow, "id" | "status" | "version">,
+) {
+  if (revision.status !== "review_requested") return null;
+  const { data, error } = await client
+    .from("lukas_drawing_snapshots")
+    .select("revision_version,sha256")
+    .eq("project_id", projectId)
+    .eq("revision_id", revision.id)
+    .eq("revision_version", revision.version)
+    .maybeSingle();
+  if (error) throw new Error(`도면 검토 스냅샷을 불러오지 못했습니다: ${error.message}`);
+  if (!data) throw new Error("Drawing review snapshot evidence is missing.");
+  return { subjectVersion: data.revision_version, snapshotSha256: Sha256.parse(data.sha256) };
 }
 
 export async function loadDrawingWorkspace(
@@ -927,10 +981,10 @@ export async function loadDrawingWorkspace(
       activeObjectIds.has(link.object_id) && issueIds.has(link.issue_id),
   );
   const [p2Pages, p2Canvases, p2Layers, p2Objects, p2Styles, p2Blocks, p2BlockInstances, p2PropertySchemas, p2PropertyValues, p2Tables] = await Promise.all([
-    loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["page_number", "id"], select: "id,revision_id,project_id,name,page_number,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,revision_id,project_id,name,sort_order,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,primitives,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: ["id"], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
@@ -938,7 +992,8 @@ export async function loadDrawingWorkspace(
     loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: ["id"], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
     loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
   ]);
-  if (p2Canvases.length > 0) {
+  const p2Format = p2Pages.some((row) => typeof row === "object" && row !== null && "sort_order" in row);
+  if (p2Format) {
     if (
       document.project_id !== projectId ||
       document.source_file_id !== file.id ||
@@ -948,6 +1003,7 @@ export async function loadDrawingWorkspace(
     )
       throw new Error("Drawing document source ancestry is invalid.");
     const templateCandidates = await loadDrawingTemplateCandidates(client, projectId);
+    const reviewEvidence = await loadReviewEvidence(client, projectId, revision);
     const p2 = parseP2Workspace(projectId, revision.id, file as DrawingWorkspaceFile, {
       pages: p2Pages, canvases: p2Canvases, layers: p2Layers, objects: p2Objects,
       styles: p2Styles, blocks: p2Blocks, blockInstances: p2BlockInstances,
@@ -963,10 +1019,10 @@ export async function loadDrawingWorkspace(
           ...p2,
           issues,
           issueLinks,
-          reviewEvidence: null,
+          reviewEvidence,
         },
       },
-    } as unknown as DrawingWorkspace;
+    };
   }
   const sourceLayers = layers.filter((layer) => layer.system_kind === "source");
   if (
@@ -1068,11 +1124,13 @@ export async function loadDrawingWorkspaceSourceUrl(
 ): Promise<string | null> {
   if (!workspace.document) return null;
   const backgroundPage = workspace.document.revision.pages.find(
-    (page) => page.background_pdf_page !== null,
+    (page): page is DrawingPageRow => "background_pdf_page" in page && typeof page.background_pdf_page === "number",
   );
-  const p2Background = (workspace.document.revision.pages as unknown as Array<{
-    canvases?: DrawingCanvas[];
-  }>).flatMap((page) => page.canvases ?? []).find((canvas) => canvas.background?.pdfPageNumber !== null)?.background ?? null;
+  const p2Background = workspace.document.revision.pages
+    .filter((page): page is DrawingWorkspaceP2Page => "canvases" in page)
+    .flatMap((page) => page.canvases)
+    .map((canvas) => canvas.background)
+    .find((background) => background !== null && background.pdfPageNumber !== null) ?? null;
   if (workspace.file.kind === "pdf" && !backgroundPage && !p2Background) return null;
   if (
     (backgroundPage &&
@@ -1488,14 +1546,16 @@ export async function handleWorkspaceMutation({
             ? "rpc"
             : "validation";
     return {
-      status: kind === "conflict" || kind === "rejected" ? 409 : kind === "retryable" ? 503 : 400,
+      status: kind === "conflict" ? 409 : kind === "rejected" ? 404 : kind === "retryable" ? 503 : 400,
       body: {
         ok: false,
         kind,
         error:
-          error instanceof Error
-            ? error.message
-            : "도면 작업을 저장하지 못했습니다.",
+          kind === "rejected"
+            ? "도면 대상은 사용할 수 없습니다."
+            : error instanceof Error
+              ? error.message
+              : "도면 작업을 저장하지 못했습니다.",
       },
     };
   }

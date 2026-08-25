@@ -201,25 +201,31 @@ export function drawingEditingContext(
 function drawingStateFromRevision(
   revision: NonNullable<DrawingWorkspace["document"]>["revision"],
 ): DrawingDocumentState {
+  const activeCanvasId = revision.activeCanvasId;
+  const layers = revision.layers.filter(
+    (layer) => !activeCanvasId || !("canvasId" in layer) || layer.canvasId === activeCanvasId,
+  );
+  const layerIds = new Set(layers.map((layer) => layer.id));
   return createDrawingDocumentState({
     revisionId: revision.id,
-    layers: revision.layers.map((layer) =>
+    layers: layers.map((layer) =>
       DrawingLayerSchema.parse({
         id: layer.id,
         name: layer.name,
         visible: layer.visible,
         locked: layer.locked,
-        systemKind: layer.system_kind,
+        systemKind: "systemKind" in layer ? layer.systemKind : layer.system_kind,
         version: layer.version,
       }),
     ),
-    objects: revision.objects.map((object) =>
+    objects: revision.objects.filter((object) => layerIds.has("layerId" in object ? object.layerId : object.layer_id)).map((object) =>
       DrawingObjectSchema.parse({
         id: object.id,
         name: object.name,
-        layerId: object.layer_id,
+        layerId: "layerId" in object ? object.layerId : object.layer_id,
         geometry: object.geometry,
         style: object.style,
+        ...( "styleId" in object ? { styleId: object.styleId } : {}),
         version: object.version,
       }),
     ),
@@ -302,7 +308,21 @@ export default function DrawingWorkspaceClient({
     () => resolveActiveDrawingLayerId(drawingState.layers, activeLayerId),
     [activeLayerId, drawingState.layers],
   );
-  const page = revision.pages[0];
+  const activeP2Page = revision.pages.find(
+    (candidate) => "canvases" in candidate && candidate.id === revision.activePageId,
+  );
+  const activeCanvas = activeP2Page && "canvases" in activeP2Page
+    ? activeP2Page.canvases.find((candidate) => candidate.id === revision.activeCanvasId)
+    : null;
+  const page = activeCanvas
+    ? {
+        id: activeCanvas.pageId,
+        width_mm: activeCanvas.widthMillimeters,
+        height_mm: activeCanvas.heightMillimeters,
+        background_pdf_page: activeCanvas.background?.pdfPageNumber ?? null,
+        calibration: activeCanvas.background?.calibration ?? null,
+      }
+    : revision.pages.find((candidate) => "width_mm" in candidate);
   const editingContext = drawingEditingContext(
     capability,
     Object.values(drawingState.layers),

@@ -136,7 +136,7 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
     lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
     lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
     lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", page_number: 0, version: 1 }], error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
     lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: sourceSha, background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
     lukas_drawing_layers: { data: [{ id: ids.sourceLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Source", sort_order: 0, visible: true, locked: true, system_kind: "source", version: 1 }, { id: ids.workLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Work", sort_order: 1, visible: true, locked: false, system_kind: "work", version: 1 }], error: null },
     lukas_drawing_objects: { data: [], error: null },
@@ -165,10 +165,26 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
     lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
     lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
     lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", page_number: 0, version: 1 }], error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
     lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: "b".repeat(64), background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
   });
   await assert.rejects(loadDrawingWorkspace(malformed, ids.project, ids.file), /source evidence|ancestry/i);
+});
+
+test("P2 blank canvases do not sign an undefined legacy background and select the authoritative default canvas", async () => {
+  const client = queryClient({
+    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true, storage_path: "source.pdf" }, error: null },
+    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
+    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
+    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: null, background_source_sha256: null, background_pdf_page: null, calibration: null, sort_order: 0, version: 1 }], error: null },
+    lukas_drawing_layers: { data: [{ id: ids.workLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Work", sort_order: 0, visible: true, locked: false, system_kind: "work", version: 1 }], error: null },
+    lukas_drawing_objects: { data: [], error: null }, lukas_drawing_styles: { data: [], error: null }, lukas_drawing_blocks: { data: [], error: null }, lukas_drawing_block_instances: { data: [], error: null }, lukas_drawing_property_schemas: { data: [], error: null }, lukas_drawing_property_values: { data: [], error: null }, lukas_drawing_tables: { data: [], error: null },
+  });
+  const workspace = await loadDrawingWorkspace(client, ids.project, ids.file);
+  assert.equal(workspace.document.revision.activePageId, ids.page);
+  assert.equal(workspace.document.revision.activeCanvasId, p2Ids.canvas);
+  assert.equal(await workspaceServer.loadDrawingWorkspaceSourceUrl({ storage: { from() { throw new Error("must not sign"); } } }, workspace), null);
 });
 
 test("template clone accepts only project-bound source IDs and parses its authoritative response", async () => {
@@ -196,7 +212,7 @@ test("template clone rejects browser authority fields, foreign candidates, and n
     capability: "editor", workspace: base,
     form: form({ intent: "create_from_template", source_revision_id: ids.actor, title: "Draft" }),
   });
-  assert.equal(foreign.status, 409);
+  assert.equal(foreign.status, 404);
   const reviewed = await handleWorkspaceMutation({
     client: { async rpc() { throw new Error("must not call"); } }, projectId: ids.project,
     capability: "editor", workspace: { ...base, document: { ...base.document, revision: { ...base.document.revision, status: "review_requested" } } }, form: cloneForm,
@@ -319,7 +335,7 @@ test("stable domain SQLSTATEs map to terminal conflict or rejection while databa
   });
   for (const [code, kind, status] of [
     ["P1C01", "conflict", 409],
-    ["P1R01", "rejected", 409],
+    ["P1R01", "rejected", 404],
     ["40001", "retryable", 503],
     ["40P01", "retryable", 503],
   ]) {
