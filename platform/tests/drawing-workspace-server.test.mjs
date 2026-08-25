@@ -68,10 +68,14 @@ test("workspace object loading uses an ID keyset beyond the Supabase response ca
         order() {
           return builder;
         },
-        gt(column, cursor) { calls.push(["gt", column, cursor]); return builder; },
+        gt(column, cursor) {
+          calls.push(["gt", column, cursor]);
+          return builder;
+        },
         limit(size) {
           const cursor = calls.findLast((call) => call[0] === "gt")?.[2];
-          const from = cursor == null ? 0 : rows.findIndex((row) => row.id === cursor) + 1;
+          const from =
+            cursor == null ? 0 : rows.findIndex((row) => row.id === cursor) + 1;
           calls.push(["limit", size]);
           return Promise.resolve({
             data: rows.slice(from, from + size),
@@ -90,9 +94,14 @@ test("workspace object loading uses an ID keyset beyond the Supabase response ca
     1_000,
   );
   assert.equal(loaded.length, 2_005);
-  assert.deepEqual(calls.filter((call) => call[0] === "limit"), [
-    ["limit", 1_000], ["limit", 1_000], ["limit", 1_000],
-  ]);
+  assert.deepEqual(
+    calls.filter((call) => call[0] === "limit"),
+    [
+      ["limit", 1_000],
+      ["limit", 1_000],
+      ["limit", 1_000],
+    ],
+  );
 });
 
 test("bounded drawing row pagination has deterministic ID ties and removes duplicate rows", async () => {
@@ -104,19 +113,36 @@ test("bounded drawing row pagination has deterministic ID ties and removes dupli
   const client = {
     from(table) {
       const builder = {
-        select() { return builder; },
-        eq() { return builder; },
-        order(column) { calls.push([table, "order", column]); return builder; },
-        gt(_column, cursor) { calls.push([table, "gt", cursor]); return builder; },
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order(column) {
+          calls.push([table, "order", column]);
+          return builder;
+        },
+        gt(_column, cursor) {
+          calls.push([table, "gt", cursor]);
+          return builder;
+        },
         limit(size) {
           const cursor = calls.findLast((call) => call[1] === "gt")?.[2];
-          const from = cursor == null ? 0 : rows.findIndex((row) => row.id > cursor);
+          const from =
+            cursor == null ? 0 : rows.findIndex((row) => row.id > cursor);
           calls.push([table, "limit", size]);
-          return Promise.resolve({ data: rows.slice(from, from + size), error: null });
+          return Promise.resolve({
+            data: rows.slice(from, from + size),
+            error: null,
+          });
         },
         range(from, to) {
           calls.push([table, from, to]);
-          return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+          return Promise.resolve({
+            data: rows.slice(from, to + 1),
+            error: null,
+          });
         },
       };
       return builder;
@@ -131,71 +157,254 @@ test("bounded drawing row pagination has deterministic ID ties and removes dupli
   });
   assert.equal(loaded.length, 2_005);
   assert.equal(new Set(loaded.map((row) => row.id)).size, 2_005);
-  assert.deepEqual(loaded.map((row) => row.id), [...loaded.map((row) => row.id)].sort());
-  assert.deepEqual(calls.filter((call) => call[1] === "limit"), [
-    ["lukas_drawing_blocks", "limit", 1_000],
-    ["lukas_drawing_blocks", "limit", 1_000],
-    ["lukas_drawing_blocks", "limit", 1_000],
-  ]);
+  assert.deepEqual(
+    loaded.map((row) => row.id),
+    [...loaded.map((row) => row.id)].sort(),
+  );
+  assert.deepEqual(
+    calls.filter((call) => call[1] === "limit"),
+    [
+      ["lukas_drawing_blocks", "limit", 1_000],
+      ["lukas_drawing_blocks", "limit", 1_000],
+      ["lukas_drawing_blocks", "limit", 1_000],
+    ],
+  );
 });
 
 test("keyset transport rejects duplicate rows, caps pages, and applies numeric canonical order", async () => {
-  const rows = [{ id: "0002", sort_order: 10 }, { id: "0001", sort_order: 2 }];
+  const rows = [
+    { id: "0002", sort_order: 10 },
+    { id: "0001", sort_order: 2 },
+  ];
   const client = {
     from() {
       const builder = {
-        select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
-        limit(size) { return Promise.resolve({ data: rows.slice(0, size), error: null }); },
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        gt() {
+          return builder;
+        },
+        limit(size) {
+          return Promise.resolve({ data: rows.slice(0, size), error: null });
+        },
       };
       return builder;
     },
   };
-  const loaded = await loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "sort_order", direction: "asc" }, { column: "id", direction: "asc" }] });
-  assert.deepEqual(loaded.map((row) => row.sort_order), [2, 10]);
+  const loaded = await loadAllDrawingRows(client, {
+    table: "lukas_drawing_pages",
+    projectId: ids.project,
+    order: [
+      { column: "sort_order", direction: "asc" },
+      { column: "id", direction: "asc" },
+    ],
+  });
+  assert.deepEqual(
+    loaded.map((row) => row.sort_order),
+    [2, 10],
+  );
   const directionalRows = [
     { id: "0003", sort_order: 2, updated_at: "2026-08-24T01:00:00.000Z" },
     { id: "0001", sort_order: 10, updated_at: "2026-08-25T01:00:00.000Z" },
     { id: "0002", sort_order: 2, updated_at: "2026-08-24T01:00:00.000Z" },
   ];
-  const directionalClient = { from() { const builder = {
-    select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
-    limit() { return Promise.resolve({ data: directionalRows, error: null }); },
-  }; return builder; } };
+  const directionalClient = {
+    from() {
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        gt() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve({ data: directionalRows, error: null });
+        },
+      };
+      return builder;
+    },
+  };
   assert.deepEqual(
-    (await loadAllDrawingRows(directionalClient, { table: "lukas_drawing_issues", projectId: ids.project, order: [{ column: "updated_at", direction: "desc" }, { column: "id", direction: "asc" }] })).map((row) => row.id),
+    (
+      await loadAllDrawingRows(directionalClient, {
+        table: "lukas_drawing_issues",
+        projectId: ids.project,
+        order: [
+          { column: "updated_at", direction: "desc" },
+          { column: "id", direction: "asc" },
+        ],
+      })
+    ).map((row) => row.id),
     ["0001", "0002", "0003"],
   );
   assert.deepEqual(
-    (await loadAllDrawingRows(directionalClient, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "sort_order", direction: "desc" }, { column: "id", direction: "asc" }] })).map((row) => row.sort_order),
+    (
+      await loadAllDrawingRows(directionalClient, {
+        table: "lukas_drawing_pages",
+        projectId: ids.project,
+        order: [
+          { column: "sort_order", direction: "desc" },
+          { column: "id", direction: "asc" },
+        ],
+      })
+    ).map((row) => row.sort_order),
     [10, 2, 2],
   );
   await assert.rejects(
-    () => loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "id", direction: "asc" }], pageSize: 1_001 }),
+    () =>
+      loadAllDrawingRows(client, {
+        table: "lukas_drawing_pages",
+        projectId: ids.project,
+        order: [{ column: "id", direction: "asc" }],
+        pageSize: 1_001,
+      }),
     /between 1 and 1000/,
   );
   const duplicate = {
     from() {
       const builder = {
-        select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
-        limit() { return Promise.resolve({ data: [{ id: "0001" }, { id: "0001" }], error: null }); },
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        gt() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve({
+            data: [{ id: "0001" }, { id: "0001" }],
+            error: null,
+          });
+        },
       };
       return builder;
     },
   };
   await assert.rejects(
-    () => loadAllDrawingRows(duplicate, { table: "lukas_drawing_blocks", projectId: ids.project, order: [{ column: "id", direction: "asc" }] }),
+    () =>
+      loadAllDrawingRows(duplicate, {
+        table: "lukas_drawing_blocks",
+        projectId: ids.project,
+        order: [{ column: "id", direction: "asc" }],
+      }),
     /중복 ID/,
   );
 });
 
 test("P2 loader strictly converts snake-case rows and fails closed for broken canvas ancestry", async () => {
   const client = queryClient({
-    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
-    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
-    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
-    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: sourceSha, background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
-    lukas_drawing_layers: { data: [{ id: ids.sourceLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Source", sort_order: 0, visible: true, locked: true, system_kind: "source", version: 1 }, { id: ids.workLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Work", sort_order: 1, visible: true, locked: false, system_kind: "work", version: 1 }], error: null },
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        sha256: sourceSha,
+        immutable: true,
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "A-101",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: p2Ids.canvas,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Paper",
+          space_kind: "paper",
+          width_mm: 841,
+          height_mm: 594,
+          background_source_file_id: ids.file,
+          background_source_sha256: sourceSha,
+          background_pdf_page: 1,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.sourceLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Source",
+          sort_order: 0,
+          visible: true,
+          locked: true,
+          system_kind: "source",
+          version: 1,
+        },
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Work",
+          sort_order: 1,
+          visible: true,
+          locked: false,
+          system_kind: "work",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
     lukas_drawing_objects: { data: [], error: null },
     lukas_drawing_styles: { data: [], error: null },
     lukas_drawing_blocks: { data: [], error: null },
@@ -211,81 +420,434 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
     name: "A-101",
     sortOrder: 0,
     version: 1,
-    canvases: [{ id: p2Ids.canvas, pageId: ids.page, name: "Paper", spaceKind: "paper", widthMillimeters: 841, heightMillimeters: 594, background: { sourceFileId: ids.file, sourceSha256: sourceSha, pdfPageNumber: 1, calibration: null }, sortOrder: 0, version: 1 }],
-    layers: [{ id: ids.sourceLayer, name: "Source", visible: true, locked: true, systemKind: "source", canvasId: p2Ids.canvas, sortOrder: 0, version: 1 }, { id: ids.workLayer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: p2Ids.canvas, sortOrder: 1, version: 1 }],
+    canvases: [
+      {
+        id: p2Ids.canvas,
+        pageId: ids.page,
+        name: "Paper",
+        spaceKind: "paper",
+        widthMillimeters: 841,
+        heightMillimeters: 594,
+        background: {
+          sourceFileId: ids.file,
+          sourceSha256: sourceSha,
+          pdfPageNumber: 1,
+          calibration: null,
+        },
+        sortOrder: 0,
+        version: 1,
+      },
+    ],
+    layers: [
+      {
+        id: ids.sourceLayer,
+        name: "Source",
+        visible: true,
+        locked: true,
+        systemKind: "source",
+        canvasId: p2Ids.canvas,
+        sortOrder: 0,
+        version: 1,
+      },
+      {
+        id: ids.workLayer,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        canvasId: p2Ids.canvas,
+        sortOrder: 1,
+        version: 1,
+      },
+    ],
     objects: [],
     blockInstances: [],
   });
-  for (const table of ["lukas_drawing_pages", "lukas_drawing_layers", "lukas_drawing_objects"])
-    assert.equal(client.calls.filter((call) => call.table === table).length, 1, `${table} is loaded exactly once for P2`);
+  for (const table of [
+    "lukas_drawing_pages",
+    "lukas_drawing_layers",
+    "lukas_drawing_objects",
+  ])
+    assert.equal(
+      client.calls.filter((call) => call.table === table).length,
+      1,
+      `${table} is loaded exactly once for P2`,
+    );
 
   const malformed = queryClient({
-    ...Object.fromEntries(client.calls.map((call) => [call.table, { data: [], error: null }])),
-    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
-    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
-    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
-    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: "b".repeat(64), background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
+    ...Object.fromEntries(
+      client.calls.map((call) => [call.table, { data: [], error: null }]),
+    ),
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        sha256: sourceSha,
+        immutable: true,
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "A-101",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: p2Ids.canvas,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Paper",
+          space_kind: "paper",
+          width_mm: 841,
+          height_mm: 594,
+          background_source_file_id: ids.file,
+          background_source_sha256: "b".repeat(64),
+          background_pdf_page: 1,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
   });
-  await assert.rejects(loadDrawingWorkspace(malformed, ids.project, ids.file), /source evidence|ancestry/i);
+  await assert.rejects(
+    loadDrawingWorkspace(malformed, ids.project, ids.file),
+    /source evidence|ancestry/i,
+  );
 });
 
 test("P2 blank canvases do not sign an undefined legacy background and select the authoritative default canvas", async () => {
   const client = queryClient({
-    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true, storage_path: "source.pdf" }, error: null },
-    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
-    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", sort_order: 0, version: 1 }], error: null },
-    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: null, background_source_sha256: null, background_pdf_page: null, calibration: null, sort_order: 0, version: 1 }], error: null },
-    lukas_drawing_layers: { data: [{ id: ids.workLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Work", sort_order: 0, visible: true, locked: false, system_kind: "work", version: 1 }], error: null },
-    lukas_drawing_objects: { data: [], error: null }, lukas_drawing_styles: { data: [], error: null }, lukas_drawing_blocks: { data: [], error: null }, lukas_drawing_block_instances: { data: [], error: null }, lukas_drawing_property_schemas: { data: [], error: null }, lukas_drawing_property_values: { data: [], error: null }, lukas_drawing_tables: { data: [], error: null },
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        sha256: sourceSha,
+        immutable: true,
+        storage_path: "source.pdf",
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "A-101",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: p2Ids.canvas,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Paper",
+          space_kind: "paper",
+          width_mm: 841,
+          height_mm: 594,
+          background_source_file_id: null,
+          background_source_sha256: null,
+          background_pdf_page: null,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Work",
+          sort_order: 0,
+          visible: true,
+          locked: false,
+          system_kind: "work",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_styles: { data: [], error: null },
+    lukas_drawing_blocks: { data: [], error: null },
+    lukas_drawing_block_instances: { data: [], error: null },
+    lukas_drawing_property_schemas: { data: [], error: null },
+    lukas_drawing_property_values: { data: [], error: null },
+    lukas_drawing_tables: { data: [], error: null },
   });
   const workspace = await loadDrawingWorkspace(client, ids.project, ids.file);
   assert.equal(workspace.document.revision.activePageId, ids.page);
   assert.equal(workspace.document.revision.activeCanvasId, p2Ids.canvas);
-  assert.equal(await workspaceServer.loadDrawingWorkspaceSourceUrl({ storage: { from() { throw new Error("must not sign"); } } }, workspace), null);
+  assert.equal(
+    await workspaceServer.loadDrawingWorkspaceSourceUrl(
+      {
+        storage: {
+          from() {
+            throw new Error("must not sign");
+          },
+        },
+      },
+      workspace,
+    ),
+    null,
+  );
 });
 
 test("template clone accepts only project-bound source IDs and parses its authoritative response", async () => {
   const calls = [];
-  const client = { async rpc(name, args) { calls.push([name, args]); return { data: { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template }, error: null }; } };
-  const result = await createDrawingDocumentFromTemplate(client, p2Ids.template, " Template draft ", ids.file);
-  assert.deepEqual(result, { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template });
-  assert.deepEqual(calls, [["lukas_drawing_create_from_template", { p_source_revision_id: p2Ids.template, p_title: "Template draft", p_source_file_id: ids.file }]]);
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return {
+        data: {
+          documentId: ids.document,
+          revisionId: ids.revision,
+          sourceRevisionId: p2Ids.template,
+        },
+        error: null,
+      };
+    },
+  };
+  const result = await createDrawingDocumentFromTemplate(
+    client,
+    p2Ids.template,
+    " Template draft ",
+    ids.file,
+  );
+  assert.deepEqual(result, {
+    documentId: ids.document,
+    revisionId: ids.revision,
+    sourceRevisionId: p2Ids.template,
+  });
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_create_from_template",
+      {
+        p_source_revision_id: p2Ids.template,
+        p_title: "Template draft",
+        p_source_file_id: ids.file,
+      },
+    ],
+  ]);
 });
 
 test("template clone rejects browser authority fields, foreign candidates, and non-draft destinations", async () => {
-  assert.throws(() => parseWorkspaceMutation(form({ intent: "create_from_template", source_revision_id: p2Ids.template, title: "Draft", project_id: ids.project })));
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({
+        intent: "create_from_template",
+        source_revision_id: p2Ids.template,
+        title: "Draft",
+        project_id: ids.project,
+      }),
+    ),
+  );
   const base = {
     ...loadedWorkspace(),
-    templateCandidates: [{ revisionId: p2Ids.template, title: "Approved", approvedAt: "2026-08-25T00:00:00.000Z", snapshotSha256: sourceSha }],
+    templateCandidates: [
+      {
+        revisionId: p2Ids.template,
+        title: "Approved",
+        version: 3,
+        approvedAt: "2026-08-25T00:00:00.000Z",
+        snapshotSha256: sourceSha,
+      },
+    ],
   };
-  const cloneForm = form({ intent: "create_from_template", source_revision_id: p2Ids.template, title: "Draft" });
+  const cloneForm = form({
+    intent: "create_from_template",
+    source_revision_id: p2Ids.template,
+    title: "Draft",
+  });
   const accepted = await handleWorkspaceMutation({
-    client: { async rpc() { return { data: { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template }, error: null }; } },
-    projectId: ids.project, capability: "editor", workspace: base, form: cloneForm,
+    client: {
+      async rpc() {
+        return {
+          data: {
+            documentId: ids.document,
+            revisionId: ids.revision,
+            sourceRevisionId: p2Ids.template,
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: base,
+    form: cloneForm,
   });
   assert.equal(accepted.status, 200);
+  const fromDocumentCreation = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: {
+            documentId: ids.document,
+            revisionId: ids.revision,
+            sourceRevisionId: p2Ids.template,
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: { ...base, document: null },
+    form: cloneForm,
+  });
+  assert.equal(fromDocumentCreation.status, 200);
   const foreign = await handleWorkspaceMutation({
-    client: { async rpc() { throw new Error("must not call"); } }, projectId: ids.project,
-    capability: "editor", workspace: base,
-    form: form({ intent: "create_from_template", source_revision_id: ids.actor, title: "Draft" }),
+    client: {
+      async rpc() {
+        throw new Error("must not call");
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: base,
+    form: form({
+      intent: "create_from_template",
+      source_revision_id: ids.actor,
+      title: "Draft",
+    }),
   });
   assert.equal(foreign.status, 404);
   const reviewed = await handleWorkspaceMutation({
-    client: { async rpc() { throw new Error("must not call"); } }, projectId: ids.project,
-    capability: "editor", workspace: { ...base, document: { ...base.document, revision: { ...base.document.revision, status: "review_requested" } } }, form: cloneForm,
+    client: {
+      async rpc() {
+        throw new Error("must not call");
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    workspace: {
+      ...base,
+      document: {
+        ...base.document,
+        revision: { ...base.document.revision, status: "review_requested" },
+      },
+    },
+    form: cloneForm,
   });
   assert.equal(reviewed.status, 409);
 });
 
 test("template candidates expose only approved project revisions with matching immutable snapshot evidence", async () => {
-  const candidate = await loadDrawingTemplateCandidates(queryClient({
-    lukas_drawing_revisions: { data: [{ id: p2Ids.template, document_id: ids.document, project_id: ids.project, status: "approved", version: 3, approved_at: "2026-08-25T00:00:00.000Z" }], error: null },
-    lukas_drawing_documents: { data: [{ id: ids.document, project_id: ids.project, title: "Approved A-101" }], error: null },
-    lukas_drawing_snapshots: { data: [{ id: ids.link, revision_id: p2Ids.template, project_id: ids.project, revision_version: 3, sha256: sourceSha }], error: null },
-  }), ids.project);
-  assert.deepEqual(candidate, [{ revisionId: p2Ids.template, title: "Approved A-101", approvedAt: "2026-08-25T00:00:00.000Z", snapshotSha256: sourceSha }]);
+  const candidate = await loadDrawingTemplateCandidates(
+    queryClient({
+      lukas_drawing_revisions: {
+        data: [
+          {
+            id: p2Ids.template,
+            document_id: ids.document,
+            project_id: ids.project,
+            status: "approved",
+            version: 3,
+            approved_at: "2026-08-25T00:00:00.000Z",
+          },
+        ],
+        error: null,
+      },
+      lukas_drawing_documents: {
+        data: [
+          {
+            id: ids.document,
+            project_id: ids.project,
+            title: "Approved A-101",
+          },
+        ],
+        error: null,
+      },
+      lukas_drawing_snapshots: {
+        data: [
+          {
+            id: ids.link,
+            revision_id: p2Ids.template,
+            project_id: ids.project,
+            revision_version: 3,
+            sha256: sourceSha,
+          },
+        ],
+        error: null,
+      },
+    }),
+    ids.project,
+  );
+  assert.deepEqual(candidate, [
+    {
+      revisionId: p2Ids.template,
+      title: "Approved A-101",
+      version: 3,
+      approvedAt: "2026-08-25T00:00:00.000Z",
+      snapshotSha256: sourceSha,
+    },
+  ]);
 });
 
 function form(fields) {
@@ -622,7 +1184,14 @@ function queryClient(responses) {
           call.terminal = "limit";
           const rows = Array.isArray(response.data) ? response.data : [];
           const cursor = call.filters.find((filter) => filter[0] === "gt")?.[2];
-          return Promise.resolve({ ...response, data: Array.isArray(response.data) ? rows.filter((row) => cursor == null || row.id > cursor).slice(0, value) : [] });
+          return Promise.resolve({
+            ...response,
+            data: Array.isArray(response.data)
+              ? rows
+                  .filter((row) => cursor == null || row.id > cursor)
+                  .slice(0, value)
+              : [],
+          });
         },
         range(from, to) {
           call.range = [from, to];
@@ -773,11 +1342,20 @@ test("workspace loading scopes searchable issues and current links to the projec
   };
   const manyIssues = Array.from({ length: 1_005 }, (_, index) => ({
     id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
-    project_id: ids.project, title: `issue ${index}`, priority: "high", status: "open", updated_at: "2026-08-24T03:00:00.000Z",
+    project_id: ids.project,
+    title: `issue ${index}`,
+    priority: "high",
+    status: "open",
+    updated_at: "2026-08-24T03:00:00.000Z",
   }));
   const manyLinks = manyIssues.map((issue, index) => ({
     id: `00000000-0000-4000-8000-${String(index + 2_000).padStart(12, "0")}`,
-    object_id: ids.object, revision_id: ids.revision, issue_id: issue.id, project_id: ids.project, created_by: ids.actor, created_at: "2026-08-24T03:00:00.000Z",
+    object_id: ids.object,
+    revision_id: ids.revision,
+    issue_id: issue.id,
+    project_id: ids.project,
+    created_by: ids.actor,
+    created_at: "2026-08-24T03:00:00.000Z",
   }));
   const responses = {
     lukas_drawing_objects: { data: [objectRow], error: null },
@@ -826,13 +1404,8 @@ test("workspace loading scopes searchable issues and current links to the projec
   );
 
   const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
-  assert.deepEqual(
-    loaded.document.revision.issues,
-    manyIssues,
-  );
-  assert.deepEqual(loaded.document.revision.issueLinks, [
-    ...manyLinks,
-  ]);
+  assert.deepEqual(loaded.document.revision.issues, manyIssues);
+  assert.deepEqual(loaded.document.revision.issueLinks, [...manyLinks]);
   const issueCall = client.calls.find(
     (call) => call.table === "lukas_drawing_issues",
   );
@@ -844,8 +1417,16 @@ test("workspace loading scopes searchable issues and current links to the projec
     ["eq", "project_id", ids.project],
     ["eq", "revision_id", ids.revision],
   ]);
-  assert.equal(client.calls.filter((call) => call.table === "lukas_drawing_issues").length, 2);
-  assert.equal(client.calls.filter((call) => call.table === "lukas_drawing_object_issue_links").length, 2);
+  assert.equal(
+    client.calls.filter((call) => call.table === "lukas_drawing_issues").length,
+    2,
+  );
+  assert.equal(
+    client.calls.filter(
+      (call) => call.table === "lukas_drawing_object_issue_links",
+    ).length,
+    2,
+  );
 });
 
 test("workspace loading fails closed when source-layer metadata is missing", async () => {
@@ -963,7 +1544,13 @@ test("workspace loading returns a null document without creating one", async () 
   assert.equal(loaded.document, null);
   assert.deepEqual(
     client.calls.map((call) => call.table),
-    ["lukas_qto_files", "lukas_drawing_documents"],
+    [
+      "lukas_qto_files",
+      "lukas_drawing_documents",
+      "lukas_drawing_revisions",
+      "lukas_drawing_documents",
+      "lukas_drawing_snapshots",
+    ],
   );
 });
 
@@ -1183,7 +1770,14 @@ test("operation RPC receives exact client operation fields and exposes conflicts
   const successful = {
     async rpc(name, args) {
       calls.push([name, args]);
-      return { data: { operationId: ids.operation, sequence: 1, resultVersions: { [ids.object]: 1 } }, error: null };
+      return {
+        data: {
+          operationId: ids.operation,
+          sequence: 1,
+          resultVersions: { [ids.object]: 1 },
+        },
+        error: null,
+      };
     },
   };
   await applyDrawingOperation(successful, input);
@@ -1216,26 +1810,58 @@ test("operation RPC receives exact client operation fields and exposes conflicts
       error.kind === "conflict",
   );
   await assert.rejects(
-    () => applyDrawingOperation({ async rpc() { return { data: {}, error: null }; } }, input),
+    () =>
+      applyDrawingOperation(
+        {
+          async rpc() {
+            return { data: {}, error: null };
+          },
+        },
+        input,
+      ),
     /operationId|sequence|resultVersions/,
   );
 });
 
 test("structure acknowledgements bind each SQL-valid forward action to its exact reverse-indexed inverse", async () => {
   const secondStyleId = "00000000-0000-4000-8000-000000000021";
-  const style = (id, version, name = "Dimension") => ({ id, revisionId: ids.revision, name, value: { stroke: "#112233", strokeWidth: 1, fill: null }, version });
-  const structure = (actions, inverseActions, baseVersions = {}) => ({
-    clientOperationId: ids.operation, revisionId: ids.revision, type: "mutate_structure", baseVersions,
-    forward: { type: "mutate_structure", actions }, inverse: { type: "mutate_structure", actions: inverseActions }, createdAt: "2026-08-24T02:00:00.000Z",
+  const style = (id, version, name = "Dimension") => ({
+    id,
+    revisionId: ids.revision,
+    name,
+    value: { stroke: "#112233", strokeWidth: 1, fill: null },
+    version,
   });
-  const acknowledge = (resultVersions) => ({ async rpc() { return { data: { operationId: ids.operation, sequence: 1, resultVersions }, error: null }; } });
+  const structure = (actions, inverseActions, baseVersions = {}) => ({
+    clientOperationId: ids.operation,
+    revisionId: ids.revision,
+    type: "mutate_structure",
+    baseVersions,
+    forward: { type: "mutate_structure", actions },
+    inverse: { type: "mutate_structure", actions: inverseActions },
+    createdAt: "2026-08-24T02:00:00.000Z",
+  });
+  const acknowledge = (resultVersions) => ({
+    async rpc() {
+      return {
+        data: { operationId: ids.operation, sequence: 1, resultVersions },
+        error: null,
+      };
+    },
+  });
   const fresh = structure(
     [{ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null }],
     [{ kind: "delete_style", id: p2Ids.style, baseVersion: 1 }],
   );
   await applyDrawingOperation(acknowledge({ [p2Ids.style]: 1 }), fresh);
   const updated = structure(
-    [{ kind: "put_style", entity: style(p2Ids.style, 1, "Updated dimension"), baseVersion: 1 }],
+    [
+      {
+        kind: "put_style",
+        entity: style(p2Ids.style, 1, "Updated dimension"),
+        baseVersion: 1,
+      },
+    ],
     [{ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: 2 }],
     { [p2Ids.style]: 1 },
   );
@@ -1255,35 +1881,93 @@ test("structure acknowledgements bind each SQL-valid forward action to its exact
   const ordered = structure(
     [
       { kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null },
-      { kind: "put_style", entity: style(secondStyleId, 3, "Existing style"), baseVersion: 3 },
+      {
+        kind: "put_style",
+        entity: style(secondStyleId, 3, "Existing style"),
+        baseVersion: 3,
+      },
     ],
     [
-      { kind: "put_style", entity: style(secondStyleId, 3, "Previous style"), baseVersion: 4 },
+      {
+        kind: "put_style",
+        entity: style(secondStyleId, 3, "Previous style"),
+        baseVersion: 4,
+      },
       { kind: "delete_style", id: p2Ids.style, baseVersion: 1 },
     ],
     { [secondStyleId]: 3 },
   );
-  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 1, [secondStyleId]: 4 }), ordered);
+  await applyDrawingOperation(
+    acknowledge({ [p2Ids.style]: 1, [secondStyleId]: 4 }),
+    ordered,
+  );
 
   const rejects = [
     [fresh, { [p2Ids.style]: 7 }],
     [restored, { [p2Ids.style]: 8 }],
-    [structure(fresh.forward.actions, fresh.forward.actions), { [p2Ids.style]: 1 }],
-    [structure(fresh.forward.actions, [...fresh.inverse.actions, ...fresh.inverse.actions]), { [p2Ids.style]: 1 }],
-    [structure(fresh.forward.actions, [{ kind: "delete_block", id: p2Ids.style, baseVersion: 1 }]), { [p2Ids.style]: 1 }],
-    [structure(fresh.forward.actions, [{ kind: "delete_style", id: secondStyleId, baseVersion: 1 }]), { [p2Ids.style]: 1 }],
-    [structure(updated.forward.actions, [{ ...updated.inverse.actions[0], baseVersion: 3 }], { [p2Ids.style]: 1 }), { [p2Ids.style]: 3 }],
-    [structure(deleted.forward.actions, [{ ...deleted.inverse.actions[0], baseVersion: 1 }], { [p2Ids.style]: 7 }), { [p2Ids.style]: null }],
-    [structure(ordered.forward.actions, [...ordered.inverse.actions].reverse(), { [secondStyleId]: 3 }), { [p2Ids.style]: 1, [secondStyleId]: 4 }],
+    [
+      structure(fresh.forward.actions, fresh.forward.actions),
+      { [p2Ids.style]: 1 },
+    ],
+    [
+      structure(fresh.forward.actions, [
+        ...fresh.inverse.actions,
+        ...fresh.inverse.actions,
+      ]),
+      { [p2Ids.style]: 1 },
+    ],
+    [
+      structure(fresh.forward.actions, [
+        { kind: "delete_block", id: p2Ids.style, baseVersion: 1 },
+      ]),
+      { [p2Ids.style]: 1 },
+    ],
+    [
+      structure(fresh.forward.actions, [
+        { kind: "delete_style", id: secondStyleId, baseVersion: 1 },
+      ]),
+      { [p2Ids.style]: 1 },
+    ],
+    [
+      structure(
+        updated.forward.actions,
+        [{ ...updated.inverse.actions[0], baseVersion: 3 }],
+        { [p2Ids.style]: 1 },
+      ),
+      { [p2Ids.style]: 3 },
+    ],
+    [
+      structure(
+        deleted.forward.actions,
+        [{ ...deleted.inverse.actions[0], baseVersion: 1 }],
+        { [p2Ids.style]: 7 },
+      ),
+      { [p2Ids.style]: null },
+    ],
+    [
+      structure(
+        ordered.forward.actions,
+        [...ordered.inverse.actions].reverse(),
+        { [secondStyleId]: 3 },
+      ),
+      { [p2Ids.style]: 1, [secondStyleId]: 4 },
+    ],
   ];
   for (const [operation, resultVersions] of rejects)
-    await assert.rejects(() => applyDrawingOperation(acknowledge(resultVersions), operation), /확인 응답/);
+    await assert.rejects(
+      () => applyDrawingOperation(acknowledge(resultVersions), operation),
+      /확인 응답/,
+    );
 
   for (const resultVersions of [
     { [p2Ids.style]: 1 },
     {},
     { [p2Ids.style]: 2, [ids.object]: 1 },
-  ]) await assert.rejects(() => applyDrawingOperation(acknowledge(resultVersions), updated), /확인 응답/);
+  ])
+    await assert.rejects(
+      () => applyDrawingOperation(acknowledge(resultVersions), updated),
+      /확인 응답/,
+    );
 });
 
 test("capability comes from project ownership or membership rows, never user metadata", async () => {
@@ -1427,7 +2111,11 @@ test("apply action echoes the server-validated client operation id for exact out
     client: {
       async rpc() {
         return {
-          data: { operationId: "00000000-0000-4000-8000-000000000011", sequence: 1, resultVersions: { [ids.object]: 1 } },
+          data: {
+            operationId: "00000000-0000-4000-8000-000000000011",
+            sequence: 1,
+            resultVersions: { [ids.object]: 1 },
+          },
           error: null,
         };
       },
@@ -1445,7 +2133,11 @@ test("apply action echoes the server-validated client operation id for exact out
       kind: "success",
       error: null,
       clientOperationId: input.clientOperationId,
-      result: { operationId: "00000000-0000-4000-8000-000000000011", sequence: 1, resultVersions: { [ids.object]: 1 } },
+      result: {
+        operationId: "00000000-0000-4000-8000-000000000011",
+        sequence: 1,
+        resultVersions: { [ids.object]: 1 },
+      },
     },
   });
 });

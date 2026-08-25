@@ -1,13 +1,15 @@
 import type { Route } from "./+types/drawing-workspace";
 
 import { ArrowLeft } from "lucide-react";
-import { Form, Link, data } from "react-router";
+import { Form, Link, data, redirect } from "react-router";
 
+import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialog";
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace.client";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
 import {
   handleWorkspaceMutation,
+  drawingTemplateCloneLocation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCapability,
   loadDrawingWorkspaceSourceUrl,
@@ -53,6 +55,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     client,
     project.id,
     params.fileId!,
+    new URL(request.url).searchParams.get("document") ?? undefined,
   );
   const sourceUrl = await loadDrawingWorkspaceSourceUrl(client, workspace);
   return data(
@@ -66,6 +69,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     request,
     params.projectId!,
   );
+  const form = await request.formData();
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
@@ -76,8 +80,22 @@ export async function action({ request, params }: Route.ActionArgs) {
     projectId: project.id,
     capability,
     workspace,
-    form: await request.formData(),
+    form,
   });
+  if (
+    form.get("intent") === "create_from_template" &&
+    result.status === 200 &&
+    result.body.ok
+  ) {
+    return redirect(
+      drawingTemplateCloneLocation(
+        project.id,
+        workspace.file.id,
+        result.body.result,
+      ),
+      { headers },
+    );
+  }
   return data(result.body, { status: result.status, headers });
 }
 
@@ -133,46 +151,53 @@ export default function DrawingWorkspaceScreen({
       <section className="mt-8 max-w-2xl rounded-2xl border p-6">
         <h2 className="text-xl font-bold">편집 도면 만들기</h2>
         {editable ? (
-          <Form className="mt-5 space-y-4" method="post">
-            <input name="intent" type="hidden" value="create_document" />
-            <label
-              className="block text-sm font-semibold"
-              htmlFor="drawing-title"
-            >
-              도면 제목
-            </label>
-            <input
-              className="min-h-11 w-full rounded-lg border bg-background px-3"
-              defaultValue={workspace.file.original_filename.replace(
-                /\.[^.]+$/,
-                "",
-              )}
-              id="drawing-title"
-              maxLength={240}
-              name="title"
-              required
-            />
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="min-h-11 rounded-lg border px-4 font-semibold"
-                name="document_mode"
-                type="submit"
-                value="blank"
+          <>
+            <Form className="mt-5 space-y-4" method="post">
+              <input name="intent" type="hidden" value="create_document" />
+              <label
+                className="block text-sm font-semibold"
+                htmlFor="drawing-title"
               >
-                빈 도면
-              </button>
-              {workspace.file.kind === "pdf" ? (
+                도면 제목
+              </label>
+              <input
+                className="min-h-11 w-full rounded-lg border bg-background px-3"
+                defaultValue={workspace.file.original_filename.replace(
+                  /\.[^.]+$/,
+                  "",
+                )}
+                id="drawing-title"
+                maxLength={240}
+                name="title"
+                required
+              />
+              <div className="flex flex-wrap gap-3">
                 <button
-                  className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground"
+                  className="min-h-11 rounded-lg border px-4 font-semibold"
                   name="document_mode"
                   type="submit"
-                  value="pdf_background"
+                  value="blank"
                 >
-                  PDF 배경 사용
+                  빈 도면
                 </button>
-              ) : null}
-            </div>
-          </Form>
+                {workspace.file.kind === "pdf" ? (
+                  <button
+                    className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground"
+                    name="document_mode"
+                    type="submit"
+                    value="pdf_background"
+                  >
+                    PDF 배경 사용
+                  </button>
+                ) : null}
+                <DrawingTemplateDialog
+                  actionError={actionData?.error ?? undefined}
+                  candidates={workspace.templateCandidates}
+                  sourceFile={workspace.file}
+                />
+              </div>
+            </Form>
+          </>
         ) : (
           <p className="mt-4 text-sm text-muted-foreground">
             이 파일을 볼 수 있지만 편집 도면을 만들 권한은 없습니다.

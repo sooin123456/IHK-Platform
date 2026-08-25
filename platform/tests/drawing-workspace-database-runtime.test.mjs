@@ -118,6 +118,14 @@ const p2BlockExactnessMigration = () =>
     ),
     "utf8",
   );
+const p2TemplateSnapshotGuardMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825130000_drawing_workspace_template_snapshot_guard.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -150,9 +158,7 @@ const {
   DrawingBlocksPanel,
   DrawingBlockInstancesList,
   drawingBlockInstancesForCanvas,
-} = await vite.ssrLoadModule(
-  "/app/lukas/components/drawing-blocks-panel.tsx",
-);
+} = await vite.ssrLoadModule("/app/lukas/components/drawing-blocks-panel.tsx");
 const { deriveDrawingTransientState } = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-document-store.client.ts",
 );
@@ -423,6 +429,7 @@ before(async () => {
   await db.exec(await p2NavigationHardeningMigration());
   await db.exec(await p2StyleGuardSqlstateMigration());
   await db.exec(await p2BlockExactnessMigration());
+  await db.exec(await p2TemplateSnapshotGuardMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -5817,6 +5824,86 @@ test("P2 explicit-source template clones keep documents source-free and preserve
   );
 });
 
+test("template clone rejects corrupt snapshots atomically and makes viewer denial non-enumerating", async () => {
+  const source = await createDocument("Corrupt snapshot template");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [source.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','template')",
+    [
+      source.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await db.exec("reset role");
+  const before = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_documents) documents,
+      (select count(*)::int from public.lukas_drawing_pages where revision_id=$1) pages,
+      (select count(*)::int from public.lukas_drawing_layers where revision_id=$1) layers`,
+    [source.revisionId],
+  );
+  await db.exec(
+    "alter table public.lukas_drawing_snapshots disable trigger user",
+  );
+  await db.query(
+    `update public.lukas_drawing_snapshots
+     set canonical_json=jsonb_set(canonical_json,'{schemaVersion}','99'::jsonb)
+     where revision_id=$1`,
+    [source.revisionId],
+  );
+  await db.exec(
+    "alter table public.lukas_drawing_snapshots enable trigger user",
+  );
+
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_create_from_template($1,'must not clone',null)",
+      [source.revisionId],
+    ),
+    (error) =>
+      error.code === "P1R01" &&
+      error.message === "Drawing template target is unavailable",
+  );
+  await db.exec("reset role");
+  const after = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_documents) documents,
+      (select count(*)::int from public.lukas_drawing_pages where revision_id=$1) pages,
+      (select count(*)::int from public.lukas_drawing_layers where revision_id=$1) layers`,
+    [source.revisionId],
+  );
+  assert.deepEqual(after.rows, before.rows);
+
+  await db.query(
+    `insert into public.lukas_qto_project_members(project_id,user_id,role)
+     values ($1,$2,'viewer') on conflict (project_id,user_id) do update set role='viewer'`,
+    [PROJECT, OUTSIDER],
+  );
+  await asActor(OUTSIDER);
+  const denied = [];
+  for (const revisionId of [source.revisionId, randomUUID()]) {
+    try {
+      await db.query(
+        "select public.lukas_drawing_create_from_template($1,'viewer probe',null)",
+        [revisionId],
+      );
+      assert.fail("expected unavailable template");
+    } catch (error) {
+      denied.push({ code: error.code, message: error.message });
+    }
+  }
+  assert.deepEqual(denied, [
+    { code: "P1R01", message: "Drawing template target is unavailable" },
+    { code: "P1R01", message: "Drawing template target is unavailable" },
+  ]);
+});
+
 test("P2 tables deny authenticated direct DML and cascade only through a draft parent", async () => {
   const ids = await createDocument();
   const styleId = randomUUID();
@@ -5987,6 +6074,7 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
     await upgradeDb.exec(await p2HardeningMigration());
     await upgradeDb.exec(await p2CompatibilityMigration());
     await upgradeDb.exec(await p2HistoryReconciliationMigration());
+    await upgradeDb.exec(await p2TemplateSnapshotGuardMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
