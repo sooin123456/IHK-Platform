@@ -65,3 +65,54 @@ The same focused tests now protect layout/order classes, SSR preview fallback an
 
 - The left and right rails intentionally become bounded below-canvas panels below `xl`; no extra drawer state was added.
 - A separately started dev server re-optimized local React/Konva dependencies and later exposed an existing duplicate-React invalid-hook error when loading the dynamic Konva canvas. The layout/tab checks used the preserved preview fallback, the controller's existing 5173 route rendered the corrected UI, and full typecheck/production build/drawing tests passed. This correction does not change React, Konva, Vite, or dependency configuration.
+
+## Important review follow-up: hydrated tab wiring
+
+### Outcome
+
+- Added `platform/e2e/drawing-workspace-shell.spec.ts` using the existing Playwright stack and the unauthenticated `/workspace-preview/drawing-workspace` route; no dependency or production component change was required.
+- The click test selects Style through the real component handler and asserts both tabs' `aria-selected` values plus the old/new panels' rendered visibility.
+- The keyboard test sends ArrowRight, End, and Home to the real tab buttons and asserts the selected tab, focused tab, and visible panel after every transition.
+- The harness retries the actual state-changing click and Arrow interaction within a fixed bound, so SSR-visible buttons cannot be mistaken for a hydrated component and the test does not depend on the unrelated dynamically imported canvas chunk. Navigation, hydration, locator, and whole-test waits are explicitly bounded.
+
+### Mutation-proven RED
+
+The real `onClick` and `onKeyDown` handlers were temporarily replaced with no-ops and restored without changing their implementation.
+
+```text
+node --test tests/drawing-workspace-shell.test.mjs
+tests 4; pass 4; fail 0
+
+SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=local-preview-test-key \
+  npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --reporter=line
+tests 2; pass 0; fail 2
+```
+
+Both browser tests reached the hydrated route and failed on the intended mutation: Style remained `aria-selected="false"` after its click and after ArrowRight. This demonstrates why the static SSR/resolver suite alone did not protect the component wiring.
+
+### GREEN and full verification
+
+```text
+SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=local-preview-test-key \
+  npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --reporter=line
+2 passed
+
+npm run test:drawing-workspace
+385 passed; 0 failed
+
+npm run typecheck
+exit 0
+
+npm run build
+exit 0
+
+npx prettier --check e2e/drawing-workspace-shell.spec.ts
+exit 0
+
+git diff --check
+exit 0
+```
+
+The final focused GREEN command was repeated twice from clean Playwright server starts; both runs passed 2/2 in under four seconds.
+
+The production build retained the pre-existing chunk-size, React Router future-flag, dynamic IFC chunk, and unsigned-theme-cookie warnings.
