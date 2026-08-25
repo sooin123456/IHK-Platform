@@ -545,6 +545,8 @@ test("workspace remounts Canvas with sanitized transient props at each authoriza
     "utf8",
   );
   assert.match(shell, /drawingTransientAuthorizationKey\(drawingState/);
+  assert.match(shell, /activeLayer: authorizationLayer/);
+  assert.match(shell, /authorizationProbe\.state\.layers/);
   assert.match(shell, /transientInputInvalidatedRef\.current = true/);
   assert.match(shell, /key=\{authorizationKey\}/);
   assert.match(shell, /activeTool=\{transient\.activeTool as DrawingTool\}/);

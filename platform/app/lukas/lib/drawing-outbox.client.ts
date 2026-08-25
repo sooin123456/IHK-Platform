@@ -90,6 +90,11 @@ function defaultSchedule(delayMs: number, retry: () => Promise<void>) {
     () => void retry().catch(() => {}),
     delayMs,
   );
+  // Recovery retries are durable state, not a reason for a closed browser or
+  // a completed Node test process to stay alive. A live workspace still owns
+  // and can cancel this timer through dispose().
+  if (typeof timeout === "object" && "unref" in timeout)
+    (timeout as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
   return () => globalThis.clearTimeout(timeout);
 }
 
@@ -532,26 +537,6 @@ function structureCollectionForRecovery(
   return "tables" as const;
 }
 
-function structureActionMatchesAcknowledgedState(
-  state: DrawingDocumentState,
-  action: DrawingStructureAction,
-  inverse: DrawingStructureAction,
-): boolean {
-  if (!state.structure) return false;
-  const collection = structureCollectionForRecovery(action.kind);
-  const id = "entity" in action ? action.entity.id : action.id;
-  const current = state.structure[collection][id] as
-    | Record<string, unknown>
-    | undefined;
-  if (!("entity" in action)) return !current && inverse.baseVersion === null;
-  if (!current || inverse.baseVersion === null)
-    return false;
-  const inverseId = "entity" in inverse ? inverse.entity.id : inverse.id;
-  if (inverseId !== id) return false;
-  const expected = { ...action.entity, version: inverse.baseVersion };
-  return valuesMatch(current, expected);
-}
-
 function pairedInverse(
   actions: DrawingStructureAction[],
   index: number,
@@ -620,157 +605,215 @@ function valuesMatch(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-type AcknowledgedStructureEffect = {
-  collection: ReturnType<typeof structureCollectionForRecovery>;
-  id: string;
-  entity?: Record<string, unknown>;
-  tombstoneVersion?: number;
-  version: number;
+type AcknowledgedFinalEffect = {
+  target: string;
+  matches(state: DrawingDocumentState): boolean;
 };
 
-/**
- * An acknowledged P2 prefix must describe the loader's final state as one
- * causal unit. Comparing each operation independently mistakes a valid final
- * create→update or delete→restore result for a conflict (and vice versa).
- */
-function acknowledgedStructureChainIsRepresented(
-  state: DrawingDocumentState,
-  entries: DrawingOutboxEntry[],
+function exactBaseVersions(
+  operation: DrawingOperationInput,
+  expected: Record<string, number>,
 ) {
-  if (!state.structure || entries.length === 0) return false;
-  const effects = new Map<string, AcknowledgedStructureEffect>();
-  try {
-    for (const entry of entries) {
-      const operation = entry.operation;
-      if (operation.type !== "mutate_structure") return false;
-      const forward = operation.forward as { actions: DrawingStructureAction[] };
-      const inverse = operation.inverse as { actions: DrawingStructureAction[] };
-      if (forward.actions.length !== inverse.actions.length) return false;
-      for (const [index, action] of forward.actions.entries()) {
-        const paired = pairedInverse(inverse.actions, index);
-        requireExactStructureInverse(action, paired);
-        const id = structureActionId(action);
-        const collection = structureCollectionForRecovery(action.kind);
-        const prior = effects.get(id);
-        if (prior && prior.collection !== collection) return false;
-        if ("entity" in action) {
-          if (paired.baseVersion === null) return false;
-          if (prior?.entity) {
-            if (action.baseVersion !== prior.version) return false;
-          } else if (prior) {
-            if (
-              action.baseVersion !== null ||
-              paired.baseVersion !== (prior.tombstoneVersion ?? -1) + 1
-            )
-              return false;
-          }
-          effects.set(id, {
-            collection,
-            id,
-            entity: { ...action.entity, version: paired.baseVersion },
-            version: paired.baseVersion,
-          });
-          continue;
-        }
-        if (prior?.entity && action.baseVersion !== prior.version) return false;
-        if (prior && !prior.entity) return false;
-        effects.set(id, {
-          collection,
-          id,
-          tombstoneVersion: action.baseVersion + 1,
-          version: action.baseVersion + 1,
-        });
-      }
-    }
-  } catch {
-    return false;
-  }
-  return [...effects.values()].every((effect) => {
-    const current = state.structure![effect.collection][effect.id] as
-      | Record<string, unknown>
-      | undefined;
-    if (effect.entity) return valuesMatch(current, effect.entity);
-    if (current) return false;
-    const tombstone = state.structure!.tombstones?.[effect.id];
-    return !tombstone || tombstone.version === effect.tombstoneVersion;
-  });
+  if (!valuesMatch(operation.baseVersions, expected))
+    throw new Error("Acknowledged operation base versions are not exact.");
 }
 
-function acknowledgedOperationIsRepresented(
-  state: DrawingDocumentState,
+function uniqueAcknowledgedTargets(effects: AcknowledgedFinalEffect[]) {
+  if (new Set(effects.map((effect) => effect.target)).size !== effects.length)
+    throw new Error("Acknowledged operation has duplicate targets.");
+  return effects;
+}
+
+function objectEffect(
+  id: string,
+  version: number,
+  patch: Record<string, unknown>,
+): AcknowledgedFinalEffect {
+  return {
+    target: `objects:${id}`,
+    matches: (state) => {
+      const current = state.objects[id];
+      return Boolean(
+        current &&
+          current.version === version &&
+          Object.entries(patch).every(([key, value]) =>
+            valuesMatch(current[key as keyof typeof current], value),
+          ),
+      );
+    },
+  };
+}
+
+function layerEffect(
+  id: string,
+  version: number,
+  patch: Record<string, unknown>,
+): AcknowledgedFinalEffect {
+  return {
+    target: `layers:${id}`,
+    matches: (state) => {
+      const current = state.layers[id];
+      return Boolean(
+        current &&
+          current.version === version &&
+          Object.entries(patch).every(([key, value]) =>
+            valuesMatch(current[key as keyof typeof current], value),
+          ),
+      );
+    },
+  };
+}
+
+/** Extracts each operation's exact final effects before reverse reconciliation. */
+function acknowledgedFinalEffects(
   operation: DrawingOperationInput,
-) {
+): AcknowledgedFinalEffect[] {
   if (operation.type === "mutate_structure") {
     const forward = operation.forward as { actions: DrawingStructureAction[] };
     const inverse = operation.inverse as { actions: DrawingStructureAction[] };
-    return forward.actions.length === inverse.actions.length &&
-      forward.actions.every((action, index) =>
-        structureActionMatchesAcknowledgedState(
-          state,
-          action,
-          inverse.actions[forward.actions.length - index - 1],
-        ),
-      );
+    if (forward.actions.length !== inverse.actions.length)
+      throw new Error("Structure inverse action count is not exact.");
+    return uniqueAcknowledgedTargets(forward.actions.map((action, index) => {
+      const paired = pairedInverse(inverse.actions, index);
+      requireExactStructureInverse(action, paired);
+      const collection = structureCollectionForRecovery(action.kind);
+      const id = structureActionId(action);
+      if ("entity" in action) {
+        if (paired.baseVersion === null)
+          throw new Error("Structure result version is not exact.");
+        const expected = { ...action.entity, version: paired.baseVersion };
+        return {
+          target: `${collection}:${id}`,
+          matches: (state) => valuesMatch(
+            state.structure?.[collection][id],
+            expected,
+          ),
+        };
+      }
+      return {
+        target: `${collection}:${id}`,
+        matches: (state) => {
+          if (state.structure?.[collection][id]) return false;
+          const tombstone = state.structure?.tombstones?.[id];
+          return !tombstone || tombstone.version === action.baseVersion + 1;
+        },
+      };
+    }));
   }
   if (operation.type === "update_objects") {
     const forward = operation.forward as {
       updates: Array<{ objectId: string; patch: Record<string, unknown> }>;
     };
-    return forward.updates.every(({ objectId, patch }) => {
-      const current = state.objects[objectId];
-      const base = operation.baseVersions[objectId];
-      return (
-        current &&
-        base !== undefined &&
-        current.version === base + 1 &&
-        Object.entries(patch).every(([key, value]) =>
-          valuesMatch(current[key as keyof typeof current], value),
-        )
-      );
-    });
-  }
-  if (operation.type === "add_objects") {
-    const forward = operation.forward as { objects: unknown[] };
-    return forward.objects.every((input) => {
-      const expected = DrawingObjectSchema.parse(input);
-      return valuesMatch(state.objects[expected.id], expected);
-    });
+    const inverse = operation.inverse as typeof forward;
+    if (
+      inverse.updates.length !== forward.updates.length ||
+      !forward.updates.every((update, index) => {
+        const reverted = inverse.updates[index];
+        return reverted?.objectId === update.objectId &&
+          valuesMatch(Object.keys(reverted.patch).sort(), Object.keys(update.patch).sort());
+      })
+    )
+      throw new Error("Object update inverse is not exact.");
+    exactBaseVersions(
+      operation,
+      Object.fromEntries(forward.updates.map((update) => [
+        update.objectId,
+        operation.baseVersions[update.objectId],
+      ])),
+    );
+    return uniqueAcknowledgedTargets(forward.updates.map((update) => {
+      const base = operation.baseVersions[update.objectId];
+      if (!base) throw new Error("Object update base version is missing.");
+      return objectEffect(update.objectId, base + 1, update.patch);
+    }));
   }
   if (operation.type === "delete_objects") {
     const forward = operation.forward as { objectIds: string[] };
-    return forward.objectIds.every(
-      (objectId) =>
-        operation.baseVersions[objectId] !== undefined &&
-        !state.objects[objectId],
+    const inverse = operation.inverse as { objects: Array<{ id: string; version: number }> };
+    if (
+      inverse.objects.length !== forward.objectIds.length ||
+      !forward.objectIds.every((id, index) => {
+        const restored = inverse.objects[index];
+        return restored?.id === id && restored.version === operation.baseVersions[id];
+      })
+    )
+      throw new Error("Object delete inverse is not exact.");
+    exactBaseVersions(
+      operation,
+      Object.fromEntries(forward.objectIds.map((id) => [id, operation.baseVersions[id]])),
     );
+    return uniqueAcknowledgedTargets(forward.objectIds.map((id) => ({
+      target: `objects:${id}`,
+      matches: (state) => !state.objects[id],
+    })));
+  }
+  if (operation.type === "add_objects") {
+    const forward = operation.forward as { objects: unknown[] };
+    const inverse = operation.inverse as { objectIds: string[] };
+    const objects = forward.objects.map((input) => DrawingObjectSchema.parse(input));
+    if (
+      inverse.objectIds.length !== objects.length ||
+      !objects.every((object, index) => inverse.objectIds[index] === object.id)
+    )
+      throw new Error("Object add inverse is not exact.");
+    exactBaseVersions(operation, Object.fromEntries(objects.map((object) => [object.id, object.version])));
+    return uniqueAcknowledgedTargets(objects.map((object) => ({
+      target: `objects:${object.id}`,
+      matches: (state) => valuesMatch(state.objects[object.id], object),
+    })));
   }
   if (operation.type === "add_layer") {
-    const forward = operation.forward as { layer: unknown };
-    const expected = DrawingLayerInputSchema.parse(forward.layer);
-    const current = state.layers[expected.id];
-    return Boolean(
-      current &&
-        current.systemKind === "custom" &&
-        current.name === expected.name &&
-        current.visible === expected.visible &&
-        current.locked === expected.locked &&
-        current.version === expected.version,
-    );
+    const layer = DrawingLayerInputSchema.parse((operation.forward as { layer: unknown }).layer);
+    if (!valuesMatch(operation.inverse, {}))
+      throw new Error("Layer add inverse is not exact.");
+    exactBaseVersions(operation, { [layer.id]: layer.version });
+    const expected = DrawingLayerSchema.parse({ ...layer, systemKind: "custom" });
+    return [
+      {
+        target: `layers:${layer.id}`,
+        matches: (state) => valuesMatch(state.layers[layer.id], expected),
+      },
+    ];
   }
   const forward = operation.forward as {
     layerId: string;
     patch: Record<string, unknown>;
   };
-  const current = state.layers[forward.layerId];
+  const inverse = operation.inverse as typeof forward;
+  if (
+    inverse.layerId !== forward.layerId ||
+    !valuesMatch(Object.keys(inverse.patch).sort(), Object.keys(forward.patch).sort())
+  )
+    throw new Error("Layer update inverse is not exact.");
   const base = operation.baseVersions[forward.layerId];
-  return Boolean(
-    current &&
-      base !== undefined &&
-      current.version === base + 1 &&
-      Object.entries(forward.patch).every(([key, value]) =>
-        valuesMatch(current[key as keyof typeof current], value),
-      ),
-  );
+  if (!base) throw new Error("Layer update base version is missing.");
+  exactBaseVersions(operation, { [forward.layerId]: base });
+  return [layerEffect(forward.layerId, base + 1, forward.patch)];
+}
+
+/**
+ * The loader is authoritative only for a prefix's final effects. Traverse
+ * newest-first so older writes to the same typed target are intentionally
+ * shadowed, while malformed inverse payloads still reject the whole prefix.
+ */
+function acknowledgedPrefixIsRepresented(
+  state: DrawingDocumentState,
+  entries: DrawingOutboxEntry[],
+) {
+  const shadowed = new Set<string>();
+  try {
+    for (const entry of [...entries].reverse()) {
+      const effects = acknowledgedFinalEffects(entry.operation);
+      for (const effect of effects) {
+        if (shadowed.has(effect.target)) continue;
+        if (!effect.matches(state)) return false;
+        shadowed.add(effect.target);
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Replays durable local operations over a fresh server snapshot, failing closed. */
@@ -989,9 +1032,6 @@ export async function restoreDrawingWorkspaceState({
   );
   let withAcknowledged = structuredClone(serverState);
   const conflictedOperationIds: string[] = [];
-  const acknowledgedStructurePrefix =
-    acknowledged.length > 0 &&
-    acknowledged.every((entry) => entry.operation.type === "mutate_structure");
   const retainAcknowledgedEvidence = async (evidence: DrawingOutboxEntry[]) => {
     for (const ambiguous of evidence)
       await outbox.retainRecoveryEvidence(
@@ -1002,33 +1042,17 @@ export async function restoreDrawingWorkspaceState({
       ...evidence.map((item) => item.operation.clientOperationId),
     );
   };
-  if (acknowledgedStructurePrefix) {
-    // P2 mutations can span related entities. Never accept a prefix merely
-    // because the loader matches one of its intermediate states.
-    if (!acknowledgedStructureChainIsRepresented(withAcknowledged, acknowledged))
-      await retainAcknowledgedEvidence(acknowledged);
-  } else {
-    for (let index = 0; index < acknowledged.length; index += 1) {
-      const entry = acknowledged[index];
-      const replayed = recoverPendingDrawingState(withAcknowledged, [entry]);
-      if (replayed.ambiguousOperationIds.length === 0) {
-        withAcknowledged = replayed.state;
-        continue;
-      }
-      if (acknowledgedOperationIsRepresented(withAcknowledged, entry.operation))
-        continue;
-      await retainAcknowledgedEvidence(acknowledged.slice(index));
-      break;
-    }
-  }
+  if (
+    acknowledged.length > 0 &&
+    !acknowledgedPrefixIsRepresented(withAcknowledged, acknowledged)
+  )
+    await retainAcknowledgedEvidence(acknowledged);
   const entriesForRecovery = await outbox.entries();
   const recovered = recoverPendingDrawingState(
     withAcknowledged,
-    // A conflicted acknowledged structural prefix is durable evidence, not a
-    // reason to discard later independently exact pending work.
-    acknowledgedStructurePrefix
-      ? entriesForRecovery.filter((entry) => entry.status === "pending")
-      : entriesForRecovery,
+    // A conflicting acknowledged prefix is causally before every remaining
+    // pending entry. Keep that work durable, but never project it locally.
+    conflictedOperationIds.length > 0 ? [] : entriesForRecovery,
   );
   return {
     ...recovered,
@@ -1038,6 +1062,11 @@ export async function restoreDrawingWorkspaceState({
     ],
     ambiguousOperationIds: [
       ...conflictedOperationIds,
+      ...(conflictedOperationIds.length > 0
+        ? entriesForRecovery
+            .filter((entry) => entry.status === "pending")
+            .map((entry) => entry.operation.clientOperationId)
+        : []),
       ...recovered.ambiguousOperationIds,
     ],
   };

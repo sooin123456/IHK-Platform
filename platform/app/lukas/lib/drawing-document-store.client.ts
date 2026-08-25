@@ -189,13 +189,22 @@ export type DrawingTransientState = {
  */
 export function drawingTransientAuthorizationKey(
   snapshot: Pick<DrawingDocumentSnapshot, "activePageId" | "activeCanvasId">,
-  input: { draft: boolean; canEdit: boolean },
+  input: {
+    draft: boolean;
+    canEdit: boolean;
+    activeLayer?: Pick<DrawingLayer, "id" | "visible" | "locked" | "version"> | null;
+  },
 ) {
+  const layer = input.activeLayer;
   return [
     snapshot.activePageId ?? "",
     snapshot.activeCanvasId ?? "",
     input.draft ? "draft" : "immutable",
     input.canEdit ? "edit" : "read",
+    layer?.id ?? "",
+    layer?.visible ? "visible" : "hidden",
+    layer?.locked ? "locked" : "unlocked",
+    layer?.version ?? "",
   ].join(":");
 }
 
@@ -204,13 +213,13 @@ export function sanitizeDrawingTransientInput<T extends {
   activeLayerId: string | null;
   activeTool: string;
   selectedIds: string[];
-}>(input: T, invalidated: boolean): T | {
-  activeLayerId: null;
+}>(input: T, invalidated: boolean): {
+  activeLayerId: string | null;
   activeTool: "select";
   selectedIds: string[];
-} {
+} | T {
   return invalidated
-    ? { activeLayerId: null, activeTool: "select", selectedIds: [] }
+    ? { activeLayerId: input.activeLayerId, activeTool: "select", selectedIds: [] }
     : input;
 }
 

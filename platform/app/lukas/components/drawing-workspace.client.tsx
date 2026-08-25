@@ -393,9 +393,22 @@ export default function DrawingWorkspaceClient({
     !reviewPreparing &&
     capabilityCanPersist &&
     revision.status === "draft";
+  const authorizationProbe = useMemo(
+    () => deriveDrawingTransientState(drawingState, {
+      canEdit: baseCanEdit,
+      activeLayerId,
+      activeTool: "select",
+      selectedIds: [],
+    }),
+    [activeLayerId, baseCanEdit, drawingState],
+  );
+  const authorizationLayer = authorizationProbe.activeLayerId
+    ? authorizationProbe.state.layers[authorizationProbe.activeLayerId]
+    : null;
   const authorizationKey = drawingTransientAuthorizationKey(drawingState, {
     draft: revision.status === "draft",
     canEdit: baseCanEdit,
+    activeLayer: authorizationLayer,
   });
   if (transientAuthorizationRef.current !== authorizationKey) {
     transientAuthorizationRef.current = authorizationKey;

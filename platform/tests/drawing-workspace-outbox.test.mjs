@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { afterEach } from "node:test";
 
 import {
   canPersistDrawingMutation,
@@ -154,12 +154,21 @@ function fakeIndexedDb({ blocked = false, records = [] } = {}) {
   return { database, factory, request, store };
 }
 
+const liveOutboxes = new Set();
+
+afterEach(() => {
+  for (const outbox of liveOutboxes) outbox.dispose();
+  liveOutboxes.clear();
+});
+
 function scopedOutbox(adapter, options = {}) {
-  return createDrawingOutbox(adapter, {
+  const outbox = createDrawingOutbox(adapter, {
     ownerId: ids.ownerA,
     revisionId: ids.revisionA,
     ...options,
   });
+  liveOutboxes.add(outbox);
+  return outbox;
 }
 
 function rectangle(overrides = {}) {
@@ -964,6 +973,26 @@ test("recovery consumes an acknowledged P2 create then update as one final-state
   assert.equal(recovered.state.structure.canvases[p2.model].version, 2);
 });
 
+test("recovery reconciles one mixed legacy and P2 acknowledged prefix against its final loader", async () => {
+  const created = createModel();
+  const movedObject = applyDrawingCommand(created.state, {
+    type: "update_objects",
+    actorId: ids.ownerA,
+    updates: [{ objectId: ids.object, patch: { name: "Door" } }],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  const renamed = renameModel(movedObject.state, p2.updateOne, "Model v2");
+  const { recovered } = await restoreAcknowledgedP2(renamed.state, [
+    created,
+    movedObject,
+    renamed,
+  ]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.objects[ids.object].name, "Door");
+  assert.equal(recovered.state.objects[ids.object].version, 2);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v2");
+});
+
 test("recovery consumes successive acknowledged P2 updates from their final authoritative version", async () => {
   const created = createModel();
   const first = renameModel(created.state, p2.updateOne, "Model v2");
@@ -1008,21 +1037,32 @@ test("a partially reflected acknowledged P2 chain remains exact conflict evidenc
   assert.equal(recovered.state.structure.canvases[p2.model].version, 1);
 });
 
-test("a conflicted acknowledged P2 prefix does not suppress its later pending replay", async () => {
+test("a conflicted acknowledged prefix quarantines later pending work without changing the loader", async () => {
   const created = createModel();
   const first = renameModel(created.state, p2.updateOne, "Model v2");
   const pending = renameModel(first.state, p2.updateTwo, "Model v3");
   const divergent = structuredClone(first.state);
   divergent.structure.canvases[p2.model].name = "Server divergence";
-  const { recovered } = await restoreAcknowledgedP2(
+  const { outbox, recovered } = await restoreAcknowledgedP2(
     divergent,
     [created, first, pending],
     p2.updateTwo,
   );
 
   assert.deepEqual(recovered.conflictedOperationIds, [p2.create, p2.updateOne]);
-  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
-  assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
+  assert.deepEqual(recovered.ambiguousOperationIds, [
+    p2.create,
+    p2.updateOne,
+    p2.updateTwo,
+  ]);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Server divergence");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 2);
+  assert.deepEqual(
+    (await outbox.entries())
+      .filter((entry) => entry.status === "pending")
+      .map((entry) => entry.operation.clientOperationId),
+    [p2.updateTwo],
+  );
 });
 
 test("a final acknowledged P2 prefix is consumed before the remaining pending operation replays", async () => {
@@ -1202,9 +1242,11 @@ test("online reload resends an uncertain acknowledgement before recovery", async
   assert.deepEqual(recovered.ambiguousOperationIds, []);
 });
 
-test("online acknowledgement replays over the captured snapshot with server-current versions", async () => {
+test("online acknowledgement accepts a final authoritative legacy result version", async () => {
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(operation(ids.operation1));
+  const committed = state();
+  committed.objects[ids.object] = rectangle({ name: "Door", version: 2 });
 
   const recovered = await restoreDrawingWorkspaceState({
     online: true,
@@ -1213,7 +1255,7 @@ test("online acknowledgement replays over the captured snapshot with server-curr
       clientOperationId: queued.clientOperationId,
       status: "acked",
     }),
-    serverState: state(),
+    serverState: committed,
   });
   const next = applyDrawingCommand(recovered.state, {
     type: "update_objects",
@@ -1227,7 +1269,7 @@ test("online acknowledgement replays over the captured snapshot with server-curr
   assert.equal(next.state.objects[ids.object].version, 3);
 });
 
-test("recovery skips an already represented ack then applies the next acknowledged operation", async () => {
+test("recovery reconciles successive legacy updates against their final effect", async () => {
   const outbox = scopedOutbox(memoryAdapter());
   const secondOperation = operation(ids.operation2, {
     baseVersions: { [ids.object]: 2 },
@@ -1243,7 +1285,7 @@ test("recovery skips an already represented ack then applies the next acknowledg
   await outbox.enqueue(operation(ids.operation1));
   await outbox.enqueue(secondOperation);
   const snapshot = state();
-  snapshot.objects[ids.object] = rectangle({ name: "Door", version: 2 });
+  snapshot.objects[ids.object] = rectangle({ name: "Door 2", version: 3 });
 
   const recovered = await restoreDrawingWorkspaceState({
     online: true,

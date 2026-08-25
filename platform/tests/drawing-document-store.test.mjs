@@ -211,6 +211,34 @@ test("transient authorization identity changes for canvas, draft, and capability
   assert.notEqual(draftEditor, drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: false }));
 });
 
+test("transient authorization identity includes the effective layer eligibility and version", () => {
+  const snapshot = createDrawingDocumentStore(
+    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    { activePageId: ids.page, activeCanvasId: ids.paper },
+  ).getSnapshot();
+  const layer = snapshot.layers[ids.work];
+  const identity = drawingTransientAuthorizationKey(snapshot, {
+    draft: true,
+    canEdit: true,
+    activeLayer: layer,
+  });
+  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
+    draft: true,
+    canEdit: true,
+    activeLayer: { ...layer, locked: true },
+  }));
+  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
+    draft: true,
+    canEdit: true,
+    activeLayer: { ...layer, version: 2 },
+  }));
+  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
+    draft: true,
+    canEdit: true,
+    activeLayer: snapshot.layers[ids.modelWork],
+  }));
+});
+
 test("authorization-boundary adapter never reuses rectangle or polyline selection input", () => {
   const staleRectangle = {
     activeLayerId: ids.work,
@@ -218,7 +246,7 @@ test("authorization-boundary adapter never reuses rectangle or polyline selectio
     selectedIds: [ids.object],
   };
   const stalePolyline = { ...staleRectangle, activeTool: "polyline" };
-  const cleared = { activeLayerId: null, activeTool: "select", selectedIds: [] };
+  const cleared = { activeLayerId: ids.work, activeTool: "select", selectedIds: [] };
   assert.deepEqual(sanitizeDrawingTransientInput(staleRectangle, true), cleared);
   assert.deepEqual(sanitizeDrawingTransientInput(stalePolyline, true), cleared);
   // Re-upgrading edit capability keeps the identity-owned invalidation until
