@@ -228,13 +228,17 @@ export type DrawingTransientState = {
 type ActiveCanvasSlice = {
   layers: Record<string, DrawingLayer>;
   objects: Record<string, DrawingObject>;
+  blockInstances: Record<string, DrawingBlockInstance>;
 };
+
+const EMPTY_BLOCK_INSTANCES: Record<string, DrawingBlockInstance> = {};
 
 export type DrawingActiveCanvasSliceCache = {
   select(
     layers: Record<string, DrawingLayer>,
     objects: Record<string, DrawingObject>,
     canvasId: string,
+    blockInstances?: Record<string, DrawingBlockInstance>,
   ): ActiveCanvasSlice;
   readonly buildCount: number;
 };
@@ -243,20 +247,31 @@ export type DrawingActiveCanvasSliceCache = {
 export function createDrawingActiveCanvasSliceCache(): DrawingActiveCanvasSliceCache {
   const byLayers = new WeakMap<
     Record<string, DrawingLayer>,
-    WeakMap<Record<string, DrawingObject>, Map<string, ActiveCanvasSlice>>
+    WeakMap<
+      Record<string, DrawingObject>,
+      WeakMap<
+        Record<string, DrawingBlockInstance>,
+        Map<string, ActiveCanvasSlice>
+      >
+    >
   >();
   let buildCount = 0;
   return {
-    select(layers, objects, canvasId) {
+    select(layers, objects, canvasId, blockInstances = EMPTY_BLOCK_INSTANCES) {
       let byObjects = byLayers.get(layers);
       if (!byObjects) {
         byObjects = new WeakMap();
         byLayers.set(layers, byObjects);
       }
-      let byCanvas = byObjects.get(objects);
+      let byInstances = byObjects.get(objects);
+      if (!byInstances) {
+        byInstances = new WeakMap();
+        byObjects.set(objects, byInstances);
+      }
+      let byCanvas = byInstances.get(blockInstances);
       if (!byCanvas) {
         byCanvas = new Map();
-        byObjects.set(objects, byCanvas);
+        byInstances.set(blockInstances, byCanvas);
       }
       const cached = byCanvas.get(canvasId);
       if (cached) return cached;
@@ -271,7 +286,16 @@ export function createDrawingActiveCanvasSliceCache(): DrawingActiveCanvasSliceC
           layerIds.has(object.layerId),
         ),
       ) as Record<string, DrawingObject>;
-      const slice = { layers: scopedLayers, objects: scopedObjects };
+      const scopedBlockInstances = Object.fromEntries(
+        Object.entries(blockInstances).filter(([, instance]) =>
+          layerIds.has(instance.layerId),
+        ),
+      ) as Record<string, DrawingBlockInstance>;
+      const slice = {
+        layers: scopedLayers,
+        objects: scopedObjects,
+        blockInstances: scopedBlockInstances,
+      };
       byCanvas.set(canvasId, slice);
       buildCount += 1;
       return slice;
@@ -292,6 +316,7 @@ export function drawingActiveCanvasSlice(
     snapshot.layers,
     snapshot.objects,
     snapshot.activeCanvasId ?? "",
+    snapshot.structure?.blockInstances ?? EMPTY_BLOCK_INSTANCES,
   );
 }
 
@@ -363,7 +388,8 @@ export function deriveDrawingTransientState(
     selectedIds: string[];
   },
 ): DrawingTransientState {
-  const { layers, objects } = drawingActiveCanvasSlice(snapshot);
+  const { layers, objects, blockInstances } =
+    drawingActiveCanvasSlice(snapshot);
   const eligible = (layer: DrawingLayer | undefined) =>
     Boolean(
       layer &&
@@ -381,18 +407,23 @@ export function deriveDrawingTransientState(
           Object.values(layers).find(eligible)?.id ??
           null)
         : null;
-  const selectedIds = (input.canSelect ?? input.canEdit)
-    ? input.selectedIds.filter((id) => {
-        const object = objects[id];
-        return Boolean(object && eligible(layers[object.layerId]));
-      })
-    : [];
+  const selectedIds =
+    (input.canSelect ?? input.canEdit)
+      ? input.selectedIds.filter((id) => {
+          const object = objects[id];
+          const instance = blockInstances[id];
+          return Boolean(
+            (object && eligible(layers[object.layerId])) ||
+              (instance && eligible(layers[instance.layerId])),
+          );
+        })
+      : [];
   const state = {
     ...snapshot,
     layers,
     objects,
     structure: snapshot.structure
-      ? { ...snapshot.structure, layers, objects }
+      ? { ...snapshot.structure, layers, objects, blockInstances }
       : undefined,
   } as DrawingDocumentSnapshot;
   return {

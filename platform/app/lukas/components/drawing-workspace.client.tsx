@@ -30,6 +30,13 @@ import { Form, Link, useBlocker, useNavigation } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import {
+  blockInstanceBounds,
+  blockInstanceRenderModel,
+  copyDrawingBlockInstanceCommand,
+  deleteDrawingBlockInstanceCommand,
+  updateDrawingBlockInstanceCommand,
+} from "~/lukas/lib/drawing-blocks";
+import {
   applyDrawingCommand,
   copyDrawingSelection,
   createDrawingDocumentState,
@@ -74,7 +81,11 @@ import {
   DrawingObjectSchema,
   PdfCalibrationSchema,
 } from "~/lukas/lib/drawing-workspace.types";
-import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
+import type {
+  Bounds,
+  DrawingObject,
+  DrawingStyle,
+} from "~/lukas/lib/drawing-workspace.types";
 import {
   drawingRevisionDecisionFields,
   drawingIssueLinkReady,
@@ -88,6 +99,7 @@ import {
   type DrawingCommandId,
 } from "./drawing-command-menu";
 import { DrawingInspector } from "./drawing-inspector";
+import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
 import { DrawingStylesPanel } from "./drawing-styles-panel";
@@ -355,6 +367,7 @@ export default function DrawingWorkspaceClient({
     useState<DrawingPersistenceSnapshot>({ failed: false, volatileCount: 0 });
   const [legacyOperationCount, setLegacyOperationCount] = useState(0);
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
+  const blockClipboardRef = useRef<string | null>(null);
   const legacyOutboxRef = useRef<DrawingOutbox | null>(null);
   const flushOutboxRef = useRef<(() => Promise<void>) | null>(null);
   const reviewFrozenRef = useRef(false);
@@ -464,7 +477,10 @@ export default function DrawingWorkspaceClient({
       try {
         objects.push({ ...object, style: resolver.resolve(object) });
       } catch (caught) {
-        styleError = caught instanceof Error ? caught.message : "도면 스타일을 해석할 수 없습니다.";
+        styleError =
+          caught instanceof Error
+            ? caught.message
+            : "도면 스타일을 해석할 수 없습니다.";
       }
     }
     return { objects, styleError };
@@ -481,6 +497,41 @@ export default function DrawingWorkspaceClient({
         }),
     [activeDrawingState.layers, resolvedObjects.objects],
   );
+  const resolvedBlockInstances = useMemo(() => {
+    const structure = activeDrawingState.structure;
+    if (!structure) return { instances: [], error: null as string | null };
+    const instances: Array<
+      ReturnType<typeof blockInstanceRenderModel> & { bounds: Bounds }
+    > = [];
+    let error: string | null = null;
+    for (const instance of Object.values(structure.blockInstances)) {
+      const layer = activeDrawingState.layers[instance.layerId];
+      if (!layer?.visible) continue;
+      const block = structure.blocks[instance.blockId];
+      if (!block) {
+        error = `Block instance ${instance.id} references a missing block.`;
+        continue;
+      }
+      try {
+        instances.push({
+          ...blockInstanceRenderModel(block, instance, structure.styles),
+          bounds: blockInstanceBounds(block, instance, structure.styles),
+        });
+      } catch (caught) {
+        error =
+          caught instanceof Error
+            ? caught.message
+            : "블록을 해석할 수 없습니다.";
+      }
+    }
+    instances.sort((left, right) => {
+      const layerOrder =
+        (activeDrawingState.layers[left.instance.layerId]?.sortOrder ?? 0) -
+        (activeDrawingState.layers[right.instance.layerId]?.sortOrder ?? 0);
+      return layerOrder || left.instance.id.localeCompare(right.instance.id);
+    });
+    return { instances, error };
+  }, [activeDrawingState.layers, activeDrawingState.structure]);
   const resolvedActiveLayerId = transient.activeLayerId;
   const activeCanvas = drawingState.activeCanvasId
     ? (drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null)
@@ -712,6 +763,7 @@ export default function DrawingWorkspaceClient({
     setActiveLayerId(null);
     setSelectedIds([]);
     clipboardRef.current = { items: [] };
+    blockClipboardRef.current = null;
     void initialize();
     return () => {
       active = false;
@@ -809,6 +861,16 @@ export default function DrawingWorkspaceClient({
   ]);
 
   const copySelection = useCallback(() => {
+    if (transient.selectedIds.length === 1) {
+      const instance =
+        drawingState.structure?.blockInstances[transient.selectedIds[0]];
+      if (instance) {
+        blockClipboardRef.current = instance.id;
+        clipboardRef.current = { items: [] };
+        return true;
+      }
+    }
+    blockClipboardRef.current = null;
     const clipboard = copyDrawingSelection(drawingState, transient.selectedIds);
     if (clipboard.items.length === 0) return false;
     clipboardRef.current = clipboard;
@@ -817,6 +879,21 @@ export default function DrawingWorkspaceClient({
 
   const pasteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
+    if (blockClipboardRef.current) {
+      const source =
+        drawingState.structure?.blockInstances[blockClipboardRef.current];
+      if (!source) return false;
+      const command = copyDrawingBlockInstanceCommand(
+        drawingState,
+        currentUserId,
+        source.id,
+      );
+      applyCommand(command);
+      const entity = command.actions[0];
+      if (entity.kind === "put_block_instance")
+        setAuthorizedSelection([entity.entity.id]);
+      return true;
+    }
     if (
       clipboardRef.current.items.some((item) => {
         const targetLayer = activeDrawingState.layers[item.layerId];
@@ -839,6 +916,21 @@ export default function DrawingWorkspaceClient({
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
+    if (
+      transient.selectedIds.length === 1 &&
+      drawingState.structure?.blockInstances[transient.selectedIds[0]]
+    ) {
+      const command = copyDrawingBlockInstanceCommand(
+        drawingState,
+        currentUserId,
+        transient.selectedIds[0],
+      );
+      applyCommand(command);
+      const entity = command.actions[0];
+      if (entity.kind === "put_block_instance")
+        setAuthorizedSelection([entity.entity.id]);
+      return true;
+    }
     const command = duplicateDrawingWorkspaceSelection(
       drawingState,
       transient.selectedIds,
@@ -859,6 +951,20 @@ export default function DrawingWorkspaceClient({
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
+    if (
+      transient.selectedIds.length === 1 &&
+      drawingState.structure?.blockInstances[transient.selectedIds[0]]
+    ) {
+      applyCommand(
+        deleteDrawingBlockInstanceCommand(
+          drawingState,
+          currentUserId,
+          transient.selectedIds[0],
+        ),
+      );
+      setSelectedIds([]);
+      return true;
+    }
     const command = deleteDrawingSelection(
       drawingState,
       transient.selectedIds,
@@ -879,6 +985,26 @@ export default function DrawingWorkspaceClient({
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
       if (!editing.canEdit) return false;
+      if (transient.selectedIds.length === 1) {
+        const instance =
+          drawingState.structure?.blockInstances[transient.selectedIds[0]];
+        if (instance) {
+          applyCommand(
+            updateDrawingBlockInstanceCommand(
+              drawingState,
+              currentUserId,
+              instance.id,
+              {
+                origin: {
+                  x: instance.origin.x + delta.x,
+                  y: instance.origin.y + delta.y,
+                },
+              },
+            ),
+          );
+          return true;
+        }
+      }
       const command = moveDrawingSelection(
         drawingState,
         transient.selectedIds,
@@ -1293,6 +1419,16 @@ export default function DrawingWorkspaceClient({
             onCommand={applyCommand}
             state={drawingState}
           />
+          <DrawingBlocksPanel
+            activeLayerId={resolvedActiveLayerId}
+            actorId={currentUserId}
+            canEdit={editing.canEdit}
+            onCommand={applyCommand}
+            selectedIds={transient.selectedIds.filter((id) =>
+              Boolean(activeDrawingState.objects[id]),
+            )}
+            state={drawingState}
+          />
         </aside>
 
         <section
@@ -1315,6 +1451,14 @@ export default function DrawingWorkspaceClient({
                   {resolvedObjects.styleError}
                 </p>
               ) : null}
+              {resolvedBlockInstances.error ? (
+                <p
+                  className="absolute left-1/2 top-16 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
+                  role="alert"
+                >
+                  {resolvedBlockInstances.error}
+                </p>
+              ) : null}
               {surface.layout === "canvas" && surface.sourceError ? (
                 <p
                   className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
@@ -1334,6 +1478,7 @@ export default function DrawingWorkspaceClient({
                   canEdit={editing.canEdit}
                   layerId={editing.layerId}
                   layers={Object.values(activeDrawingState.layers)}
+                  blockInstances={resolvedBlockInstances.instances}
                   objects={visibleObjects}
                   onCommand={applyCommand}
                   onSelectionChange={(ids) =>
@@ -1341,7 +1486,10 @@ export default function DrawingWorkspaceClient({
                       ids.filter(
                         (id) =>
                           transient.selectedIds.includes(id) ||
-                          Boolean(activeDrawingState.objects[id]),
+                          Boolean(activeDrawingState.objects[id]) ||
+                          Boolean(
+                            activeDrawingState.structure?.blockInstances[id],
+                          ),
                       ),
                     )
                   }

@@ -123,6 +123,9 @@ const vite = await createServer({
 const drawingCommands = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-commands.ts",
 );
+const drawingBlocks = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-blocks.ts",
+);
 const workspaceServer = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace.server.ts",
 );
@@ -134,6 +137,9 @@ const { DrawingInspector } = await vite.ssrLoadModule(
 );
 const { DrawingStylesPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-styles-panel.tsx",
+);
+const { DrawingBlocksPanel } = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-blocks-panel.tsx",
 );
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",
@@ -253,17 +259,34 @@ async function addObject(ids, object) {
 
 async function localP2State(ids) {
   const [pages, canvases, layers] = await Promise.all([
-    db.query(`select id,revision_id "revisionId",name,sort_order "sortOrder",version from public.lukas_drawing_pages where revision_id=$1`, [ids.revisionId]),
-    db.query(`select id,page_id "pageId",name,space_kind "spaceKind",width_mm "widthMillimeters",height_mm "heightMillimeters",sort_order "sortOrder",version from public.lukas_drawing_canvases where revision_id=$1`, [ids.revisionId]),
-    db.query(`select id,name,visible,locked,system_kind "systemKind",canvas_id "canvasId",sort_order "sortOrder",version from public.lukas_drawing_layers where revision_id=$1`, [ids.revisionId]),
+    db.query(
+      `select id,revision_id "revisionId",name,sort_order "sortOrder",version from public.lukas_drawing_pages where revision_id=$1`,
+      [ids.revisionId],
+    ),
+    db.query(
+      `select id,page_id "pageId",name,space_kind "spaceKind",width_mm "widthMillimeters",height_mm "heightMillimeters",sort_order "sortOrder",version from public.lukas_drawing_canvases where revision_id=$1`,
+      [ids.revisionId],
+    ),
+    db.query(
+      `select id,name,visible,locked,system_kind "systemKind",canvas_id "canvasId",sort_order "sortOrder",version from public.lukas_drawing_layers where revision_id=$1`,
+      [ids.revisionId],
+    ),
   ]);
   return drawingCommands.createDrawingDocumentState({
     revisionId: ids.revisionId,
     structure: {
       pages: Object.fromEntries(pages.rows.map((row) => [row.id, row])),
-      canvases: Object.fromEntries(canvases.rows.map((row) => [row.id, { ...row, background: null }])),
+      canvases: Object.fromEntries(
+        canvases.rows.map((row) => [row.id, { ...row, background: null }]),
+      ),
       layers: Object.fromEntries(layers.rows.map((row) => [row.id, row])),
-      objects: {}, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      objects: {},
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
 }
@@ -1815,14 +1838,19 @@ test("style helpers persist through command history, outbox, RPC, undo, and redo
   const ids = await createDocument();
   let local = await localP2State(ids);
   const outbox = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
-    ownerId: OWNER, revisionId: ids.revisionId, schedule: () => () => {},
+    ownerId: OWNER,
+    revisionId: ids.revisionId,
+    schedule: () => () => {},
   });
   const client = pgliteWorkspaceClient(db);
   const persist = async (recorded) => {
     await outbox.enqueue(operationInput(recorded));
     await outbox.flush(async (operation) => {
       await workspaceServer.applyDrawingOperation(client, operation);
-      return { clientOperationId: operation.clientOperationId, status: "acked" };
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
     });
   };
   const apply = async (command) => {
@@ -1832,18 +1860,43 @@ test("style helpers persist through command history, outbox, RPC, undo, and redo
     return recorded;
   };
   const styleId = randomUUID();
-  await apply(drawingCommands.createDrawingStyleCommand(
-    local, OWNER, "Lifecycle", STYLE, () => styleId,
-  ));
-  await apply(drawingCommands.updateDrawingStyleCommand(local, OWNER, styleId, {
-    value: { stroke: "#445566", strokeWidth: 3, fill: null },
-  }));
+  await apply(
+    drawingCommands.createDrawingStyleCommand(
+      local,
+      OWNER,
+      "Lifecycle",
+      STYLE,
+      () => styleId,
+    ),
+  );
+  await apply(
+    drawingCommands.updateDrawingStyleCommand(local, OWNER, styleId, {
+      value: { stroke: "#445566", strokeWidth: 3, fill: null },
+    }),
+  );
   const objectId = randomUUID();
-  await apply({ type: "add_objects", actorId: OWNER, objects: [circleObject(objectId, ids.workLayerId)] });
-  await apply(drawingCommands.applyDrawingStyleSelection(local, [objectId], OWNER, styleId));
-  await apply(drawingCommands.resetDrawingStyleOverrides(local, [objectId], OWNER));
-  await apply(drawingCommands.detachDrawingStyleSelection(local, [objectId], OWNER));
-  const deleted = await apply(drawingCommands.deleteDrawingStyleCommand(local, OWNER, styleId));
+  await apply({
+    type: "add_objects",
+    actorId: OWNER,
+    objects: [circleObject(objectId, ids.workLayerId)],
+  });
+  await apply(
+    drawingCommands.applyDrawingStyleSelection(
+      local,
+      [objectId],
+      OWNER,
+      styleId,
+    ),
+  );
+  await apply(
+    drawingCommands.resetDrawingStyleOverrides(local, [objectId], OWNER),
+  );
+  await apply(
+    drawingCommands.detachDrawingStyleSelection(local, [objectId], OWNER),
+  );
+  const deleted = await apply(
+    drawingCommands.deleteDrawingStyleCommand(local, OWNER, styleId),
+  );
   const undone = drawingCommands.undoDrawingCommand(local, OWNER);
   assert.ok(undone && !("kind" in undone));
   await persist(undone.operation);
@@ -1852,7 +1905,7 @@ test("style helpers persist through command history, outbox, RPC, undo, and redo
   assert.ok(redone && !("kind" in redone));
   await persist(redone.operation);
   const stored = await db.query(
-    "select style_id \"styleId\",style,version from public.lukas_drawing_objects where id=$1",
+    'select style_id "styleId",style,version from public.lukas_drawing_objects where id=$1',
     [objectId],
   );
   assert.deepEqual(stored.rows[0], {
@@ -1862,8 +1915,107 @@ test("style helpers persist through command history, outbox, RPC, undo, and redo
   });
   assert.equal(deleted.operation.type, "mutate_structure");
   await db.exec("reset role");
-  const styles = await db.query("select count(*)::int count from public.lukas_drawing_styles where id=$1", [styleId]);
+  const styles = await db.query(
+    "select count(*)::int count from public.lukas_drawing_styles where id=$1",
+    [styleId],
+  );
   assert.equal(styles.rows[0].count, 0);
+  outbox.dispose();
+});
+
+test("block helper persists atomic selection conversion through outbox, RPC, undo, and redo", async () => {
+  const ids = await createDocument();
+  let local = await localP2State(ids);
+  const outbox = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
+    ownerId: OWNER,
+    revisionId: ids.revisionId,
+    schedule: () => () => {},
+  });
+  const client = pgliteWorkspaceClient(db);
+  const persist = async (recorded) => {
+    await outbox.enqueue(operationInput(recorded));
+    await outbox.flush(async (operation) => {
+      await workspaceServer.applyDrawingOperation(client, operation);
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
+    });
+  };
+  const apply = async (command) => {
+    const applied = drawingCommands.applyDrawingCommand(local, command);
+    await persist(applied.operation);
+    local = applied.state;
+    return applied;
+  };
+  const firstId = randomUUID();
+  const secondId = randomUUID();
+  await apply({
+    type: "add_objects",
+    actorId: OWNER,
+    objects: [
+      { ...circleObject(firstId, ids.workLayerId), styleId: null },
+      {
+        id: secondId,
+        name: "Cable",
+        layerId: ids.workLayerId,
+        geometry: {
+          type: "line",
+          start: { x: 20, y: 20 },
+          end: { x: 30, y: 25 },
+        },
+        styleId: null,
+        style: STYLE,
+        version: 1,
+      },
+    ],
+  });
+  const blockId = randomUUID();
+  const instanceId = randomUUID();
+  const generated = [blockId, instanceId, "circle", "line"];
+  const created = await apply(
+    drawingBlocks.createBlockFromSelection(
+      local,
+      [secondId, firstId],
+      OWNER,
+      "RPC symbol",
+      { activeLayerId: ids.workLayerId, createId: () => generated.shift() },
+    ),
+  );
+  assert.equal(created.operation.type, "mutate_structure");
+  let rows = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
+    [firstId, secondId, blockId, instanceId],
+  );
+  assert.deepEqual(rows.rows[0], { objects: 0, blocks: 1, instances: 1 });
+
+  const undone = drawingCommands.undoDrawingCommand(local, OWNER);
+  assert.ok(undone && !("kind" in undone));
+  await persist(undone.operation);
+  local = undone.state;
+  rows = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
+    [firstId, secondId, blockId, instanceId],
+  );
+  assert.deepEqual(rows.rows[0], { objects: 2, blocks: 0, instances: 0 });
+
+  const redone = drawingCommands.redoDrawingCommand(local, OWNER);
+  assert.ok(redone && !("kind" in redone));
+  await persist(redone.operation);
+  rows = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
+    [firstId, secondId, blockId, instanceId],
+  );
+  assert.deepEqual(rows.rows[0], { objects: 0, blocks: 1, instances: 1 });
   outbox.dispose();
 });
 
@@ -1882,13 +2034,15 @@ test("strict structure mutation denies deleting a style referenced only by a blo
     id: blockId,
     revisionId: ids.revisionId,
     name: "Block-only reference",
-    primitives: [{
-      localId: "circle",
-      name: "Circle",
-      geometry: circleObject(randomUUID(), ids.workLayerId).geometry,
-      styleId,
-      style: {},
-    }],
+    primitives: [
+      {
+        localId: "circle",
+        name: "Circle",
+        geometry: circleObject(randomUUID(), ids.workLayerId).geometry,
+        styleId,
+        style: {},
+      },
+    ],
     version: 1,
   };
   const createForward = {
@@ -1900,7 +2054,9 @@ test("strict structure mutation denies deleting a style referenced only by a blo
   };
   const client = pgliteWorkspaceClient(db);
   const outbox = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
-    ownerId: OWNER, revisionId: ids.revisionId, schedule: () => () => {},
+    ownerId: OWNER,
+    revisionId: ids.revisionId,
+    schedule: () => () => {},
   });
   const operation = (baseVersions, forward, inverse) => ({
     clientOperationId: randomUUID(),
@@ -1920,13 +2076,15 @@ test("strict structure mutation denies deleting a style referenced only by a blo
     });
     return result;
   };
-  await persist(operation({}, createForward, {
-    type: "mutate_structure",
-    actions: [
-      { kind: "delete_block", id: blockId, baseVersion: 1 },
-      { kind: "delete_style", id: styleId, baseVersion: 1 },
-    ],
-  }));
+  await persist(
+    operation({}, createForward, {
+      type: "mutate_structure",
+      actions: [
+        { kind: "delete_block", id: blockId, baseVersion: 1 },
+        { kind: "delete_style", id: styleId, baseVersion: 1 },
+      ],
+    }),
+  );
 
   await db.exec("reset role");
   const beforeCount = await db.query(
@@ -1939,19 +2097,36 @@ test("strict structure mutation denies deleting a style referenced only by a blo
       ids.revisionId,
       "mutate_structure",
       { [styleId]: 1 },
-      { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
-      { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }],
+      },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_style", entity: style, baseVersion: null }],
+      },
     ),
-    (error) => error.code === "P1C01" && /referenced drawing style/i.test(error.message),
+    (error) =>
+      error.code === "P1C01" && /referenced drawing style/i.test(error.message),
   );
   await db.exec("reset role");
   const [storedStyle, storedBlock, afterCount] = await Promise.all([
-    db.query("select version from public.lukas_drawing_styles where id=$1", [styleId]),
-    db.query("select version,primitives from public.lukas_drawing_blocks where id=$1", [blockId]),
-    db.query("select count(*)::int count from public.lukas_drawing_operations where revision_id=$1", [ids.revisionId]),
+    db.query("select version from public.lukas_drawing_styles where id=$1", [
+      styleId,
+    ]),
+    db.query(
+      "select version,primitives from public.lukas_drawing_blocks where id=$1",
+      [blockId],
+    ),
+    db.query(
+      "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+      [ids.revisionId],
+    ),
   ]);
   assert.deepEqual(storedStyle.rows, [{ version: 1 }]);
-  assert.deepEqual(storedBlock.rows, [{ version: 1, primitives: block.primitives }]);
+  assert.deepEqual(storedBlock.rows, [
+    { version: 1, primitives: block.primitives },
+  ]);
   assert.deepEqual(afterCount.rows, beforeCount.rows);
 
   await asActor(OWNER);
@@ -1959,22 +2134,46 @@ test("strict structure mutation denies deleting a style referenced only by a blo
     ...block,
     primitives: [{ ...block.primitives[0], styleId: null, style: STYLE }],
   };
-  await persist(operation(
-    { [blockId]: 1 },
-    { type: "mutate_structure", actions: [{ kind: "put_block", entity: detachedBlock, baseVersion: 1 }] },
-    { type: "mutate_structure", actions: [{ kind: "put_block", entity: block, baseVersion: 2 }] },
-  ));
-  const deleted = await persist(operation(
-    { [styleId]: 1 },
-    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
-    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
-  ));
+  await persist(
+    operation(
+      { [blockId]: 1 },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_block", entity: detachedBlock, baseVersion: 1 }],
+      },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_block", entity: block, baseVersion: 2 }],
+      },
+    ),
+  );
+  const deleted = await persist(
+    operation(
+      { [styleId]: 1 },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }],
+      },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_style", entity: style, baseVersion: null }],
+      },
+    ),
+  );
   assert.deepEqual(deleted.resultVersions, { [styleId]: null });
-  await persist(operation(
-    {},
-    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
-    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 3 }] },
-  ));
+  await persist(
+    operation(
+      {},
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_style", entity: style, baseVersion: null }],
+      },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "delete_style", id: styleId, baseVersion: 3 }],
+      },
+    ),
+  );
   await db.exec("reset role");
   const restored = await db.query(
     "select version from public.lukas_drawing_styles where id=$1",
@@ -2862,7 +3061,12 @@ test("inspector renders linked issues read-only and draft editor controls access
             id: styleId,
             revisionId: randomUUID(),
             name: "Read-only effective",
-            value: { stroke: "#112233", strokeWidth: 2, fill: null, fontSize: 14 },
+            value: {
+              stroke: "#112233",
+              strokeWidth: 2,
+              fill: null,
+              fontSize: 14,
+            },
             version: 1,
           },
         },
@@ -2911,21 +3115,40 @@ test("style library stays readable for viewers and describes referenced delete d
   const state = {
     revisionId: randomUUID(),
     layers: {
-      [layerId]: { id: layerId, name: "Work", visible: true, locked: false, systemKind: "work", version: 1 },
+      [layerId]: {
+        id: layerId,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        version: 1,
+      },
     },
     objects: {
       [objectId]: circleObject(objectId, layerId, { styleId, style: {} }),
     },
     structure: {
       styles: {
-        [styleId]: { id: styleId, revisionId: randomUUID(), name: "Shared visible", value: STYLE, version: 1 },
+        [styleId]: {
+          id: styleId,
+          revisionId: randomUUID(),
+          name: "Shared visible",
+          value: STYLE,
+          version: 1,
+        },
       },
       blocks: {},
     },
   };
-  const render = (canEdit) => renderToStaticMarkup(createElement(DrawingStylesPanel, {
-    actorId: OWNER, canEdit, onCommand() {}, state,
-  }));
+  const render = (canEdit) =>
+    renderToStaticMarkup(
+      createElement(DrawingStylesPanel, {
+        actorId: OWNER,
+        canEdit,
+        onCommand() {},
+        state,
+      }),
+    );
   const viewer = render(false);
   assert.match(viewer, /스타일 라이브러리/);
   assert.match(viewer, /Shared visible/);
@@ -2937,6 +3160,136 @@ test("style library stays readable for viewers and describes referenced delete d
   assert.match(editor, /disabled=""/);
   assert.match(editor, /aria-describedby="style-delete-reason-/);
   assert.match(editor, /사용 중인 스타일은 삭제할 수 없습니다/);
+});
+
+test("block library and instance inspector remain readable while approved viewers receive no mutation controls", () => {
+  const revisionId = randomUUID();
+  const pageId = randomUUID();
+  const canvasId = randomUUID();
+  const layerId = randomUUID();
+  const blockId = randomUUID();
+  const instanceId = randomUUID();
+  const block = {
+    id: blockId,
+    revisionId,
+    name: "Approved symbol",
+    version: 1,
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: { type: "line", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } },
+        styleId: null,
+        style: STYLE,
+      },
+    ],
+  };
+  const instance = {
+    id: instanceId,
+    blockId,
+    layerId,
+    name: "Approved placement",
+    origin: { x: 12, y: 34 },
+    rotation: 30,
+    scaleX: 2,
+    scaleY: 0.5,
+    version: 1,
+  };
+  const state = drawingCommands.createDrawingDocumentState({
+    revisionId,
+    structure: {
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [canvasId]: {
+          id: canvasId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [layerId]: {
+          id: layerId,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: {},
+      styles: {},
+      blocks: { [blockId]: block },
+      blockInstances: { [instanceId]: instance },
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  const viewer = renderToStaticMarkup(
+    createElement(DrawingBlocksPanel, {
+      activeLayerId: null,
+      actorId: OWNER,
+      canEdit: false,
+      onCommand() {},
+      selectedIds: [],
+      state,
+    }),
+  );
+  assert.match(viewer, /읽기 전용 블록 목록/);
+  assert.match(viewer, /Approved symbol/);
+  assert.match(viewer, /Instance 1개/);
+  assert.doesNotMatch(viewer, /<form/);
+  assert.doesNotMatch(viewer, /<button/);
+
+  const inspector = renderToStaticMarkup(
+    createElement(DrawingInspector, {
+      actorId: OWNER,
+      canEdit: false,
+      canLinkIssues: false,
+      issueLinks: [],
+      issues: [],
+      onCommand() {},
+      selectedIds: [instanceId],
+      state,
+    }),
+  );
+  assert.match(inspector, /블록 Instance/);
+  assert.match(inspector, /Approved placement/);
+  assert.match(inspector, /12, 34/);
+  assert.match(inspector, /30°/);
+  assert.doesNotMatch(inspector, /<form/);
+  assert.doesNotMatch(inspector, /Instance 저장/);
+
+  const editor = renderToStaticMarkup(
+    createElement(DrawingBlocksPanel, {
+      activeLayerId: layerId,
+      actorId: OWNER,
+      canEdit: true,
+      onCommand() {},
+      selectedIds: [],
+      state,
+    }),
+  );
+  assert.match(editor, /선택 객체로 블록 만들기/);
+  assert.match(editor, /정의 저장/);
+  assert.match(editor, /Instance 삽입/);
+  assert.match(editor, /사용 중인 정의는 삭제할 수 없습니다/);
 });
 
 test("viewer layer panel keeps read surfaces but omits every mutation control", () => {

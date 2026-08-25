@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Form } from "react-router";
 
 import {
+  copyDrawingBlockInstanceCommand,
+  deleteDrawingBlockInstanceCommand,
+  updateDrawingBlockInstanceCommand,
+} from "~/lukas/lib/drawing-blocks";
+
+import {
   applyDrawingStyleSelection,
   detachDrawingStyleSelection,
   isEditableDrawingLayer,
@@ -16,7 +22,10 @@ import {
   drawingStyleSelectionFormModel,
   sharedDrawingStyleId,
 } from "~/lukas/lib/drawing-style-resolution";
-import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
+import type {
+  DrawingObject,
+  DrawingStyle,
+} from "~/lukas/lib/drawing-workspace.types";
 import type {
   DrawingObjectIssueLink,
   DrawingWorkspaceIssue,
@@ -70,6 +79,10 @@ export function DrawingInspector({
     () => selectedIds.map((id) => state.objects[id]).filter(Boolean),
     [selectedIds, state.objects],
   );
+  const selectedInstance =
+    selectedIds.length === 1
+      ? (state.structure?.blockInstances?.[selectedIds[0]] ?? null)
+      : null;
   const styleResolution = useMemo(() => {
     try {
       const formModel = drawingStyleSelectionFormModel(
@@ -80,7 +93,9 @@ export function DrawingInspector({
     } catch (caught) {
       return {
         defaults: { stroke: "", strokeWidth: "", fill: "", fontSize: "" },
-        resetKey: selectedObjects.map((object) => `${object.id}:${object.version}`).join("|"),
+        resetKey: selectedObjects
+          .map((object) => `${object.id}:${object.version}`)
+          .join("|"),
         styles: [] as DrawingStyle[],
         error: inspectorError(caught),
       };
@@ -236,19 +251,226 @@ export function DrawingInspector({
   function applyStyle(styleId: string) {
     try {
       if (!styleId || styleId === DRAWING_MIXED_STYLE_ID) return;
-      onCommand(applyDrawingStyleSelection(state, selectedIds, actorId, styleId));
+      onCommand(
+        applyDrawingStyleSelection(state, selectedIds, actorId, styleId),
+      );
       setError(null);
-    } catch (caught) { setError(inspectorError(caught)); }
+    } catch (caught) {
+      setError(inspectorError(caught));
+    }
   }
 
   function resetOverrides() {
-    try { onCommand(resetDrawingStyleOverrides(state, selectedIds, actorId)); setError(null); }
-    catch (caught) { setError(inspectorError(caught)); }
+    try {
+      onCommand(resetDrawingStyleOverrides(state, selectedIds, actorId));
+      setError(null);
+    } catch (caught) {
+      setError(inspectorError(caught));
+    }
   }
 
   function detachStyle() {
-    try { onCommand(detachDrawingStyleSelection(state, selectedIds, actorId)); setError(null); }
-    catch (caught) { setError(inspectorError(caught)); }
+    try {
+      onCommand(detachDrawingStyleSelection(state, selectedIds, actorId));
+      setError(null);
+    } catch (caught) {
+      setError(inspectorError(caught));
+    }
+  }
+
+  if (selectedInstance) {
+    const layer = state.layers[selectedInstance.layerId];
+    const editableLayers = Object.values(state.layers).filter(
+      isEditableDrawingLayer,
+    );
+    const editable = Boolean(layer && isEditableDrawingLayer(layer));
+    if (!canEdit || !editable) {
+      return (
+        <section aria-labelledby="drawing-inspector-title">
+          <h2 className="text-sm font-bold" id="drawing-inspector-title">
+            블록 Instance
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">읽기 전용</p>
+          <dl className="mt-4 grid gap-3 text-sm">
+            <div>
+              <dt className="text-xs text-slate-400">이름</dt>
+              <dd>{selectedInstance.name}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">원점</dt>
+              <dd>
+                {selectedInstance.origin.x}, {selectedInstance.origin.y}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">회전</dt>
+              <dd>{selectedInstance.rotation}°</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">배율</dt>
+              <dd>
+                {selectedInstance.scaleX}, {selectedInstance.scaleY}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      );
+    }
+    return (
+      <section aria-labelledby="drawing-inspector-title">
+        <h2 className="text-sm font-bold" id="drawing-inspector-title">
+          블록 Instance
+        </h2>
+        <form
+          className="mt-4 grid gap-3"
+          data-drawing-shortcuts="ignore"
+          key={`${selectedInstance.id}:${selectedInstance.version}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            try {
+              const data = new FormData(event.currentTarget);
+              onCommand(
+                updateDrawingBlockInstanceCommand(
+                  state as DrawingDocumentState,
+                  actorId,
+                  selectedInstance.id,
+                  {
+                    name: String(data.get("name") ?? ""),
+                    layerId: String(data.get("layerId") ?? ""),
+                    origin: {
+                      x: Number(data.get("originX")),
+                      y: Number(data.get("originY")),
+                    },
+                    rotation: Number(data.get("rotation")),
+                    scaleX: Number(data.get("scaleX")),
+                    scaleY: Number(data.get("scaleY")),
+                  },
+                ),
+              );
+              setError(null);
+            } catch (caught) {
+              setError(inspectorError(caught));
+            }
+          }}
+        >
+          <label className="grid gap-1 text-xs" htmlFor="block-instance-name">
+            이름
+            <input
+              className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+              defaultValue={selectedInstance.name}
+              id="block-instance-name"
+              maxLength={255}
+              name="name"
+              required
+            />
+          </label>
+          <label className="grid gap-1 text-xs" htmlFor="block-instance-layer">
+            레이어
+            <select
+              className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+              defaultValue={selectedInstance.layerId}
+              id="block-instance-layer"
+              name="layerId"
+            >
+              {editableLayers.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(
+            ["originX", "originY", "rotation", "scaleX", "scaleY"] as const
+          ).map((field) => {
+            const labels = {
+              originX: "원점 X",
+              originY: "원점 Y",
+              rotation: "회전",
+              scaleX: "배율 X",
+              scaleY: "배율 Y",
+            };
+            const values = {
+              originX: selectedInstance.origin.x,
+              originY: selectedInstance.origin.y,
+              rotation: selectedInstance.rotation,
+              scaleX: selectedInstance.scaleX,
+              scaleY: selectedInstance.scaleY,
+            };
+            return (
+              <label
+                className="grid gap-1 text-xs"
+                htmlFor={`block-instance-${field}`}
+                key={field}
+              >
+                {labels[field]}
+                <input
+                  className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+                  defaultValue={values[field]}
+                  id={`block-instance-${field}`}
+                  name={field}
+                  step="any"
+                  type="number"
+                  required
+                />
+              </label>
+            );
+          })}
+          <button
+            className="min-h-10 rounded bg-indigo-500 px-3 text-sm font-semibold"
+            type="submit"
+          >
+            Instance 저장
+          </button>
+        </form>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            className="min-h-10 rounded border border-white/20 px-2 text-sm"
+            onClick={() => {
+              try {
+                onCommand(
+                  copyDrawingBlockInstanceCommand(
+                    state as DrawingDocumentState,
+                    actorId,
+                    selectedInstance.id,
+                  ),
+                );
+                setError(null);
+              } catch (caught) {
+                setError(inspectorError(caught));
+              }
+            }}
+            type="button"
+          >
+            Instance 복사
+          </button>
+          <button
+            className="min-h-10 rounded border border-white/20 px-2 text-sm"
+            onClick={() => {
+              try {
+                onCommand(
+                  deleteDrawingBlockInstanceCommand(
+                    state as DrawingDocumentState,
+                    actorId,
+                    selectedInstance.id,
+                  ),
+                );
+                setError(null);
+              } catch (caught) {
+                setError(inspectorError(caught));
+              }
+            }}
+            type="button"
+          >
+            Instance 삭제
+          </button>
+        </div>
+        {error ? (
+          <p className="mt-3 text-xs text-red-300" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </section>
+    );
   }
 
   if (selectedObjects.length === 0) {
@@ -267,8 +489,12 @@ export function DrawingInspector({
   if (styleResolution.error) {
     return (
       <section aria-labelledby="drawing-inspector-title">
-        <h2 className="text-sm font-bold" id="drawing-inspector-title">속성</h2>
-        <p className="mt-4 text-sm text-red-300" role="alert">{styleResolution.error}</p>
+        <h2 className="text-sm font-bold" id="drawing-inspector-title">
+          속성
+        </h2>
+        <p className="mt-4 text-sm text-red-300" role="alert">
+          {styleResolution.error}
+        </p>
       </section>
     );
   }
@@ -316,15 +542,25 @@ export function DrawingInspector({
           </div>
           <div>
             <dt className="text-xs text-slate-400">선 두께</dt>
-            <dd>{sharedStyleValue(selectedStyles, (style) => String(style.strokeWidth))}</dd>
+            <dd>
+              {sharedStyleValue(selectedStyles, (style) =>
+                String(style.strokeWidth),
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-slate-400">채우기</dt>
-            <dd>{sharedStyleValue(selectedStyles, (style) => style.fill ?? "")}</dd>
+            <dd>
+              {sharedStyleValue(selectedStyles, (style) => style.fill ?? "")}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-slate-400">글꼴 크기</dt>
-            <dd>{sharedStyleValue(selectedStyles, (style) => String(style.fontSize ?? ""))}</dd>
+            <dd>
+              {sharedStyleValue(selectedStyles, (style) =>
+                String(style.fontSize ?? ""),
+              )}
+            </dd>
           </div>
           {textOnly ? (
             <div>
@@ -360,17 +596,48 @@ export function DrawingInspector({
               onChange={(event) => applyStyle(event.currentTarget.value)}
               value={selectedStyleId}
             >
-              <option disabled value="">인라인 스타일</option>
-              <option disabled value={DRAWING_MIXED_STYLE_ID}>혼합 값</option>
-              {Object.values(state.structure.styles).sort((left, right) => left.name.localeCompare(right.name)).map((style) => (
-                <option key={style.id} value={style.id}>{style.name}</option>
-              ))}
+              <option disabled value="">
+                인라인 스타일
+              </option>
+              <option disabled value={DRAWING_MIXED_STYLE_ID}>
+                혼합 값
+              </option>
+              {Object.values(state.structure.styles)
+                .sort((left, right) => left.name.localeCompare(right.name))
+                .map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}
+                  </option>
+                ))}
             </select>
           </label>
           <div className="flex flex-wrap gap-2">
-            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={!selectedStyleId || selectedStyleId === DRAWING_MIXED_STYLE_ID} onClick={() => applyStyle(selectedStyleId)} type="button">스타일 다시 적용</button>
-            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={resetOverrides} type="button">재정의 초기화</button>
-            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={detachStyle} type="button">스타일 분리</button>
+            <button
+              className="min-h-9 rounded border border-white/20 px-2 text-sm"
+              disabled={
+                !selectedStyleId || selectedStyleId === DRAWING_MIXED_STYLE_ID
+              }
+              onClick={() => applyStyle(selectedStyleId)}
+              type="button"
+            >
+              스타일 다시 적용
+            </button>
+            <button
+              className="min-h-9 rounded border border-white/20 px-2 text-sm"
+              disabled={selectedObjects.some((object) => !object.styleId)}
+              onClick={resetOverrides}
+              type="button"
+            >
+              재정의 초기화
+            </button>
+            <button
+              className="min-h-9 rounded border border-white/20 px-2 text-sm"
+              disabled={selectedObjects.some((object) => !object.styleId)}
+              onClick={detachStyle}
+              type="button"
+            >
+              스타일 분리
+            </button>
           </div>
         </div>
       ) : null}

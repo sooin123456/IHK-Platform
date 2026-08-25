@@ -39,6 +39,7 @@ import {
   type DrawingCommand,
   type DrawingMoveSnapshot,
 } from "~/lukas/lib/drawing-commands";
+import type { DrawingBlockRenderModel } from "~/lukas/lib/drawing-blocks";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
   openPdfDocument,
@@ -46,6 +47,7 @@ import {
   type OpenPdfDocument,
 } from "~/lukas/lib/pdf-page-renderer.client";
 import type {
+  Bounds,
   DrawingGeometry,
   DrawingLayer,
   DrawingObject,
@@ -142,6 +144,7 @@ function drawingObject(
     name: defaultDrawingObjectName(geometry.type),
     layerId: options.layerId,
     geometry,
+    styleId: null,
     style: {
       stroke: "#2563eb",
       strokeWidth: 2,
@@ -1103,6 +1106,7 @@ type DrawingCanvasProps = {
   activeTool: DrawingTool;
   actorId: string;
   background: DrawingCanvasBackground;
+  blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
   calibrationId: string | null;
   canEdit: boolean;
@@ -1300,7 +1304,9 @@ function geometryShape(
 }
 
 type CommittedDrawingLayerProps = {
+  blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
+  layers: DrawingLayer[];
   objects: Array<DrawingObject & { style: DrawingStyle }>;
   viewportX: number;
   viewportY: number;
@@ -1310,12 +1316,35 @@ type CommittedDrawingLayerProps = {
 // The workspace keeps `objects` and `calibration` identities stable. Passing
 // viewport primitives limits this memo boundary to actual committed-layer work.
 const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
+  blockInstances,
   calibration,
+  layers,
   objects,
   viewportX,
   viewportY,
   viewportZoom,
 }: CommittedDrawingLayerProps) {
+  const layerOrder = Object.fromEntries(
+    layers.map((layer) => [layer.id, layer.sortOrder ?? 0]),
+  );
+  const items = [
+    ...objects.map((object) => ({
+      kind: "object" as const,
+      id: object.id,
+      layerId: object.layerId,
+      object,
+    })),
+    ...blockInstances.map((model) => ({
+      kind: "block" as const,
+      id: model.instance.id,
+      layerId: model.instance.layerId,
+      model,
+    })),
+  ].sort(
+    (left, right) =>
+      (layerOrder[left.layerId] ?? 0) - (layerOrder[right.layerId] ?? 0) ||
+      left.id.localeCompare(right.id),
+  );
   return (
     <Layer
       listening={false}
@@ -1325,11 +1354,39 @@ const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
       x={viewportX}
       y={viewportY}
     >
-      {objects.map((object) => (
-        <Group key={object.id} listening={false}>
-          {geometryShape(object.geometry, object.style, false, calibration)}
-        </Group>
-      ))}
+      {items.map((item) =>
+        item.kind === "object" ? (
+          <Group key={item.id} listening={false}>
+            {geometryShape(
+              item.object.geometry,
+              item.object.style,
+              false,
+              calibration,
+            )}
+          </Group>
+        ) : (
+          <Group
+            key={item.id}
+            listening={false}
+            rotation={item.model.instance.rotation}
+            scaleX={item.model.instance.scaleX}
+            scaleY={item.model.instance.scaleY}
+            x={item.model.instance.origin.x}
+            y={item.model.instance.origin.y}
+          >
+            {item.model.primitives.map((primitive) => (
+              <Group key={primitive.localId} listening={false}>
+                {geometryShape(
+                  primitive.geometry,
+                  primitive.style,
+                  false,
+                  calibration,
+                )}
+              </Group>
+            ))}
+          </Group>
+        ),
+      )}
     </Layer>
   );
 });
@@ -1394,6 +1451,7 @@ export const DrawingCanvas = forwardRef<
     activeTool,
     actorId,
     background,
+    blockInstances,
     calibration,
     calibrationId,
     canEdit,
@@ -1423,6 +1481,13 @@ export const DrawingCanvas = forwardRef<
   const objectsById = useMemo(
     () => Object.fromEntries(objects.map((object) => [object.id, object])),
     [objects],
+  );
+  const blockInstancesById = useMemo(
+    () =>
+      Object.fromEntries(
+        blockInstances.map((model) => [model.instance.id, model]),
+      ),
+    [blockInstances],
   );
   const objectCandidates = useMemo(
     () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
@@ -1730,16 +1795,29 @@ export const DrawingCanvas = forwardRef<
             previewDelta: { x: 0, y: 0 },
           }),
     };
-    applySelectionResult(
-      drawingSelectionEventTransition(
-        withExternalSelection,
-        { type: "sync_context" },
-        selectionContextRef.current,
-      ),
+    const result = drawingSelectionEventTransition(
+      withExternalSelection,
+      { type: "sync_context" },
+      selectionContextRef.current,
     );
+    const eligibleInstanceIds = selectedIds.filter((id) => {
+      const model = blockInstancesById[id];
+      const layer = model ? layersById[model.instance.layerId] : undefined;
+      return Boolean(model && layer?.visible && !layer.locked);
+    });
+    applySelectionResult({
+      ...result,
+      state: {
+        ...result.state,
+        selectedIds: [
+          ...new Set([...result.state.selectedIds, ...eligibleInstanceIds]),
+        ],
+      },
+    });
   }, [
     activeTool,
     applySelectionResult,
+    blockInstancesById,
     canEdit,
     layersById,
     objectsById,
@@ -1769,13 +1847,37 @@ export const DrawingCanvas = forwardRef<
       ? worldToScreen(controllerState.session.origin, viewport)
       : null;
   const selectionCandidates = useMemo(
-    () => drawingSelectionCandidates(objects, layersById, viewport.zoom),
-    [layersById, objects, viewport.zoom],
+    () => [
+      ...drawingSelectionCandidates(objects, layersById, viewport.zoom),
+      ...blockInstances.flatMap((model) => {
+        const layer = layersById[model.instance.layerId];
+        if (!layer?.visible || layer.locked) return [];
+        const tolerance = SELECTION_HIT_TOLERANCE_PIXELS / viewport.zoom;
+        return [
+          {
+            id: model.instance.id,
+            bounds: {
+              x: model.bounds.x - tolerance,
+              y: model.bounds.y - tolerance,
+              width: model.bounds.width + tolerance * 2,
+              height: model.bounds.height + tolerance * 2,
+            },
+          },
+        ];
+      }),
+    ],
+    [blockInstances, layersById, objects, viewport.zoom],
   );
   const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
     const object = objectsById[objectId];
     return object ? [object] : [];
   });
+  const selectedBlockInstances = selectionState.selectedIds.flatMap(
+    (instanceId) => {
+      const model = blockInstancesById[instanceId];
+      return model ? [model] : [];
+    },
+  );
   const marqueeBounds = selectionState.marquee
     ? normalizedBounds(
         selectionState.marquee.start,
@@ -1813,7 +1915,7 @@ export const DrawingCanvas = forwardRef<
   function candidateIdFor(event: KonvaEventObject<PointerEvent>) {
     const candidate = (
       event.target as unknown as { getAttr: (name: string) => unknown }
-    ).getAttr("drawingObjectId");
+    ).getAttr("drawingSelectionId");
     return typeof candidate === "string" ? candidate : null;
   }
 
@@ -1846,11 +1948,35 @@ export const DrawingCanvas = forwardRef<
     const target = event.evt.currentTarget as HTMLElement | null;
     if (activeTool === "select") {
       event.evt.preventDefault();
+      const candidateId = candidateIdFor(event);
+      if (
+        candidateId &&
+        (blockInstancesById[candidateId] ||
+          (event.evt.shiftKey && objectsById[candidateId]))
+      ) {
+        const current = selectionRef.current.selectedIds;
+        const selected = event.evt.shiftKey
+          ? current.includes(candidateId)
+            ? current.filter((id) => id !== candidateId)
+            : [...current, candidateId]
+          : [candidateId];
+        const next: DrawingSelectionState = {
+          ...selectionRef.current,
+          selectedIds: selected,
+          drag: null,
+          marquee: null,
+          previewDelta: { x: 0, y: 0 },
+        };
+        selectionRef.current = next;
+        setSelectionState(next);
+        onSelectionChange(selected);
+        return;
+      }
       target?.setPointerCapture?.(event.evt.pointerId);
       capturedSelectionTargetRef.current = target;
       runSelectionEvent({
         type: "pointer_down",
-        candidateId: candidateIdFor(event),
+        candidateId,
         pointerId: event.evt.pointerId,
         screenPoint: pointer,
         shiftKey: event.evt.shiftKey,
@@ -2104,7 +2230,9 @@ export const DrawingCanvas = forwardRef<
             ))}
           </Layer>
           <CommittedDrawingLayer
+            blockInstances={blockInstances}
             calibration={calibration}
+            layers={layers}
             objects={objects}
             viewportX={viewport.x}
             viewportY={viewport.y}
@@ -2123,7 +2251,7 @@ export const DrawingCanvas = forwardRef<
                   const { bounds } = candidate;
                   return (
                     <Rect
-                      drawingObjectId={candidate.id}
+                      drawingSelectionId={candidate.id}
                       fill="rgba(0,0,0,0.001)"
                       height={bounds.height}
                       key={`hit-${candidate.id}`}
@@ -2192,6 +2320,19 @@ export const DrawingCanvas = forwardRef<
                 </Group>
               );
             })}
+            {selectedBlockInstances.map((model) => (
+              <Rect
+                dash={[6 / viewport.zoom, 4 / viewport.zoom]}
+                height={model.bounds.height}
+                key={`block-selection-${model.instance.id}`}
+                listening={false}
+                stroke="#2563eb"
+                strokeWidth={1.5 / viewport.zoom}
+                width={model.bounds.width}
+                x={model.bounds.x}
+                y={model.bounds.y}
+              />
+            ))}
             {marqueeBounds ? (
               <Rect
                 fill="rgba(37,99,235,0.12)"
