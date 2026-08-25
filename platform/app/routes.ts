@@ -14,6 +14,10 @@ export default [
     "/workspace-preview/projects/:projectId/drawings/:fileId",
     "lukas/screens/workspace-preview-room.tsx",
   ),
+  route(
+    "/workspace-preview/drawing-workspace",
+    "lukas/screens/local-drawing-workspace-preview.tsx",
+  ),
   layout("core/layouts/navigation.layout.tsx", [
     route("/auth/confirm", "features/auth/screens/confirm.tsx"),
     index("features/home/screens/home.tsx"),
