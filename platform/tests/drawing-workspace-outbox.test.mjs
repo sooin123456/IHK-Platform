@@ -779,6 +779,35 @@ test("reload recovery restores a pending custom layer with its creation-version 
   assert.deepEqual(recovered.conflictedOperationIds, []);
 });
 
+test("reload recovery replays a P2 structure batch as one atomic unit", () => {
+  const pageId = "00000000-0000-4000-8000-000000000201";
+  const paperId = "00000000-0000-4000-8000-000000000202";
+  const modelId = "00000000-0000-4000-8000-000000000203";
+  const modelLayerId = "00000000-0000-4000-8000-000000000204";
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
+      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
+      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 } },
+      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const applied = applyDrawingCommand(initial, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: [
+      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
+      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
+    ],
+  }, { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" });
+
+  const recovered = recoverPendingDrawingState(initial, [applied.operation]);
+
+  assert.equal(recovered.ambiguousOperationIds.length, 0);
+  assert.equal(recovered.state.structure.canvases[modelId].name, "Model");
+  assert.equal(recovered.state.structure.layers[modelLayerId].canvasId, modelId);
+});
+
 test("reload recovery does not apply later work from a blocked revision", () => {
   const recovered = recoverPendingDrawingState(state(), [
     {

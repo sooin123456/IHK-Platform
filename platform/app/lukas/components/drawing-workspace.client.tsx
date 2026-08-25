@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
 } from "react";
 
@@ -45,6 +46,11 @@ import {
   type DrawingClipboard,
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
+import {
+  createDrawingDocumentStore,
+  hydrateDrawingDocumentState,
+  type DrawingDocumentStore,
+} from "~/lukas/lib/drawing-document-store.client";
 import {
   canPersistDrawingMutation,
   claimLegacyDrawingOperations,
@@ -201,6 +207,48 @@ export function drawingEditingContext(
 function drawingStateFromRevision(
   revision: NonNullable<DrawingWorkspace["document"]>["revision"],
 ): DrawingDocumentState {
+  const p2Pages = revision.pages.filter(
+    (page): page is Extract<typeof page, { revisionId: string }> =>
+      "revisionId" in page,
+  );
+  const p2Layers = revision.layers.filter(
+    (layer): layer is Extract<typeof layer, { systemKind: string }> =>
+      "systemKind" in layer,
+  );
+  const p2Objects = revision.objects.filter(
+    (object): object is Extract<typeof object, { layerId: string }> =>
+      "layerId" in object,
+  );
+  if (
+    revision.canvases &&
+    revision.styles &&
+    revision.blocks &&
+    revision.blockInstances &&
+    revision.propertySchemas &&
+    revision.propertyValues &&
+    revision.tables &&
+    p2Pages.length === revision.pages.length &&
+    p2Layers.length === revision.layers.length &&
+    p2Objects.length === revision.objects.length
+  ) {
+    return hydrateDrawingDocumentState({
+      revisionId: revision.id,
+      pages: p2Pages,
+      canvases: revision.canvases,
+      layers: p2Layers.map((layer) => ({
+        ...layer,
+        canvasId: layer.canvasId!,
+        sortOrder: layer.sortOrder!,
+      })),
+      objects: p2Objects,
+      styles: revision.styles,
+      blocks: revision.blocks,
+      blockInstances: revision.blockInstances,
+      propertySchemas: revision.propertySchemas,
+      propertyValues: revision.propertyValues,
+      tables: revision.tables,
+    });
+  }
   const activeCanvasId = revision.activeCanvasId;
   const layers = revision.layers.filter(
     (layer) => !activeCanvasId || !("canvasId" in layer) || layer.canvasId === activeCanvasId,
@@ -293,10 +341,36 @@ export default function DrawingWorkspaceClient({
   const { file, document: drawingDocument } = workspace;
   const navigation = useNavigation();
   const { revision } = drawingDocument;
-  const [drawingState, setDrawingState] = useState(() =>
-    drawingStateFromRevision(revision),
+  const documentStoreRef = useRef<DrawingDocumentStore | null>(null);
+  if (!documentStoreRef.current) {
+    documentStoreRef.current = createDrawingDocumentStore(
+      drawingStateFromRevision(revision),
+      {
+        activePageId: revision.activePageId,
+        activeCanvasId: revision.activeCanvasId,
+      },
+    );
+  }
+  const documentStore = documentStoreRef.current;
+  const drawingState = useSyncExternalStore(
+    documentStore.subscribe,
+    documentStore.getSnapshot,
+    documentStore.getSnapshot,
   );
-  const drawingStateRef = useRef(drawingState);
+  const drawingStateRef = useRef<DrawingDocumentState>(drawingState);
+  const activeIdentityRef = useRef(
+    `${drawingState.activePageId ?? ""}:${drawingState.activeCanvasId ?? ""}`,
+  );
+  useEffect(() => {
+    drawingStateRef.current = drawingState;
+    const nextIdentity = `${drawingState.activePageId ?? ""}:${drawingState.activeCanvasId ?? ""}`;
+    if (activeIdentityRef.current === nextIdentity) return;
+    activeIdentityRef.current = nextIdentity;
+    // A different/deleted canvas cannot retain a gesture or selection safely.
+    setActiveTool("select");
+    setActiveLayerId(null);
+    setSelectedIds([]);
+  }, [drawingState]);
   const visibleObjects = useMemo(
     () =>
       Object.values(drawingState.objects).filter(
@@ -308,11 +382,8 @@ export default function DrawingWorkspaceClient({
     () => resolveActiveDrawingLayerId(drawingState.layers, activeLayerId),
     [activeLayerId, drawingState.layers],
   );
-  const activeP2Page = revision.pages.find(
-    (candidate) => "canvases" in candidate && candidate.id === revision.activePageId,
-  );
-  const activeCanvas = activeP2Page && "canvases" in activeP2Page
-    ? activeP2Page.canvases.find((candidate) => candidate.id === revision.activeCanvasId)
+  const activeCanvas = drawingState.activeCanvasId
+    ? drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null
     : null;
   const page = activeCanvas
     ? {
@@ -514,8 +585,8 @@ export default function DrawingWorkspaceClient({
             "서버 상태와 로컬 작업의 기준 버전이 다릅니다.",
           );
         if (!active) return;
-        drawingStateRef.current = recovered.state;
-        setDrawingState(recovered.state);
+        documentStore.replace(recovered.state);
+        drawingStateRef.current = documentStore.getSnapshot();
         setOutboxReady(true);
         setSaveState((current) => ({ ...current, storageError: false }));
         await refresh();
@@ -556,7 +627,7 @@ export default function DrawingWorkspaceClient({
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, [currentUserId, revision]);
+  }, [currentUserId, documentStore, revision]);
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -580,10 +651,10 @@ export default function DrawingWorkspaceClient({
       )
         return;
       void persistence.capture(applied.operation);
-      drawingStateRef.current = applied.state;
-      setDrawingState(applied.state);
+      documentStore.replace(applied.state);
+      drawingStateRef.current = documentStore.getSnapshot();
     },
-    [capability],
+    [capability, documentStore],
   );
 
   const applyCommand = useCallback(

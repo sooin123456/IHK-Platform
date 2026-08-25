@@ -1,9 +1,11 @@
 import type { DrawingDocumentState } from "./drawing-commands.ts";
+import { applyDrawingStructureActions } from "./drawing-structure.ts";
 import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
+  type DrawingStructureAction,
   type DrawingOperationInput,
 } from "./drawing-workspace.types.ts";
 
@@ -496,6 +498,10 @@ function recoveryBaseVersionsMatch(
   versions: Map<string, number>,
   operation: DrawingOperationInput,
 ) {
+  // P2 validates every action against its captured operation-start state in
+  // applyDrawingStructureActions. New entities intentionally have no version
+  // in the loaded snapshot, so the flat P0/P1 map is not authoritative here.
+  if (operation.type === "mutate_structure") return true;
   if (operation.type !== "add_layer")
     return baseVersionsMatch(versions, operation.baseVersions);
   const layer = (
@@ -511,6 +517,39 @@ function recoveryBaseVersionsMatch(
   );
 }
 
+function structureCollectionForRecovery(
+  kind: DrawingStructureAction["kind"],
+) {
+  if (kind.includes("object")) return "objects" as const;
+  if (kind.includes("page")) return "pages" as const;
+  if (kind.includes("canvas")) return "canvases" as const;
+  if (kind.includes("layer")) return "layers" as const;
+  if (kind.includes("style")) return "styles" as const;
+  if (kind.includes("block_instance")) return "blockInstances" as const;
+  if (kind.includes("block")) return "blocks" as const;
+  if (kind.includes("property_schema")) return "propertySchemas" as const;
+  if (kind.includes("property_value")) return "propertyValues" as const;
+  return "tables" as const;
+}
+
+function structureActionMatchesAcknowledgedState(
+  state: DrawingDocumentState,
+  action: DrawingStructureAction,
+  inverse: DrawingStructureAction,
+): boolean {
+  if (!state.structure) return false;
+  const collection = structureCollectionForRecovery(action.kind);
+  const id = "entity" in action ? action.entity.id : action.id;
+  const current = state.structure[collection][id] as
+    | Record<string, unknown>
+    | undefined;
+  if (!("entity" in action)) return !current && inverse.baseVersion === null;
+  if (!current || "entity" in inverse === false || inverse.baseVersion === null)
+    return false;
+  const expected = { ...action.entity, version: inverse.baseVersion };
+  return valuesMatch(current, expected);
+}
+
 function valuesMatch(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -519,6 +558,18 @@ function acknowledgedOperationIsRepresented(
   state: DrawingDocumentState,
   operation: DrawingOperationInput,
 ) {
+  if (operation.type === "mutate_structure") {
+    const forward = operation.forward as { actions: DrawingStructureAction[] };
+    const inverse = operation.inverse as { actions: DrawingStructureAction[] };
+    return forward.actions.length === inverse.actions.length &&
+      forward.actions.every((action, index) =>
+        structureActionMatchesAcknowledgedState(
+          state,
+          action,
+          inverse.actions[forward.actions.length - index - 1],
+        ),
+      );
+  }
   if (operation.type === "update_objects") {
     const forward = operation.forward as {
       updates: Array<{ objectId: string; patch: Record<string, unknown> }>;
@@ -698,6 +749,24 @@ export function recoverPendingDrawingState(
         });
         candidate.layers[layer.id] = layer;
         candidateVersions.set(layer.id, layer.version);
+      } else if (operation.type === "mutate_structure") {
+        if (!candidate.structure)
+          throw new Error("P2 structure state is missing.");
+        const forward = operation.forward as {
+          actions: DrawingStructureAction[];
+        };
+        const applied = applyDrawingStructureActions(
+          { revisionId: candidate.revisionId, ...candidate.structure },
+          forward.actions,
+        );
+        const { revisionId: _revisionId, ...structure } = applied.state;
+        candidate.objects = applied.state.objects;
+        candidate.layers = applied.state.layers;
+        candidate.structure = structure;
+        for (const layer of Object.values(candidate.layers))
+          candidateVersions.set(layer.id, layer.version);
+        for (const object of Object.values(candidate.objects))
+          candidateVersions.set(object.id, object.version);
       } else {
         const forward = operation.forward as {
           layerId: string;
