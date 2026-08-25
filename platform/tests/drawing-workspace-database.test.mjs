@@ -16,6 +16,10 @@ const p2Migration = () =>
   read("supabase/migrations/20260825010814_drawing_workspace_p2_structure.sql");
 const p2HardeningMigration = () =>
   read("supabase/migrations/20260825033000_drawing_workspace_p2_contract_hardening.sql");
+const p2LegacyLayerBackfillMigration = () =>
+  read("supabase/migrations/20260825030000_drawing_workspace_p2_legacy_layer_backfill.sql");
+const p2CompatibilityMigration = () =>
+  read("supabase/migrations/20260825040000_drawing_workspace_p2_compatibility_gaps.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -747,5 +751,29 @@ test("P2 hardening keeps structural writes RPC-only and records exact layer/sour
     const definition = functionDefinition(sql, helper);
     assert.match(definition, /security definer/i);
     assert.match(definition, /set search_path\s*=\s*''/i);
+  }
+});
+
+test("P2 compatibility migrations backfill stable editable layers and close RPC ancestry gaps", async () => {
+  const backfill = await p2LegacyLayerBackfillMigration();
+  const sql = await p2CompatibilityMigration();
+  assert.match(backfill, /lukas-drawing-p2-editable-layer:/i);
+  assert.match(backfill, /where l\.canvas_id=c\.id[\s\S]+l\.system_kind<>'source'[\s\S]+l\.visible and not l\.locked/i);
+  assert.match(backfill, /lukas_drawing_layers_sort_order_nonnegative/i);
+  assert.match(sql, /p_operation_type='delete_objects'/i);
+  assert.match(sql, /Drawing object restore must match the exact tombstone/i);
+  assert.match(sql, /p_base_versions is distinct from pg_catalog\.jsonb_build_object\(v_id::text,1\)/i);
+  assert.match(sql, /A nonempty layer cannot move across pages/i);
+  assert.match(sql, /object-layer page ancestry/i);
+  assert.match(sql, /jsonb_typeof\(v_item->'visible'\)<>'boolean'/i);
+  assert.match(sql, /trunc\(\(v_patch->>'sortOrder'\)::numeric\)/i);
+  for (const helper of [
+    "lukas_drawing_apply_p2_legacy_operation",
+    "lukas_drawing_apply_operation",
+    "lukas_drawing_request_review",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    assert.match(definition, /security definer/i);
+    assert.match(definition, /set search_path=''/i);
   }
 });

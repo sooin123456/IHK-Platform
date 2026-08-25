@@ -70,6 +70,22 @@ const p2HardeningMigration = () =>
     ),
     "utf8",
   );
+const p2LegacyLayerBackfillMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825030000_drawing_workspace_p2_legacy_layer_backfill.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p2CompatibilityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825040000_drawing_workspace_p2_compatibility_gaps.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -240,7 +256,9 @@ before(async () => {
   await db.exec(await issueLinkMigration());
   await db.exec(await releaseHardeningMigration());
   await db.exec(await p2Migration());
+  await db.exec(await p2LegacyLayerBackfillMigration());
   await db.exec(await p2HardeningMigration());
+  await db.exec(await p2CompatibilityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1012,7 +1030,7 @@ async function addCustomLayer(ids, name) {
   await applyOperation(
     ids.revisionId,
     "add_layer",
-    {},
+    { [layerId]: 1 },
     {
       type: "add_layer",
       layer: {
@@ -1245,6 +1263,132 @@ test("generated undo and redo operations parse on the server and replay through 
     [object.id],
   );
   assert.deepEqual(stored.rows[0], { status: "active", version: 7 });
+});
+
+test("command-produced style-aware delete and restore replay exactly through the RPC", async () => {
+  const ids = await createDocument();
+  const styleId = randomUUID();
+  const objectId = randomUUID();
+  const style = {
+    id: styleId,
+    revisionId: ids.revisionId,
+    name: "Referenced delete style",
+    value: STYLE,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
+  );
+  const env = {
+    createId: () => randomUUID(),
+    now: () => "2026-08-25T00:00:00.000Z",
+  };
+  const object = circleObject(objectId, ids.workLayerId, {
+    styleId,
+    style: { fill: "#abcdef" },
+  });
+  let local = drawingCommands.createDrawingDocumentState({
+    revisionId: ids.revisionId,
+    structure: {
+      pages: {},
+      canvases: {},
+      layers: {
+        [ids.workLayerId]: {
+          id: ids.workLayerId,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: ids.canvasId,
+          sortOrder: 1,
+          version: 1,
+        },
+      },
+      objects: {},
+      styles: { [styleId]: style },
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  const client = pgliteWorkspaceClient(db);
+  const added = drawingCommands.applyDrawingCommand(
+    local,
+    { type: "add_objects", actorId: OWNER, objects: [object] },
+    env,
+  );
+  await workspaceServer.applyDrawingOperation(client, operationInput(added.operation));
+  local = added.state;
+  const deleted = drawingCommands.applyDrawingCommand(
+    local,
+    { type: "delete_objects", actorId: OWNER, objectIds: [objectId] },
+    env,
+  );
+  await workspaceServer.applyDrawingOperation(client, operationInput(deleted.operation));
+  assert.deepEqual(deleted.operation.baseVersions, { [objectId]: 1 });
+  assert.deepEqual(deleted.operation.inverse.objects[0], { ...object, version: 3 });
+  const restored = drawingCommands.undoDrawingCommand(deleted.state, OWNER, env);
+  await workspaceServer.applyDrawingOperation(client, operationInput(restored.operation));
+  await db.exec("reset role");
+  const stored = await db.query(
+    `select status,version,style_id "styleId",style
+     from public.lukas_drawing_objects where id=$1`,
+    [objectId],
+  );
+  assert.deepEqual(stored.rows[0], {
+    status: "active",
+    version: 3,
+    styleId,
+    style: { fill: "#abcdef" },
+  });
+});
+
+test("command-produced explicit add_layer uses its canonical creation base version", async () => {
+  const ids = await createDocument();
+  const layerId = randomUUID();
+  const local = drawingCommands.createDrawingDocumentState({
+    revisionId: ids.revisionId,
+    layers: [{
+      id: ids.workLayerId,
+      name: "Work",
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      canvasId: ids.canvasId,
+      sortOrder: 1,
+      version: 1,
+    }],
+  });
+  const added = drawingCommands.applyDrawingCommand(
+    local,
+    {
+      type: "add_layer",
+      actorId: OWNER,
+      layer: {
+        id: layerId,
+        name: "Command layer",
+        visible: true,
+        locked: false,
+        canvasId: ids.canvasId,
+        sortOrder: 2,
+        version: 1,
+      },
+    },
+    { createId: () => randomUUID(), now: () => "2026-08-25T00:00:00.000Z" },
+  );
+  assert.deepEqual(added.operation.baseVersions, { [layerId]: 1 });
+  assert.deepEqual(added.operation.inverse, {});
+  const result = await workspaceServer.applyDrawingOperation(
+    pgliteWorkspaceClient(db),
+    operationInput(added.operation),
+  );
+  assert.deepEqual(result.resultVersions, { [layerId]: 1 });
 });
 
 test("additive upgrade backfills a pre-name approved state without rewriting evidence", async () => {
@@ -2831,7 +2975,7 @@ test("P2 legacy RPCs persist referenced style overrides and explicit layer place
   await applyOperation(
     ids.revisionId,
     "add_layer",
-    {},
+    { [layerId]: 1 },
     { type: "add_layer", layer: {
       id: layerId,
       name: "Placed",
@@ -2857,6 +3001,157 @@ test("P2 legacy RPCs persist referenced style overrides and explicit layer place
     [layerId],
   );
   assert.deepEqual(storedLayer.rows, [{ canvasId: modelCanvasId, sortOrder: 4, version: 2 }]);
+});
+
+test("P2 layer moves reject nonempty cross-page ancestry but allow valid same-page canvas moves", async () => {
+  const ids = await createDocument();
+  const samePageCanvasId = randomUUID();
+  const samePageWorkId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [
+      { kind: "put_canvas", entity: {
+        id: samePageCanvasId, pageId: ids.pageId, name: "Same page model",
+        spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100,
+        background: null, sortOrder: 1, version: 1,
+      }, baseVersion: null },
+      { kind: "put_layer", entity: {
+        id: samePageWorkId, name: "Same page work", visible: true, locked: false,
+        systemKind: "custom", canvasId: samePageCanvasId, sortOrder: 0, version: 1,
+      }, baseVersion: null },
+    ] },
+    { type: "mutate_structure", actions: [
+      { kind: "delete_layer", id: samePageWorkId, baseVersion: 1 },
+      { kind: "delete_canvas", id: samePageCanvasId, baseVersion: 1 },
+    ] },
+  );
+  const movableLayerId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [movableLayerId]: 1 },
+    { type: "add_layer", layer: {
+      id: movableLayerId, name: "Movable", visible: true, locked: false,
+      canvasId: ids.canvasId, sortOrder: 4, version: 1,
+    } },
+    {},
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [movableLayerId]: 1 },
+    { type: "update_layer", layerId: movableLayerId,
+      patch: { canvasId: samePageCanvasId, sortOrder: 2 } },
+    { type: "update_layer", layerId: movableLayerId,
+      patch: { canvasId: ids.canvasId, sortOrder: 4 } },
+  );
+  const object = circleObject(randomUUID(), movableLayerId);
+  await addObject(ids, object);
+
+  const secondPageId = randomUUID();
+  const secondCanvasId = randomUUID();
+  const secondWorkId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [
+      { kind: "put_page", entity: {
+        id: secondPageId, revisionId: ids.revisionId, name: "Second", sortOrder: 1, version: 1,
+      }, baseVersion: null },
+      { kind: "put_canvas", entity: {
+        id: secondCanvasId, pageId: secondPageId, name: "Second paper", spaceKind: "paper",
+        widthMillimeters: 100, heightMillimeters: 100, background: null,
+        sortOrder: 0, version: 1,
+      }, baseVersion: null },
+      { kind: "put_layer", entity: {
+        id: secondWorkId, name: "Second work", visible: true, locked: false,
+        systemKind: "custom", canvasId: secondCanvasId, sortOrder: 0, version: 1,
+      }, baseVersion: null },
+    ] },
+    { type: "mutate_structure", actions: [
+      { kind: "delete_layer", id: secondWorkId, baseVersion: 1 },
+      { kind: "delete_canvas", id: secondCanvasId, baseVersion: 1 },
+      { kind: "delete_page", id: secondPageId, baseVersion: 1 },
+    ] },
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_layer",
+      { [movableLayerId]: 2 },
+      { type: "update_layer", layerId: movableLayerId, patch: { canvasId: secondCanvasId } },
+      { type: "update_layer", layerId: movableLayerId, patch: { canvasId: samePageCanvasId } },
+    ),
+    (error) => error.code === "P1C01" && /nonempty layer cannot move across pages/i.test(error.message),
+  );
+});
+
+test("P2 layer payload JSON and stored sort order use strict bounded domains", async () => {
+  const ids = await createDocument();
+  for (const [field, value] of [
+    ["visible", "true"],
+    ["locked", 0],
+    ["sortOrder", 1.5],
+  ]) {
+    const layerId = randomUUID();
+    const layer = {
+      id: layerId,
+      name: `Invalid ${field}`,
+      visible: true,
+      locked: false,
+      canvasId: ids.canvasId,
+      sortOrder: 2,
+      version: 1,
+      [field]: value,
+    };
+    await assert.rejects(
+      applyOperation(ids.revisionId, "add_layer", { [layerId]: 1 },
+        { type: "add_layer", layer }, {}),
+      (error) => error.code === "P1C01" && /add_layer payload/i.test(error.message),
+    );
+  }
+  for (const [patch, inverse] of [
+    [{ visible: "false" }, { visible: true }],
+    [{ name: " padded " }, { name: "작업" }],
+    [{ sortOrder: -1 }, { sortOrder: 1 }],
+    [{ sortOrder: 2.5 }, { sortOrder: 1 }],
+  ]) {
+    await assert.rejects(
+      applyOperation(
+        ids.revisionId,
+        "update_layer",
+        { [ids.workLayerId]: 1 },
+        { type: "update_layer", layerId: ids.workLayerId, patch },
+        { type: "update_layer", layerId: ids.workLayerId, patch: inverse },
+      ),
+      (error) => error.code === "P1C01" && /update_layer payload/i.test(error.message),
+    );
+  }
+  await db.exec("reset role");
+  const constraint = await db.query(
+    `select pg_catalog.pg_get_constraintdef(oid) definition
+     from pg_catalog.pg_constraint
+     where conname='lukas_drawing_layers_sort_order_nonnegative'`,
+  );
+  assert.match(constraint.rows[0]?.definition ?? "", /sort_order >= 0/);
+});
+
+test("P2 review rejects active objects whose stored page differs from their layer page", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  const other = await createDocument();
+  await db.exec("reset role; alter table public.lukas_drawing_objects disable trigger all");
+  await db.query("update public.lukas_drawing_objects set page_id=$1 where id=$2", [other.pageId, object.id]);
+  await db.exec("alter table public.lukas_drawing_objects enable trigger all");
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query("select public.lukas_drawing_request_review($1)", [ids.revisionId]),
+    (error) => error.code === "P1C01" && /object-layer page ancestry/i.test(error.message),
+  );
 });
 
 test("P2 structure tombstones restore monotonically and reserve raw IDs across entity kinds", async () => {
@@ -3431,7 +3726,9 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
       [source.revisionId],
     );
     await upgradeDb.exec(await p2Migration());
+    await upgradeDb.exec(await p2LegacyLayerBackfillMigration());
     await upgradeDb.exec(await p2HardeningMigration());
+    await upgradeDb.exec(await p2CompatibilityMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
@@ -3455,7 +3752,7 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
   }
 });
 
-test("P2 hardening migration rejects a legacy canvas without an editable layer", async () => {
+test("P2 upgrade deterministically repairs legacy canvases without editable layers", async () => {
   const legacyDb = new PGlite({ extensions: { pgcrypto } });
   try {
     await legacyDb.exec(foundationSql);
@@ -3470,19 +3767,61 @@ test("P2 hardening migration rejects a legacy canvas without an editable layer",
     );
     await legacyDb.exec("set role authenticated");
     await legacyDb.query("select set_config('request.jwt.claim.sub',$1,false)", [OWNER]);
-    await legacyDb.query(
-      "select public.lukas_drawing_create_document($1,null,'Legacy incomplete',true)",
+    const first = await legacyDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Legacy empty',true) result",
+      [PROJECT],
+    );
+    const second = await legacyDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Legacy source only',true) result",
       [PROJECT],
     );
     await legacyDb.exec("reset role");
-    await legacyDb.exec(await p2Migration());
     await legacyDb.exec("alter table public.lukas_drawing_layers disable trigger user");
-    await legacyDb.exec("delete from public.lukas_drawing_layers where system_kind<>'source'");
-    await legacyDb.exec("alter table public.lukas_drawing_layers enable trigger user");
-    await assert.rejects(
-      legacyDb.exec(await p2HardeningMigration()),
-      (error) => error.code === "P1C01" && /editable work layer/i.test(error.message),
+    await legacyDb.query("delete from public.lukas_drawing_layers where revision_id=$1", [first.rows[0].result.revisionId]);
+    await legacyDb.query(
+      "delete from public.lukas_drawing_layers where revision_id=$1 and system_kind<>'source'",
+      [second.rows[0].result.revisionId],
     );
+    await legacyDb.query(
+      "update public.lukas_drawing_layers set sort_order=-4 where revision_id=$1 and system_kind='source'",
+      [second.rows[0].result.revisionId],
+    );
+    await legacyDb.exec("alter table public.lukas_drawing_layers enable trigger user");
+    const preservedSourceBefore = await legacyDb.query(
+      `select id,name,sort_order "sortOrder",visible,locked,version
+       from public.lukas_drawing_layers where revision_id=$1`,
+      [second.rows[0].result.revisionId],
+    );
+    await legacyDb.exec(await p2Migration());
+    await legacyDb.exec(await p2LegacyLayerBackfillMigration());
+    const afterFirstRun = await legacyDb.query(
+      `select c.id canvas_id,l.id,l.name,l.sort_order,l.version
+       from public.lukas_drawing_canvases c join public.lukas_drawing_layers l on l.canvas_id=c.id
+       where c.revision_id in ($1,$2) and l.system_kind<>'source' and l.visible and not l.locked
+       order by c.id,l.id`,
+      [first.rows[0].result.revisionId, second.rows[0].result.revisionId],
+    );
+    assert.equal(afterFirstRun.rows.length, 2);
+    await legacyDb.exec(await p2LegacyLayerBackfillMigration());
+    const afterSecondRun = await legacyDb.query(
+      `select c.id canvas_id,l.id,l.name,l.sort_order,l.version
+       from public.lukas_drawing_canvases c join public.lukas_drawing_layers l on l.canvas_id=c.id
+       where c.revision_id in ($1,$2) and l.system_kind<>'source' and l.visible and not l.locked
+       order by c.id,l.id`,
+      [first.rows[0].result.revisionId, second.rows[0].result.revisionId],
+    );
+    assert.deepEqual(afterSecondRun.rows, afterFirstRun.rows);
+    const preservedSourceAfter = await legacyDb.query(
+      `select id,name,sort_order "sortOrder",visible,locked,version
+       from public.lukas_drawing_layers where revision_id=$1 and system_kind='source'`,
+      [second.rows[0].result.revisionId],
+    );
+    assert.deepEqual(preservedSourceAfter.rows, preservedSourceBefore.rows.map((row) => ({
+      ...row,
+      sortOrder: 0,
+    })));
+    await legacyDb.exec(await p2HardeningMigration());
+    await legacyDb.exec(await p2CompatibilityMigration());
   } finally {
     await legacyDb.close();
   }
