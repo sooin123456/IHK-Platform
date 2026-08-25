@@ -288,6 +288,23 @@ test("block conversion primitives must exactly represent the deleted objects", (
   ]), DrawingStructureError);
 });
 
+test("block conversion rejects objects from a layer other than its instance layer", () => {
+  const otherLayer = "00000000-0000-4000-8000-000000000097";
+  const current = state({
+    canvases: { [ids.canvas]: canvas() },
+    layers: {
+      [ids.layer]: state().layers[ids.layer],
+      [otherLayer]: { ...state().layers[ids.layer], id: otherLayer, name: "Details" },
+    },
+    objects: { [ids.object]: object({ layerId: otherLayer, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }) },
+  });
+  assert.throws(() => applyDrawingStructureActions(current, [
+    { kind: "delete_object", id: ids.object, baseVersion: 1 },
+    { kind: "put_block", entity: { id: ids.block, revisionId: ids.revision, name: "Block", primitives: [{ localId: "p", name: "Rectangle", geometry: object().geometry, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }], version: 1 }, baseVersion: null },
+    { kind: "put_block_instance", entity: { id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 0, y: 0 }, rotation: 0, scaleX: 1, scaleY: 1, version: 1 }, baseVersion: null },
+  ]), DrawingStructureError);
+});
+
 test("block conversion preserves the canonical transformed primitive through its inverse", () => {
   const source = object({
     styleId: null,

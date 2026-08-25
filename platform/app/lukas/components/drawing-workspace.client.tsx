@@ -152,6 +152,16 @@ export function resolveDrawingWorkspaceShortcut(
   return null;
 }
 
+/** Creates an in-document duplicate; referenced styles stay attached to this document. */
+export function duplicateDrawingWorkspaceSelection(
+  state: DrawingDocumentState,
+  selectedIds: string[],
+  actorId: string,
+  createId?: () => string,
+) {
+  return duplicateDrawingSelection(state, selectedIds, actorId, createId);
+}
+
 export function drawingEditingContext(
   capability: DrawingWorkspaceCapability,
   layers: Array<
@@ -616,7 +626,7 @@ export default function DrawingWorkspaceClient({
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
-    const command = duplicateDrawingSelection(
+    const command = duplicateDrawingWorkspaceSelection(
       drawingState,
       selectedIds,
       currentUserId,

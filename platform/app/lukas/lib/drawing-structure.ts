@@ -486,12 +486,15 @@ function validateObjectCompound(
         "Block conversion must create exactly one new definition and matching new instance.",
       );
     }
+    const block = entityFor(blocks[0]) as DrawingBlock;
+    const instance = entityFor(instances[0]) as DrawingBlockInstance;
     for (const action of objectActions) {
       const object = state.objects[idFor(action)];
       const layer = object ? state.layers[object.layerId] : undefined;
       if (
         !object ||
         !layer ||
+        object.layerId !== instance.layerId ||
         !layer.visible ||
         layer.locked ||
         layer.systemKind === "source"
@@ -501,8 +504,6 @@ function validateObjectCompound(
         );
       }
     }
-    const block = entityFor(blocks[0]) as DrawingBlock;
-    const instance = entityFor(instances[0]) as DrawingBlockInstance;
     const expected = objectActions.map((action, index) =>
       drawingBlockPrimitiveFromObject(
         state.objects[idFor(action)],

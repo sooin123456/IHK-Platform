@@ -7,6 +7,7 @@ import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectSchema,
+  DrawingOperationInputSchema,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const {
@@ -301,6 +302,43 @@ test("update records and restores an object's trimmed name", () => {
     type: "update_objects",
     updates: [{ objectId: ids.rectangle, patch: { name: "Rectangle" } }],
   });
+});
+
+test("style preset reset replaces the stored override and undo redo preserves it", () => {
+  const styleA = "00000000-0000-4000-8000-000000000050";
+  const styleB = "00000000-0000-4000-8000-000000000051";
+  const state = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      pages: {}, canvases: {},
+      layers: { [ids.layer]: layer() },
+      objects: {
+        [ids.rectangle]: rectangle({ styleId: styleA, style: { fill: "#ffffff" } }),
+      },
+      styles: {
+        [styleA]: { id: styleA, revisionId: ids.revision, name: "A", value: { stroke: "#111111", strokeWidth: 2, fill: null }, version: 1 },
+        [styleB]: { id: styleB, revisionId: ids.revision, name: "B", value: { stroke: "#222222", strokeWidth: 3, fill: "#000000" }, version: 1 },
+      },
+      blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const applied = applyDrawingCommand(state, {
+    type: "update_objects", actorId: "actor-a",
+    updates: [{ objectId: ids.rectangle, patch: { styleId: styleB, style: {} } }],
+  }, environment());
+  assert.deepEqual(applied.state.objects[ids.rectangle].style, {});
+  assert.equal(applied.state.objects[ids.rectangle].styleId, styleB);
+  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  const undone = undoDrawingCommand(applied.state, "actor-a", environment());
+  assert.equal("kind" in undone, false);
+  assert.equal(undone.state.objects[ids.rectangle].styleId, styleA);
+  assert.deepEqual(undone.state.objects[ids.rectangle].style, { fill: "#ffffff" });
+  assert.equal(DrawingOperationInputSchema.safeParse(undone.operation).success, true);
+  const redone = redoDrawingCommand(undone.state, "actor-a", environment());
+  assert.equal("kind" in redone, false);
+  assert.equal(redone.state.objects[ids.rectangle].styleId, styleB);
+  assert.deepEqual(redone.state.objects[ids.rectangle].style, {});
+  assert.equal(DrawingOperationInputSchema.safeParse(redone.operation).success, true);
 });
 
 test("delete removes an object and records an add inverse", () => {
@@ -1922,22 +1960,35 @@ test("referenced-style copy fails closed unless it explicitly resolves to portab
     stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
   });
   assert.throws(() =>
-    drawingCommands.duplicateDrawingSelection(
+    drawingCommands.copyDrawingSelection(
       state,
       [ids.rectangle],
-      "actor-a",
-      environment().createId,
+      () => ({ fill: "#ffffff" }),
     ),
   );
-  const duplicate = drawingCommands.duplicateDrawingSelection(
+});
+
+test("workspace duplicate preserves a referenced style within its document", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.client.tsx",
+  );
+  const source = rectangle({
+    styleId: ids.circle,
+    style: { fill: "#ffffff" },
+    version: 4,
+  });
+  const state = emptyState({ objects: [source] });
+  const duplicate = shell.duplicateDrawingWorkspaceSelection(
     state,
     [ids.rectangle],
     "actor-a",
-    environment().createId,
-    () => ({ stroke: "#111111", strokeWidth: 2, fill: "#ffffff" }),
+    () => ids.copiedRectangle,
   );
-  assert.deepEqual(duplicate.objects[0].style, {
-    stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
+  assert.deepEqual(duplicate.objects[0], {
+    ...source,
+    id: ids.copiedRectangle,
+    geometry: { ...source.geometry, origin: { x: 20, y: 20 } },
+    version: 1,
   });
 });
 

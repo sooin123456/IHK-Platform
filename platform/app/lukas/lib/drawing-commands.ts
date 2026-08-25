@@ -341,7 +341,7 @@ function reduceCommand(
           ...object,
           ...clone(update.patch),
           ...(update.patch.style !== undefined
-            ? { style: { ...object.style, ...clone(update.patch.style) } }
+            ? { style: clone(update.patch.style) }
             : {}),
           version: object.version + 1,
         });
@@ -970,7 +970,7 @@ export function copyDrawingSelection(
               layerId: object.layerId,
               geometry: object.geometry,
               style: object.styleId
-                ? resolveStyle!(object)
+                ? DrawingStyleSchema.parse(resolveStyle!(object))
                 : DrawingStyleSchema.parse(object.style),
             }),
           ]
@@ -1189,11 +1189,18 @@ export function duplicateDrawingSelection(
   selectedIds: string[],
   actorId: string,
   createId?: () => string,
-  resolveStyle?: (object: DrawingObject) => DrawingStyle,
 ): Extract<DrawingCommand, { type: "add_objects" }> | null {
-  return pasteDrawingClipboard(
-    copyDrawingSelection(state, selectedIds, resolveStyle),
-    actorId,
-    createId,
-  );
+  const nextId = createId ?? (() => crypto.randomUUID());
+  const objects = [...new Set(selectedIds)].flatMap((objectId) => {
+    const object = mutableDrawingObject(state, objectId);
+    return object
+      ? [{
+          ...clone(object),
+          id: nextId(),
+          geometry: translateDrawingGeometry(object.geometry, { x: 20, y: 20 }),
+          version: 1,
+        }]
+      : [];
+  });
+  return objects.length > 0 ? { type: "add_objects", actorId, objects } : null;
 }
