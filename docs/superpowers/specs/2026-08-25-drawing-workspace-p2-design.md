@@ -70,6 +70,8 @@ type DrawingCanvas = {
 
 ```ts
 type DrawingStructureAction =
+  | { kind: "put_object"; entity: DrawingObject; baseVersion: number | null }
+  | { kind: "delete_object"; id: string; baseVersion: number }
   | { kind: "put_page"; entity: DrawingPage; baseVersion: number | null }
   | { kind: "delete_page"; id: string; baseVersion: number }
   | { kind: "put_canvas"; entity: DrawingCanvas; baseVersion: number | null }
@@ -89,9 +91,10 @@ type DrawingStructureAction =
 ```
 
 - forward와 inverse는 strict action array다.
+- `put_object`와 `delete_object`는 block 정의와 instance를 함께 생성·해제하는 compound batch에서만 허용한다. 일반 객체 편집은 기존 object operation을 사용한다.
 - 한 operation 안의 action은 한 transaction에서 순서대로 적용한다.
 - inverse는 forward 역순이며 삭제 전 exact entity를 포함한다.
-- 각 action은 revision/project ancestry와 base version을 서버가 다시 검증한다.
+- 각 action은 operation 시작 시점의 revision/project ancestry와 base version을 서버가 다시 검증하고, 참조 무결성은 순서대로 적용되는 임시 상태에서 검증한다.
 - 승인/검토 요청 revision은 모든 구조 mutation을 거부한다.
 - 기존 outbox의 causal ordering, idempotency payload binding, custom SQLSTATE를 그대로 확장한다.
 
@@ -272,4 +275,3 @@ type DrawingTable = {
 10. snapshot v2 SHA가 결정론적이며 승인 후 P2 table 직접 mutation이 차단된다.
 11. PNG/SVG/PDF export가 보이는 page/canvas/style/block을 재현한다.
 12. 기존 PDF/IFC SHA와 기존 P0/P1·수량·승인·Revit 흐름이 변하지 않는다.
-
