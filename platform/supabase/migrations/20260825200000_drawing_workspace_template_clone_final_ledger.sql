@@ -1,18 +1,7 @@
 begin;
 
--- Complete bindings written by the former RPC are imported exactly once.
--- These public columns are historical observability only after this statement.
-insert into private.lukas_drawing_template_clone_requests(
-  actor_id,client_request_id,request_hash,document_id,revision_id
-)
-select d.clone_requested_by,d.clone_request_id,d.clone_request_hash,d.id,r.id
-from public.lukas_drawing_documents d
-join public.lukas_drawing_revisions r
-  on r.document_id=d.id and r.project_id=d.project_id and r.sequence=1
-where d.clone_requested_by is not null
-  and d.clone_request_id is not null
-  and d.clone_request_hash ~ '^[0-9a-f]{64}$'
-on conflict(actor_id,client_request_id) do nothing;
+-- Historical public clone bindings were editor-mutable before this guard.
+-- Only rows already written through the private ledger path are authoritative.
 
 create or replace function private.lukas_drawing_template_clone_ledger_append_guard()
 returns trigger language plpgsql security definer set search_path='' as $$

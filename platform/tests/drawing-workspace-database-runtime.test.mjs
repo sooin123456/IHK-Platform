@@ -6402,6 +6402,156 @@ test("P2 template lookup makes foreign approved and random revisions uniformly u
   ]);
 });
 
+test("final ledger upgrade ignores clone bindings forged before its guard", async () => {
+  const upgradeDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await upgradeDb.exec(foundationSql);
+    await upgradeDb.exec(await migration());
+    await upgradeDb.exec(await upgradeMigration());
+    await upgradeDb.exec(await issueLinkMigration());
+    await upgradeDb.exec(await releaseHardeningMigration());
+    await upgradeDb.exec(await p2Migration());
+    await upgradeDb.exec(await p2LegacyLayerBackfillMigration());
+    await upgradeDb.exec(await p2HardeningMigration());
+    await upgradeDb.exec(await p2CompatibilityMigration());
+    await upgradeDb.exec(await p2HistoryReconciliationMigration());
+    await upgradeDb.exec(await p2NavigationHardeningMigration());
+    await upgradeDb.exec(await p2StyleGuardSqlstateMigration());
+    await upgradeDb.exec(await p2BlockExactnessMigration());
+    await upgradeDb.exec(await p2TemplateSnapshotGuardMigration());
+    await upgradeDb.exec(await p2TemplateCloneIdempotencyMigration());
+    await upgradeDb.exec(await p2BlockInstanceLineageMigration());
+    await upgradeDb.exec(await p2TemplateSnapshotAuthorityMigration());
+    await upgradeDb.exec(await p2LegacyTemplateSnapshotCloneMigration());
+    await upgradeDb.exec(await p2LineageSnapshotWriterMigration());
+    await upgradeDb.exec(await p2TemplateCloneSecurityMigration());
+    await upgradeDb.query("insert into auth.users(id) values ($1),($2),($3)", [
+      OWNER,
+      REVIEWER,
+      EDITOR,
+    ]);
+    await upgradeDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await upgradeDb.query(
+      `insert into public.lukas_qto_project_members(project_id,user_id,role)
+       values ($1,$2,'reviewer'),($1,$3,'estimator')`,
+      [PROJECT, REVIEWER, EDITOR],
+    );
+
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const source = await upgradeDb.query(
+      "select public.lukas_drawing_create_document($1,null,$2,true) result",
+      [PROJECT, "Approved upgrade template"],
+    );
+    const review = await upgradeDb.query(
+      "select public.lukas_drawing_request_review($1) result",
+      [source.rows[0].result.revisionId],
+    );
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [REVIEWER],
+    );
+    await upgradeDb.query(
+      "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','upgrade')",
+      [
+        source.rows[0].result.revisionId,
+        review.rows[0].result.subjectVersion,
+        review.rows[0].result.snapshotSha256,
+      ],
+    );
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [EDITOR],
+    );
+    const forged = await upgradeDb.query(
+      "select public.lukas_drawing_create_document($1,null,$2,true) result",
+      [PROJECT, "Unbound editor draft"],
+    );
+    const requestId = randomUUID();
+    const cloneTitle = "Post-upgrade clone";
+    await upgradeDb.exec("reset role");
+    const requestHash = await upgradeDb.query(
+      `select pg_catalog.encode(extensions.digest(
+         pg_catalog.convert_to(pg_catalog.jsonb_build_object(
+           'sourceRevisionId',$1::uuid,'title',pg_catalog.btrim($2::text),
+           'sourceFileId',null::uuid
+         )::text,'UTF8'),'sha256'),'hex') hash`,
+      [source.rows[0].result.revisionId, cloneTitle],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [EDITOR],
+    );
+    await upgradeDb.query(
+      `update public.lukas_drawing_documents
+       set clone_requested_by=$1,clone_request_id=$2,clone_request_hash=$3
+       where id=$4`,
+      [
+        EDITOR,
+        requestId,
+        requestHash.rows[0].hash,
+        forged.rows[0].result.documentId,
+      ],
+    );
+    await upgradeDb.exec("reset role");
+
+    await upgradeDb.exec(await p2TemplateCloneFinalLedgerMigration());
+    const beforeClone = await upgradeDb.query(
+      `select count(*)::int count
+       from private.lukas_drawing_template_clone_requests
+       where actor_id=$1 and client_request_id=$2`,
+      [EDITOR, requestId],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [EDITOR],
+    );
+    const clone = await upgradeDb.query(
+      "select public.lukas_drawing_create_from_template($1,$2,null,$3) result",
+      [source.rows[0].result.revisionId, cloneTitle, requestId],
+    );
+    await upgradeDb.exec("reset role");
+    const ledger = await upgradeDb.query(
+      `select document_id "documentId",revision_id "revisionId"
+       from private.lukas_drawing_template_clone_requests
+       where actor_id=$1 and client_request_id=$2`,
+      [EDITOR, requestId],
+    );
+
+    assert.deepEqual(
+      {
+        importedRows: beforeClone.rows[0].count,
+        returnedForgedDocument:
+          clone.rows[0].result.documentId === forged.rows[0].result.documentId,
+        returnedForgedRevision:
+          clone.rows[0].result.revisionId === forged.rows[0].result.revisionId,
+        ledger: ledger.rows,
+      },
+      {
+        importedRows: 0,
+        returnedForgedDocument: false,
+        returnedForgedRevision: false,
+        ledger: [
+          {
+            documentId: clone.rows[0].result.documentId,
+            revisionId: clone.rows[0].result.revisionId,
+          },
+        ],
+      },
+    );
+  } finally {
+    await upgradeDb.close();
+  }
+});
+
 test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clone with a default canvas", async () => {
   const upgradeDb = new PGlite({ extensions: { pgcrypto } });
   try {
