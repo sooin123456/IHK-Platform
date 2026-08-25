@@ -527,7 +527,7 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
         id: ids.file,
         project_id: ids.project,
         kind: "pdf",
-        original_filename: "Rayon_근린생활시설_A-101.pdf",
+        original_filename: "근린생활시설_A-101.pdf",
         storage_path: "local-preview/rayon-a101.pdf",
         content_type: "application/pdf",
         byte_size: 1_048_576,
@@ -541,7 +541,7 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
         project_id: ids.project,
         source_file_id: ids.file,
         source_sha256: sourceSha256,
-        title: "Rayon / 1HK P2 도면 작업실",
+        title: "A-101 도면 작업실",
         created_by: ids.user,
         created_at: createdAt,
         updated_at: createdAt,
@@ -614,7 +614,7 @@ export function validateLocalDrawingWorkspacePreviewFixture(
 }
 
 export const meta: Route.MetaFunction = () => [
-  { title: "P2 로컬 도면 작업실 미리보기 | 1HK Platform" },
+  { title: "로컬 도면 작업실 미리보기 | 1HK Platform" },
 ];
 
 function isLocalPreviewRequest(request: Request) {

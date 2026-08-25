@@ -79,7 +79,7 @@ test("workspace document renders the accessible editor shell", async () => {
   assert.match(shell, /aria-label=\{`저장 상태:/);
   assert.match(shell, /aria-label="실행 취소"/);
   assert.match(shell, /aria-label="다시 실행"/);
-  assert.match(shell, /aria-label="레이어 패널"/);
+  assert.match(shell, /aria-label="도면 도구 패널"/);
   assert.match(shell, /aria-label="도면 캔버스"/);
   assert.match(shell, /aria-label="속성 검사기"/);
 });

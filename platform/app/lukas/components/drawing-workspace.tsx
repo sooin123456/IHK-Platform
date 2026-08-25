@@ -129,6 +129,44 @@ type WorkspaceLayer = NonNullable<
   DrawingWorkspace["document"]
 >["revision"]["layers"][number];
 
+export type DrawingWorkspacePanel =
+  "structure" | "styles" | "properties" | "schedules" | "blocks";
+
+const drawingWorkspacePanels: Array<{
+  id: DrawingWorkspacePanel;
+  label: string;
+}> = [
+  { id: "structure", label: "페이지·레이어" },
+  { id: "styles", label: "스타일" },
+  { id: "properties", label: "속성" },
+  { id: "schedules", label: "Schedule" },
+  { id: "blocks", label: "블록" },
+];
+
+/** Resolves the standard keyboard navigation owned by the workspace tablist. */
+export function resolveDrawingWorkspacePanelKey(
+  activePanel: DrawingWorkspacePanel,
+  key: string,
+): DrawingWorkspacePanel | null {
+  const currentIndex = drawingWorkspacePanels.findIndex(
+    (panel) => panel.id === activePanel,
+  );
+  if (key === "Home") return drawingWorkspacePanels[0].id;
+  if (key === "End")
+    return drawingWorkspacePanels[drawingWorkspacePanels.length - 1].id;
+  const offset =
+    key === "ArrowRight" || key === "ArrowDown"
+      ? 1
+      : key === "ArrowLeft" || key === "ArrowUp"
+        ? -1
+        : 0;
+  if (!offset) return null;
+  return drawingWorkspacePanels[
+    (currentIndex + offset + drawingWorkspacePanels.length) %
+      drawingWorkspacePanels.length
+  ].id;
+}
+
 export type DrawingWorkspaceShortcut =
   | { type: "copy" | "paste" | "duplicate" | "delete" | "undo" | "redo" }
   | { type: "move"; delta: { x: number; y: number } };
@@ -444,6 +482,8 @@ export default function DrawingWorkspaceClient({
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [repeatMode, setRepeatMode] = useState(false);
+  const [activePanel, setActivePanel] =
+    useState<DrawingWorkspacePanel>("structure");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const semanticBlockSelectionRef = useRef<Set<string>>(new Set());
@@ -1329,21 +1369,20 @@ export default function DrawingWorkspaceClient({
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      <header className="flex min-h-16 flex-wrap items-center gap-3 border-b border-white/10 bg-slate-900 px-3 py-2 sm:px-4">
+      <header className="flex min-h-14 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-2 py-1.5 sm:px-3">
         <Link
           aria-label="협업 도면실로 돌아가기"
-          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white"
+          className="inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white"
           to={roomUrl}
         >
           <ArrowLeft className="size-4" /> 협업 도면실
         </Link>
         <div className="min-w-0 flex-1 border-l border-white/10 pl-3">
-          <p className="text-xs font-semibold text-indigo-300">도면 작업실</p>
           <h1 className="truncate text-sm font-bold">
             {drawingDocument.title}
           </h1>
           <p className="truncate text-xs text-slate-400">
-            {file.original_filename}
+            도면 작업실 · {file.original_filename}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -1527,67 +1566,148 @@ export default function DrawingWorkspaceClient({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)_17rem]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:max-h-[calc(100vh-3.5rem)] xl:grid-cols-[15rem_minmax(0,1fr)_18rem]">
         <aside
-          aria-label="레이어 패널"
-          className="border-b border-white/10 bg-slate-900 p-4 lg:border-b-0 lg:border-r"
+          aria-label="도면 도구 패널"
+          className="order-2 flex min-h-0 max-h-[32rem] flex-col overflow-hidden border-b border-white/10 bg-slate-900 xl:order-1 xl:max-h-[calc(100vh-3.5rem)] xl:border-b-0 xl:border-r"
         >
-          <DrawingPagesPanel
-            activeCanvasId={drawingState.activeCanvasId}
-            actorId={currentUserId}
-            canEdit={baseCanEdit}
-            onCanvasSelect={(canvasId) => documentStore.selectCanvas(canvasId)}
-            onCommand={applyCommand}
-            state={drawingState}
-          />
-          <div className="mt-6 border-t border-white/10 pt-6">
-            <DrawingLayersPanel
+          <div
+            role="tablist"
+            aria-label="도면 도구"
+            data-drawing-shortcuts="ignore"
+            className="grid shrink-0 grid-cols-5 gap-1 border-b border-white/10 p-2 xl:grid-cols-2"
+          >
+            {drawingWorkspacePanels.map((panel) => {
+              const selected = activePanel === panel.id;
+              return (
+                <button
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`drawing-panel-${panel.id}`}
+                  className={`min-h-9 shrink-0 rounded-md px-2 text-xs font-semibold ${selected ? "bg-indigo-500 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+                  id={`drawing-panel-tab-${panel.id}`}
+                  key={panel.id}
+                  onClick={() => setActivePanel(panel.id)}
+                  onKeyDown={(event) => {
+                    const nextPanel = resolveDrawingWorkspacePanelKey(
+                      activePanel,
+                      event.key,
+                    );
+                    if (!nextPanel) return;
+                    event.preventDefault();
+                    setActivePanel(nextPanel);
+                    event.currentTarget.parentElement
+                      ?.querySelector<HTMLButtonElement>(
+                        `#drawing-panel-tab-${nextPanel}`,
+                      )
+                      ?.focus();
+                  }}
+                  tabIndex={selected ? 0 : -1}
+                  type="button"
+                >
+                  {panel.label}
+                </button>
+              );
+            })}
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-structure"
+            className="min-h-0 flex-1 overflow-y-auto p-3"
+            hidden={activePanel !== "structure"}
+            id="drawing-panel-structure"
+          >
+            <DrawingPagesPanel
               activeCanvasId={drawingState.activeCanvasId}
-              activeLayerId={resolvedActiveLayerId}
+              actorId={currentUserId}
+              canEdit={baseCanEdit}
+              onCanvasSelect={(canvasId) =>
+                documentStore.selectCanvas(canvasId)
+              }
+              onCommand={applyCommand}
+              state={drawingState}
+            />
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <DrawingLayersPanel
+                activeCanvasId={drawingState.activeCanvasId}
+                activeLayerId={resolvedActiveLayerId}
+                actorId={currentUserId}
+                canEdit={editing.canEdit}
+                onActiveLayerChange={setAuthorizedActiveLayer}
+                onCommand={applyCommand}
+                state={drawingState}
+              />
+            </div>
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-styles"
+            className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
+            hidden={activePanel !== "styles"}
+            id="drawing-panel-styles"
+          >
+            <DrawingStylesPanel
               actorId={currentUserId}
               canEdit={editing.canEdit}
-              onActiveLayerChange={setAuthorizedActiveLayer}
               onCommand={applyCommand}
               state={drawingState}
             />
           </div>
-          <DrawingStylesPanel
-            actorId={currentUserId}
-            canEdit={editing.canEdit}
-            onCommand={applyCommand}
-            state={drawingState}
-          />
-          <DrawingPropertiesPanel
-            actorId={currentUserId}
-            canEdit={baseCanEdit}
-            onCommand={applyCommand}
-            state={drawingState}
-          />
-          <DrawingTablesPanel
-            actorId={currentUserId}
-            canEdit={baseCanEdit}
-            onCommand={applyCommand}
-            selectedIds={transient.selectedIds}
-            state={drawingState}
-          />
-          <DrawingBlocksPanel
-            activeCanvasId={drawingState.activeCanvasId}
-            activeLayerId={resolvedActiveLayerId}
-            actorId={currentUserId}
-            canEdit={editing.canEdit}
-            layers={drawingState.layers}
-            onCommand={applyCommand}
-            onSelectionChange={setAuthorizedSemanticBlockSelection}
-            selectedIds={transient.selectedIds.filter((id) =>
-              Boolean(activeDrawingState.objects[id]),
-            )}
-            state={drawingState}
-          />
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-properties"
+            className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
+            hidden={activePanel !== "properties"}
+            id="drawing-panel-properties"
+          >
+            <DrawingPropertiesPanel
+              actorId={currentUserId}
+              canEdit={baseCanEdit}
+              onCommand={applyCommand}
+              state={drawingState}
+            />
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-schedules"
+            className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
+            hidden={activePanel !== "schedules"}
+            id="drawing-panel-schedules"
+          >
+            <DrawingTablesPanel
+              actorId={currentUserId}
+              canEdit={baseCanEdit}
+              onCommand={applyCommand}
+              selectedIds={transient.selectedIds}
+              state={drawingState}
+            />
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-blocks"
+            className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
+            hidden={activePanel !== "blocks"}
+            id="drawing-panel-blocks"
+          >
+            <DrawingBlocksPanel
+              activeCanvasId={drawingState.activeCanvasId}
+              activeLayerId={resolvedActiveLayerId}
+              actorId={currentUserId}
+              canEdit={editing.canEdit}
+              layers={drawingState.layers}
+              onCommand={applyCommand}
+              onSelectionChange={setAuthorizedSemanticBlockSelection}
+              selectedIds={transient.selectedIds.filter((id) =>
+                Boolean(activeDrawingState.objects[id]),
+              )}
+              state={drawingState}
+            />
+          </div>
         </aside>
 
         <section
           aria-label="도면 캔버스"
-          className="relative min-h-[34rem] min-w-0 bg-slate-950"
+          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2"
         >
           <div
             className={
@@ -1875,7 +1995,7 @@ export default function DrawingWorkspaceClient({
 
         <aside
           aria-label="속성 검사기"
-          className="border-t border-white/10 bg-slate-900 p-4 lg:border-l lg:border-t-0"
+          className="order-3 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
         >
           <DrawingInspector
             actorId={currentUserId}
