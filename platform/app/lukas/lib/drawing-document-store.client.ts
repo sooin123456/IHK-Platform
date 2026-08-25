@@ -357,6 +357,7 @@ export function deriveDrawingTransientState(
   snapshot: DrawingDocumentSnapshot,
   input: {
     canEdit: boolean;
+    canSelect?: boolean;
     activeLayerId: string | null;
     activeTool: string;
     selectedIds: string[];
@@ -380,7 +381,7 @@ export function deriveDrawingTransientState(
           Object.values(layers).find(eligible)?.id ??
           null)
         : null;
-  const selectedIds = input.canEdit
+  const selectedIds = (input.canSelect ?? input.canEdit)
     ? input.selectedIds.filter((id) => {
         const object = objects[id];
         return Boolean(object && eligible(layers[object.layerId]));

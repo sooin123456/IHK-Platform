@@ -412,6 +412,7 @@ export default function DrawingWorkspaceClient({
     () =>
       deriveDrawingTransientState(drawingState, {
         canEdit: baseCanEdit,
+        canSelect: true,
         activeLayerId,
         activeTool: "select",
         selectedIds: [],
@@ -439,6 +440,7 @@ export default function DrawingWorkspaceClient({
     () =>
       deriveDrawingTransientState(drawingState, {
         canEdit: baseCanEdit,
+        canSelect: true,
         activeLayerId: transientInput.activeLayerId,
         activeTool: transientInput.activeTool,
         selectedIds: selectedIdsKey ? selectedIdsKey.split("\u0000") : [],

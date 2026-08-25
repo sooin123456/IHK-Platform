@@ -124,6 +124,9 @@ const drawingOutbox = await vite.ssrLoadModule(
 const { DrawingInspector } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-inspector.tsx",
 );
+const { DrawingStylesPanel } = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-styles-panel.tsx",
+);
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",
 );
@@ -238,6 +241,23 @@ async function addObject(ids, object) {
     { type: "add_objects", objects: [object] },
     { type: "delete_objects", objectIds: [object.id] },
   );
+}
+
+async function localP2State(ids) {
+  const [pages, canvases, layers] = await Promise.all([
+    db.query(`select id,revision_id "revisionId",name,sort_order "sortOrder",version from public.lukas_drawing_pages where revision_id=$1`, [ids.revisionId]),
+    db.query(`select id,page_id "pageId",name,space_kind "spaceKind",width_mm "widthMillimeters",height_mm "heightMillimeters",sort_order "sortOrder",version from public.lukas_drawing_canvases where revision_id=$1`, [ids.revisionId]),
+    db.query(`select id,name,visible,locked,system_kind "systemKind",canvas_id "canvasId",sort_order "sortOrder",version from public.lukas_drawing_layers where revision_id=$1`, [ids.revisionId]),
+  ]);
+  return drawingCommands.createDrawingDocumentState({
+    revisionId: ids.revisionId,
+    structure: {
+      pages: Object.fromEntries(pages.rows.map((row) => [row.id, row])),
+      canvases: Object.fromEntries(canvases.rows.map((row) => [row.id, { ...row, background: null }])),
+      layers: Object.fromEntries(layers.rows.map((row) => [row.id, row])),
+      objects: {}, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
 }
 
 function runtimeOutboxAdapter() {
@@ -1782,6 +1802,62 @@ test("style-aware delete and restore stay exact and monotonic on a hidden unlock
   assert.deepEqual(lockedUnchanged.rows, [{ status: "active", version: 3 }]);
 });
 
+test("style helpers persist through command history, outbox, RPC, undo, and redo", async () => {
+  const ids = await createDocument();
+  let local = await localP2State(ids);
+  const outbox = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
+    ownerId: OWNER, revisionId: ids.revisionId, schedule: () => () => {},
+  });
+  const client = pgliteWorkspaceClient(db);
+  const persist = async (recorded) => {
+    await outbox.enqueue(operationInput(recorded));
+    await outbox.flush(async (operation) => {
+      await workspaceServer.applyDrawingOperation(client, operation);
+      return { clientOperationId: operation.clientOperationId, status: "acked" };
+    });
+  };
+  const apply = async (command) => {
+    const recorded = drawingCommands.applyDrawingCommand(local, command);
+    await persist(recorded.operation);
+    local = recorded.state;
+    return recorded;
+  };
+  const styleId = randomUUID();
+  await apply(drawingCommands.createDrawingStyleCommand(
+    local, OWNER, "Lifecycle", STYLE, () => styleId,
+  ));
+  await apply(drawingCommands.updateDrawingStyleCommand(local, OWNER, styleId, {
+    value: { stroke: "#445566", strokeWidth: 3, fill: null },
+  }));
+  const objectId = randomUUID();
+  await apply({ type: "add_objects", actorId: OWNER, objects: [circleObject(objectId, ids.workLayerId)] });
+  await apply(drawingCommands.applyDrawingStyleSelection(local, [objectId], OWNER, styleId));
+  await apply(drawingCommands.resetDrawingStyleOverrides(local, [objectId], OWNER));
+  await apply(drawingCommands.detachDrawingStyleSelection(local, [objectId], OWNER));
+  const deleted = await apply(drawingCommands.deleteDrawingStyleCommand(local, OWNER, styleId));
+  const undone = drawingCommands.undoDrawingCommand(local, OWNER);
+  assert.ok(undone && !("kind" in undone));
+  await persist(undone.operation);
+  local = undone.state;
+  const redone = drawingCommands.redoDrawingCommand(local, OWNER);
+  assert.ok(redone && !("kind" in redone));
+  await persist(redone.operation);
+  const stored = await db.query(
+    "select style_id \"styleId\",style,version from public.lukas_drawing_objects where id=$1",
+    [objectId],
+  );
+  assert.deepEqual(stored.rows[0], {
+    styleId: null,
+    style: { stroke: "#445566", strokeWidth: 3, fill: null },
+    version: 4,
+  });
+  assert.equal(deleted.operation.type, "mutate_structure");
+  await db.exec("reset role");
+  const styles = await db.query("select count(*)::int count from public.lukas_drawing_styles where id=$1", [styleId]);
+  assert.equal(styles.rows[0].count, 0);
+  outbox.dispose();
+});
+
 test("command-produced explicit add_layer uses its canonical creation base version", async () => {
   const ids = await createDocument();
   const layerId = randomUUID();
@@ -2609,6 +2685,7 @@ test("inspector renders linked issues read-only and draft editor controls access
   const objectId = randomUUID();
   const layerId = randomUUID();
   const issueId = randomUUID();
+  const styleId = randomUUID();
   const props = {
     actorId: OWNER,
     canEdit: false,
@@ -2648,7 +2725,21 @@ test("inspector renders linked issues read-only and draft editor controls access
         },
       },
       objects: {
-        [objectId]: circleObject(objectId, layerId),
+        [objectId]: circleObject(objectId, layerId, {
+          styleId,
+          style: { fill: "#abcdef" },
+        }),
+      },
+      structure: {
+        styles: {
+          [styleId]: {
+            id: styleId,
+            revisionId: randomUUID(),
+            name: "Read-only effective",
+            value: { stroke: "#112233", strokeWidth: 2, fill: null, fontSize: 14 },
+            version: 1,
+          },
+        },
       },
     },
   };
@@ -2670,6 +2761,9 @@ test("inspector renders linked issues read-only and draft editor controls access
   assert.match(readOnly, /연결된 이슈/);
   assert.match(readOnly, /출입문 치수 확인/);
   assert.match(readOnly, /Circle/);
+  assert.match(readOnly, /#112233/);
+  assert.match(readOnly, /#abcdef/);
+  assert.match(readOnly, /14/);
   assert.doesNotMatch(readOnly, /이슈 검색/);
   assert.doesNotMatch(readOnly, /name="issue_id"/);
   assert.doesNotMatch(readOnly, /<form/);
@@ -2682,6 +2776,41 @@ test("inspector renders linked issues read-only and draft editor controls access
   assert.match(editable, /name="issue_id"/);
   assert.match(editable, /name="object_id"/);
   assert.doesNotMatch(editable, /새 이슈 만들기/);
+});
+
+test("style library stays readable for viewers and describes referenced delete denial", () => {
+  const styleId = randomUUID();
+  const objectId = randomUUID();
+  const layerId = randomUUID();
+  const state = {
+    revisionId: randomUUID(),
+    layers: {
+      [layerId]: { id: layerId, name: "Work", visible: true, locked: false, systemKind: "work", version: 1 },
+    },
+    objects: {
+      [objectId]: circleObject(objectId, layerId, { styleId, style: {} }),
+    },
+    structure: {
+      styles: {
+        [styleId]: { id: styleId, revisionId: randomUUID(), name: "Shared visible", value: STYLE, version: 1 },
+      },
+      blocks: {},
+    },
+  };
+  const render = (canEdit) => renderToStaticMarkup(createElement(DrawingStylesPanel, {
+    actorId: OWNER, canEdit, onCommand() {}, state,
+  }));
+  const viewer = render(false);
+  assert.match(viewer, /스타일 라이브러리/);
+  assert.match(viewer, /Shared visible/);
+  assert.doesNotMatch(viewer, /<form/);
+  assert.doesNotMatch(viewer, /스타일 삭제/);
+
+  const editor = render(true);
+  assert.match(editor, /aria-label="스타일 삭제: Shared visible"/);
+  assert.match(editor, /disabled=""/);
+  assert.match(editor, /aria-describedby="style-delete-reason-/);
+  assert.match(editor, /사용 중인 스타일은 삭제할 수 없습니다/);
 });
 
 test("viewer layer panel keeps read surfaces but omits every mutation control", () => {

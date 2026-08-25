@@ -9,6 +9,7 @@ import {
   createDrawingDocumentStore,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.client.ts";
+import { createDrawingStyleResolutionCache } from "../app/lukas/lib/drawing-style-resolution.ts";
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000000101",
@@ -196,6 +197,46 @@ test("transient state synchronously removes inactive, locked, and non-draft edit
   assert.deepEqual(transient.selectedIds, []);
   assert.equal(transient.activeLayerId, null);
   assert.equal(transient.activeTool, "select");
+});
+
+test("read-only viewers preserve visible active-canvas selection without gaining an edit layer or tool", () => {
+  const snapshot = createDrawingDocumentStore(
+    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    { activePageId: ids.page, activeCanvasId: ids.paper },
+  ).getSnapshot();
+  const transient = deriveDrawingTransientState(snapshot, {
+    canEdit: false,
+    canSelect: true,
+    activeLayerId: ids.work,
+    activeTool: "rectangle",
+    selectedIds: [ids.object],
+  });
+  assert.deepEqual(transient.selectedIds, [ids.object]);
+  assert.equal(transient.activeLayerId, null);
+  assert.equal(transient.activeTool, "select");
+});
+
+test("definition-only store updates change every effective style without changing object versions", () => {
+  const input = structure();
+  input.objects[ids.object] = {
+    ...input.objects[ids.object], styleId: ids.style, style: { fill: "#abcdef" },
+  };
+  const store = createDrawingDocumentStore(
+    createDrawingDocumentState({ revisionId: ids.revision, structure: input }),
+    { createId: () => ids.operation },
+  );
+  const before = store.getSnapshot();
+  assert.equal(createDrawingStyleResolutionCache(before.structure.styles).resolve(before.objects[ids.object]).stroke, "#112233");
+  store.dispatch({
+    type: "mutate_structure", actorId: ids.actor, actions: [{
+      kind: "put_style",
+      entity: { ...before.structure.styles[ids.style], value: { stroke: "#445566", strokeWidth: 3, fill: null } },
+      baseVersion: 1,
+    }],
+  });
+  const after = store.getSnapshot();
+  assert.equal(after.objects[ids.object].version, before.objects[ids.object].version);
+  assert.equal(createDrawingStyleResolutionCache(after.structure.styles).resolve(after.objects[ids.object]).stroke, "#445566");
 });
 
 test("transient authorization identity changes for canvas, draft, and capability boundaries", () => {

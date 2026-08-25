@@ -33,11 +33,11 @@ function styleValue(data: FormData): DrawingStyle {
   };
 }
 
-/** Canonical reusable style definition controls. Hidden entirely for viewers. */
+/** Canonical reusable style definition controls with a mutation-free reader view. */
 export function DrawingStylesPanel({ actorId, canEdit, onCommand, state }: Props) {
   const [error, setError] = useState<string | null>(null);
   const structure = state.structure;
-  if (!canEdit || !structure) return null;
+  if (!structure) return null;
   const styles = Object.values(structure.styles).sort(
     (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
   );
@@ -46,6 +46,26 @@ export function DrawingStylesPanel({ actorId, canEdit, onCommand, state }: Props
     Object.values(structure.blocks).some((block) =>
       block.primitives.some((primitive) => primitive.styleId === styleId),
     );
+
+  if (!canEdit) {
+    return (
+      <section aria-labelledby="drawing-styles-title" className="mt-6 border-t border-white/10 pt-6">
+        <h2 className="text-sm font-bold" id="drawing-styles-title">스타일 라이브러리</h2>
+        <p className="mt-2 text-xs text-slate-400">읽기 전용 스타일 목록</p>
+        <ul aria-label="도면 스타일" className="mt-4 space-y-2 text-sm">
+          {styles.map((style) => (
+            <li className="rounded-md border border-white/10 bg-white/5 p-2" key={style.id}>
+              <p className="font-medium">{style.name}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {style.value.stroke} · {style.value.strokeWidth} · {style.value.fill ?? "채우기 없음"}
+                {style.value.fontSize ? ` · ${style.value.fontSize}` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,6 +107,7 @@ export function DrawingStylesPanel({ actorId, canEdit, onCommand, state }: Props
       <ul aria-label="도면 스타일" className="mt-4 space-y-3">
         {styles.map((style) => {
           const used = referenced(style.id);
+          const deleteReasonId = `style-delete-reason-${style.id}`;
           return (
             <li className="rounded-md border border-white/10 bg-white/5 p-2" key={style.id}>
               <form className="grid gap-2" data-drawing-shortcuts="ignore" key={`${style.id}:${style.version}`} onSubmit={(event) => update(style.id, event)}>
@@ -106,9 +127,10 @@ export function DrawingStylesPanel({ actorId, canEdit, onCommand, state }: Props
                 </label>
                 <button className="min-h-9 rounded bg-indigo-500 px-2 text-sm font-semibold text-white" type="submit">스타일 저장</button>
               </form>
-              <button aria-label={`스타일 삭제: ${style.name}`} className="mt-2 min-h-9 rounded border border-white/20 px-2 text-sm disabled:opacity-50" disabled={used} onClick={() => {
+              <button aria-describedby={used ? deleteReasonId : undefined} aria-label={`스타일 삭제: ${style.name}`} className="mt-2 min-h-9 rounded border border-white/20 px-2 text-sm disabled:opacity-50" disabled={used} onClick={() => {
                 try { onCommand(deleteDrawingStyleCommand(state, actorId, style.id)); setError(null); } catch (caught) { setError(message(caught)); }
-              }} title={used ? "사용 중인 스타일은 삭제할 수 없습니다." : undefined} type="button">스타일 삭제</button>
+              }} type="button">스타일 삭제</button>
+              {used ? <span className="mt-2 block text-xs text-slate-400" id={deleteReasonId}>사용 중인 스타일은 삭제할 수 없습니다.</span> : null}
             </li>
           );
         })}

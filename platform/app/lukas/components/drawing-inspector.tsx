@@ -11,7 +11,11 @@ import {
   type DrawingDocumentState,
   type DrawingInspectorPatch,
 } from "~/lukas/lib/drawing-commands";
-import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
+import {
+  DRAWING_MIXED_STYLE_ID,
+  createDrawingStyleResolutionCache,
+  sharedDrawingStyleId,
+} from "~/lukas/lib/drawing-style-resolution";
 import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
 import type {
   DrawingObjectIssueLink,
@@ -75,6 +79,7 @@ export function DrawingInspector({
     }
   }, [selectedObjects, state.structure?.styles]);
   const selectedStyles = styleResolution.styles;
+  const selectedStyleId = sharedDrawingStyleId(selectedObjects);
   const selectionKey = selectedObjects
     .map((object) => `${object.id}:${object.version}`)
     .join("|");
@@ -224,7 +229,7 @@ export function DrawingInspector({
 
   function applyStyle(styleId: string) {
     try {
-      if (!styleId) return;
+      if (!styleId || styleId === DRAWING_MIXED_STYLE_ID) return;
       onCommand(applyDrawingStyleSelection(state, selectedIds, actorId, styleId));
       setError(null);
     } catch (caught) { setError(inspectorError(caught)); }
@@ -300,15 +305,20 @@ export function DrawingInspector({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">선 색상 · 두께</dt>
-            <dd>
-              {sharedValue(selectedObjects, (object) => object.style.stroke ?? "")} ·{" "}
-              {sharedValue(selectedObjects, (object) =>
-                object.style.strokeWidth === undefined
-                  ? ""
-                  : String(object.style.strokeWidth),
-              )}
-            </dd>
+            <dt className="text-xs text-slate-400">선 색상</dt>
+            <dd>{sharedStyleValue(selectedStyles, (style) => style.stroke)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-400">선 두께</dt>
+            <dd>{sharedStyleValue(selectedStyles, (style) => String(style.strokeWidth))}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-400">채우기</dt>
+            <dd>{sharedStyleValue(selectedStyles, (style) => style.fill ?? "")}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-400">글꼴 크기</dt>
+            <dd>{sharedStyleValue(selectedStyles, (style) => String(style.fontSize ?? ""))}</dd>
           </div>
           {textOnly ? (
             <div>
@@ -340,17 +350,19 @@ export function DrawingInspector({
             공유 스타일
             <select
               className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-              defaultValue={sharedValue(selectedObjects, (object) => object.styleId ?? "")}
               id="inspector-style"
               onChange={(event) => applyStyle(event.currentTarget.value)}
+              value={selectedStyleId}
             >
-              <option disabled value="">인라인 또는 혼합 값</option>
+              <option disabled value="">인라인 스타일</option>
+              <option disabled value={DRAWING_MIXED_STYLE_ID}>혼합 값</option>
               {Object.values(state.structure.styles).sort((left, right) => left.name.localeCompare(right.name)).map((style) => (
                 <option key={style.id} value={style.id}>{style.name}</option>
               ))}
             </select>
           </label>
           <div className="flex flex-wrap gap-2">
+            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={!selectedStyleId || selectedStyleId === DRAWING_MIXED_STYLE_ID} onClick={() => applyStyle(selectedStyleId)} type="button">스타일 다시 적용</button>
             <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={resetOverrides} type="button">재정의 초기화</button>
             <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={detachStyle} type="button">스타일 분리</button>
           </div>

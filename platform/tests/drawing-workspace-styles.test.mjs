@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DRAWING_MIXED_STYLE_ID,
   createDrawingStyleResolutionCache,
+  sharedDrawingStyleId,
 } from "../app/lukas/lib/drawing-style-resolution.ts";
 import {
   applyDrawingStyleSelection,
@@ -118,6 +120,27 @@ test("style commands trim names, preserve definition updates as structure action
   assert.equal(updated.actions[0].baseVersion, 1);
   assert.equal(updated.actions[0].entity.value.stroke, "#445566");
   assert.throws(() => deleteDrawingStyleCommand(current, "actor", ids.style), /referenced/i);
+  const primitiveReference = {
+    ...current,
+    objects: {},
+    structure: {
+      ...current.structure,
+      blocks: {
+        "00000000-0000-4000-8000-000000000205": {
+          id: "00000000-0000-4000-8000-000000000205",
+          revisionId: current.revisionId,
+          name: "Referenced block",
+          primitives: [{
+            localId: "circle", name: "Circle",
+            geometry: current.objects[ids.object].geometry,
+            styleId: ids.style, style: {},
+          }],
+          version: 1,
+        },
+      },
+    },
+  };
+  assert.throws(() => deleteDrawingStyleCommand(primitiveReference, "actor", ids.style), /referenced/i);
 });
 
 test("font-size overrides are limited to text objects while normal style fields remain available", () => {
@@ -135,4 +158,33 @@ test("font-size overrides are limited to text objects while normal style fields 
     [ids.object], "actor", { fontSize: 18 },
   );
   assert.deepEqual(update.updates[0].patch.style, { fill: "#ffffff", fontSize: 18 });
+});
+
+test("style picker uses a stable mixed sentinel and tracks detach or external style replacement", () => {
+  const current = state();
+  assert.equal(sharedDrawingStyleId([current.objects[ids.object]]), ids.style);
+  assert.equal(sharedDrawingStyleId([
+    current.objects[ids.object],
+    { ...current.objects[ids.second], styleId: null },
+  ]), DRAWING_MIXED_STYLE_ID);
+  assert.equal(sharedDrawingStyleId([{ ...current.objects[ids.object], styleId: null }]), "");
+});
+
+test("ten thousand references share one render-pass resolution and invalidate only for a new definition version", () => {
+  const current = state();
+  const resolver = createDrawingStyleResolutionCache(current.structure.styles);
+  for (let index = 0; index < 10_000; index += 1) {
+    resolver.resolve({ ...current.objects[ids.object], id: `object-${index}` });
+  }
+  assert.equal(resolver.resolveCount, 1);
+  const updated = {
+    [ids.style]: {
+      ...current.structure.styles[ids.style],
+      version: 2,
+      value: { stroke: "#445566", strokeWidth: 2, fill: null },
+    },
+  };
+  const next = createDrawingStyleResolutionCache(updated);
+  assert.equal(next.resolve(current.objects[ids.second]).stroke, "#445566");
+  assert.equal(next.resolveCount, 1);
 });

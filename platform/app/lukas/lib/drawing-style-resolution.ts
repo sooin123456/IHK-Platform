@@ -13,6 +13,18 @@ type StyledDrawing = Pick<DrawingObject, "styleId" | "style"> | {
   style: DrawingStyleOverride;
 };
 
+export const DRAWING_MIXED_STYLE_ID = "__drawing_mixed_style__";
+
+/** Gives controlled style selectors a non-colliding value for mixed selections. */
+export function sharedDrawingStyleId(
+  objects: ReadonlyArray<Pick<DrawingObject, "styleId">>,
+): string {
+  const first = objects[0]?.styleId ?? "";
+  return objects.every((object) => (object.styleId ?? "") === first)
+    ? first
+    : DRAWING_MIXED_STYLE_ID;
+}
+
 /** A render-pass-local effective-style cache; callers create a fresh instance. */
 export function createDrawingStyleResolutionCache(
   styles: Record<string, DrawingStyleDefinition>,
