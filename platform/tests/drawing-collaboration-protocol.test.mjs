@@ -192,6 +192,7 @@ test("server-only metadata and operation status reject client fields and malform
 test("append validation preserves the immutable operation order and accepts only the verified actor", () => {
   const {
     DrawingCollaborationClientAppendSchema,
+    drawingRoomName,
     validateDrawingCollaborationAppend,
   } = requireProtocol();
   const first = operation();
@@ -201,6 +202,7 @@ test("append validation preserves the immutable operation order and accepts only
     operationOrder: [ids.operation],
     operations: { [ids.operation]: first },
   };
+  const room = drawingRoomName(ids.project, ids.revision);
 
   assert.ok(
     DrawingCollaborationClientAppendSchema,
@@ -222,6 +224,7 @@ test("append validation preserves the immutable operation order and accepts only
         operations: { [ids.operation]: first, [secondId]: second },
       },
       ids.actor,
+      room,
     ).operationOrder,
     [ids.operation, secondId],
   );
@@ -230,6 +233,7 @@ test("append validation preserves the immutable operation order and accepts only
       current,
       { operationOrder: [], operations: {} },
       ids.actor,
+      room,
     ),
   );
   assert.throws(() =>
@@ -240,6 +244,7 @@ test("append validation preserves the immutable operation order and accepts only
         operations: { [ids.operation]: operation({ actorId: ids.revision }) },
       },
       ids.actor,
+      room,
     ),
   );
   assert.throws(() =>
@@ -256,6 +261,78 @@ test("append validation preserves the immutable operation order and accepts only
         },
       },
       ids.actor,
+      room,
+    ),
+  );
+});
+
+test("append validation accepts a bounded same-actor catch-up suffix", () => {
+  const { drawingRoomName, validateDrawingCollaborationAppend } =
+    requireProtocol();
+  const secondId = "00000000-0000-4000-8000-000000000207";
+  const thirdId = "00000000-0000-4000-8000-000000000208";
+  const first = operation();
+  const second = operation({ clientOperationId: secondId });
+  const third = operation({ clientOperationId: thirdId });
+
+  assert.deepEqual(
+    validateDrawingCollaborationAppend(
+      {
+        operationOrder: [ids.operation],
+        operations: { [ids.operation]: first },
+      },
+      {
+        operationOrder: [ids.operation, secondId, thirdId],
+        operations: {
+          [ids.operation]: first,
+          [secondId]: second,
+          [thirdId]: third,
+        },
+      },
+      ids.actor,
+      drawingRoomName(ids.project, ids.revision),
+    ).operationOrder,
+    [ids.operation, secondId, thirdId],
+  );
+  assert.throws(() =>
+    validateDrawingCollaborationAppend(
+      {
+        operationOrder: [ids.operation],
+        operations: { [ids.operation]: first },
+      },
+      {
+        operationOrder: [ids.operation, secondId, thirdId],
+        operations: {
+          [ids.operation]: first,
+          [secondId]: operation({
+            clientOperationId: secondId,
+            actorId: ids.revision,
+          }),
+          [thirdId]: third,
+        },
+      },
+      ids.actor,
+      drawingRoomName(ids.project, ids.revision),
+    ),
+  );
+});
+
+test("append validation binds every new envelope to the canonical room revision", () => {
+  const { drawingRoomName, validateDrawingCollaborationAppend } =
+    requireProtocol();
+  const otherRevision = "00000000-0000-4000-8000-000000000299";
+
+  assert.throws(() =>
+    validateDrawingCollaborationAppend(
+      { operationOrder: [], operations: {} },
+      {
+        operationOrder: [ids.operation],
+        operations: {
+          [ids.operation]: operation({ revisionId: otherRevision }),
+        },
+      },
+      ids.actor,
+      drawingRoomName(ids.project, ids.revision),
     ),
   );
 });

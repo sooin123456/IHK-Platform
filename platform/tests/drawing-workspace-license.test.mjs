@@ -147,6 +147,44 @@ function assertPermissiveExportClosure(lock, packagePaths) {
   }
 }
 
+const expectedCollaborationRuntimeClosure = {
+  "node_modules/@hocuspocus/common": { version: "4.6.0", license: "MIT" },
+  "node_modules/@hocuspocus/provider": { version: "4.6.0", license: "MIT" },
+  "node_modules/@hocuspocus/server": { version: "4.6.0", license: "MIT" },
+  "node_modules/@lifeomic/attempt": { version: "3.1.0", license: "MIT" },
+  "node_modules/async-mutex": { version: "0.5.0", license: "MIT" },
+  "node_modules/crossws": { version: "0.4.12", license: "MIT" },
+  "node_modules/isomorphic.js": { version: "0.2.5", license: "MIT" },
+  "node_modules/jose": { version: "6.2.10", license: "MIT" },
+  "node_modules/kleur": { version: "4.1.5", license: "MIT" },
+  "node_modules/lib0": { version: "0.2.117", license: "MIT" },
+  "node_modules/tslib": { version: "2.8.1", license: undefined },
+  "node_modules/y-indexeddb": { version: "9.0.12", license: "MIT" },
+  "node_modules/y-protocols": { version: "1.0.7", license: "MIT" },
+  "node_modules/yjs": { version: "13.6.32", license: "MIT" },
+};
+
+function assertPermissiveCollaborationClosure(lock, packagePaths) {
+  assert.deepEqual(
+    packagePaths,
+    Object.keys(expectedCollaborationRuntimeClosure),
+  );
+  for (const packagePath of packagePaths) {
+    const expected = expectedCollaborationRuntimeClosure[packagePath];
+    const entry = lock.packages[packagePath];
+    assert.equal(
+      entry?.version,
+      expected.version,
+      `${packagePath} version changed`,
+    );
+    assert.equal(
+      entry?.license,
+      expected.license,
+      `${packagePath} has prohibited or unknown license ${String(entry?.license)}`,
+    );
+  }
+}
+
 test("drawing editor dependencies are permissive and noticed", async () => {
   const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
   const notice = await readFile(noticeUrl, "utf8");
@@ -216,6 +254,7 @@ test("drawing collaboration pins its MIT protocol closure without direct transpo
     jose: "6.2.10",
   };
 
+  const dependencyPaths = new Set();
   for (const [name, version] of Object.entries(expected)) {
     assert.equal(pkg.dependencies[name], version);
     assert.equal(lock.packages[`node_modules/${name}`]?.version, version);
@@ -226,7 +265,21 @@ test("drawing collaboration pins its MIT protocol closure without direct transpo
         `\\|\\s*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*\\|\\s*${version.replaceAll(".", "\\.")}\\s*\\|.*\\|\\s*MIT\\s*\\|\\s*No\\s*\\|\\s*npm\\s*\\|`,
       ),
     );
-    assert.ok(lockedDependencyClosure(lock, `node_modules/${name}`).length > 0);
+    for (const packagePath of lockedDependencyClosure(
+      lock,
+      `node_modules/${name}`,
+    ))
+      dependencyPaths.add(packagePath);
+  }
+  const collaborationPaths = [...dependencyPaths].sort();
+  assertPermissiveCollaborationClosure(lock, collaborationPaths);
+  for (const dependencyPath of collaborationPaths) {
+    const mutated = structuredClone(lock);
+    mutated.packages[dependencyPath].license = "UNKNOWN";
+    assert.throws(
+      () => assertPermissiveCollaborationClosure(mutated, collaborationPaths),
+      new RegExp(dependencyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
   for (const prohibited of ["lib0", "ws", "redis", "zustand", "redux"]) {
     assert.equal(Object.hasOwn(pkg.dependencies, prohibited), false);

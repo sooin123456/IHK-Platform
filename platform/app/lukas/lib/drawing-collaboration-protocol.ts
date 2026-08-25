@@ -289,17 +289,19 @@ function sameJsonValue(left: unknown, right: unknown): boolean {
   );
 }
 
-/** Validates the one-envelope append that a verified editor may contribute. */
+/** Validates the bounded append-only suffix that a verified editor may contribute. */
 export function validateDrawingCollaborationAppend(
   currentValue: unknown,
   nextValue: unknown,
   verifiedActorId: string,
+  roomName: string,
 ): DrawingCollaborationLedger {
   const current = DrawingCollaborationLedgerSchema.parse(currentValue);
   const next = DrawingCollaborationLedgerSchema.parse(nextValue);
   const actorId = CanonicalUuidSchema.parse(verifiedActorId);
-  if (next.operationOrder.length !== current.operationOrder.length + 1)
-    throw new Error("Client updates may append exactly one drawing operation.");
+  const room = parseDrawingRoomName(roomName);
+  if (next.operationOrder.length <= current.operationOrder.length)
+    throw new Error("Client updates must append drawing operations.");
   for (const [index, operationId] of current.operationOrder.entries()) {
     if (
       next.operationOrder[index] !== operationId ||
@@ -310,9 +312,17 @@ export function validateDrawingCollaborationAppend(
     )
       throw new Error("Existing drawing operations and order are immutable.");
   }
-  const appendedId = next.operationOrder.at(-1)!;
-  if (next.operations[appendedId].actorId !== actorId)
-    throw new Error("Client may append only its verified actor operation.");
+  for (const appendedId of next.operationOrder.slice(
+    current.operationOrder.length,
+  )) {
+    const appended = next.operations[appendedId];
+    if (appended.actorId !== actorId)
+      throw new Error("Client may append only its verified actor operations.");
+    if (appended.revisionId !== room.revisionId)
+      throw new Error(
+        "Drawing operation revision must match the collaboration room.",
+      );
+  }
   return next;
 }
 
