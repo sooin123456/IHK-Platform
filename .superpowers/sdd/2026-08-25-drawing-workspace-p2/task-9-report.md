@@ -252,3 +252,105 @@ Build warnings remain the repository's existing non-fatal chunk-size, React Rout
 ### Concerns
 
 None. Deployments containing legacy table JSON with duplicate column IDs/names or row IDs will intentionally receive the migration's explicit P1C01 preflight and must repair that corrupt data before retrying the migration.
+
+## Fix round 2 — exact offline restore recovery and immutable tombstones
+
+### Outcome
+
+Closed both round-2 findings without adding an operation type, migration, dependency, service, or persistence path.
+
+- Pending `mutate_objects_with_references` restores now validate their complete object/structure inverse result versions before projection, reconstruct the exact missing object and reference tombstones, consume those tombstones into the restored entities, and keep delete → undo chains as one atomic operation at every replay step.
+- Acknowledged deletes are reconciled against the authoritative deleted loader before the remaining pending undo replays. Mixed property-value and table-row references restore at their exact monotonic versions.
+- Noncanonical pending inverse evidence is failed closed, returned as a conflict, and durably quarantined instead of remaining retryable ambiguous work.
+- The RPC restore branch compares the complete client-visible object snapshot, excluding only version, to the locked deleted row. It also requires stored page/layer ancestry to remain exact and changes only `status`, `version`, and the normal `updated_by` audit field.
+- Forged identity, revision, project, page, layer, name, geometry, inline style, style reference, or creator payloads return `P1C01` atomically with no operation row. Exact restore succeeds and exact retry returns the same result.
+
+### RED evidence
+
+The outbox tests were written and run before the recovery implementation changed:
+
+```text
+node --test --test-name-pattern='pending reference restore|acknowledged reference delete|pending reference restore quarantines|reference-aware object deletion enqueues' tests/drawing-workspace-outbox.test.mjs
+tests 4; pass 1; fail 3
+
+pending restore actual ambiguousOperationIds:
+  [00000000-0000-4000-8000-000000000006]
+acknowledged delete → pending undo actual ambiguousOperationIds:
+  [00000000-0000-4000-8000-000000000006]
+malformed inverse actual conflictedOperationIds:
+  []
+expected:
+  [00000000-0000-4000-8000-000000000006]
+```
+
+The real PGlite tombstone test was then written and run before the SQL restore branch changed:
+
+```text
+node --test --test-name-pattern='reference-aware restore rejects every noncanonical' tests/drawing-workspace-database-runtime.test.mjs
+tests 1; pass 0; fail 1
+AssertionError: Missing expected rejection: name
+```
+
+This proved the prior function accepted a validly-shaped forged name and overwrote the deleted object rather than merely exposing a theoretical guard gap.
+
+### Delivered contracts
+
+- `acknowledgedFinalEffects` remains the single existing validator for operation bases, opposite object actions, reverse-indexed structure inverses, unique targets, and object snapshots. Round 2 tightens it with the exact result-version relationships for both put and delete reference actions; pending recovery reuses it rather than introducing another validator.
+- Pending delete replay records exact object tombstones alongside structure tombstones. Pending restore accepts an omitted loader tombstone version only when the durable operation proves the exact base/result relationship, reconstructs the object tombstone entity at `base - 1`, reconstructs missing reference tombstones through the existing structure helper, validates the tombstoned state, and consumes all tombstones before applying restore actions.
+- A malformed durable cross-contract operation is distinct from an uncertain legacy acknowledgement: it enters `conflictedOperationIds` and the existing outbox `retainRecoveryEvidence` path changes only that entry to `conflicted`. Later causal work remains unprojected.
+- SQL equality normalizes the schema's legacy-equivalent omitted `styleId` to JSON null, then compares every other non-version JSON field to the locked tombstone. Hidden revision/project/page/creator identity remains immutable because the payload validator rejects those keys and the UPDATE no longer writes any canonical content field.
+- Authorization, revision lock, idempotency lookup, draft gate, eligible-layer lock, exact reference validation, transaction boundary, result versions, and ledger insertion order are unchanged.
+
+### Files changed
+
+Production:
+
+- `platform/app/lukas/lib/drawing-outbox.ts`
+- `platform/supabase/migrations/20260825210000_drawing_workspace_task9_contract_fixes.sql`
+
+Tests:
+
+- `platform/tests/drawing-workspace-outbox.test.mjs`
+- `platform/tests/drawing-workspace-database-runtime.test.mjs`
+
+No generated contract, dependency, package manifest, or unrelated file changed.
+
+### GREEN verification
+
+```text
+node --test --test-name-pattern='pending reference restore|acknowledged reference delete|pending reference restore quarantines|reference-aware object deletion enqueues' tests/drawing-workspace-outbox.test.mjs
+tests 4; pass 4; fail 0
+
+node --test --test-name-pattern='reference-aware restore rejects every noncanonical|reference-aware object deletion is one idempotent' tests/drawing-workspace-database-runtime.test.mjs
+tests 2; pass 2; fail 0
+
+node --test tests/drawing-workspace-outbox.test.mjs tests/drawing-workspace-properties.test.mjs tests/drawing-workspace-server.test.mjs tests/drawing-workspace-database-runtime.test.mjs
+tests 201; pass 201; fail 0
+
+npm run typecheck
+passed
+
+npm run test:drawing-workspace
+tests 381; pass 381; fail 0
+
+npm run build
+passed client and SSR; prebuild typecheck passed
+
+git diff --check
+passed
+```
+
+Build emitted only the repository's existing non-fatal chunk-size, React Router future-flag, mixed IFC import, and unsigned theme-cookie warnings.
+
+### Self-review
+
+- Re-read both findings verbatim and traced command history → durable outbox → recovery → RPC tombstone mutation before reviewing the diff.
+- Ponytail full kept the production change to the existing acknowledgement validator, existing tombstone reconstruction helper, one recovery branch, existing conflict-evidence method, and the existing Task 9 migration. No parallel recovery model or new abstraction was added.
+- The recovery tests cover both all-pending delete → undo and acknowledged-delete → pending-undo chains, mixed property/table references, exact versions, atomic final state, one remaining pending unit, and durable quarantine for object plus reference inverse corruption.
+- The database test changes every meaningful object field one at a time, checks `P1C01`, byte-equivalent stored canonical fields, deleted status/version, zero forged operation rows, exact restore, one exact ledger row, and idempotent retry.
+- The SQL change preserves lock/idempotency/authorization ordering and reduces the mutation surface: canonical content can no longer be sourced from restore JSON.
+- `git diff --check` is clean. The four changed code/test files and this report are scoped only to the two findings.
+
+### Concerns
+
+None.

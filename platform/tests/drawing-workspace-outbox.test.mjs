@@ -941,7 +941,7 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
   assert.equal(recovered.state.structure.layers[modelLayerId].canvasId, modelId);
 });
 
-test("reference-aware object deletion enqueues once and pending recovery stays atomic", async () => {
+function referenceAwareDeleteFixture() {
   const schemaId = "00000000-0000-4000-8000-000000000310";
   const valueId = "00000000-0000-4000-8000-000000000311";
   const tableId = "00000000-0000-4000-8000-000000000312";
@@ -988,6 +988,26 @@ test("reference-aware object deletion enqueues once and pending recovery stays a
       now: () => "2026-08-25T00:00:00.000Z",
     },
   );
+  const restored = undoDrawingCommand(applied.state, ids.ownerA, {
+    createId: () => ids.operation2,
+    now: () => "2026-08-25T00:01:00.000Z",
+  });
+  assert.ok(restored && !("kind" in restored));
+  const serverAfterDelete = structuredClone(applied.state);
+  delete serverAfterDelete.structure.tombstones;
+  return {
+    applied,
+    initial,
+    restored,
+    serverAfterDelete,
+    tableId,
+    valueId,
+  };
+}
+
+test("reference-aware object deletion enqueues once and pending recovery stays atomic", async () => {
+  const { applied, initial, serverAfterDelete, tableId } =
+    referenceAwareDeleteFixture();
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(applied.operation);
   assert.equal((await outbox.entries()).length, 1);
@@ -1006,10 +1026,125 @@ test("reference-aware object deletion enqueues once and pending recovery stays a
       clientOperationId: queued.clientOperationId,
       status: "acked",
     }),
-    serverState: applied.state,
+    serverState: serverAfterDelete,
   });
   assert.deepEqual(acknowledged.conflictedOperationIds, []);
   assert.deepEqual(await outbox.entries(), []);
+});
+
+test("pending reference restore reconstructs exact object and structure tombstones", () => {
+  const { applied, initial, restored, serverAfterDelete, tableId, valueId } =
+    referenceAwareDeleteFixture();
+  const chained = recoverPendingDrawingState(initial, [
+    applied.operation,
+    restored.operation,
+  ]);
+  assert.deepEqual(chained.ambiguousOperationIds, []);
+  assert.equal(chained.state.objects[ids.object].version, 3);
+  assert.equal(chained.state.structure.propertyValues[valueId].version, 3);
+  assert.equal(chained.state.structure.tables[tableId].version, 3);
+
+  const recovered = recoverPendingDrawingState(serverAfterDelete, [
+    restored.operation,
+  ]);
+
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.objects[ids.object].version, 3);
+  assert.equal(recovered.state.structure.propertyValues[valueId].version, 3);
+  assert.equal(recovered.state.structure.tables[tableId].version, 3);
+  assert.equal(
+    recovered.state.structure.tables[tableId].rows[0].objectId,
+    ids.object,
+  );
+  assert.equal(recovered.state.structure.tombstones?.[ids.object], undefined);
+  assert.equal(recovered.state.structure.tombstones?.[valueId], undefined);
+});
+
+test("acknowledged reference delete is consumed before its pending undo on offline reload", async () => {
+  const { applied, restored, serverAfterDelete, tableId, valueId } =
+    referenceAwareDeleteFixture();
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(applied.operation);
+  await outbox.enqueue(restored.operation);
+
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (operation) => {
+      if (operation.clientOperationId === restored.operation.clientOperationId)
+        throw new Error("offline after acknowledged delete");
+      return { clientOperationId: operation.clientOperationId, status: "acked" };
+    },
+    serverState: serverAfterDelete,
+  });
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.equal(recovered.state.objects[ids.object].version, 3);
+  assert.equal(recovered.state.structure.propertyValues[valueId].version, 3);
+  assert.equal(recovered.state.structure.tables[tableId].version, 3);
+  assert.deepEqual(
+    (await outbox.entries()).map((entry) => ({
+      id: entry.operation.clientOperationId,
+      status: entry.status,
+    })),
+    [{ id: restored.operation.clientOperationId, status: "pending" }],
+  );
+});
+
+test("pending reference restore quarantines mismatched object and structure result versions", async () => {
+  const cases = [
+    {
+      name: "object result version",
+      mutate(operation) {
+        operation.inverse.objects[0].version += 1;
+      },
+    },
+    {
+      name: "structure result version",
+      mutate(operation) {
+        const inverse = operation.inverse.actions.find(
+          (action) => action.kind === "delete_property_value",
+        );
+        inverse.baseVersion += 1;
+      },
+    },
+    {
+      name: "structure inverse snapshot",
+      mutate(operation) {
+        const inverse = operation.inverse.actions.find(
+          (action) => action.kind === "put_table",
+        );
+        inverse.entity.name = "Corrupt inverse";
+      },
+    },
+  ];
+
+  for (const candidate of cases) {
+    const { restored, serverAfterDelete } = referenceAwareDeleteFixture();
+    const malformed = structuredClone(restored.operation);
+    candidate.mutate(malformed);
+    const outbox = scopedOutbox(memoryAdapter());
+    await outbox.enqueue(malformed);
+
+    const recovered = await restoreDrawingWorkspaceState({
+      online: false,
+      outbox,
+      send: async () => {
+        throw new Error("offline");
+      },
+      serverState: serverAfterDelete,
+    });
+
+    assert.equal(recovered.state.objects[ids.object], undefined, candidate.name);
+    assert.deepEqual(
+      recovered.conflictedOperationIds,
+      [restored.operation.clientOperationId],
+      candidate.name,
+    );
+    assert.equal((await outbox.entries())[0].status, "conflicted", candidate.name);
+  }
 });
 
 test("P2 recovery restores a deleted tombstone at the authoritative inverse version", () => {

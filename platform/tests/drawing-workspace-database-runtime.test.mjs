@@ -4475,6 +4475,169 @@ test("reference-aware object deletion is one idempotent RPC transaction with exa
   assert.deepEqual(lockedUnchanged.rows, [{ status: "active", version: 5 }]);
 });
 
+test("reference-aware restore rejects every noncanonical object field and preserves the tombstone", async () => {
+  const ids = await createDocument();
+  const backupLayerId = randomUUID();
+  const style = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Restore test style",
+    value: STYLE,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [backupLayerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: backupLayerId,
+        name: "Restore backup",
+        visible: true,
+        locked: false,
+        canvasId: ids.canvasId,
+        sortOrder: 99,
+        version: 1,
+      },
+    },
+    {},
+  );
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    {
+      type: "mutate_structure",
+      actions: [{ kind: "put_style", entity: style, baseVersion: null }],
+    },
+    {
+      type: "mutate_structure",
+      actions: [{ kind: "delete_style", id: style.id, baseVersion: 1 }],
+    },
+  );
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, object);
+  const navigation = await localP2State(ids);
+  const initial = drawingCommands.createDrawingDocumentState({
+    revisionId: ids.revisionId,
+    structure: {
+      ...navigation.structure,
+      objects: { [object.id]: object },
+    },
+  });
+  const deleted = drawingCommands.applyDrawingCommand(
+    initial,
+    drawingProperties.deleteDrawingObjectsWithReferencesCommand(
+      initial,
+      OWNER,
+      [object.id],
+    ),
+  );
+  const persist = (applied) =>
+    applyOperationWithId(
+      ids.revisionId,
+      applied.operation.clientOperationId,
+      applied.operation.type,
+      applied.operation.baseVersions,
+      applied.operation.forward,
+      applied.operation.inverse,
+    );
+  await persist(deleted);
+  const restored = drawingCommands.undoDrawingCommand(deleted.state, OWNER);
+  assert.ok(restored && !("kind" in restored));
+  const storedFields = `id,revision_id,project_id,page_id,layer_id,name,
+    object_type,geometry,style_id,style,created_by`;
+  const tombstone = await db.query(
+    `select ${storedFields},status,version::int version
+     from public.lukas_drawing_objects where id=$1`,
+    [object.id],
+  );
+  assert.equal(tombstone.rows[0].status, "deleted");
+  assert.equal(tombstone.rows[0].version, 2);
+
+  const mutations = [
+    ["name", (snapshot) => ({ ...snapshot, name: "Forged restore" })],
+    ["layer", (snapshot) => ({ ...snapshot, layerId: backupLayerId })],
+    [
+      "geometry",
+      (snapshot) => ({
+        ...snapshot,
+        geometry: { ...snapshot.geometry, radius: snapshot.geometry.radius + 1 },
+      }),
+    ],
+    [
+      "inline style",
+      (snapshot) => ({
+        ...snapshot,
+        style: { ...snapshot.style, stroke: "#445566" },
+      }),
+    ],
+    [
+      "style reference",
+      (snapshot) => ({ ...snapshot, styleId: style.id, style: {} }),
+    ],
+    ["identity", (snapshot) => ({ ...snapshot, id: randomUUID() })],
+    [
+      "revision identity",
+      (snapshot) => ({ ...snapshot, revisionId: randomUUID() }),
+    ],
+    [
+      "project identity",
+      (snapshot) => ({ ...snapshot, projectId: randomUUID() }),
+    ],
+    ["page identity", (snapshot) => ({ ...snapshot, pageId: randomUUID() })],
+    ["creator identity", (snapshot) => ({ ...snapshot, createdBy: randomUUID() })],
+  ];
+  for (const [name, mutate] of mutations) {
+    const forgedObject = mutate(restored.operation.forward.objects[0]);
+    const clientOperationId = randomUUID();
+    await assert.rejects(
+      applyOperationWithId(
+        ids.revisionId,
+        clientOperationId,
+        restored.operation.type,
+        restored.operation.baseVersions,
+        { ...restored.operation.forward, objects: [forgedObject] },
+        { ...restored.operation.inverse, objects: [forgedObject] },
+      ),
+      (error) => error.code === "P1C01",
+      name,
+    );
+    const unchanged = await db.query(
+      `select ${storedFields},status,version::int version,
+        (select count(*)::int from public.lukas_drawing_operations
+          where client_operation_id=$2) operation_count
+       from public.lukas_drawing_objects where id=$1`,
+      [object.id, clientOperationId],
+    );
+    assert.deepEqual(unchanged.rows, [
+      { ...tombstone.rows[0], operation_count: 0 },
+    ], name);
+  }
+
+  const first = await persist(restored);
+  assert.deepEqual(await persist(restored), first);
+  const active = await db.query(
+    `select ${storedFields},status,version::int version,
+      (select count(*)::int from public.lukas_drawing_operations
+        where client_operation_id=$2) operation_count
+     from public.lukas_drawing_objects where id=$1`,
+    [object.id, restored.operation.clientOperationId],
+  );
+  assert.deepEqual(active.rows, [
+    {
+      ...tombstone.rows[0],
+      status: "active",
+      version: 3,
+      operation_count: 1,
+    },
+  ]);
+});
+
 test("table SQL and RPC boundaries reject duplicate identity and incompatible property targets", async () => {
   const ids = await createDocument();
   const rectangle = circleObject(randomUUID(), ids.workLayerId);

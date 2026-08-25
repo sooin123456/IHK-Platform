@@ -255,9 +255,16 @@ begin
         and l.revision_id=o.revision_id and l.project_id=o.project_id
       where o.id=v_id and o.revision_id=p_revision_id
         and o.project_id=v_revision.project_id and o.status='deleted'
+        and o.page_id=l.page_id
         and l.visible and not l.locked and l.system_kind<>'source'
       for update of o,l;
       if v_previous is null
+        or (
+          pg_catalog.jsonb_set(
+            v_object,'{styleId}',
+            coalesce(v_object->'styleId','null'::jsonb),true
+          )-'version'
+        ) is distinct from v_previous-'version'
         or (v_object->>'version')::bigint<>(v_previous->>'version')::bigint+1 then
         raise exception using errcode='P1C01',
           message='Reference-aware object restore tombstone is stale';
@@ -370,15 +377,8 @@ begin
     for v_object in
       select value from pg_catalog.jsonb_array_elements(p_forward->'objects')
     loop
-      update public.lukas_drawing_objects set
-        layer_id=(v_object->>'layerId')::uuid,
-        page_id=(select l.page_id from public.lukas_drawing_layers l
-          where l.id=(v_object->>'layerId')::uuid),
-        name=v_object->>'name',object_type=v_object->'geometry'->>'type',
-        geometry=v_object->'geometry',
-        style_id=nullif(v_object->>'styleId','')::uuid,
-        style=v_object->'style',status='active',
-        version=(v_object->>'version')::bigint,updated_by=v_actor
+      update public.lukas_drawing_objects
+      set status='active',version=version+1,updated_by=v_actor
       where id=(v_object->>'id')::uuid and status='deleted';
     end loop;
     for v_action in

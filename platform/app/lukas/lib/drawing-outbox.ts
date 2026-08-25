@@ -655,6 +655,8 @@ type AcknowledgedFinalEffect = {
   matches(state: DrawingDocumentState): boolean;
 };
 
+class DrawingRecoveryContractError extends Error {}
+
 function exactBaseVersions(
   operation: DrawingOperationInput,
   expected: Record<string, number>,
@@ -770,6 +772,17 @@ function acknowledgedFinalEffects(
         if ("entity" in action) {
           if (paired.baseVersion === null)
             throw new Error("Structure result version is not exact.");
+          const resultVersion = action.baseVersion === null
+            ? action.entity.version + 2
+            : action.baseVersion + 1;
+          if (
+            (action.baseVersion !== null &&
+              action.entity.version !== action.baseVersion) ||
+            paired.baseVersion !== resultVersion ||
+            ("entity" in paired &&
+              paired.entity.version !== action.baseVersion)
+          )
+            throw new Error("Structure inverse result version is not exact.");
           const expected = { ...action.entity, version: paired.baseVersion };
           return {
             target: `${collection}:${id}`,
@@ -777,6 +790,11 @@ function acknowledgedFinalEffects(
               valuesMatch(state.structure?.[collection][id], expected),
           };
         }
+        if (
+          !("entity" in paired) ||
+          paired.entity.version !== action.baseVersion
+        )
+          throw new Error("Structure deletion inverse version is not exact.");
         return {
           target: `${collection}:${id}`,
           matches: (state) => !state.structure?.[collection][id],
@@ -792,7 +810,9 @@ function acknowledgedFinalEffects(
         base === undefined ||
         (forward.objectAction === "delete"
           ? object.version !== base || reverted.version !== base + 2
-          : object.version !== base + 1 || !valuesMatch(reverted, object))
+          : base < 2 ||
+            object.version !== base + 1 ||
+            !valuesMatch(reverted, object))
       )
         throw new Error("Object-reference inverse object is not exact.");
       expectedBases[object.id] = base;
@@ -984,6 +1004,17 @@ export function recoverPendingDrawingState(
     )
     .sort((left, right) => left.index - right.index)
     .map((entry) => entry.operation)) {
+    if (operation.type === "mutate_objects_with_references") {
+      try {
+        // A pending restore carries the only offline proof of its object and
+        // structure result versions, so malformed inverses are conflicts.
+        acknowledgedFinalEffects(operation);
+      } catch {
+        conflictedOperationIds.push(operation.clientOperationId);
+        blocked = true;
+        continue;
+      }
+    }
     if (blocked || !recoveryBaseVersionsMatch(versions, operation)) {
       ambiguousOperationIds.push(operation.clientOperationId);
       blocked = true;
@@ -1106,6 +1137,17 @@ export function recoverPendingDrawingState(
           revisionId: candidate.revisionId,
           ...structuredClone(candidate.structure),
         };
+        const inverse = operation.inverse as {
+          objectAction: "delete" | "restore";
+          objects: unknown[];
+          actions: DrawingStructureAction[];
+        };
+        if (forward.objectAction === "restore")
+          restoreMissingStructureTombstones(
+            structureState,
+            forward.actions,
+            inverse.actions,
+          );
         for (const object of inputObjects) {
           const base = operation.baseVersions[object.id];
           const current = candidate.objects[object.id];
@@ -1120,10 +1162,30 @@ export function recoverPendingDrawingState(
             if (
               current ||
               base === undefined ||
-              candidateVersions.get(object.id) !== base ||
+              (candidateVersions.has(object.id) &&
+                candidateVersions.get(object.id) !== base) ||
               object.version !== base + 1
             )
               throw new Error("Object restoration snapshot is stale.");
+            const tombstone = {
+              collection: "objects" as const,
+              entity: { ...structuredClone(object), version: base - 1 },
+              version: base,
+            };
+            const currentTombstone = structureState.tombstones?.[object.id];
+            if (
+              currentTombstone &&
+              !valuesMatch(currentTombstone, tombstone)
+            )
+              throw new Error("Object restoration tombstone is stale.");
+            structureState.tombstones ??= {};
+            structureState.tombstones[object.id] = tombstone;
+          }
+        }
+        if (forward.objectAction === "restore") {
+          validateDrawingStructureState(structureState);
+          for (const object of inputObjects) {
+            delete structureState.tombstones?.[object.id];
             structureState.objects[object.id] = object;
           }
         }
@@ -1131,10 +1193,15 @@ export function recoverPendingDrawingState(
           ? applyDrawingStructureActions(structureState, forward.actions)
           : {
               state: structureState,
+              inverse: [],
               baseVersions: {},
               resultVersions: {},
               realizedVersions: {},
             };
+        if (!valuesMatch(applied.inverse, inverse.actions))
+          throw new DrawingRecoveryContractError(
+            "Object mutation inverse actions are not exact.",
+          );
         const expectedBases = { ...applied.baseVersions };
         for (const object of inputObjects) {
           const base = operation.baseVersions[object.id];
@@ -1143,6 +1210,12 @@ export function recoverPendingDrawingState(
           expectedBases[object.id] = base;
           if (forward.objectAction === "delete") {
             delete applied.state.objects[object.id];
+            applied.state.tombstones ??= {};
+            applied.state.tombstones[object.id] = {
+              collection: "objects",
+              entity: structuredClone(object),
+              version: base + 1,
+            };
             candidateVersions.set(object.id, base + 1);
           } else {
             candidateVersions.set(object.id, object.version);
@@ -1174,8 +1247,11 @@ export function recoverPendingDrawingState(
       }
       state = candidate;
       versions = candidateVersions;
-    } catch {
-      ambiguousOperationIds.push(operation.clientOperationId);
+    } catch (error) {
+      (error instanceof DrawingRecoveryContractError
+        ? conflictedOperationIds
+        : ambiguousOperationIds
+      ).push(operation.clientOperationId);
       blocked = true;
     }
   }
@@ -1235,6 +1311,17 @@ export async function restoreDrawingWorkspaceState({
     // pending entry. Keep that work durable, but never project it locally.
     conflictedOperationIds.length > 0 ? [] : entriesForRecovery,
   );
+  const malformedPendingIds = new Set(recovered.conflictedOperationIds);
+  for (const entry of entriesForRecovery) {
+    if (
+      entry.status === "pending" &&
+      malformedPendingIds.has(entry.operation.clientOperationId)
+    )
+      await outbox.retainRecoveryEvidence(
+        entry,
+        "Pending operation has a noncanonical recovery contract.",
+      );
+  }
   return {
     ...recovered,
     conflictedOperationIds: [
