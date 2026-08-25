@@ -13,7 +13,7 @@ import {
 } from "~/lukas/lib/drawing-commands";
 import {
   DRAWING_MIXED_STYLE_ID,
-  createDrawingStyleResolutionCache,
+  drawingStyleSelectionFormModel,
   sharedDrawingStyleId,
 } from "~/lukas/lib/drawing-style-resolution";
 import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
@@ -71,18 +71,24 @@ export function DrawingInspector({
     [selectedIds, state.objects],
   );
   const styleResolution = useMemo(() => {
-    const resolver = createDrawingStyleResolutionCache(state.structure?.styles ?? {});
     try {
-      return { styles: selectedObjects.map((object) => resolver.resolve(object)), error: null };
+      const formModel = drawingStyleSelectionFormModel(
+        selectedObjects,
+        state.structure?.styles ?? {},
+      );
+      return { ...formModel, error: null };
     } catch (caught) {
-      return { styles: [] as DrawingStyle[], error: inspectorError(caught) };
+      return {
+        defaults: { stroke: "", strokeWidth: "", fill: "", fontSize: "" },
+        resetKey: selectedObjects.map((object) => `${object.id}:${object.version}`).join("|"),
+        styles: [] as DrawingStyle[],
+        error: inspectorError(caught),
+      };
     }
   }, [selectedObjects, state.structure?.styles]);
   const selectedStyles = styleResolution.styles;
   const selectedStyleId = sharedDrawingStyleId(selectedObjects);
-  const selectionKey = selectedObjects
-    .map((object) => `${object.id}:${object.version}`)
-    .join("|");
+  const selectionKey = styleResolution.resetKey;
   useEffect(() => {
     dirtyFields.current.clear();
     setError(null);
@@ -415,10 +421,7 @@ export function DrawingInspector({
           선 색상
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={sharedStyleValue(
-              selectedStyles,
-              (style) => style.stroke,
-            )}
+            defaultValue={styleResolution.defaults.stroke}
             disabled={!canEdit}
             id="inspector-stroke"
             name="stroke"
@@ -432,7 +435,7 @@ export function DrawingInspector({
           선 두께
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-            defaultValue={sharedStyleValue(selectedStyles, (style) => String(style.strokeWidth))}
+            defaultValue={styleResolution.defaults.strokeWidth}
             disabled={!canEdit}
             id="inspector-stroke-width"
             max={1000}
@@ -448,10 +451,7 @@ export function DrawingInspector({
           채우기
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={sharedStyleValue(
-              selectedStyles,
-              (style) => style.fill ?? "",
-            )}
+            defaultValue={styleResolution.defaults.fill}
             disabled={!canEdit}
             id="inspector-fill"
             name="fill"
@@ -466,7 +466,7 @@ export function DrawingInspector({
             글꼴 크기
             <input
               className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-              defaultValue={selectedStyles.every((style) => style.fontSize === selectedStyles[0]?.fontSize) ? String(selectedStyles[0]?.fontSize ?? "") : ""}
+              defaultValue={styleResolution.defaults.fontSize}
               id="inspector-font-size"
               max={10000}
               min={0.000001}

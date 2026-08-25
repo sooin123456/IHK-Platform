@@ -102,6 +102,14 @@ const p2NavigationHardeningMigration = () =>
     ),
     "utf8",
   );
+const p2StyleGuardSqlstateMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825110000_drawing_workspace_style_guard_sqlstate.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -297,6 +305,7 @@ before(async () => {
   await db.exec(await p2CompatibilityMigration());
   await db.exec(await p2HistoryReconciliationMigration());
   await db.exec(await p2NavigationHardeningMigration());
+  await db.exec(await p2StyleGuardSqlstateMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1855,6 +1864,123 @@ test("style helpers persist through command history, outbox, RPC, undo, and redo
   await db.exec("reset role");
   const styles = await db.query("select count(*)::int count from public.lukas_drawing_styles where id=$1", [styleId]);
   assert.equal(styles.rows[0].count, 0);
+  outbox.dispose();
+});
+
+test("strict structure mutation denies deleting a style referenced only by a block primitive", async () => {
+  const ids = await createDocument();
+  const styleId = randomUUID();
+  const blockId = randomUUID();
+  const style = {
+    id: styleId,
+    revisionId: ids.revisionId,
+    name: "Block-only style",
+    value: STYLE,
+    version: 1,
+  };
+  const block = {
+    id: blockId,
+    revisionId: ids.revisionId,
+    name: "Block-only reference",
+    primitives: [{
+      localId: "circle",
+      name: "Circle",
+      geometry: circleObject(randomUUID(), ids.workLayerId).geometry,
+      styleId,
+      style: {},
+    }],
+    version: 1,
+  };
+  const createForward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_style", entity: style, baseVersion: null },
+      { kind: "put_block", entity: block, baseVersion: null },
+    ],
+  };
+  const client = pgliteWorkspaceClient(db);
+  const outbox = drawingOutbox.createDrawingOutbox(runtimeOutboxAdapter(), {
+    ownerId: OWNER, revisionId: ids.revisionId, schedule: () => () => {},
+  });
+  const operation = (baseVersions, forward, inverse) => ({
+    clientOperationId: randomUUID(),
+    revisionId: ids.revisionId,
+    type: "mutate_structure",
+    baseVersions,
+    forward,
+    inverse,
+    createdAt: "2026-08-25T00:00:00.000Z",
+  });
+  const persist = async (input) => {
+    let result;
+    await outbox.enqueue(input);
+    await outbox.flush(async (queued) => {
+      result = await workspaceServer.applyDrawingOperation(client, queued);
+      return { clientOperationId: queued.clientOperationId, status: "acked" };
+    });
+    return result;
+  };
+  await persist(operation({}, createForward, {
+    type: "mutate_structure",
+    actions: [
+      { kind: "delete_block", id: blockId, baseVersion: 1 },
+      { kind: "delete_style", id: styleId, baseVersion: 1 },
+    ],
+  }));
+
+  await db.exec("reset role");
+  const beforeCount = await db.query(
+    "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+    [ids.revisionId],
+  );
+  await asActor(OWNER);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      { [styleId]: 1 },
+      { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
+      { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+    ),
+    (error) => error.code === "P1C01" && /referenced drawing style/i.test(error.message),
+  );
+  await db.exec("reset role");
+  const [storedStyle, storedBlock, afterCount] = await Promise.all([
+    db.query("select version from public.lukas_drawing_styles where id=$1", [styleId]),
+    db.query("select version,primitives from public.lukas_drawing_blocks where id=$1", [blockId]),
+    db.query("select count(*)::int count from public.lukas_drawing_operations where revision_id=$1", [ids.revisionId]),
+  ]);
+  assert.deepEqual(storedStyle.rows, [{ version: 1 }]);
+  assert.deepEqual(storedBlock.rows, [{ version: 1, primitives: block.primitives }]);
+  assert.deepEqual(afterCount.rows, beforeCount.rows);
+
+  await asActor(OWNER);
+  const detachedBlock = {
+    ...block,
+    primitives: [{ ...block.primitives[0], styleId: null, style: STYLE }],
+  };
+  await persist(operation(
+    { [blockId]: 1 },
+    { type: "mutate_structure", actions: [{ kind: "put_block", entity: detachedBlock, baseVersion: 1 }] },
+    { type: "mutate_structure", actions: [{ kind: "put_block", entity: block, baseVersion: 2 }] },
+  ));
+  const deleted = await persist(operation(
+    { [styleId]: 1 },
+    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
+    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+  ));
+  assert.deepEqual(deleted.resultVersions, { [styleId]: null });
+  await persist(operation(
+    {},
+    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 3 }] },
+  ));
+  await db.exec("reset role");
+  const restored = await db.query(
+    "select version from public.lukas_drawing_styles where id=$1",
+    [styleId],
+  );
+  assert.deepEqual(restored.rows, [{ version: 3 }]);
   outbox.dispose();
 });
 

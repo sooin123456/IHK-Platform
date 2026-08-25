@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DRAWING_MIXED_STYLE_ID,
   createDrawingStyleResolutionCache,
+  drawingStyleSelectionFormModel,
   sharedDrawingStyleId,
 } from "../app/lukas/lib/drawing-style-resolution.ts";
 import {
@@ -75,6 +76,33 @@ test("style resolution is memoized per definition version and invalidates on liv
     () => createDrawingStyleResolutionCache({}).resolve(current.objects[ids.object]),
     /does not exist/i,
   );
+});
+
+test("definition-only changes replace the editable inspector draft defaults", () => {
+  const current = state();
+  const objects = [current.objects[ids.object]];
+  const first = drawingStyleSelectionFormModel(objects, current.structure.styles);
+  const changedStyles = {
+    ...current.structure.styles,
+    [ids.style]: {
+      ...current.structure.styles[ids.style],
+      version: 2,
+      value: { stroke: "#445566", strokeWidth: 3, fill: "#abcdef", fontSize: 18 },
+    },
+  };
+  const second = drawingStyleSelectionFormModel(objects, changedStyles);
+
+  assert.strictEqual(objects[0], current.objects[ids.object]);
+  assert.equal(objects[0].version, 1);
+  assert.equal(first.defaults.stroke, "#112233");
+  assert.equal(first.defaults.strokeWidth, "2");
+  assert.equal(first.defaults.fill, "#ffffff");
+  assert.equal(first.defaults.fontSize, "14");
+  assert.equal(second.defaults.stroke, "#445566");
+  assert.equal(second.defaults.strokeWidth, "3");
+  assert.equal(second.defaults.fill, "#ffffff");
+  assert.equal(second.defaults.fontSize, "18");
+  assert.notEqual(second.resetKey, first.resetKey);
 });
 
 test("apply, reset overrides, and detach preserve the effective style for every selected object", () => {
