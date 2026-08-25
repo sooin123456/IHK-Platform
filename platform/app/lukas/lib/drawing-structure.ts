@@ -484,6 +484,24 @@ function validateReferences(state: DrawingStructureState): void {
       if (row.objectId && row.blockInstanceId) {
         throw new DrawingStructureError(`Table row ${row.id} may not reference two targets.`);
       }
+      const targetKind = row.objectId
+        ? state.objects[row.objectId]?.geometry.type
+        : row.blockInstanceId
+          ? "block_instance"
+          : undefined;
+      if (
+        targetKind &&
+        table.columns.some((column) => {
+          const schema = column.propertySchemaId
+            ? state.propertySchemas[column.propertySchemaId]
+            : undefined;
+          return schema ? !schema.appliesTo.includes(targetKind) : false;
+        })
+      ) {
+        throw new DrawingStructureError(
+          `Table row ${row.id} property schema does not apply to its target.`,
+        );
+      }
       for (const [columnId, cell] of Object.entries(row.cells)) {
         const column = columns.get(columnId);
         if (!column) {
@@ -602,7 +620,9 @@ function validateObjectCompound(
         (action) =>
           action.kind !== "delete_object" &&
           action.kind !== "put_block" &&
-          action.kind !== "put_block_instance",
+          action.kind !== "put_block_instance" &&
+          action.kind !== "delete_property_value" &&
+          action.kind !== "put_table",
       )
     ) {
       throw new DrawingStructureError(
@@ -611,6 +631,49 @@ function validateObjectCompound(
     }
     const block = entityFor(blocks[0]) as DrawingBlock;
     const instance = entityFor(instances[0]) as DrawingBlockInstance;
+    const targetIds = new Set(objectActions.map(idFor));
+    const expectedCleanup: DrawingStructureAction[] = [
+      ...Object.values(state.propertyValues)
+        .filter(
+          (value) =>
+            (value.objectId !== null && targetIds.has(value.objectId)) ||
+            (value.blockInstanceId !== null &&
+              targetIds.has(value.blockInstanceId)),
+        )
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((value) => ({
+          kind: "delete_property_value" as const,
+          id: value.id,
+          baseVersion: value.version,
+        })),
+      ...Object.values(state.tables)
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .flatMap((table) => {
+          const rows = table.rows.filter(
+            (row) =>
+              !(row.objectId && targetIds.has(row.objectId)) &&
+              !(row.blockInstanceId && targetIds.has(row.blockInstanceId)),
+          );
+          return rows.length === table.rows.length
+            ? []
+            : [
+                {
+                  kind: "put_table" as const,
+                  entity: { ...table, rows },
+                  baseVersion: table.version,
+                },
+              ];
+        }),
+    ];
+    const cleanup = actions.filter(
+      (action) =>
+        action.kind === "delete_property_value" || action.kind === "put_table",
+    );
+    if (!sameJson(cleanup, expectedCleanup)) {
+      throw new DrawingStructureError(
+        "Block conversion must exactly clean every selected object reference.",
+      );
+    }
     if (
       instance.rotation !== 0 ||
       instance.scaleX !== 1 ||
@@ -665,7 +728,9 @@ function validateObjectCompound(
         (action) =>
           action.kind !== "put_object" &&
           action.kind !== "delete_block" &&
-          action.kind !== "delete_block_instance",
+          action.kind !== "delete_block_instance" &&
+          action.kind !== "put_property_value" &&
+          action.kind !== "put_table",
       )
     ) {
       throw new DrawingStructureError(

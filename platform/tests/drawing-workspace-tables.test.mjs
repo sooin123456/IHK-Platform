@@ -209,7 +209,16 @@ const tables = await import("../app/lukas/lib/drawing-tables.ts").catch(
 
 test("schedule resolution preserves stored row and column order", () => {
   assert.equal(typeof tables.resolveDrawingTable, "function");
-  const current = state();
+  const baseSchemas = structure().propertySchemas;
+  const current = state({
+    propertySchemas: {
+      ...baseSchemas,
+      [ids.rating]: {
+        ...baseSchemas[ids.rating],
+        appliesTo: ["rectangle", "circle"],
+      },
+    },
+  });
   assert.deepEqual(
     tables.resolveDrawingTable(current.structure.tables[ids.table], current),
     [{ object_name: "Door 01", width: 900, fire_rating: "60 min" }],
@@ -273,6 +282,126 @@ test("schedule resolution marks a missing target without evaluating anything", (
   assert.deepEqual(tables.resolveDrawingTable(missing, current), [
     { name: tables.DRAWING_TABLE_MISSING_TARGET, note: "=1+1" },
   ]);
+});
+
+test("schedule resolution validates property columns before missing rows and enforces appliesTo", () => {
+  const current = state();
+  const missingTarget = "10000000-0000-4000-8000-999999999998";
+  assert.throws(
+    () =>
+      tables.resolveDrawingTable(
+        table({
+          columns: [
+            {
+              id: ids.widthColumn,
+              name: "invalid_property",
+              kind: "property",
+              propertySchemaId: "10000000-0000-4000-8000-999999999997",
+            },
+          ],
+          rows: [
+            {
+              id: ids.rowA,
+              objectId: missingTarget,
+              blockInstanceId: null,
+              cells: {},
+            },
+          ],
+        }),
+        current,
+      ),
+    /property column.*invalid/i,
+  );
+  assert.throws(
+    () =>
+      tables.resolveDrawingTable(
+        table({
+          columns: [
+            {
+              id: ids.widthColumn,
+              name: "width",
+              kind: "property",
+              propertySchemaId: ids.width,
+            },
+          ],
+          rows: [
+            {
+              id: ids.rowB,
+              objectId: ids.objectB,
+              blockInstanceId: null,
+              cells: {},
+            },
+          ],
+        }),
+        current,
+      ),
+    /does not apply|appliesTo/i,
+  );
+});
+
+test("table commands reject incompatible target rows and duplicate column or row identity", () => {
+  const current = state();
+  assert.throws(
+    () =>
+      tables.updateDrawingTableCommand(current, ids.actor, ids.table, {
+        rows: [
+          {
+            id: ids.rowB,
+            objectId: ids.objectB,
+            blockInstanceId: null,
+            cells: {},
+          },
+        ],
+      }),
+    /does not apply|appliesTo/i,
+  );
+  const secondColumnId = "10000000-0000-4000-8000-999999999991";
+  const secondRowId = "10000000-0000-4000-8000-999999999992";
+  for (const patch of [
+    {
+      columns: [
+        {
+          id: ids.noteColumn,
+          name: "Note",
+          kind: "text",
+          propertySchemaId: null,
+        },
+        {
+          id: ids.noteColumn,
+          name: "Other",
+          kind: "number",
+          propertySchemaId: null,
+        },
+      ],
+    },
+    {
+      columns: [
+        {
+          id: ids.noteColumn,
+          name: "Duplicate",
+          kind: "text",
+          propertySchemaId: null,
+        },
+        {
+          id: secondColumnId,
+          name: "Duplicate",
+          kind: "number",
+          propertySchemaId: null,
+        },
+      ],
+    },
+    {
+      rows: [
+        { id: secondRowId, objectId: ids.objectA, blockInstanceId: null, cells: {} },
+        { id: secondRowId, objectId: ids.objectB, blockInstanceId: null, cells: {} },
+      ],
+    },
+  ]) {
+    assert.throws(
+      () => tables.updateDrawingTableCommand(current, ids.actor, ids.table, patch),
+      /unique|duplicate|고유/i,
+    );
+  }
 });
 
 test("property formatting is deterministic for number, boolean, date, enum, and missing values", () => {

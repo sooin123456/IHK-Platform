@@ -19,6 +19,7 @@ import {
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { DrawingOperationInputSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import { deleteDrawingObjectsWithReferencesCommand } from "../app/lukas/lib/drawing-properties.ts";
 import { parseWorkspaceMutation } from "../app/lukas/lib/drawing-workspace.server.ts";
 
 const ids = {
@@ -938,6 +939,77 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
   assert.equal(recovered.ambiguousOperationIds.length, 0);
   assert.equal(recovered.state.structure.canvases[modelId].name, "Model");
   assert.equal(recovered.state.structure.layers[modelLayerId].canvasId, modelId);
+});
+
+test("reference-aware object deletion enqueues once and pending recovery stays atomic", async () => {
+  const schemaId = "00000000-0000-4000-8000-000000000310";
+  const valueId = "00000000-0000-4000-8000-000000000311";
+  const tableId = "00000000-0000-4000-8000-000000000312";
+  const columnId = "00000000-0000-4000-8000-000000000313";
+  const rowId = "00000000-0000-4000-8000-000000000314";
+  const initial = p2State();
+  initial.structure.propertySchemas[schemaId] = {
+    id: schemaId,
+    revisionId: ids.revisionA,
+    name: "Mark",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["rectangle"],
+    required: false,
+    version: 1,
+  };
+  initial.structure.propertyValues[valueId] = {
+    id: valueId,
+    schemaId,
+    objectId: ids.object,
+    blockInstanceId: null,
+    value: "D-01",
+    version: 1,
+  };
+  initial.structure.tables[tableId] = {
+    id: tableId,
+    revisionId: ids.revisionA,
+    name: "Door schedule",
+    columns: [
+      { id: columnId, name: "Name", kind: "object_name", propertySchemaId: null },
+    ],
+    rows: [
+      { id: rowId, objectId: ids.object, blockInstanceId: null, cells: {} },
+    ],
+    version: 1,
+  };
+  const applied = applyDrawingCommand(
+    initial,
+    deleteDrawingObjectsWithReferencesCommand(initial, ids.ownerA, [
+      ids.object,
+    ]),
+    {
+      createId: () => ids.operation3,
+      now: () => "2026-08-25T00:00:00.000Z",
+    },
+  );
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(applied.operation);
+  assert.equal((await outbox.entries()).length, 1);
+
+  const recovered = recoverPendingDrawingState(initial, [applied.operation]);
+
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.equal(recovered.state.objects[ids.object], undefined);
+  assert.deepEqual(recovered.state.structure.propertyValues, {});
+  assert.deepEqual(recovered.state.structure.tables[tableId].rows, []);
+
+  const acknowledged = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (queued) => ({
+      clientOperationId: queued.clientOperationId,
+      status: "acked",
+    }),
+    serverState: applied.state,
+  });
+  assert.deepEqual(acknowledged.conflictedOperationIds, []);
+  assert.deepEqual(await outbox.entries(), []);
 });
 
 test("P2 recovery restores a deleted tombstone at the authoritative inverse version", () => {

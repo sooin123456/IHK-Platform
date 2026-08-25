@@ -308,6 +308,19 @@ function shown(value: ReturnType<typeof drawingPropertyValue>) {
   return value === null ? "" : String(value);
 }
 
+export function synchronizeDrawingPropertyDirtySelection(
+  dirty: Set<string>,
+  previous: { current: string | null },
+  selectedIds: readonly string[],
+) {
+  const identity = selectedIds.join("|");
+  if (previous.current !== identity) {
+    dirty.clear();
+    previous.current = identity;
+  }
+  return identity;
+}
+
 /** Inspector fields write every dirty schema/target pair in one structure command. */
 export function DrawingPropertyFields({
   actorId,
@@ -317,6 +330,12 @@ export function DrawingPropertyFields({
   state,
 }: FieldProps) {
   const dirty = useRef(new Set<string>());
+  const selectionIdentityRef = useRef<string | null>(null);
+  const selectionIdentity = synchronizeDrawingPropertyDirtySelection(
+    dirty.current,
+    selectionIdentityRef,
+    selectedIds,
+  );
   const [error, setError] = useState<string | null>(null);
   if (!state.structure?.propertySchemas || !state.structure.propertyValues)
     return null;
@@ -363,12 +382,12 @@ export function DrawingPropertyFields({
       <form
         className="mt-3 grid gap-3"
         data-drawing-shortcuts="ignore"
-        key={schemas
+        key={`${selectionIdentity}:${schemas
           .map(
             (schema) =>
               `${schema.id}:${schema.version}:${shown(shared(schema.id))}`,
           )
-          .join("|")}
+          .join("|")}`}
         onSubmit={(event) => {
           event.preventDefault();
           try {

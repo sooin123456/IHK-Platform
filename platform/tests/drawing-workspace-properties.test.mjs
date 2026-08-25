@@ -9,6 +9,8 @@ import { createServer } from "vite";
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
+  redoDrawingCommand,
+  undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { deleteDrawingBlockInstanceCommand } from "../app/lukas/lib/drawing-blocks.ts";
 
@@ -342,6 +344,96 @@ test("target-reference cleanup removes values and schedule rows in one version-a
   });
 });
 
+test("ordinary object deletion is one atomic reference-aware operation with one-step undo and redo", () => {
+  assert.equal(
+    typeof properties.deleteDrawingObjectsWithReferencesCommand,
+    "function",
+  );
+  const table = {
+    id: ids.table,
+    revisionId: ids.revision,
+    name: "Door schedule",
+    columns: [
+      { id: ids.column, name: "Note", kind: "text", propertySchemaId: null },
+    ],
+    rows: [
+      { id: ids.row, objectId: ids.objectA, blockInstanceId: null, cells: {} },
+    ],
+    version: 2,
+  };
+  const current = state({
+    propertyValues: {
+      [ids.value]: {
+        id: ids.value,
+        schemaId: ids.text,
+        objectId: ids.objectA,
+        blockInstanceId: null,
+        value: "D-01",
+        version: 3,
+      },
+    },
+    tables: { [ids.table]: table },
+  });
+  const command = properties.deleteDrawingObjectsWithReferencesCommand(
+    current,
+    ids.actor,
+    [ids.objectA],
+  );
+  assert.deepEqual(command, {
+    type: "mutate_objects_with_references",
+    actorId: ids.actor,
+    objectAction: "delete",
+    objects: [current.objects[ids.objectA]],
+    actions: [
+      { kind: "delete_property_value", id: ids.value, baseVersion: 3 },
+      {
+        kind: "put_table",
+        entity: { ...table, rows: [] },
+        baseVersion: 2,
+      },
+    ],
+  });
+  const deleted = applyDrawingCommand(current, command, {
+    createId: () => ids.operation,
+    now: () => "2026-08-25T00:00:00.000Z",
+  });
+  assert.equal(deleted.state.operations.length, 1);
+  assert.equal(deleted.state.objects[ids.objectA], undefined);
+  assert.deepEqual(deleted.state.structure.propertyValues, {});
+  assert.deepEqual(deleted.state.structure.tables[ids.table].rows, []);
+  assert.deepEqual(deleted.operation.baseVersions, {
+    [ids.objectA]: 1,
+    [ids.value]: 3,
+    [ids.table]: 2,
+  });
+
+  const restored = undoDrawingCommand(deleted.state, ids.actor, {
+    createId: () => randomUUID(),
+    now: () => "2026-08-25T00:00:01.000Z",
+  });
+  assert.ok(restored && !("kind" in restored));
+  assert.equal(restored.state.operations.length, 2);
+  assert.equal(restored.state.objects[ids.objectA].version, 3);
+  assert.equal(
+    restored.state.structure.propertyValues[ids.value].objectId,
+    ids.objectA,
+  );
+  assert.equal(
+    restored.state.structure.tables[ids.table].rows[0].objectId,
+    ids.objectA,
+  );
+
+  const deletedAgain = redoDrawingCommand(restored.state, ids.actor, {
+    createId: () => randomUUID(),
+    now: () => "2026-08-25T00:00:02.000Z",
+  });
+  assert.ok(deletedAgain && !("kind" in deletedAgain));
+  assert.equal(deletedAgain.state.operations.length, 3);
+  assert.equal(deletedAgain.state.objects[ids.objectA], undefined);
+  assert.deepEqual(deletedAgain.state.structure.propertyValues, {});
+  assert.deepEqual(deletedAgain.state.structure.tables[ids.table].rows, []);
+});
+
 test("block-instance deletion cascades property and schedule references atomically", () => {
   const block = {
     id: ids.block,
@@ -502,6 +594,32 @@ after(() => vite.close());
 const propertyComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-properties-panel.tsx")
   .catch(() => ({}));
+
+test("property field selection identity synchronously discards prior dirty edits", () => {
+  assert.equal(
+    typeof propertyComponents.synchronizeDrawingPropertyDirtySelection,
+    "function",
+  );
+  const dirty = new Set([ids.text]);
+  const identity = { current: ids.objectA };
+  assert.equal(
+    propertyComponents.synchronizeDrawingPropertyDirtySelection(
+      dirty,
+      identity,
+      [ids.objectB, ids.objectA],
+    ),
+    `${ids.objectB}|${ids.objectA}`,
+  );
+  assert.deepEqual([...dirty], []);
+  assert.equal(identity.current, `${ids.objectB}|${ids.objectA}`);
+  dirty.add(ids.text);
+  propertyComponents.synchronizeDrawingPropertyDirtySelection(
+    dirty,
+    identity,
+    [ids.objectA, ids.objectB],
+  );
+  assert.deepEqual([...dirty], []);
+});
 
 test("viewer property markup stays readable while every mutation control is absent", () => {
   assert.equal(typeof propertyComponents.DrawingPropertiesPanel, "function");

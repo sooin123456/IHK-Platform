@@ -176,6 +176,14 @@ const p2TemplateCloneFinalLedgerMigration = () =>
     ),
     "utf8",
   );
+const task9ContractFixesMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825210000_drawing_workspace_task9_contract_fixes.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -191,6 +199,9 @@ const drawingCommands = await vite.ssrLoadModule(
 );
 const drawingBlocks = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-blocks.ts",
+);
+const drawingProperties = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-properties.ts",
 );
 const workspaceServer = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace.server.ts",
@@ -489,6 +500,7 @@ before(async () => {
   await db.exec(await p2LineageSnapshotWriterMigration());
   await db.exec(await p2TemplateCloneSecurityMigration());
   await db.exec(await p2TemplateCloneFinalLedgerMigration());
+  await db.exec(await task9ContractFixesMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1176,6 +1188,74 @@ test("release migration duplicate preflight fails before installing the unique i
 after(async () => {
   await db?.close();
   await vite.close();
+});
+
+test("task 9 table identity preflight fails closed on legacy duplicate JSON before upgrade", async () => {
+  const upgradeDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await upgradeDb.exec(foundationSql);
+    for (const load of [
+      migration,
+      upgradeMigration,
+      issueLinkMigration,
+      releaseHardeningMigration,
+      p2Migration,
+      p2LegacyLayerBackfillMigration,
+      p2HardeningMigration,
+      p2CompatibilityMigration,
+      p2HistoryReconciliationMigration,
+      p2NavigationHardeningMigration,
+      p2StyleGuardSqlstateMigration,
+      p2BlockExactnessMigration,
+      p2TemplateSnapshotGuardMigration,
+      p2TemplateCloneIdempotencyMigration,
+      p2BlockInstanceLineageMigration,
+      p2TemplateSnapshotAuthorityMigration,
+      p2LegacyTemplateSnapshotCloneMigration,
+      p2LineageSnapshotWriterMigration,
+      p2TemplateCloneSecurityMigration,
+      p2TemplateCloneFinalLedgerMigration,
+    ])
+      await upgradeDb.exec(await load());
+    await upgradeDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await upgradeDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = await upgradeDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Legacy table',true) result",
+      [PROJECT],
+    );
+    await upgradeDb.exec("reset role");
+    const duplicateId = randomUUID();
+    await upgradeDb.query(
+      `insert into public.lukas_drawing_tables(
+        id,revision_id,project_id,name,columns_json,rows_json,version,created_by
+      ) values($1,$2,$3,'Legacy duplicates',$4,'[]'::jsonb,1,$5)`,
+      [
+        randomUUID(),
+        created.rows[0].result.revisionId,
+        PROJECT,
+        [
+          { id: duplicateId, name: "A", kind: "text", propertySchemaId: null },
+          { id: duplicateId, name: "B", kind: "number", propertySchemaId: null },
+        ],
+        OWNER,
+      ],
+    );
+    await assert.rejects(
+      upgradeDb.exec(await task9ContractFixesMigration()),
+      (error) =>
+        error.code === "P1C01" && /duplicate.*before upgrade/i.test(error.message),
+    );
+  } finally {
+    await upgradeDb.close();
+  }
 });
 
 test("runtime migration rejects malformed domain and inverse JSON", async (t) => {
@@ -2130,6 +2210,50 @@ test("block helper persists atomic selection conversion through outbox, RPC, und
       },
     ],
   });
+  const schemaId = randomUUID();
+  const valueId = randomUUID();
+  const tableId = randomUUID();
+  const columnId = randomUUID();
+  const rowId = randomUUID();
+  const schema = {
+    id: schemaId,
+    revisionId: ids.revisionId,
+    name: "Mark",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["circle"],
+    required: false,
+    version: 1,
+  };
+  const value = {
+    id: valueId,
+    schemaId,
+    objectId: firstId,
+    blockInstanceId: null,
+    value: "C-01",
+    version: 1,
+  };
+  const table = {
+    id: tableId,
+    revisionId: ids.revisionId,
+    name: "Objects",
+    columns: [
+      { id: columnId, name: "Name", kind: "object_name", propertySchemaId: null },
+    ],
+    rows: [
+      { id: rowId, objectId: firstId, blockInstanceId: null, cells: {} },
+    ],
+    version: 1,
+  };
+  await apply({
+    type: "mutate_structure",
+    actorId: OWNER,
+    actions: [
+      { kind: "put_property_schema", entity: schema, baseVersion: null },
+      { kind: "put_property_value", entity: value, baseVersion: null },
+      { kind: "put_table", entity: table, baseVersion: null },
+    ],
+  });
   const blockId = randomUUID();
   const instanceId = randomUUID();
   const generated = [blockId, instanceId, "circle", "line"];
@@ -2147,23 +2271,56 @@ test("block helper persists atomic selection conversion through outbox, RPC, und
     `select
       (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
       (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
-      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
-    [firstId, secondId, blockId, instanceId],
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$5) property_values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$6) table_rows`,
+    [firstId, secondId, blockId, instanceId, valueId, tableId],
   );
-  assert.deepEqual(rows.rows[0], { objects: 0, blocks: 1, instances: 1 });
+  assert.deepEqual(rows.rows[0], {
+    objects: 0,
+    blocks: 1,
+    instances: 1,
+    property_values: 0,
+    table_rows: 0,
+  });
 
   const undone = drawingCommands.undoDrawingCommand(local, OWNER);
   assert.ok(undone && !("kind" in undone));
+  const wrongUndoInverse = structuredClone(undone.operation.inverse);
+  const wrongCleanup = wrongUndoInverse.actions.find(
+    (action) => action.kind === "delete_property_value",
+  );
+  wrongCleanup.baseVersion = 999;
+  await db.exec("begin");
+  try {
+    await assert.rejects(
+      workspaceServer.applyDrawingOperation(client, {
+        ...operationInput(undone.operation),
+        inverse: wrongUndoInverse,
+      }),
+      (error) => error.kind === "rpc" && /inverse|cleanup/i.test(error.message),
+    );
+  } finally {
+    await db.exec("rollback");
+  }
   await persist(undone.operation);
   local = undone.state;
   rows = await db.query(
     `select
       (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
       (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
-      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
-    [firstId, secondId, blockId, instanceId],
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$5) property_values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$6) table_rows`,
+    [firstId, secondId, blockId, instanceId, valueId, tableId],
   );
-  assert.deepEqual(rows.rows[0], { objects: 2, blocks: 0, instances: 0 });
+  assert.deepEqual(rows.rows[0], {
+    objects: 2,
+    blocks: 0,
+    instances: 0,
+    property_values: 1,
+    table_rows: 1,
+  });
 
   const redone = drawingCommands.redoDrawingCommand(local, OWNER);
   assert.ok(redone && !("kind" in redone));
@@ -2172,10 +2329,18 @@ test("block helper persists atomic selection conversion through outbox, RPC, und
     `select
       (select count(*)::int from public.lukas_drawing_objects where id in ($1,$2) and status='active') objects,
       (select count(*)::int from public.lukas_drawing_blocks where id=$3) blocks,
-      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances`,
-    [firstId, secondId, blockId, instanceId],
+      (select count(*)::int from public.lukas_drawing_block_instances where id=$4) instances,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$5) property_values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$6) table_rows`,
+    [firstId, secondId, blockId, instanceId, valueId, tableId],
   );
-  assert.deepEqual(rows.rows[0], { objects: 0, blocks: 1, instances: 1 });
+  assert.deepEqual(rows.rows[0], {
+    objects: 0,
+    blocks: 1,
+    instances: 1,
+    property_values: 0,
+    table_rows: 0,
+  });
   outbox.dispose();
 });
 
@@ -4085,6 +4250,386 @@ test("P2 mutate_structure is strict, atomic, conflict-safe, and exactly idempote
     [rolledBackStyleId],
   );
   assert.equal(rolledBack.rows[0].count, 0);
+});
+
+test("reference-aware object deletion is one idempotent RPC transaction with exact undo and redo", async () => {
+  const ids = await createDocument();
+  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  const schema = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Mark",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["circle"],
+    required: false,
+    version: 1,
+  };
+  const value = {
+    id: randomUUID(),
+    schemaId: schema.id,
+    objectId: object.id,
+    blockInstanceId: null,
+    value: "C-01",
+    version: 1,
+  };
+  const table = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Circle schedule",
+    columns: [
+      {
+        id: randomUUID(),
+        name: "Name",
+        kind: "object_name",
+        propertySchemaId: null,
+      },
+    ],
+    rows: [
+      {
+        id: randomUUID(),
+        objectId: object.id,
+        blockInstanceId: null,
+        cells: {},
+      },
+    ],
+    version: 1,
+  };
+  await addObject(ids, object);
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_property_schema", entity: schema, baseVersion: null },
+        { kind: "put_property_value", entity: value, baseVersion: null },
+        { kind: "put_table", entity: table, baseVersion: null },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "delete_table", id: table.id, baseVersion: 1 },
+        { kind: "delete_property_value", id: value.id, baseVersion: 1 },
+        { kind: "delete_property_schema", id: schema.id, baseVersion: 1 },
+      ],
+    },
+  );
+  const navigation = await localP2State(ids);
+  const initial = drawingCommands.createDrawingDocumentState({
+    revisionId: ids.revisionId,
+    structure: {
+      ...navigation.structure,
+      objects: { [object.id]: object },
+      propertySchemas: { [schema.id]: schema },
+      propertyValues: { [value.id]: value },
+      tables: { [table.id]: table },
+    },
+  });
+  const deleteCommand =
+    drawingProperties.deleteDrawingObjectsWithReferencesCommand(
+      initial,
+      OWNER,
+      [object.id],
+    );
+  assert.deepEqual(deleteCommand.objects, [initial.objects[object.id]]);
+  const deleted = drawingCommands.applyDrawingCommand(initial, deleteCommand);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      deleted.operation.type,
+      { [object.id]: 1, [value.id]: 1 },
+      {
+        ...deleted.operation.forward,
+        actions: [deleted.operation.forward.actions[0]],
+      },
+      {
+        ...deleted.operation.inverse,
+        actions: [deleted.operation.inverse.actions[1]],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const before = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id=$1 and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$2) values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$3) rows`,
+    [object.id, value.id, table.id],
+  );
+  assert.deepEqual(before.rows[0], { objects: 1, values: 1, rows: 1 });
+
+  const persist = (applied) =>
+    applyOperationWithId(
+      ids.revisionId,
+      applied.operation.clientOperationId,
+      applied.operation.type,
+      applied.operation.baseVersions,
+      applied.operation.forward,
+      applied.operation.inverse,
+    );
+  const first = await persist(deleted);
+  assert.deepEqual(await persist(deleted), first);
+  assert.deepEqual(first.resultVersions, {
+    [object.id]: null,
+    [value.id]: null,
+    [table.id]: 2,
+  });
+  const removed = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id=$1 and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$2) values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$3) rows,
+      (select count(*)::int from public.lukas_drawing_operations where client_operation_id=$4) operations`,
+    [object.id, value.id, table.id, deleted.operation.clientOperationId],
+  );
+  assert.deepEqual(removed.rows[0], {
+    objects: 0,
+    values: 0,
+    rows: 0,
+    operations: 1,
+  });
+
+  const restored = drawingCommands.undoDrawingCommand(deleted.state, OWNER);
+  assert.ok(restored && !("kind" in restored));
+  await persist(restored);
+  const afterUndo = await db.query(
+    `select
+      (select version::int from public.lukas_drawing_objects where id=$1 and status='active') object_version,
+      (select version::int from public.lukas_drawing_property_values where id=$2) value_version,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$3) rows`,
+    [object.id, value.id, table.id],
+  );
+  assert.deepEqual(afterUndo.rows[0], {
+    object_version: 3,
+    value_version: 3,
+    rows: 1,
+  });
+
+  const deletedAgain = drawingCommands.redoDrawingCommand(
+    restored.state,
+    OWNER,
+  );
+  assert.ok(deletedAgain && !("kind" in deletedAgain));
+  await persist(deletedAgain);
+  const afterRedo = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_objects where id=$1 and status='active') objects,
+      (select count(*)::int from public.lukas_drawing_property_values where id=$2) values,
+      (select pg_catalog.jsonb_array_length(rows_json) from public.lukas_drawing_tables where id=$3) rows`,
+    [object.id, value.id, table.id],
+  );
+  assert.deepEqual(afterRedo.rows[0], { objects: 0, values: 0, rows: 0 });
+
+  const restoredAgain = drawingCommands.undoDrawingCommand(
+    deletedAgain.state,
+    OWNER,
+  );
+  assert.ok(restoredAgain && !("kind" in restoredAgain));
+  await persist(restoredAgain);
+  const lockedDelete = drawingCommands.applyDrawingCommand(
+    restoredAgain.state,
+    drawingProperties.deleteDrawingObjectsWithReferencesCommand(
+      restoredAgain.state,
+      OWNER,
+      [object.id],
+    ),
+  );
+  const backupLayerId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [backupLayerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: backupLayerId,
+        name: "Backup work",
+        visible: true,
+        locked: false,
+        canvasId: ids.canvasId,
+        sortOrder: 99,
+        version: 1,
+      },
+    },
+    {},
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 1 },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { locked: true } },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { locked: false } },
+  );
+  await assert.rejects(
+    persist(lockedDelete),
+    (error) => error.code === "P1C01" && /snapshot|layer|cleanup/i.test(error.message),
+  );
+  await db.exec("reset role");
+  const lockedUnchanged = await db.query(
+    "select status,version::int version from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(lockedUnchanged.rows, [{ status: "active", version: 5 }]);
+});
+
+test("table SQL and RPC boundaries reject duplicate identity and incompatible property targets", async () => {
+  const ids = await createDocument();
+  const rectangle = circleObject(randomUUID(), ids.workLayerId);
+  rectangle.geometry = {
+    type: "rectangle",
+    origin: { x: 0, y: 0 },
+    width: 10,
+    height: 10,
+    rotation: 0,
+  };
+  const circle = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, rectangle);
+  await addObject(ids, circle);
+  const schema = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Rectangle mark",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["rectangle"],
+    required: false,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    {
+      type: "mutate_structure",
+      actions: [{ kind: "put_property_schema", entity: schema, baseVersion: null }],
+    },
+    {
+      type: "mutate_structure",
+      actions: [{ kind: "delete_property_schema", id: schema.id, baseVersion: 1 }],
+    },
+  );
+  const duplicateColumnId = randomUUID();
+  const duplicateRowId = randomUUID();
+  const invalidTable = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Invalid schedule",
+    columns: [
+      {
+        id: duplicateColumnId,
+        name: "Duplicate",
+        kind: "property",
+        propertySchemaId: schema.id,
+      },
+      {
+        id: duplicateColumnId,
+        name: "Duplicate",
+        kind: "text",
+        propertySchemaId: null,
+      },
+    ],
+    rows: [
+      { id: duplicateRowId, objectId: circle.id, blockInstanceId: null, cells: {} },
+      { id: duplicateRowId, objectId: rectangle.id, blockInstanceId: null, cells: {} },
+    ],
+    version: 1,
+  };
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "put_table", entity: invalidTable, baseVersion: null }],
+      },
+      {
+        type: "mutate_structure",
+        actions: [{ kind: "delete_table", id: invalidTable.id, baseVersion: 1 }],
+      },
+    ),
+    (error) =>
+      error.code === "P1C01" &&
+      /invalid|table|schedule|column|row/i.test(error.message),
+  );
+  const incompatibleTable = {
+    ...invalidTable,
+    id: randomUUID(),
+    name: "Incompatible schedule",
+    columns: [invalidTable.columns[0]],
+    rows: [
+      {
+        id: randomUUID(),
+        objectId: circle.id,
+        blockInstanceId: null,
+        cells: {},
+      },
+    ],
+  };
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "put_table", entity: incompatibleTable, baseVersion: null },
+        ],
+      },
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "delete_table", id: incompatibleTable.id, baseVersion: 1 },
+        ],
+      },
+    ),
+    (error) => error.code === "P1C01" && /does not apply/i.test(error.message),
+  );
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_tables(
+        id,revision_id,project_id,name,columns_json,rows_json,version,created_by
+      ) values($1,$2,$3,$4,$5,$6,1,$7)`,
+      [
+        invalidTable.id,
+        ids.revisionId,
+        PROJECT,
+        invalidTable.name,
+        invalidTable.columns,
+        invalidTable.rows,
+        OWNER,
+      ],
+    ),
+    /table|schedule|column|row|unique/i,
+  );
+  await db.exec("reset role");
+  const stored = await db.query(
+    "select count(*)::int count from public.lukas_drawing_tables where id=$1",
+    [invalidTable.id],
+  );
+  assert.equal(stored.rows[0].count, 0);
+});
+
+test("task 9 keeps only the canonical apply function executable", async () => {
+  const privileges = await db.query(
+    `select
+      has_function_privilege('anon','private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb)','execute') anon_apply,
+      has_function_privilege('authenticated','private.lukas_drawing_apply_operation_pre_task9_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb)','execute') authenticated_block_wrapper,
+      has_function_privilege('authenticated','private.lukas_drawing_apply_operation_pre_task9_block_references(uuid,uuid,text,jsonb,jsonb,jsonb)','execute') authenticated_previous_apply,
+      has_function_privilege('authenticated','private.lukas_drawing_structure_action_valid_pre_task9_table_identity(jsonb,uuid)','execute') authenticated_previous_validator,
+      has_function_privilege('authenticated','private.lukas_drawing_table_domain_guard()','execute') authenticated_table_guard`,
+  );
+  assert.deepEqual(privileges.rows[0], {
+    anon_apply: false,
+    authenticated_block_wrapper: false,
+    authenticated_previous_apply: false,
+    authenticated_previous_validator: false,
+    authenticated_table_guard: false,
+  });
 });
 
 test("P2 hardening records canvas layers, validates tables/properties/numbers, and permits atomic page swaps", async () => {

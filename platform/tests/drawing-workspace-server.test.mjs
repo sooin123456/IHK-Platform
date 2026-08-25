@@ -920,6 +920,72 @@ test("mutation parsing preserves a valid operation without accepting authority f
   );
 });
 
+test("server parses and acknowledges the exact reference-aware object mutation contract", async () => {
+  const object = operation().forward.objects[0];
+  const input = {
+    clientOperationId: ids.operation,
+    revisionId: ids.revision,
+    type: "mutate_objects_with_references",
+    baseVersions: { [ids.object]: 1 },
+    forward: {
+      type: "mutate_objects_with_references",
+      objectAction: "delete",
+      objects: [object],
+      actions: [],
+    },
+    inverse: {
+      type: "mutate_objects_with_references",
+      objectAction: "restore",
+      objects: [{ ...object, version: 3 }],
+      actions: [],
+    },
+    createdAt: "2026-08-25T00:00:00.000Z",
+  };
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({ intent: "apply_operation", operation_json: input }),
+    ),
+    { intent: "apply_operation", operation: input },
+  );
+  const calls = [];
+  await applyDrawingOperation(
+    {
+      async rpc(name, payload) {
+        calls.push([name, payload]);
+        return {
+          data: {
+            operationId: ids.operation,
+            sequence: 1,
+            resultVersions: { [ids.object]: null },
+          },
+          error: null,
+        };
+      },
+    },
+    input,
+  );
+  assert.equal(calls.length, 1);
+  await assert.rejects(
+    () =>
+      applyDrawingOperation(
+        {
+          async rpc() {
+            return {
+              data: {
+                operationId: ids.operation,
+                sequence: 1,
+                resultVersions: { [ids.object]: 2 },
+              },
+              error: null,
+            };
+          },
+        },
+        input,
+      ),
+    (error) => error.name === "DrawingWorkspaceRpcError",
+  );
+});
+
 test("blank canvas creation retains route source identity while omitting its PDF background", async () => {
   const calls = [];
   const client = {

@@ -1,5 +1,8 @@
 import type { DrawingDocumentState } from "./drawing-commands.ts";
-import { applyDrawingStructureActions } from "./drawing-structure.ts";
+import {
+  applyDrawingStructureActions,
+  validateDrawingStructureState,
+} from "./drawing-structure.ts";
 import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
@@ -544,7 +547,11 @@ function recoveryBaseVersionsMatch(
   // P2 validates every action against its captured operation-start state in
   // applyDrawingStructureActions. New entities intentionally have no version
   // in the loaded snapshot, so the flat P0/P1 map is not authoritative here.
-  if (operation.type === "mutate_structure") return true;
+  if (
+    operation.type === "mutate_structure" ||
+    operation.type === "mutate_objects_with_references"
+  )
+    return true;
   if (operation.type !== "add_layer")
     return baseVersionsMatch(versions, operation.baseVersions);
   const layer = (
@@ -737,6 +744,69 @@ function acknowledgedFinalEffects(
         },
       };
     }));
+  }
+  if (operation.type === "mutate_objects_with_references") {
+    const forward = operation.forward as {
+      objectAction: "delete" | "restore";
+      objects: Array<{ id: string; version: number }>;
+      actions: DrawingStructureAction[];
+    };
+    const inverse = operation.inverse as typeof forward;
+    if (
+      inverse.objectAction === forward.objectAction ||
+      inverse.objects.length !== forward.objects.length ||
+      inverse.actions.length !== forward.actions.length
+    )
+      throw new Error("Object-reference inverse is not exact.");
+    const expectedBases: Record<string, number> = {};
+    const effects: AcknowledgedFinalEffect[] = forward.actions.map(
+      (action, index) => {
+        const paired = pairedInverse(inverse.actions, index);
+        requireExactStructureInverse(action, paired);
+        const collection = structureCollectionForRecovery(action.kind);
+        const id = structureActionId(action);
+        if (action.baseVersion !== null)
+          expectedBases[id] = action.baseVersion;
+        if ("entity" in action) {
+          if (paired.baseVersion === null)
+            throw new Error("Structure result version is not exact.");
+          const expected = { ...action.entity, version: paired.baseVersion };
+          return {
+            target: `${collection}:${id}`,
+            matches: (state) =>
+              valuesMatch(state.structure?.[collection][id], expected),
+          };
+        }
+        return {
+          target: `${collection}:${id}`,
+          matches: (state) => !state.structure?.[collection][id],
+        };
+      },
+    );
+    for (const [index, object] of forward.objects.entries()) {
+      const reverted = inverse.objects[index];
+      const base = operation.baseVersions[object.id];
+      if (
+        !reverted ||
+        reverted.id !== object.id ||
+        base === undefined ||
+        (forward.objectAction === "delete"
+          ? object.version !== base || reverted.version !== base + 2
+          : object.version !== base + 1 || !valuesMatch(reverted, object))
+      )
+        throw new Error("Object-reference inverse object is not exact.");
+      expectedBases[object.id] = base;
+      effects.push(
+        forward.objectAction === "delete"
+          ? {
+              target: `objects:${object.id}`,
+              matches: (state) => !state.objects[object.id],
+            }
+          : objectEffect(object.id, object.version, object),
+      );
+    }
+    exactBaseVersions(operation, expectedBases);
+    return uniqueAcknowledgedTargets(effects);
   }
   if (operation.type === "update_objects") {
     const forward = operation.forward as {
@@ -1016,6 +1086,75 @@ export function recoverPendingDrawingState(
           candidateVersions.set(layer.id, layer.version);
         for (const object of Object.values(candidate.objects))
           candidateVersions.set(object.id, object.version);
+      } else if (operation.type === "mutate_objects_with_references") {
+        if (!candidate.structure)
+          throw new Error("P2 structure state is missing.");
+        const forward = operation.forward as {
+          objectAction: "delete" | "restore";
+          objects: unknown[];
+          actions: DrawingStructureAction[];
+        };
+        const inputObjects = forward.objects.map((input) =>
+          DrawingObjectSchema.parse(input),
+        );
+        if (
+          new Set(inputObjects.map((object) => object.id)).size !==
+          inputObjects.length
+        )
+          throw new Error("Object mutation targets are duplicated.");
+        const structureState = {
+          revisionId: candidate.revisionId,
+          ...structuredClone(candidate.structure),
+        };
+        for (const object of inputObjects) {
+          const base = operation.baseVersions[object.id];
+          const current = candidate.objects[object.id];
+          if (forward.objectAction === "delete") {
+            if (
+              !current ||
+              base !== current.version ||
+              !valuesMatch(current, object)
+            )
+              throw new Error("Object deletion snapshot is stale.");
+          } else {
+            if (
+              current ||
+              base === undefined ||
+              candidateVersions.get(object.id) !== base ||
+              object.version !== base + 1
+            )
+              throw new Error("Object restoration snapshot is stale.");
+            structureState.objects[object.id] = object;
+          }
+        }
+        const applied = forward.actions.length
+          ? applyDrawingStructureActions(structureState, forward.actions)
+          : {
+              state: structureState,
+              baseVersions: {},
+              resultVersions: {},
+              realizedVersions: {},
+            };
+        const expectedBases = { ...applied.baseVersions };
+        for (const object of inputObjects) {
+          const base = operation.baseVersions[object.id];
+          if (base === undefined)
+            throw new Error("Object mutation base version is missing.");
+          expectedBases[object.id] = base;
+          if (forward.objectAction === "delete") {
+            delete applied.state.objects[object.id];
+            candidateVersions.set(object.id, base + 1);
+          } else {
+            candidateVersions.set(object.id, object.version);
+          }
+        }
+        if (!valuesMatch(operation.baseVersions, expectedBases))
+          throw new Error("Object mutation base versions are not exact.");
+        validateDrawingStructureState(applied.state);
+        const { revisionId: _revisionId, ...structure } = applied.state;
+        candidate.objects = applied.state.objects;
+        candidate.layers = applied.state.layers;
+        candidate.structure = structure;
       } else {
         const forward = operation.forward as {
           layerId: string;

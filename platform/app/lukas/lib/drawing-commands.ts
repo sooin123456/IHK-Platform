@@ -13,6 +13,8 @@ import type {
 import {
   applyDrawingStructureActions,
   resolveDrawingStyle,
+  validateDrawingStructureState,
+  type AppliedDrawingStructureActions,
   type DrawingStructureState,
 } from "./drawing-structure.ts";
 import {
@@ -628,6 +630,13 @@ export type DrawingCommand =
       type: "mutate_structure";
       actorId: string;
       actions: DrawingStructureAction[];
+    }
+  | {
+      type: "mutate_objects_with_references";
+      actorId: string;
+      objectAction: "delete" | "restore";
+      objects: DrawingObject[];
+      actions: DrawingStructureAction[];
     };
 
 type DrawingCommandPayload =
@@ -636,7 +645,13 @@ type DrawingCommandPayload =
   | { type: "delete_objects"; objectIds: string[] }
   | { type: "add_layer"; layer: DrawingLayerInput }
   | { type: "update_layer"; layerId: string; patch: LayerPatch }
-  | { type: "mutate_structure"; actions: DrawingStructureAction[] };
+  | { type: "mutate_structure"; actions: DrawingStructureAction[] }
+  | {
+      type: "mutate_objects_with_references";
+      objectAction: "delete" | "restore";
+      objects: DrawingObject[];
+      actions: DrawingStructureAction[];
+    };
 
 export type DrawingRecordedOperation = Omit<
   DrawingOperationInput,
@@ -770,6 +785,13 @@ function payloadFor(command: DrawingCommand): DrawingCommandPayload {
       };
     case "mutate_structure":
       return { type: command.type, actions: clone(command.actions) };
+    case "mutate_objects_with_references":
+      return {
+        type: command.type,
+        objectAction: command.objectAction,
+        objects: clone(command.objects),
+        actions: clone(command.actions),
+      };
   }
 }
 
@@ -1088,6 +1110,107 @@ function reduceCommand(
         structure,
       };
     }
+    case "mutate_objects_with_references": {
+      if (!state.structure) {
+        throw new DrawingCommandError(
+          "Drawing structure state is required for reference-aware object mutation.",
+        );
+      }
+      const objectIds = new Set<string>();
+      const inputObjects = command.objects.map((input) => {
+        const object = DrawingObjectSchema.parse(clone(input));
+        if (objectIds.has(object.id))
+          throw new DrawingCommandError(
+            `Drawing object ${object.id} is mutated more than once.`,
+          );
+        objectIds.add(object.id);
+        const layer = requireLayer(layers, object.layerId);
+        if (!layer.visible || layer.locked || layer.systemKind === "source")
+          throw new DrawingCommandError(
+            `Drawing object ${object.id} requires a visible unlocked user layer.`,
+          );
+        return object;
+      });
+      let structureState: DrawingStructureState = {
+        revisionId: state.revisionId,
+        ...clone(state.structure),
+      };
+      if (command.objectAction === "delete") {
+        for (const snapshot of inputObjects) {
+          const current = requireObject(objects, snapshot.id);
+          const canonicalCurrent = DrawingObjectSchema.parse(clone(current));
+          if (JSON.stringify(canonicalCurrent) !== JSON.stringify(snapshot))
+            throw new DrawingCommandError(
+              `Drawing object ${snapshot.id} deletion snapshot is stale.`,
+            );
+        }
+      } else {
+        for (const object of inputObjects) {
+          if (objects[object.id])
+            throw new DrawingCommandError(
+              `Drawing object ${object.id} already exists.`,
+            );
+          const restoreBaseVersion = options.restoreBaseVersions?.[object.id];
+          if (
+            restoreBaseVersion === undefined ||
+            object.version !== restoreBaseVersion + 1
+          )
+            throw new DrawingCommandError(
+              `Drawing object ${object.id} restore version is stale.`,
+            );
+          structureState.objects[object.id] = object;
+        }
+        validateDrawingStructureState(structureState);
+      }
+      const applied: AppliedDrawingStructureActions = command.actions.length
+        ? applyDrawingStructureActions(structureState, command.actions)
+        : {
+            state: structureState,
+            inverse: [],
+            baseVersions: {},
+            resultVersions: {},
+            realizedVersions: {},
+          };
+      const inverseObjects: DrawingObject[] = [];
+      for (const object of inputObjects) {
+        if (command.objectAction === "delete") {
+          applied.baseVersions[object.id] = object.version;
+          applied.resultVersions[object.id] = null;
+          applied.realizedVersions[object.id] = object.version + 1;
+          inverseObjects.push({ ...clone(object), version: object.version + 2 });
+          delete applied.state.objects[object.id];
+        } else {
+          const restoreBaseVersion = options.restoreBaseVersions?.[object.id];
+          if (restoreBaseVersion === undefined)
+            throw new DrawingCommandError(
+              `Drawing object ${object.id} restore base is missing.`,
+            );
+          applied.baseVersions[object.id] = restoreBaseVersion;
+          applied.resultVersions[object.id] = object.version;
+          applied.realizedVersions[object.id] = object.version;
+          inverseObjects.push(clone(object));
+        }
+      }
+      validateDrawingStructureState(applied.state);
+      const { revisionId: _revisionId, ...structure } = applied.state;
+      return {
+        objects: applied.state.objects,
+        layers: applied.state.layers,
+        baseVersions: applied.baseVersions,
+        forward,
+        inverse: {
+          type: "mutate_objects_with_references",
+          objectAction:
+            command.objectAction === "delete" ? "restore" : "delete",
+          objects: inverseObjects,
+          actions: applied.inverse,
+        },
+        resultVersions: applied.resultVersions,
+        realizedVersions: applied.realizedVersions,
+        undoable: true,
+        structure,
+      };
+    }
   }
 }
 
@@ -1167,6 +1290,27 @@ function conflictFor(
               ).actions,
               objectId,
             )
+          : operation.type === "mutate_objects_with_references" &&
+              (
+                operation.forward as Extract<
+                  DrawingCommandPayload,
+                  { type: "mutate_objects_with_references" }
+                >
+              ).actions.some(
+                (action) =>
+                  ("entity" in action ? action.entity.id : action.id) ===
+                  objectId,
+              )
+            ? structureTarget(
+                state.structure,
+                (
+                  operation.forward as Extract<
+                    DrawingCommandPayload,
+                    { type: "mutate_objects_with_references" }
+                  >
+                ).actions,
+                objectId,
+              )
           : operation.type === "update_layer"
             ? state.layers[objectId]
             : state.objects[objectId];
@@ -1244,6 +1388,54 @@ function realizeStructurePayload(
         ...clone(action),
         baseVersion: current.version,
       } as DrawingStructureAction;
+    }),
+  };
+}
+
+function realizeObjectReferencePayload(
+  payload: Extract<
+    DrawingCommandPayload,
+    { type: "mutate_objects_with_references" }
+  >,
+  state: DrawingDocumentState,
+  tombstoneVersions: Record<string, number> = {},
+): Extract<
+  DrawingCommandPayload,
+  { type: "mutate_objects_with_references" }
+> {
+  const actions = realizeStructurePayload(
+    { type: "mutate_structure", actions: payload.actions },
+    state.structure,
+  ).actions.map((action) => {
+    if (
+      payload.objectAction !== "restore" ||
+      !("entity" in action) ||
+      action.baseVersion !== null
+    )
+      return action;
+    const tombstone = state.structure?.tombstones?.[action.entity.id];
+    return tombstone?.collection === structureCollectionFor(action.kind)
+      ? ({ ...clone(action), entity: clone(tombstone.entity) } as typeof action)
+      : action;
+  });
+  return {
+    ...clone(payload),
+    actions,
+    objects: payload.objects.map((snapshot) => {
+      if (payload.objectAction === "delete") {
+        const current = state.objects[snapshot.id];
+        if (!current)
+          throw new DrawingCommandError(
+            `Drawing object ${snapshot.id} no longer exists.`,
+          );
+        return clone(current);
+      }
+      const tombstoneVersion = tombstoneVersions[snapshot.id];
+      if (tombstoneVersion === undefined)
+        throw new DrawingCommandError(
+          `Drawing object ${snapshot.id} tombstone realization is missing.`,
+        );
+      return { ...clone(snapshot), version: tombstoneVersion + 1 };
     }),
   };
 }
@@ -1412,13 +1604,21 @@ export function undoDrawingCommand(
       ? realizeAddPayload(originalPayload, latestApplied.realizedVersions)
       : originalPayload.type === "mutate_structure"
         ? realizeStructurePayload(originalPayload, state.structure)
+        : originalPayload.type === "mutate_objects_with_references"
+          ? realizeObjectReferencePayload(
+              originalPayload,
+              state,
+              latestApplied.realizedVersions,
+            )
         : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
     environment,
     { originalOperationId, historyAction: "undo" },
-    payload.type === "add_objects"
+    payload.type === "add_objects" ||
+      (payload.type === "mutate_objects_with_references" &&
+        payload.objectAction === "restore")
       ? { restoreBaseVersions: latestApplied.realizedVersions }
       : {},
   );
@@ -1458,13 +1658,17 @@ export function redoDrawingCommand(
       ? realizeAddPayload(originalPayload, inverse.realizedVersions)
       : originalPayload.type === "mutate_structure"
         ? realizeStructurePayload(originalPayload, state.structure)
+        : originalPayload.type === "mutate_objects_with_references"
+          ? realizeObjectReferencePayload(originalPayload, state)
         : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
     environment,
     { originalOperationId, historyAction: "redo" },
-    payload.type === "add_objects"
+    payload.type === "add_objects" ||
+      (payload.type === "mutate_objects_with_references" &&
+        payload.objectAction === "restore")
       ? { restoreBaseVersions: inverse.realizedVersions }
       : {},
   );

@@ -438,6 +438,14 @@ const MutateStructurePayloadSchema = z
     actions: z.array(DrawingStructureActionSchema).min(1),
   })
   .strict();
+const MutateObjectsWithReferencesPayloadSchema = z
+  .object({
+    type: z.literal("mutate_objects_with_references"),
+    objectAction: z.enum(["delete", "restore"]),
+    objects: z.array(DrawingObjectSchema).min(1),
+    actions: z.array(DrawingStructureActionSchema),
+  })
+  .strict();
 
 const OperationPayloadSchemas = {
   add_objects: AddObjectsPayloadSchema,
@@ -446,6 +454,7 @@ const OperationPayloadSchemas = {
   add_layer: AddLayerPayloadSchema,
   update_layer: UpdateLayerPayloadSchema,
   mutate_structure: MutateStructurePayloadSchema,
+  mutate_objects_with_references: MutateObjectsWithReferencesPayloadSchema,
 } as const;
 
 const exactOperationKeys = [
@@ -510,6 +519,8 @@ function parseOperation(value: unknown): DrawingOperationInput {
           ? z.object({}).strict()
           : operation.type === "mutate_structure"
             ? MutateStructurePayloadSchema
+            : operation.type === "mutate_objects_with_references"
+              ? MutateObjectsWithReferencesPayloadSchema
             : OperationPayloadSchemas[operation.type];
   parseExactPayload(expectedInverse, operation.inverse);
   return operation;
@@ -2110,6 +2121,54 @@ function expectedOperationResultVersions(
             : { kind: "exact", version: inverseAction.baseVersion as number },
         );
       }
+      break;
+    }
+    case "mutate_objects_with_references": {
+      const forward = MutateObjectsWithReferencesPayloadSchema.parse(
+        operation.forward,
+      );
+      const inverse = MutateObjectsWithReferencesPayloadSchema.parse(
+        operation.inverse,
+      );
+      if (
+        forward.objectAction === inverse.objectAction ||
+        forward.objects.length !== inverse.objects.length ||
+        forward.actions.length !== inverse.actions.length
+      )
+        throw new DrawingWorkspaceRpcError(
+          "도면 객체 참조 작업의 역작업이 일치하지 않습니다.",
+        );
+      for (const [index, action] of forward.actions.entries()) {
+        const inverseAction =
+          inverse.actions[forward.actions.length - index - 1];
+        const targetId = structureActionTargetId(action);
+        const entityKind = action.kind.replace(/^(put|delete)_/, "");
+        const expectedInverseKind = action.kind.startsWith("delete_")
+          ? `put_${entityKind}`
+          : action.baseVersion === null
+            ? `delete_${entityKind}`
+            : `put_${entityKind}`;
+        if (
+          structureActionTargetId(inverseAction) !== targetId ||
+          inverseAction.kind !== expectedInverseKind
+        )
+          throw new DrawingWorkspaceRpcError(
+            "도면 객체 참조 작업의 구조 역작업이 일치하지 않습니다.",
+          );
+        add(
+          targetId,
+          action.kind.startsWith("delete_")
+            ? { kind: "deleted" }
+            : { kind: "exact", version: inverseAction.baseVersion as number },
+        );
+      }
+      for (const object of forward.objects)
+        add(
+          object.id,
+          forward.objectAction === "delete"
+            ? { kind: "deleted" }
+            : { kind: "exact", version: object.version },
+        );
       break;
     }
   }

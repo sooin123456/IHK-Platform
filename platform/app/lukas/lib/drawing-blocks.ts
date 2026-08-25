@@ -613,6 +613,10 @@ export function createBlockFromSelection(
   return structureCommand(actorId, [
     { kind: "put_block", entity: block, baseVersion: null },
     { kind: "put_block_instance", entity: instance, baseVersion: null },
+    ...drawingTargetReferenceCleanupActions(
+      state,
+      ordered.map((object) => object.id),
+    ),
     ...ordered.map((object) => ({
       kind: "delete_object" as const,
       id: object.id,

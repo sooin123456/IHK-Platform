@@ -37,6 +37,11 @@ const ids = {
   copy: "00000000-0000-4000-8000-000000000711",
   actor: "00000000-0000-4000-8000-000000000712",
   operation: "00000000-0000-4000-8000-000000000713",
+  schema: "00000000-0000-4000-8000-000000000716",
+  value: "00000000-0000-4000-8000-000000000717",
+  table: "00000000-0000-4000-8000-000000000718",
+  column: "00000000-0000-4000-8000-000000000719",
+  row: "00000000-0000-4000-8000-000000000720",
 };
 
 const inlineStyle = { stroke: "#112233", strokeWidth: 2, fill: null };
@@ -579,6 +584,94 @@ test("create from selection is one exact atomic structure command with undo and 
     redone.state.structure.blockInstances[ids.instance].name,
     "Panel",
   );
+});
+
+test("block conversion atomically cleans selected object properties and schedule rows", () => {
+  const schema = {
+    id: ids.schema,
+    revisionId: ids.revision,
+    name: "Mark",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["rectangle"],
+    required: false,
+    version: 1,
+  };
+  const value = {
+    id: ids.value,
+    schemaId: ids.schema,
+    objectId: ids.objectA,
+    blockInstanceId: null,
+    value: "A-01",
+    version: 1,
+  };
+  const table = {
+    id: ids.table,
+    revisionId: ids.revision,
+    name: "Objects",
+    columns: [
+      {
+        id: ids.column,
+        name: "Name",
+        kind: "object_name",
+        propertySchemaId: null,
+      },
+    ],
+    rows: [
+      {
+        id: ids.row,
+        objectId: ids.objectA,
+        blockInstanceId: null,
+        cells: {},
+      },
+    ],
+    version: 1,
+  };
+  const current = state({
+    propertySchemas: { [schema.id]: schema },
+    propertyValues: { [value.id]: value },
+    tables: { [table.id]: table },
+  });
+  const generated = [ids.block, ids.instance, "local-a"];
+  const command = createBlockFromSelection(
+    current,
+    [ids.objectA],
+    ids.actor,
+    "Panel",
+    { activeLayerId: ids.layer, createId: () => generated.shift() },
+  );
+  assert.deepEqual(
+    command.actions.map((action) => action.kind),
+    [
+      "put_block",
+      "put_block_instance",
+      "delete_property_value",
+      "put_table",
+      "delete_object",
+    ],
+  );
+  const applied = applyDrawingCommand(current, command);
+  assert.equal(applied.state.structure.propertyValues[value.id], undefined);
+  assert.deepEqual(applied.state.structure.tables[table.id].rows, []);
+  assert.deepEqual(applied.operation.baseVersions, {
+    [value.id]: 1,
+    [table.id]: 1,
+    [ids.objectA]: 1,
+  });
+  assert.deepEqual(
+    applied.operation.inverse.actions.map((action) => action.kind),
+    [
+      "put_object",
+      "put_table",
+      "put_property_value",
+      "delete_block_instance",
+      "delete_block",
+    ],
+  );
+  const undone = undoDrawingCommand(applied.state, ids.actor);
+  assert.ok(undone && !("kind" in undone));
+  assert.deepEqual(undone.state.structure.propertyValues[value.id].value, "A-01");
+  assert.equal(undone.state.structure.tables[table.id].rows[0].id, ids.row);
 });
 
 test("block conversion validator rejects a rotated or scaled creation instance", () => {

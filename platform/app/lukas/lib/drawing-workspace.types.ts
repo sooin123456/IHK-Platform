@@ -469,7 +469,40 @@ export const DrawingTableSchema = z
     rows: z.array(DrawingTableRowSchema),
     version: PositiveInteger,
   })
-  .strict();
+  .strict()
+  .superRefine((table, context) => {
+    const columnIds = new Set<string>();
+    const columnNames = new Set<string>();
+    for (const [index, column] of table.columns.entries()) {
+      if (columnIds.has(column.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["columns", index, "id"],
+          message: "표 열 ID는 고유해야 합니다.",
+        });
+      }
+      if (columnNames.has(column.name)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["columns", index, "name"],
+          message: "표 열 이름은 고유해야 합니다.",
+        });
+      }
+      columnIds.add(column.id);
+      columnNames.add(column.name);
+    }
+    const rowIds = new Set<string>();
+    for (const [index, row] of table.rows.entries()) {
+      if (rowIds.has(row.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rows", index, "id"],
+          message: "표 행 ID는 고유해야 합니다.",
+        });
+      }
+      rowIds.add(row.id);
+    }
+  });
 
 const DrawingStructurePutActionSchema = <T extends z.ZodTypeAny>(
   kind: string,
@@ -568,6 +601,14 @@ const DrawingOperationPayloadSchemas = {
       actions: z.array(DrawingStructureActionSchema).min(1),
     })
     .strict(),
+  mutate_objects_with_references: z
+    .object({
+      type: z.literal("mutate_objects_with_references"),
+      objectAction: z.enum(["delete", "restore"]),
+      objects: z.array(DrawingObjectSchema).min(1),
+      actions: z.array(DrawingStructureActionSchema),
+    })
+    .strict(),
 } as const;
 
 export const DrawingOperationInputSchema = z
@@ -581,6 +622,7 @@ export const DrawingOperationInputSchema = z
       "add_layer",
       "update_layer",
       "mutate_structure",
+      "mutate_objects_with_references",
     ]),
     baseVersions: z.record(Uuid, PositiveInteger),
     forward: z.record(z.string(), z.unknown()),
@@ -600,6 +642,8 @@ export const DrawingOperationInputSchema = z
             ? z.object({}).strict()
             : operation.type === "mutate_structure"
               ? DrawingOperationPayloadSchemas.mutate_structure
+              : operation.type === "mutate_objects_with_references"
+                ? DrawingOperationPayloadSchemas.mutate_objects_with_references
               : DrawingOperationPayloadSchemas[operation.type];
     const inverse = inverseSchema.safeParse(operation.inverse);
     if (!forward.success)

@@ -350,6 +350,42 @@ export function cleanupDrawingTargetReferencesCommand(
   return command(state, actorId, actions);
 }
 
+/** Deletes ordinary objects and every P2 reference as one cross-contract command. */
+export function deleteDrawingObjectsWithReferencesCommand(
+  inputState: DrawingDocumentState,
+  actorId: string,
+  targetIds: readonly string[],
+): Extract<DrawingCommand, { type: "mutate_objects_with_references" }> {
+  const state = canonicalState(inputState);
+  const orderedIds = [...new Set(targetIds)].sort();
+  if (orderedIds.length === 0 || orderedIds.length !== targetIds.length)
+    throw new DrawingStructureError(
+      "Drawing object deletion targets must be nonempty and unique.",
+    );
+  const objects = orderedIds.map((id) => {
+    const object = state.objects[id];
+    const layer = object ? state.structure.layers[object.layerId] : undefined;
+    if (
+      !object ||
+      !layer ||
+      !layer.visible ||
+      layer.locked ||
+      layer.systemKind === "source"
+    )
+      throw new DrawingStructureError(
+        `Drawing object ${id} requires a visible unlocked user layer.`,
+      );
+    return structuredClone(object);
+  });
+  return {
+    type: "mutate_objects_with_references",
+    actorId,
+    objectAction: "delete",
+    objects,
+    actions: drawingTargetReferenceCleanupActions(inputState, orderedIds),
+  };
+}
+
 export function missingRequiredDrawingProperties(
   inputState: DrawingDocumentState,
 ) {

@@ -43,7 +43,6 @@ import {
   applyDrawingCommand,
   copyDrawingSelection,
   createDrawingDocumentState,
-  deleteDrawingSelection,
   duplicateDrawingSelection,
   isEditableDrawingLayer,
   moveDrawingSelection,
@@ -65,8 +64,7 @@ import {
 } from "~/lukas/lib/drawing-document-store";
 import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
 import {
-  cleanupDrawingTargetReferencesCommand,
-  drawingTargetReferenceCleanupActions,
+  deleteDrawingObjectsWithReferencesCommand,
   missingRequiredDrawingProperties,
 } from "~/lukas/lib/drawing-properties";
 import {
@@ -1107,25 +1105,14 @@ export default function DrawingWorkspaceClient({
       return blockMutationAdapter.deleteSelection();
     }
     if (kind !== "object") return false;
-    const command = deleteDrawingSelection(
-      drawingState,
-      transient.selectedIds,
-      currentUserId,
+    if (!drawingState.structure) return false;
+    applyCommand(
+      deleteDrawingObjectsWithReferencesCommand(
+        drawingState,
+        currentUserId,
+        transient.selectedIds,
+      ),
     );
-    if (!command) return false;
-    if (
-      drawingState.structure &&
-      drawingTargetReferenceCleanupActions(drawingState, transient.selectedIds)
-        .length
-    )
-      applyCommand(
-        cleanupDrawingTargetReferencesCommand(
-          drawingState,
-          currentUserId,
-          transient.selectedIds,
-        ),
-      );
-    applyCommand(command);
     setSelectedIds([]);
     return true;
   }, [

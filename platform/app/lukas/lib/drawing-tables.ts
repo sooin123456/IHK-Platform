@@ -79,6 +79,20 @@ export function resolveDrawingTable(
   const table = DrawingTableSchema.parse(inputTable);
   const state = canonicalState(inputState);
   const columns = new Map(table.columns.map((column) => [column.id, column]));
+  const propertySchemas = new Map(
+    table.columns
+      .filter((column) => column.kind === "property")
+      .map((column) => {
+        const schema = column.propertySchemaId
+          ? state.structure.propertySchemas[column.propertySchemaId]
+          : undefined;
+        if (!schema)
+          throw new DrawingStructureError(
+            `Drawing schedule property column ${column.name} is invalid.`,
+          );
+        return [column.id, schema] as const;
+      }),
+  );
   return table.rows.map((row) => {
     for (const [columnId, value] of Object.entries(row.cells)) {
       const column = columns.get(columnId);
@@ -103,6 +117,20 @@ export function resolveDrawingTable(
         ? state.structure.blockInstances[row.blockInstanceId]
         : undefined;
     const missing = !targetId || !target;
+    const targetKind = target
+      ? "geometry" in target
+        ? target.geometry.type
+        : "block_instance"
+      : undefined;
+    if (
+      targetKind &&
+      [...propertySchemas.values()].some(
+        (schema) => !schema.appliesTo.includes(targetKind),
+      )
+    )
+      throw new DrawingStructureError(
+        `Drawing schedule property does not apply to target ${targetId}.`,
+      );
     const result: Record<string, string | number> = {};
     for (const column of table.columns) {
       if (column.kind === "text" || column.kind === "number") {
@@ -122,9 +150,7 @@ export function resolveDrawingTable(
           "geometry" in target ? target.geometry.type : "block_instance";
         continue;
       }
-      const schema = column.propertySchemaId
-        ? state.structure.propertySchemas[column.propertySchemaId]
-        : undefined;
+      const schema = propertySchemas.get(column.id);
       if (!schema)
         throw new DrawingStructureError(
           `Drawing schedule property column ${column.name} is invalid.`,
