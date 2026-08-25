@@ -219,6 +219,7 @@ test("a recorded mutate_structure operation parses and enqueues unchanged", asyn
   const pageId = "00000000-0000-4000-8000-000000000030";
   const paperId = "00000000-0000-4000-8000-000000000031";
   const modelId = "00000000-0000-4000-8000-000000000032";
+  const modelLayerId = "00000000-0000-4000-8000-000000000036";
   const workLayer = {
     id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1,
   };
@@ -232,7 +233,10 @@ test("a recorded mutate_structure operation parses and enqueues unchanged", asyn
   });
   const applied = applyDrawingCommand(initial, {
     type: "mutate_structure", actorId: ids.ownerA,
-    actions: [{ kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null }],
+    actions: [
+      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
+      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
+    ],
   }, { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" });
   assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
   const outbox = scopedOutbox(memoryAdapter());

@@ -14,6 +14,8 @@ const issueLinkMigration = () =>
   read("supabase/migrations/20260824135829_drawing_workspace_issue_links.sql");
 const p2Migration = () =>
   read("supabase/migrations/20260825010814_drawing_workspace_p2_structure.sql");
+const p2HardeningMigration = () =>
+  read("supabase/migrations/20260825033000_drawing_workspace_p2_contract_hardening.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -720,4 +722,30 @@ test("P2 migration uses locked guards, least privilege, and covering indexes", a
   }
   assert.match(sql, /from public\.lukas_drawing_revisions[\s\S]+for update/i);
   assert.match(sql, /pg_trigger_depth\(\)\s*>\s*1/i);
+});
+
+test("P2 hardening keeps structural writes RPC-only and records exact layer/source contracts", async () => {
+  const sql = await p2HardeningMigration();
+  assert.match(sql, /revoke insert,update,delete on public\.lukas_drawing_pages from authenticated/i);
+  assert.match(sql, /revoke insert,update,delete on public\.lukas_drawing_layers from authenticated/i);
+  assert.match(sql, /put_layer/);
+  assert.match(sql, /delete_layer/);
+  assert.match(sql, /fresh canvas requires exactly one recorded editable layer/i);
+  assert.match(sql, /Canvas deletion must record every child layer/i);
+  assert.match(sql, /previous canvas must retain an editable layer/i);
+  assert.match(sql, /source_file_id:=null; new\.source_sha256:=null/i);
+  assert.match(sql, /change invalidates an existing value target/i);
+  assert.match(sql, /Drawing table row requires exactly one target/i);
+  assert.match(sql, /serialization_failure or deadlock_detected then raise/i);
+  assert.match(sql, /numeric_value_out_of_range or invalid_text_representation/i);
+  assert.doesNotMatch(sql, /include\s*\([^)]*\b(value|primitives|origin|enum_options|applies_to)\b/i);
+  for (const helper of [
+    "lukas_drawing_apply_operation",
+    "lukas_drawing_create_from_template",
+    "lukas_drawing_request_review",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    assert.match(definition, /security definer/i);
+    assert.match(definition, /set search_path\s*=\s*''/i);
+  }
 });

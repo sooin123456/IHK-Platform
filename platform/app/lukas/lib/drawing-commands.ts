@@ -40,7 +40,7 @@ export type ObjectUpdate = {
 };
 
 export type LayerPatch = Partial<
-  Pick<DrawingLayer, "name" | "visible" | "locked">
+  Pick<DrawingLayer, "name" | "visible" | "locked" | "canvasId" | "sortOrder">
 >;
 
 export type DrawingCommand =
@@ -249,6 +249,8 @@ function layerPatchBefore(layer: DrawingLayer, patch: LayerPatch): LayerPatch {
   if (patch.name !== undefined) inverse.name = layer.name;
   if (patch.visible !== undefined) inverse.visible = layer.visible;
   if (patch.locked !== undefined) inverse.locked = layer.locked;
+  if (patch.canvasId !== undefined) inverse.canvasId = layer.canvasId;
+  if (patch.sortOrder !== undefined) inverse.sortOrder = layer.sortOrder;
   return inverse;
 }
 
@@ -454,15 +456,20 @@ function reduceCommand(
         ...clone(command.patch),
         version: layer.version + 1,
       });
-      if (
-        !isEditableDrawingLayer(updated) &&
-        !Object.values(layers).some(
-          (candidate) =>
-            candidate.id !== layer.id && isEditableDrawingLayer(candidate),
-        )
-      ) {
+      const candidateLayers = { ...layers, [layer.id]: updated };
+      const losesEditableLayer = state.structure
+        ? Object.values(state.structure.canvases).some(
+            (canvas) =>
+              !Object.values(candidateLayers).some(
+                (candidate) =>
+                  candidate.canvasId === canvas.id &&
+                  isEditableDrawingLayer(candidate),
+              ),
+          )
+        : !Object.values(candidateLayers).some(isEditableDrawingLayer);
+      if (losesEditableLayer) {
         throw new DrawingCommandError(
-          "At least one visible unlocked user drawing layer is required.",
+          "Every canvas requires a visible unlocked user drawing layer.",
         );
       }
       layers[layer.id] = updated;
@@ -582,6 +589,7 @@ function structureCollectionFor(kind: DrawingStructureAction["kind"]): keyof Omi
   if (kind.includes("object")) return "objects";
   if (kind.includes("page")) return "pages";
   if (kind.includes("canvas")) return "canvases";
+  if (kind.includes("layer")) return "layers";
   if (kind.includes("style")) return "styles";
   if (kind.includes("block_instance")) return "blockInstances";
   if (kind.includes("block")) return "blocks";

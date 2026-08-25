@@ -9,6 +9,7 @@ import {
   DrawingObjectSchema,
   DrawingPropertyValueSchema,
   DrawingStructureActionSchema,
+  DrawingTableSchema,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = {
@@ -20,6 +21,8 @@ const ids = {
   style: "00000000-0000-4000-8000-000000000006",
   block: "00000000-0000-4000-8000-000000000007",
   instance: "00000000-0000-4000-8000-000000000008",
+  modelCanvas: "00000000-0000-4000-8000-000000000009",
+  modelLayer: "00000000-0000-4000-8000-000000000010",
 };
 
 function canvas(overrides = {}) {
@@ -102,15 +105,94 @@ function state(overrides = {}) {
 
 test("structure actions reject unknown fields and restore exact prior entities", () => {
   const action = { kind: "put_canvas", entity: canvas(), baseVersion: null };
-  const applied = applyDrawingStructureActions(state(), [action]);
+  const layerAction = {
+    kind: "put_layer",
+    entity: state().layers[ids.layer],
+    baseVersion: null,
+  };
+  const applied = applyDrawingStructureActions(state({ layers: {} }), [action, layerAction]);
 
   assert.deepEqual(applied.inverse, [
+    { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
     { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
   ]);
   assert.throws(() =>
     DrawingStructureActionSchema.parse({ ...action, authority: "admin" }),
   );
 
+});
+
+test("canvas creation and deletion require exact recorded layer actions", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  const model = canvas({
+    id: ids.modelCanvas,
+    name: "Model",
+    spaceKind: "model",
+    sortOrder: 1,
+  });
+  const modelLayer = {
+    id: ids.modelLayer,
+    name: "Model work",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: ids.modelCanvas,
+    sortOrder: 7,
+    version: 1,
+  };
+
+  assert.throws(
+    () => applyDrawingStructureActions(current, [
+      { kind: "put_canvas", entity: model, baseVersion: null },
+    ]),
+    DrawingStructureError,
+  );
+  const created = applyDrawingStructureActions(current, [
+    { kind: "put_canvas", entity: model, baseVersion: null },
+    { kind: "put_layer", entity: modelLayer, baseVersion: null },
+  ]);
+  assert.deepEqual(created.state.layers[ids.modelLayer], modelLayer);
+  assert.deepEqual(created.inverse, [
+    { kind: "delete_layer", id: ids.modelLayer, baseVersion: 1 },
+    { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
+  ]);
+  assert.throws(
+    () => applyDrawingStructureActions(created.state, [
+      { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
+    ]),
+    DrawingStructureError,
+  );
+  const deleted = applyDrawingStructureActions(created.state, created.inverse);
+  assert.equal(deleted.state.canvases[ids.modelCanvas], undefined);
+  assert.equal(deleted.state.layers[ids.modelLayer], undefined);
+  const restored = applyDrawingStructureActions(deleted.state, deleted.inverse);
+  assert.equal(restored.state.layers[ids.modelLayer].id, ids.modelLayer);
+  assert.equal(restored.state.layers[ids.modelLayer].sortOrder, 7);
+});
+
+test("table rows require exactly one object or block instance target", () => {
+  const table = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Schedule",
+    columns: [{
+      id: ids.style,
+      name: "Note",
+      kind: "text",
+      propertySchemaId: null,
+    }],
+    rows: [{ id: ids.instance, objectId: null, blockInstanceId: null, cells: {} }],
+    version: 1,
+  };
+  assert.equal(DrawingTableSchema.safeParse(table).success, false);
+  assert.equal(DrawingTableSchema.safeParse({
+    ...table,
+    rows: [{
+      ...table.rows[0],
+      objectId: ids.object,
+      blockInstanceId: ids.instance,
+    }],
+  }).success, false);
 });
 
 test("resolved style merges a referenced definition with finite validated overrides", () => {
@@ -242,7 +324,11 @@ test("objects without a style reference retain complete inline styles", () => {
 
 test("structure reduction is atomic, ordered, and keeps inverse versions monotonic", () => {
   const original = canvas({ id: "00000000-0000-4000-8000-000000000090", name: "Model", spaceKind: "model", sortOrder: 1, version: 4 });
-  const current = state({ canvases: { [ids.canvas]: canvas(), [original.id]: original } });
+  const modelLayer = { ...state().layers[ids.layer], id: ids.modelLayer, canvasId: original.id, name: "Model work" };
+  const current = state({
+    canvases: { [ids.canvas]: canvas(), [original.id]: original },
+    layers: { ...state().layers, [modelLayer.id]: modelLayer },
+  });
   const update = { kind: "put_canvas", entity: { ...original, name: "Updated" }, baseVersion: 4 };
   const updated = applyDrawingStructureActions(current, [update]);
   const restored = applyDrawingStructureActions(updated.state, updated.inverse);
@@ -429,10 +515,11 @@ test("rotated block conversion accepts its exact generated inverse without weake
 });
 
 test("fresh structure entities start at version one and pages may remove their default canvas before themselves", () => {
-  const current = state({ canvases: { [ids.canvas]: canvas() }, layers: {} });
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
   assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000095", name: "Model", spaceKind: "model", sortOrder: 1, version: 99 }), baseVersion: null }]), DrawingStructureError);
   assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_style", entity: { id: "00000000-0000-4000-8000-000000000096", revisionId: ids.revision, name: "Fresh", value: { stroke: "#111111", strokeWidth: 1, fill: null }, version: 2 }, baseVersion: null }]), DrawingStructureError);
   const deleted = applyDrawingStructureActions(current, [
+    { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
     { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
     { kind: "delete_page", id: ids.page, baseVersion: 1 },
   ]);

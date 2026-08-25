@@ -3,6 +3,7 @@ import type {
   DrawingBlockInstance,
   DrawingCanvas,
   DrawingLayer,
+  DrawingStructureLayer,
   DrawingObject,
   DrawingPage,
   DrawingPropertySchema,
@@ -53,6 +54,7 @@ type StructureCollection =
   | "objects"
   | "pages"
   | "canvases"
+  | "layers"
   | "styles"
   | "blocks"
   | "blockInstances"
@@ -64,6 +66,7 @@ type StructureEntity =
   | DrawingObject
   | DrawingPage
   | DrawingCanvas
+  | DrawingStructureLayer
   | DrawingStyleDefinition
   | DrawingBlock
   | DrawingBlockInstance
@@ -78,6 +81,8 @@ const collectionForKind: Record<DrawingStructureAction["kind"], StructureCollect
   delete_page: "pages",
   put_canvas: "canvases",
   delete_canvas: "canvases",
+  put_layer: "layers",
+  delete_layer: "layers",
   put_style: "styles",
   delete_style: "styles",
   put_block: "blocks",
@@ -311,6 +316,7 @@ function validateActionBases(
         "objects",
         "pages",
         "canvases",
+        "layers",
         "styles",
         "blocks",
         "blockInstances",
@@ -505,6 +511,18 @@ function validateFinalCanvasInvariant(state: DrawingStructureState): void {
     );
     if (defaults.length !== 1) {
       throw new DrawingStructureError(`Page ${page.id} must have exactly one default paper canvas.`);
+    }
+  }
+  for (const canvas of Object.values(state.canvases)) {
+    const hasEditableLayer = Object.values(state.layers).some(
+      (layer) =>
+        layer.canvasId === canvas.id &&
+        (layer.systemKind === "work" || layer.systemKind === "custom") &&
+        layer.visible &&
+        !layer.locked,
+    );
+    if (!hasEditableLayer) {
+      throw new DrawingStructureError(`Canvas ${canvas.id} must retain an editable layer.`);
     }
   }
 }

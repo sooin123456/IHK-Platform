@@ -62,6 +62,14 @@ const p2Migration = () =>
     ),
     "utf8",
   );
+const p2HardeningMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825033000_drawing_workspace_p2_contract_hardening.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -232,6 +240,7 @@ before(async () => {
   await db.exec(await issueLinkMigration());
   await db.exec(await releaseHardeningMigration());
   await db.exec(await p2Migration());
+  await db.exec(await p2HardeningMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -901,40 +910,33 @@ test("authenticated direct layer SQL cannot bypass canonical layer integrity", a
   };
 
   await t.test(
-    "insert accepts custom but rejects manufactured system layers",
+    "authenticated inserts are revoked for every layer kind",
     async () => {
       const ids = await createDocument();
-      const customId = await directLayer(ids);
-      const stored = await db.query(
-        "select system_kind from public.lukas_drawing_layers where id=$1",
-        [customId],
-      );
-      assert.equal(stored.rows[0].system_kind, "custom");
-      for (const systemKind of ["source", "work"]) {
+      for (const systemKind of ["custom", "source", "work"]) {
         await assert.rejects(
           directLayer(ids, {
             name: `Manufactured ${systemKind}`,
             systemKind,
             locked: systemKind === "source",
           }),
-          /Only custom drawing layers may be inserted directly/i,
+          /permission denied/i,
         );
       }
     },
   );
 
   await t.test(
-    "update cannot change system kind or mutate a source",
+    "authenticated updates cannot change custom or source layers",
     async () => {
       const ids = await createDocument();
-      const customId = await directLayer(ids);
       await assert.rejects(
         db.query(
           `update public.lukas_drawing_layers
-         set system_kind='source',locked=true,version=version+1 where id=$1`,
-          [customId],
+         set name='Renamed work',version=version+1 where id=$1`,
+          [ids.workLayerId],
         ),
-        /Drawing layer identity is immutable/i,
+        /permission denied/i,
       );
       await assert.rejects(
         db.query(
@@ -942,14 +944,15 @@ test("authenticated direct layer SQL cannot bypass canonical layer integrity", a
          set name='Renamed source',version=version+1 where id=$1`,
           [ids.sourceLayerId],
         ),
-        /Source drawing layer is immutable/i,
+        /permission denied/i,
       );
     },
   );
 
-  await t.test("update preserves a visible unlocked user layer", async () => {
+  await t.test("trusted updates preserve a visible unlocked user layer", async () => {
     const ids = await createDocument();
-    const customId = await directLayer(ids);
+    const customId = await addCustomLayer(ids, "Trusted custom");
+    await db.exec("reset role");
     await db.query(
       `update public.lukas_drawing_layers
        set locked=true,version=version+1 where id=$1`,
@@ -1029,7 +1032,7 @@ test("authorized draft parent deletion cascades through system and custom layers
   await t.test("page deletion", async () => {
     const ids = await createDocument();
     await addCustomLayer(ids, "Page cascade custom");
-
+    await db.exec("reset role");
     await db.query("delete from public.lukas_drawing_pages where id=$1", [
       ids.pageId,
     ]);
@@ -1088,13 +1091,15 @@ test("approved parent deletion remains denied", async () => {
     ],
   );
   await asActor(OWNER);
-
-  await db.query("delete from public.lukas_drawing_pages where id=$1", [
-    ids.pageId,
-  ]);
-  await db.query("delete from public.lukas_drawing_documents where id=$1", [
-    ids.documentId,
-  ]);
+  await db.exec("reset role");
+  await assert.rejects(
+    db.query("delete from public.lukas_drawing_pages where id=$1", [ids.pageId]),
+    /immutable/i,
+  );
+  await assert.rejects(
+    db.query("delete from public.lukas_drawing_documents where id=$1", [ids.documentId]),
+    /immutable/i,
+  );
 
   const remaining = await db.query(
     `select
@@ -2283,6 +2288,7 @@ test("P2 mutate_structure is strict, atomic, conflict-safe, and exactly idempote
   );
   await asActor(OWNER);
   const invalidCanvasId = randomUUID();
+  const invalidCanvasLayerId = randomUUID();
   await assert.rejects(
     applyOperation(
       ids.revisionId,
@@ -2309,11 +2315,27 @@ test("P2 mutate_structure is strict, atomic, conflict-safe, and exactly idempote
             version: 1,
           },
           baseVersion: null,
+        }, {
+          kind: "put_layer",
+          entity: {
+            id: invalidCanvasLayerId,
+            name: "Mutable source work",
+            visible: true,
+            locked: false,
+            systemKind: "custom",
+            canvasId: invalidCanvasId,
+            sortOrder: 0,
+            version: 1,
+          },
+          baseVersion: null,
         }],
       },
       {
         type: "mutate_structure",
-        actions: [{ kind: "delete_canvas", id: invalidCanvasId, baseVersion: 1 }],
+        actions: [
+          { kind: "delete_layer", id: invalidCanvasLayerId, baseVersion: 1 },
+          { kind: "delete_canvas", id: invalidCanvasId, baseVersion: 1 },
+        ],
       },
     ),
     (error) => error.code === "P1R01",
@@ -2437,6 +2459,406 @@ test("P2 mutate_structure is strict, atomic, conflict-safe, and exactly idempote
   assert.equal(rolledBack.rows[0].count, 0);
 });
 
+test("P2 hardening records canvas layers, validates tables/properties/numbers, and permits atomic page swaps", async () => {
+  const ids = await createDocument();
+  const canvasId = randomUUID();
+  const layerId = randomUUID();
+  const canvas = {
+    id: canvasId,
+    pageId: ids.pageId,
+    name: "Model",
+    spaceKind: "model",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: null,
+    sortOrder: 1,
+    version: 1,
+  };
+  const layer = {
+    id: layerId,
+    name: "Model work",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId,
+    sortOrder: 7,
+    version: 1,
+  };
+  const createForward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      { kind: "put_layer", entity: layer, baseVersion: null },
+    ],
+  };
+  const createInverse = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "delete_layer", id: layerId, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvasId, baseVersion: 1 },
+    ],
+  };
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      { type: "mutate_structure", actions: [createForward.actions[0]] },
+      { type: "mutate_structure", actions: [createInverse.actions[1]] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await applyOperation(ids.revisionId, "mutate_structure", {}, createForward, createInverse);
+  await db.exec("reset role");
+  const exactLayer = await db.query(
+    `select id,canvas_id "canvasId",sort_order "sortOrder",name
+     from public.lukas_drawing_layers where canvas_id=$1`,
+    [canvasId],
+  );
+  assert.deepEqual(exactLayer.rows, [{ id: layerId, canvasId, sortOrder: 7, name: "Model work" }]);
+
+  await asActor(OWNER);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      { [canvasId]: 1 },
+      { type: "mutate_structure", actions: [{ kind: "delete_canvas", id: canvasId, baseVersion: 1 }] },
+      { type: "mutate_structure", actions: [{ kind: "put_canvas", entity: canvas, baseVersion: null }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [layerId]: 1, [canvasId]: 1 },
+    createInverse,
+    createForward,
+  );
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    createForward,
+    { type: "mutate_structure", actions: [
+      { kind: "delete_layer", id: layerId, baseVersion: 3 },
+      { kind: "delete_canvas", id: canvasId, baseVersion: 3 },
+    ] },
+  );
+  await db.exec("reset role");
+  const restoredLayer = await db.query(
+    `select id,canvas_id "canvasId",sort_order "sortOrder",name,version
+     from public.lukas_drawing_layers where id=$1`,
+    [layerId],
+  );
+  assert.deepEqual(restoredLayer.rows, [{
+    id: layerId,
+    canvasId,
+    sortOrder: 7,
+    name: "Model work",
+    version: 3,
+  }]);
+
+  const tableId = randomUUID();
+  const columnId = randomUUID();
+  const invalidTable = {
+    id: tableId,
+    revisionId: ids.revisionId,
+    name: "No target",
+    columns: [{ id: columnId, name: "Note", kind: "text", propertySchemaId: null }],
+    rows: [{ id: randomUUID(), objectId: null, blockInstanceId: null, cells: {} }],
+    version: 1,
+  };
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      { type: "mutate_structure", actions: [{ kind: "put_table", entity: invalidTable, baseVersion: null }] },
+      { type: "mutate_structure", actions: [{ kind: "delete_table", id: tableId, baseVersion: 1 }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await db.exec("reset role");
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_tables(id,revision_id,project_id,name,columns_json,rows_json,
+         version,created_by) values($1,$2,$3,'Bad direct',$4,$5,1,$6)`,
+      [tableId, ids.revisionId, PROJECT, invalidTable.columns, invalidTable.rows, OWNER],
+    ),
+    /exactly one target/i,
+  );
+
+  await asActor(OWNER);
+  const propertyObject = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, propertyObject);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_objects",
+      { [propertyObject.id]: 1 },
+      { type: "update_objects", updates: [{
+        objectId: propertyObject.id,
+        patch: { geometry: { ...propertyObject.geometry, radius: 1e20 } },
+      }] },
+      { type: "update_objects", updates: [{
+        objectId: propertyObject.id,
+        patch: { geometry: propertyObject.geometry },
+      }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const schemaId = randomUUID();
+  const valueId = randomUUID();
+  const propertySchema = {
+    id: schemaId,
+    revisionId: ids.revisionId,
+    name: "Circle note",
+    valueType: "text",
+    enumOptions: [],
+    appliesTo: ["circle"],
+    required: false,
+    version: 1,
+  };
+  const propertyValue = {
+    id: valueId,
+    schemaId,
+    objectId: propertyObject.id,
+    blockInstanceId: null,
+    value: "kept",
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [{ kind: "put_property_schema", entity: propertySchema, baseVersion: null }] },
+    { type: "mutate_structure", actions: [{ kind: "delete_property_schema", id: schemaId, baseVersion: 1 }] },
+  );
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [{ kind: "put_property_value", entity: propertyValue, baseVersion: null }] },
+    { type: "mutate_structure", actions: [{ kind: "delete_property_value", id: valueId, baseVersion: 1 }] },
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      { [schemaId]: 1 },
+      { type: "mutate_structure", actions: [{
+        kind: "put_property_schema",
+        entity: { ...propertySchema, appliesTo: ["rectangle"] },
+        baseVersion: 1,
+      }] },
+      { type: "mutate_structure", actions: [{
+        kind: "put_property_schema",
+        entity: propertySchema,
+        baseVersion: 2,
+      }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+
+  await asActor(OWNER);
+  const hugeCanvas = { ...canvas, id: randomUUID(), name: "Huge", widthMillimeters: 1e20 };
+  const hugeLayer = { ...layer, id: randomUUID(), name: "Huge work", canvasId: hugeCanvas.id };
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      { type: "mutate_structure", actions: [
+        { kind: "put_canvas", entity: hugeCanvas, baseVersion: null },
+        { kind: "put_layer", entity: hugeLayer, baseVersion: null },
+      ] },
+      { type: "mutate_structure", actions: [
+        { kind: "delete_layer", id: hugeLayer.id, baseVersion: 1 },
+        { kind: "delete_canvas", id: hugeCanvas.id, baseVersion: 1 },
+      ] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+
+  const page2Id = randomUUID();
+  const canvas2Id = randomUUID();
+  const layer2Id = randomUUID();
+  const page2 = { id: page2Id, revisionId: ids.revisionId, name: "Page 2", sortOrder: 1, version: 1 };
+  const canvas2 = { ...canvas, id: canvas2Id, pageId: page2Id, name: "Paper", spaceKind: "paper", sortOrder: 0 };
+  const layer2 = { ...layer, id: layer2Id, canvasId: canvas2Id, name: "Page 2 work", sortOrder: 0 };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [
+      { kind: "put_page", entity: page2, baseVersion: null },
+      { kind: "put_canvas", entity: canvas2, baseVersion: null },
+      { kind: "put_layer", entity: layer2, baseVersion: null },
+    ] },
+    { type: "mutate_structure", actions: [
+      { kind: "delete_layer", id: layer2Id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas2Id, baseVersion: 1 },
+      { kind: "delete_page", id: page2Id, baseVersion: 1 },
+    ] },
+  );
+  await db.exec("reset role");
+  const page1Result = await db.query(
+    `select id,revision_id "revisionId",name,sort_order "sortOrder",version
+     from public.lukas_drawing_pages where id=$1`,
+    [ids.pageId],
+  );
+  const page1 = page1Result.rows[0];
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [ids.pageId]: 1, [page2Id]: 1 },
+    { type: "mutate_structure", actions: [
+      { kind: "put_page", entity: { ...page1, sortOrder: 1 }, baseVersion: 1 },
+      { kind: "put_page", entity: { ...page2, sortOrder: 0 }, baseVersion: 1 },
+    ] },
+    { type: "mutate_structure", actions: [
+      { kind: "put_page", entity: page2, baseVersion: 2 },
+      { kind: "put_page", entity: page1, baseVersion: 2 },
+    ] },
+  );
+  await db.exec("reset role");
+  const pageOrder = await db.query(
+    "select id,sort_order \"sortOrder\" from public.lukas_drawing_pages where revision_id=$1 order by sort_order",
+    [ids.revisionId],
+  );
+  assert.deepEqual(pageOrder.rows.map((row) => row.id), [page2Id, ids.pageId]);
+
+  const privileges = await db.query(
+    `select has_table_privilege('authenticated','public.lukas_drawing_pages','insert,update,delete') pages,
+      has_table_privilege('authenticated','public.lukas_drawing_layers','insert,update,delete') layers`,
+  );
+  assert.deepEqual(privileges.rows, [{ pages: false, layers: false }]);
+  const indexes = await db.query(
+    `select indexdef from pg_indexes where schemaname='public'
+      and indexname in ('lukas_drawing_styles_project_idx','lukas_drawing_blocks_project_idx',
+        'lukas_drawing_block_instances_project_idx','lukas_drawing_property_schemas_project_idx',
+        'lukas_drawing_property_values_project_idx')`,
+  );
+  assert.equal(indexes.rows.some(({ indexdef }) => /include\s*\([^)]*\b(value|primitives|origin|enum_options|applies_to)\b/i.test(indexdef)), false);
+});
+
+test("P2 legacy RPCs persist referenced style overrides and explicit layer placement with exact inverses", async () => {
+  const ids = await createDocument();
+  const styleId = randomUUID();
+  const style = {
+    id: styleId,
+    revisionId: ids.revisionId,
+    name: "Referenced",
+    value: { stroke: "#112233", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
+    { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
+  );
+  const object = circleObject(randomUUID(), ids.workLayerId, {
+    styleId,
+    style: { strokeWidth: 2 },
+  });
+  await addObject(ids, object);
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    { type: "update_objects", updates: [{ objectId: object.id, patch: { styleId, style: { fill: "#abcdef" } } }] },
+    { type: "update_objects", updates: [{ objectId: object.id, patch: { styleId, style: { strokeWidth: 2 } } }] },
+  );
+  await db.exec("reset role");
+  const storedObject = await db.query(
+    `select style_id "styleId",style,version from public.lukas_drawing_objects where id=$1`,
+    [object.id],
+  );
+  assert.deepEqual(storedObject.rows, [{ styleId, style: { fill: "#abcdef" }, version: 2 }]);
+
+  await asActor(OWNER);
+  const modelCanvasId = randomUUID();
+  const modelWorkId = randomUUID();
+  const modelCanvas = {
+    id: modelCanvasId,
+    pageId: ids.pageId,
+    name: "Legacy model",
+    spaceKind: "model",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: null,
+    sortOrder: 1,
+    version: 1,
+  };
+  const modelWork = {
+    id: modelWorkId,
+    name: "Legacy model work",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: modelCanvasId,
+    sortOrder: 0,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    { type: "mutate_structure", actions: [
+      { kind: "put_canvas", entity: modelCanvas, baseVersion: null },
+      { kind: "put_layer", entity: modelWork, baseVersion: null },
+    ] },
+    { type: "mutate_structure", actions: [
+      { kind: "delete_layer", id: modelWorkId, baseVersion: 1 },
+      { kind: "delete_canvas", id: modelCanvasId, baseVersion: 1 },
+    ] },
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_layer",
+      { [modelWorkId]: 1 },
+      { type: "update_layer", layerId: modelWorkId, patch: { canvasId: ids.canvasId } },
+      { type: "update_layer", layerId: modelWorkId, patch: { canvasId: modelCanvasId } },
+    ),
+    (error) => error.code === "P1C01" && /previous canvas/i.test(error.message),
+  );
+  const layerId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    {},
+    { type: "add_layer", layer: {
+      id: layerId,
+      name: "Placed",
+      visible: true,
+      locked: false,
+      canvasId: ids.canvasId,
+      sortOrder: 8,
+      version: 1,
+    } },
+    {},
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [layerId]: 1 },
+    { type: "update_layer", layerId, patch: { canvasId: modelCanvasId, sortOrder: 4 } },
+    { type: "update_layer", layerId, patch: { canvasId: ids.canvasId, sortOrder: 8 } },
+  );
+  await db.exec("reset role");
+  const storedLayer = await db.query(
+    `select canvas_id "canvasId",sort_order "sortOrder",version
+     from public.lukas_drawing_layers where id=$1`,
+    [layerId],
+  );
+  assert.deepEqual(storedLayer.rows, [{ canvasId: modelCanvasId, sortOrder: 4, version: 2 }]);
+});
+
 test("P2 structure tombstones restore monotonically and reserve raw IDs across entity kinds", async () => {
   const ids = await createDocument();
   const styleId = randomUUID();
@@ -2461,6 +2883,7 @@ test("P2 structure tombstones restore monotonically and reserve raw IDs across e
     { type: "mutate_structure", actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }] },
     { type: "mutate_structure", actions: [{ kind: "put_style", entity: style, baseVersion: null }] },
   );
+  const collisionLayerId = randomUUID();
   await assert.rejects(
     applyOperation(
       ids.revisionId,
@@ -2482,9 +2905,25 @@ test("P2 structure tombstones restore monotonically and reserve raw IDs across e
             version: 1,
           },
           baseVersion: null,
+        }, {
+          kind: "put_layer",
+          entity: {
+            id: collisionLayerId,
+            name: "Collision work",
+            visible: true,
+            locked: false,
+            systemKind: "custom",
+            canvasId: styleId,
+            sortOrder: 0,
+            version: 1,
+          },
+          baseVersion: null,
         }],
       },
-      { type: "mutate_structure", actions: [{ kind: "delete_canvas", id: styleId, baseVersion: 1 }] },
+      { type: "mutate_structure", actions: [
+        { kind: "delete_layer", id: collisionLayerId, baseVersion: 1 },
+        { kind: "delete_canvas", id: styleId, baseVersion: 1 },
+      ] },
     ),
     (error) => error.code === "P1C01" && /raw ID collision/i.test(error.message),
   );
@@ -2633,6 +3072,37 @@ test("P2 block compounds must exactly represent their editable source objects", 
     validForward,
     validInverse,
   );
+  await db.exec("reset role; alter table public.lukas_drawing_blocks disable trigger user");
+  await db.query(
+    `update public.lukas_drawing_blocks
+     set primitives=jsonb_set(primitives,'{0,name}',to_jsonb('Corrupted'::text)) where id=$1`,
+    [validBlockId],
+  );
+  await db.exec("alter table public.lukas_drawing_blocks enable trigger user");
+  await asActor(OWNER);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      { [validInstanceId]: 1, [validBlockId]: 1 },
+      validInverse,
+      {
+        ...validForward,
+        actions: [
+          { ...validForward.actions[0], baseVersion: 3 },
+          ...validForward.actions.slice(1),
+        ],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await db.exec("reset role; alter table public.lukas_drawing_blocks disable trigger user");
+  await db.query(
+    "update public.lukas_drawing_blocks set primitives=$2 where id=$1",
+    [validBlockId, validForward.actions[1].entity.primitives],
+  );
+  await db.exec("alter table public.lukas_drawing_blocks enable trigger user");
+  await asActor(OWNER);
   await applyOperation(
     ids.revisionId,
     "mutate_structure",
@@ -2727,7 +3197,7 @@ test("P2 approved template clone generates fresh identities inside the source pr
           revisionId: ids.revisionId,
           name: "Template table",
           columns: [{ id: columnId, name: "Note", kind: "text", propertySchemaId: null }],
-          rows: [{ id: rowId, objectId: null, blockInstanceId: null, cells: { [columnId]: "kept" } }],
+          rows: [{ id: rowId, objectId: object.id, blockInstanceId: null, cells: { [columnId]: "kept" } }],
           version: 1,
         },
         baseVersion: null,
@@ -2787,6 +3257,57 @@ test("P2 approved template clone generates fresh identities inside the source pr
   assert.notEqual(clonedTable.columns[0].id, sourceTable.columns[0].id);
   assert.notEqual(clonedTable.rows[0].id, sourceTable.rows[0].id);
   assert.equal(clonedTable.rows[0].cells[clonedTable.columns[0].id], "kept");
+});
+
+test("P2 explicit-source template clones keep documents source-free and preserve frozen canvas anchors", async () => {
+  const sourceFileId = randomUUID();
+  const sourceSha = "d".repeat(64);
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256,immutable)
+     values($1,$2,$3,'pdf',$4,true)`,
+    [sourceFileId, PROJECT, OWNER, sourceSha],
+  );
+  await asActor(OWNER);
+  const created = await db.query(
+    "select public.lukas_drawing_create_document($1,$2,'Explicit source template',false) result",
+    [PROJECT, sourceFileId],
+  );
+  const source = created.rows[0].result;
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [source.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','source template')",
+    [source.revisionId, review.rows[0].result.subjectVersion, review.rows[0].result.snapshotSha256],
+  );
+  await asActor(OWNER);
+  const first = await db.query(
+    "select public.lukas_drawing_create_from_template($1,'Explicit clone 1',$2) result",
+    [source.revisionId, sourceFileId],
+  );
+  const second = await db.query(
+    "select public.lukas_drawing_create_from_template($1,'Explicit clone 2',$2) result",
+    [source.revisionId, sourceFileId],
+  );
+  await db.exec("reset role");
+  const documents = await db.query(
+    `select id,source_file_id "sourceFileId",source_sha256 "sourceSha256"
+     from public.lukas_drawing_documents where id in ($1,$2) order by id`,
+    [first.rows[0].result.documentId, second.rows[0].result.documentId],
+  );
+  assert.equal(documents.rows.length, 2);
+  assert.ok(documents.rows.every((document) => document.sourceFileId === null && document.sourceSha256 === null));
+  const anchors = await db.query(
+    `select revision_id "revisionId",background_source_file_id "sourceFileId",
+      background_source_sha256 "sourceSha256"
+     from public.lukas_drawing_canvases where revision_id in ($1,$2) order by revision_id`,
+    [first.rows[0].result.revisionId, second.rows[0].result.revisionId],
+  );
+  assert.equal(anchors.rows.length, 2);
+  assert.ok(anchors.rows.every((anchor) => anchor.sourceFileId === sourceFileId && anchor.sourceSha256 === sourceSha));
 });
 
 test("P2 tables deny authenticated direct DML and cascade only through a draft parent", async () => {
@@ -2910,6 +3431,7 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
       [source.revisionId],
     );
     await upgradeDb.exec(await p2Migration());
+    await upgradeDb.exec(await p2HardeningMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
@@ -2931,4 +3453,52 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
   } finally {
     await upgradeDb.close();
   }
+});
+
+test("P2 hardening migration rejects a legacy canvas without an editable layer", async () => {
+  const legacyDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await legacyDb.exec(foundationSql);
+    await legacyDb.exec(await migration());
+    await legacyDb.exec(await upgradeMigration());
+    await legacyDb.exec(await issueLinkMigration());
+    await legacyDb.exec(await releaseHardeningMigration());
+    await legacyDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await legacyDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await legacyDb.exec("set role authenticated");
+    await legacyDb.query("select set_config('request.jwt.claim.sub',$1,false)", [OWNER]);
+    await legacyDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Legacy incomplete',true)",
+      [PROJECT],
+    );
+    await legacyDb.exec("reset role");
+    await legacyDb.exec(await p2Migration());
+    await legacyDb.exec("alter table public.lukas_drawing_layers disable trigger user");
+    await legacyDb.exec("delete from public.lukas_drawing_layers where system_kind<>'source'");
+    await legacyDb.exec("alter table public.lukas_drawing_layers enable trigger user");
+    await assert.rejects(
+      legacyDb.exec(await p2HardeningMigration()),
+      (error) => error.code === "P1C01" && /editable work layer/i.test(error.message),
+    );
+  } finally {
+    await legacyDb.close();
+  }
+});
+
+test("P2 review refuses a page whose canvas lost every editable layer", async () => {
+  const ids = await createDocument();
+  await db.exec("reset role; alter table public.lukas_drawing_layers disable trigger user");
+  await db.query(
+    "delete from public.lukas_drawing_layers where revision_id=$1 and system_kind<>'source'",
+    [ids.revisionId],
+  );
+  await db.exec("alter table public.lukas_drawing_layers enable trigger user");
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query("select public.lukas_drawing_request_review($1)", [ids.revisionId]),
+    (error) => error.code === "P1C01" && /editable-layer invariants/i.test(error.message),
+  );
 });

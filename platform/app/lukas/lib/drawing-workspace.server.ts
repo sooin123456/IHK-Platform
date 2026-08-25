@@ -252,6 +252,8 @@ const LayerPatchSchema = z
     name: LayerName.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    canvasId: Uuid.optional(),
+    sortOrder: z.number().int().nonnegative().max(2_147_483_647).optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0);

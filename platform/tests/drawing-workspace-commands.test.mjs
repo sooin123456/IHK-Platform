@@ -168,6 +168,14 @@ test("mutate_structure records strict forward and inverse payloads", () => {
     spaceKind: "model",
     version: 1,
   };
+  const modelLayer = {
+    ...layer(),
+    id: "00000000-0000-4000-8000-000000000099",
+    name: "Model work",
+    canvasId: ids.modelCanvas,
+    sortOrder: 0,
+    version: 1,
+  };
   const initial = emptyState({
     layers: undefined,
     structure: {
@@ -181,7 +189,7 @@ test("mutate_structure records strict forward and inverse payloads", () => {
         },
       },
       canvases: { [ids.canvas]: paper },
-      layers: { [ids.layer]: layer() },
+      layers: { [ids.layer]: layer({ canvasId: ids.canvas, sortOrder: 0 }) },
       objects: {},
       styles: {},
       blocks: {},
@@ -196,7 +204,10 @@ test("mutate_structure records strict forward and inverse payloads", () => {
     {
       type: "mutate_structure",
       actorId: "actor-a",
-      actions: [{ kind: "put_canvas", entity: model, baseVersion: null }],
+      actions: [
+        { kind: "put_canvas", entity: model, baseVersion: null },
+        { kind: "put_layer", entity: modelLayer, baseVersion: null },
+      ],
     },
     environment(),
   );
@@ -204,11 +215,17 @@ test("mutate_structure records strict forward and inverse payloads", () => {
   assert.equal(applied.state.structure.canvases[ids.modelCanvas].name, "Model");
   assert.deepEqual(applied.operation.forward, {
     type: "mutate_structure",
-    actions: [{ kind: "put_canvas", entity: model, baseVersion: null }],
+    actions: [
+      { kind: "put_canvas", entity: model, baseVersion: null },
+      { kind: "put_layer", entity: modelLayer, baseVersion: null },
+    ],
   });
   assert.deepEqual(applied.operation.inverse, {
     type: "mutate_structure",
-    actions: [{ kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 }],
+    actions: [
+      { kind: "delete_layer", id: modelLayer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
+    ],
   });
   const undone = undoDrawingCommand(applied.state, "actor-a", environment());
   assert.equal(undone.kind, undefined);

@@ -4,7 +4,13 @@ export type Point = { x: number; y: number };
 export type Bounds = { x: number; y: number; width: number; height: number };
 export type Viewport = { x: number; y: number; zoom: number };
 
-const Finite = z.number().refine(Number.isFinite, "유한한 숫자여야 합니다.");
+const SHARED_NUMERIC_ABSOLUTE_MAX = 999_999_999_999;
+const SHARED_INTEGER_MAX = 2_147_483_647;
+const Finite = z
+  .number()
+  .min(-SHARED_NUMERIC_ABSOLUTE_MAX)
+  .max(SHARED_NUMERIC_ABSOLUTE_MAX)
+  .refine(Number.isFinite, "유한한 숫자여야 합니다.");
 const PositiveFinite = Finite.refine(
   (value) => value > 0,
   "0보다 커야 합니다.",
@@ -16,8 +22,8 @@ const PositiveFiniteMax = (maximum: number) =>
     .refine(Number.isFinite, "유한한 숫자여야 합니다.")
     .refine((value) => value > 0, "0보다 커야 합니다.");
 const Uuid = z.string().uuid();
-const PositiveInteger = z.number().int().positive();
-const NonNegativeInteger = z.number().int().nonnegative();
+const PositiveInteger = z.number().int().positive().max(SHARED_INTEGER_MAX);
+const NonNegativeInteger = z.number().int().nonnegative().max(SHARED_INTEGER_MAX);
 const ExactTrimmedName = z
   .string()
   .min(1)
@@ -234,6 +240,27 @@ export const DrawingLayerSchema = DrawingLayerInputSchema.extend({
     }
   });
 
+export const DrawingStructureLayerSchema = z
+  .object({
+    id: Uuid,
+    name: DrawingLayerNameSchema,
+    visible: z.boolean(),
+    locked: z.boolean(),
+    systemKind: z.enum(["source", "work", "custom"]),
+    canvasId: Uuid,
+    sortOrder: NonNegativeInteger,
+    version: PositiveInteger,
+  })
+  .strict()
+  .superRefine((layer, context) => {
+    if (layer.systemKind === "source" && (!layer.visible || !layer.locked)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "원본 레이어는 표시되고 잠겨 있어야 합니다.",
+      });
+    }
+  });
+
 export const DrawingPageSchema = z
   .object({
     id: Uuid,
@@ -425,7 +452,12 @@ const DrawingTableRowSchema = z
     blockInstanceId: Uuid.nullable(),
     cells: z.record(Uuid, z.union([z.string(), Finite, z.null()])),
   })
-  .strict();
+  .strict()
+  .refine(
+    (row) =>
+      Number(row.objectId !== null) + Number(row.blockInstanceId !== null) === 1,
+    "표 행은 객체 또는 블록 instance 중 하나에만 귀속해야 합니다.",
+  );
 
 export const DrawingTableSchema = z
   .object({
@@ -455,6 +487,8 @@ export const DrawingStructureActionSchema = z.discriminatedUnion("kind", [
   DrawingStructureDeleteActionSchema("delete_page"),
   DrawingStructurePutActionSchema("put_canvas", DrawingCanvasSchema),
   DrawingStructureDeleteActionSchema("delete_canvas"),
+  DrawingStructurePutActionSchema("put_layer", DrawingStructureLayerSchema),
+  DrawingStructureDeleteActionSchema("delete_layer"),
   DrawingStructurePutActionSchema("put_style", DrawingStyleDefinitionSchema),
   DrawingStructureDeleteActionSchema("delete_style"),
   DrawingStructurePutActionSchema("put_block", DrawingBlockSchema),
@@ -484,6 +518,8 @@ const DrawingOperationLayerPatchSchema = z
     name: DrawingLayerNameSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    canvasId: Uuid.optional(),
+    sortOrder: NonNegativeInteger.optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0);
@@ -545,7 +581,7 @@ export const DrawingOperationInputSchema = z
       "update_layer",
       "mutate_structure",
     ]),
-    baseVersions: z.record(Uuid, z.number().int().positive()),
+    baseVersions: z.record(Uuid, PositiveInteger),
     forward: z.record(z.string(), z.unknown()),
     inverse: z.record(z.string(), z.unknown()),
     createdAt: z.string().datetime(),
@@ -583,6 +619,7 @@ export type PdfCalibration = z.infer<typeof PdfCalibrationSchema>;
 export type DrawingStyleOverride = z.infer<typeof DrawingStyleOverrideSchema>;
 export type DrawingLayerInput = z.infer<typeof DrawingLayerInputSchema>;
 export type DrawingLayer = z.infer<typeof DrawingLayerSchema>;
+export type DrawingStructureLayer = z.infer<typeof DrawingStructureLayerSchema>;
 export type DrawingPage = z.infer<typeof DrawingPageSchema>;
 export type DrawingCanvas = z.infer<typeof DrawingCanvasSchema>;
 export type DrawingStyleDefinition = z.infer<typeof DrawingStyleDefinitionSchema>;
@@ -600,6 +637,7 @@ type PutStructureAction<T> = {
     | "put_object"
     | "put_page"
     | "put_canvas"
+    | "put_layer"
     | "put_style"
     | "put_block"
     | "put_block_instance"
@@ -614,6 +652,7 @@ type DeleteStructureAction = {
     | "delete_object"
     | "delete_page"
     | "delete_canvas"
+    | "delete_layer"
     | "delete_style"
     | "delete_block"
     | "delete_block_instance"
@@ -627,6 +666,7 @@ export type DrawingStructureAction =
   | (PutStructureAction<DrawingStructureObject> & { kind: "put_object" })
   | (PutStructureAction<DrawingPage> & { kind: "put_page" })
   | (PutStructureAction<DrawingCanvas> & { kind: "put_canvas" })
+  | (PutStructureAction<DrawingStructureLayer> & { kind: "put_layer" })
   | (PutStructureAction<DrawingStyleDefinition> & { kind: "put_style" })
   | (PutStructureAction<DrawingBlock> & { kind: "put_block" })
   | (PutStructureAction<DrawingBlockInstance> & { kind: "put_block_instance" })
@@ -636,6 +676,7 @@ export type DrawingStructureAction =
   | (DeleteStructureAction & { kind: "delete_object" })
   | (DeleteStructureAction & { kind: "delete_page" })
   | (DeleteStructureAction & { kind: "delete_canvas" })
+  | (DeleteStructureAction & { kind: "delete_layer" })
   | (DeleteStructureAction & { kind: "delete_style" })
   | (DeleteStructureAction & { kind: "delete_block" })
   | (DeleteStructureAction & { kind: "delete_block_instance" })
