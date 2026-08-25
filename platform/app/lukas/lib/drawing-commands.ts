@@ -106,7 +106,9 @@ function requireUniqueName(
   id?: string,
 ): string {
   const normalized = entityName(name);
-  if (siblings.some((sibling) => sibling.id !== id && sibling.name === normalized)) {
+  if (
+    siblings.some((sibling) => sibling.id !== id && sibling.name === normalized)
+  ) {
     throw new DrawingCommandError(`Drawing name ${normalized} already exists.`);
   }
   return normalized;
@@ -202,7 +204,14 @@ export function createDrawingCanvasCommand(
   });
   const layer = DrawingStructureLayerSchema.parse({
     id: createId(),
-    name: spaceKind === "model" ? "Model work" : "Paper work",
+    name: nextUniqueSiblingName(
+      spaceKind === "model" ? "Model work" : "Paper work",
+      Object.values(canonical.structure.layers).filter((item) => {
+        const existingCanvas =
+          canonical.structure.canvases[item.canvasId ?? ""];
+        return existingCanvas?.pageId === pageId;
+      }),
+    ),
     visible: true,
     locked: false,
     systemKind: "custom",
@@ -323,16 +332,22 @@ export function reorderDrawingCanvasCommand(
   const canvas = canonical.structure.canvases[canvasId];
   if (!canvas) throw new DrawingCommandError("Drawing canvas does not exist.");
   if (canvas.spaceKind === "paper" && canvas.sortOrder === 0) {
-    throw new DrawingCommandError("The default paper canvas is pinned at the top of its page.");
+    throw new DrawingCommandError(
+      "The default paper canvas is pinned at the top of its page.",
+    );
   }
+  const tail = Object.values(canonical.structure.canvases).filter(
+    (item) =>
+      item.pageId === canvas.pageId &&
+      !(item.spaceKind === "paper" && item.sortOrder === 0),
+  );
   return reorderStructureEntity(
     actorId,
     canvas,
-    Object.values(canonical.structure.canvases).filter(
-      (item) => item.pageId === canvas.pageId,
-    ),
+    tail,
     direction,
     "put_canvas",
+    1,
   );
 }
 
@@ -353,7 +368,10 @@ export function reorderDrawingLayerCommand(
   const sourceMaximum = Math.max(
     -1,
     ...Object.values(canonical.structure.layers)
-      .filter((item) => item.canvasId === layer.canvasId && item.systemKind === "source")
+      .filter(
+        (item) =>
+          item.canvasId === layer.canvasId && item.systemKind === "source",
+      )
       .map((item) => item.sortOrder ?? 0),
   );
   return reorderStructureEntity(
@@ -467,15 +485,12 @@ export function drawingPageDeletionReason(
   const canonical = requireStructureState(state);
   const page = canonical.structure.pages[pageId];
   if (!page) return "Drawing page does not exist.";
-  return (
-    Object.keys(canonical.structure.pages).length <= 1
-      ? "A drawing document requires at least one page."
-      :
-    Object.values(canonical.structure.canvases)
-      .filter((canvas) => canvas.pageId === pageId)
-      .map((canvas) => canvasContentReason(canonical.structure, canvas.id))
-      .find((reason): reason is string => Boolean(reason)) ?? null
-  );
+  return Object.keys(canonical.structure.pages).length <= 1
+    ? "A drawing document requires at least one page."
+    : (Object.values(canonical.structure.canvases)
+        .filter((canvas) => canvas.pageId === pageId)
+        .map((canvas) => canvasContentReason(canonical.structure, canvas.id))
+        .find((reason): reason is string => Boolean(reason)) ?? null);
 }
 
 export function deleteDrawingPageCommand(
@@ -1126,6 +1141,10 @@ function realizeStructurePayload(
       if ("entity" in action) {
         return {
           ...clone(action),
+          entity: {
+            ...clone(action.entity),
+            version: current?.version ?? action.entity.version,
+          },
           baseVersion: current?.version ?? null,
         } as DrawingStructureAction;
       }

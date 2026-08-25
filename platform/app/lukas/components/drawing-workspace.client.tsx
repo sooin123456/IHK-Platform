@@ -431,18 +431,21 @@ export default function DrawingWorkspaceClient({
     { activeLayerId, activeTool, selectedIds },
     transientInputInvalidatedRef.current,
   );
+  const selectedIdsKey = transientInput.selectedIds.join("\u0000");
   const transient = useMemo(
     () =>
       deriveDrawingTransientState(drawingState, {
         canEdit: baseCanEdit,
-        ...transientInput,
+        activeLayerId: transientInput.activeLayerId,
+        activeTool: transientInput.activeTool,
+        selectedIds: selectedIdsKey ? selectedIdsKey.split("\u0000") : [],
       }),
     [
       baseCanEdit,
       drawingState,
       transientInput.activeLayerId,
       transientInput.activeTool,
-      transientInput.selectedIds,
+      selectedIdsKey,
     ],
   );
   const activeDrawingState = transient.state;

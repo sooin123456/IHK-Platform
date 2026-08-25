@@ -230,6 +230,10 @@ test("page tree and canvas-scoped layer controls use native labeled interactions
   assert.doesNotMatch(pages, /role="tree(?:item)?"/);
   assert.match(pages, /<ul/);
   assert.match(pages, /type="button"/);
+  assert.match(pages, /nextDrawingCanvasFocusIntent/);
+  assert.match(pages, /useLayoutEffect/);
+  assert.match(pages, /aria-describedby/);
+  assert.match(pages, /defaultCanvas \|\| tailIndex === 0/);
   for (const label of [
     "새 페이지 이름",
     "페이지 추가",

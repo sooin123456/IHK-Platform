@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import {
   createDrawingCanvasCommand,
@@ -14,6 +20,10 @@ import {
   type DrawingCommand,
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
+import {
+  nextDrawingCanvasFocusIntent,
+  type DrawingCanvasFocusIntent,
+} from "~/lukas/lib/drawing-pages-focus";
 
 type Props = {
   activeCanvasId: string | null;
@@ -46,10 +56,15 @@ export function DrawingPagesPanel({
   state,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
+  const [focusIntent, setFocusIntent] =
+    useState<DrawingCanvasFocusIntent | null>(null);
   const canvasButtons = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
     if (activeCanvasId) canvasButtons.current.get(activeCanvasId)?.focus();
   }, [activeCanvasId]);
+  useLayoutEffect(() => {
+    if (focusIntent) canvasButtons.current.get(focusIntent.canvasId)?.focus();
+  }, [focusIntent]);
   const structure = state.structure;
   if (!structure) return null;
   const pages = ordered(Object.values(structure.pages));
@@ -57,6 +72,40 @@ export function DrawingPagesPanel({
   function run(command: () => DrawingCommand) {
     try {
       onCommand(command());
+      setError(null);
+    } catch (caught) {
+      setError(message(caught));
+    }
+  }
+
+  function runDelete(
+    command: () => Extract<DrawingCommand, { type: "mutate_structure" }>,
+  ) {
+    try {
+      const currentStructure = state.structure;
+      if (!currentStructure)
+        throw new Error(
+          "Drawing structure state is required for deletion focus.",
+        );
+      const next = command();
+      onCommand(next);
+      const deletedCanvasIds = next.actions.flatMap((action) =>
+        action.kind === "delete_canvas" ? [action.id] : [],
+      );
+      const deletedPageIds = next.actions.flatMap((action) =>
+        action.kind === "delete_page" ? [action.id] : [],
+      );
+      setFocusIntent((previous) =>
+        nextDrawingCanvasFocusIntent(
+          {
+            activeCanvasId,
+            pages: Object.values(currentStructure.pages),
+            canvases: Object.values(currentStructure.canvases),
+          },
+          { deletedCanvasIds, deletedPageIds },
+          previous?.token ?? 0,
+        ),
+      );
       setError(null);
     } catch (caught) {
       setError(message(caught));
@@ -139,10 +188,7 @@ export function DrawingPagesPanel({
           {error}
         </p>
       ) : null}
-      <ul
-        className="mt-4 space-y-3"
-        aria-label="도면 페이지와 canvas"
-      >
+      <ul className="mt-4 space-y-3" aria-label="도면 페이지와 canvas">
         {pages.map((page, pageIndex) => {
           const canvases = ordered(
             Object.values(structure.canvases).filter(
@@ -213,10 +259,14 @@ export function DrawingPagesPanel({
                     </button>
                     <button
                       aria-label={`페이지 삭제: ${page.name}`}
-                      aria-describedby={pageDeleteReason ? `page-delete-reason-${page.id}` : undefined}
+                      aria-describedby={
+                        pageDeleteReason
+                          ? `page-delete-reason-${page.id}`
+                          : undefined
+                      }
                       disabled={Boolean(pageDeleteReason)}
                       onClick={() =>
-                        run(() =>
+                        runDelete(() =>
                           deleteDrawingPageCommand(state, actorId, page.id),
                         )
                       }
@@ -224,7 +274,14 @@ export function DrawingPagesPanel({
                     >
                       삭제
                     </button>
-                    {pageDeleteReason ? <p className="text-xs text-slate-400" id={`page-delete-reason-${page.id}`}>{pageDeleteReason}</p> : null}
+                    {pageDeleteReason ? (
+                      <p
+                        className="text-xs text-slate-400"
+                        id={`page-delete-reason-${page.id}`}
+                      >
+                        {pageDeleteReason}
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="font-medium">{page.name}</p>
@@ -246,11 +303,26 @@ export function DrawingPagesPanel({
                   </div>
                 ) : null}
               </div>
-              <ul
-                className="ml-3 mt-2 space-y-2 border-l border-white/10 pl-3"
-              >
-                {canvases.map((canvas, canvasIndex) => {
+              <ul className="ml-3 mt-2 space-y-2 border-l border-white/10 pl-3">
+                {canvases.map((canvas) => {
                   const reason = drawingCanvasDeletionReason(state, canvas.id);
+                  const defaultCanvas =
+                    canvas.spaceKind === "paper" && canvas.sortOrder === 0;
+                  const tail = canvases.filter(
+                    (candidate) =>
+                      !(
+                        candidate.spaceKind === "paper" &&
+                        candidate.sortOrder === 0
+                      ),
+                  );
+                  const tailIndex = tail.findIndex(
+                    (candidate) => candidate.id === canvas.id,
+                  );
+                  const orderReason = defaultCanvas
+                    ? "The default paper canvas is pinned at the top of its page."
+                    : tailIndex === 0
+                      ? "This canvas is already first after the default paper canvas."
+                      : null;
                   return (
                     <li key={canvas.id}>
                       <div className="rounded-md border border-white/10 p-2">
@@ -260,7 +332,8 @@ export function DrawingPagesPanel({
                           }
                           className="min-h-9 text-left text-sm font-medium"
                           ref={(node) => {
-                            if (node) canvasButtons.current.set(canvas.id, node);
+                            if (node)
+                              canvasButtons.current.set(canvas.id, node);
                             else canvasButtons.current.delete(canvas.id);
                           }}
                           onClick={() => onCanvasSelect(canvas.id)}
@@ -300,7 +373,12 @@ export function DrawingPagesPanel({
                             />
                             <button
                               aria-label={`canvas 위로 이동: ${canvas.name}`}
-                              disabled={canvasIndex === 0}
+                              aria-describedby={
+                                orderReason
+                                  ? `canvas-order-reason-${canvas.id}`
+                                  : undefined
+                              }
+                              disabled={defaultCanvas || tailIndex === 0}
                               onClick={() =>
                                 run(() =>
                                   reorderDrawingCanvasCommand(
@@ -317,7 +395,14 @@ export function DrawingPagesPanel({
                             </button>
                             <button
                               aria-label={`canvas 아래로 이동: ${canvas.name}`}
-                              disabled={canvasIndex === canvases.length - 1}
+                              aria-describedby={
+                                defaultCanvas
+                                  ? `canvas-order-reason-${canvas.id}`
+                                  : undefined
+                              }
+                              disabled={
+                                defaultCanvas || tailIndex === tail.length - 1
+                              }
                               onClick={() =>
                                 run(() =>
                                   reorderDrawingCanvasCommand(
@@ -334,10 +419,14 @@ export function DrawingPagesPanel({
                             </button>
                             <button
                               aria-label={`canvas 삭제: ${canvas.name}`}
-                              aria-describedby={reason ? `canvas-delete-reason-${canvas.id}` : undefined}
+                              aria-describedby={
+                                reason
+                                  ? `canvas-delete-reason-${canvas.id}`
+                                  : undefined
+                              }
                               disabled={Boolean(reason)}
                               onClick={() =>
-                                run(() =>
+                                runDelete(() =>
                                   deleteDrawingCanvasCommand(
                                     state,
                                     actorId,
@@ -349,7 +438,22 @@ export function DrawingPagesPanel({
                             >
                               삭제
                             </button>
-                            {reason ? <p className="text-xs text-slate-400" id={`canvas-delete-reason-${canvas.id}`}>{reason}</p> : null}
+                            {reason ? (
+                              <p
+                                className="text-xs text-slate-400"
+                                id={`canvas-delete-reason-${canvas.id}`}
+                              >
+                                {reason}
+                              </p>
+                            ) : null}
+                            {orderReason ? (
+                              <p
+                                className="text-xs text-slate-400"
+                                id={`canvas-order-reason-${canvas.id}`}
+                              >
+                                {orderReason}
+                              </p>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>

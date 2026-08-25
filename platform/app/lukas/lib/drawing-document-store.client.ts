@@ -77,7 +77,9 @@ function byId<T extends { id: string }>(items: T[]): Record<string, T> {
   const result: Record<string, T> = {};
   for (const item of items) {
     if (result[item.id])
-      throw new DrawingDocumentStoreError(`Duplicate drawing entity ${item.id}.`);
+      throw new DrawingDocumentStoreError(
+        `Duplicate drawing entity ${item.id}.`,
+      );
     result[item.id] = structuredClone(item);
   }
   return result;
@@ -89,17 +91,46 @@ export function hydrateDrawingDocumentState(
 ): DrawingDocumentState {
   const structure = {
     pages: byId(hydration.pages.map((value) => DrawingPageSchema.parse(value))),
-    canvases: byId(hydration.canvases.map((value) => DrawingCanvasSchema.parse(value))),
-    layers: byId(hydration.layers.map((value) => DrawingStructureLayerSchema.parse(value))),
-    objects: byId(hydration.objects.map((value) => DrawingObjectSchema.parse(value))),
-    styles: byId(hydration.styles.map((value) => DrawingStyleDefinitionSchema.parse(value))),
-    blocks: byId(hydration.blocks.map((value) => DrawingBlockSchema.parse(value))),
-    blockInstances: byId(hydration.blockInstances.map((value) => DrawingBlockInstanceSchema.parse(value))),
-    propertySchemas: byId(hydration.propertySchemas.map((value) => DrawingPropertySchemaSchema.parse(value))),
-    propertyValues: byId(hydration.propertyValues.map((value) => DrawingPropertyValueSchema.parse(value))),
-    tables: byId(hydration.tables.map((value) => DrawingTableSchema.parse(value))),
+    canvases: byId(
+      hydration.canvases.map((value) => DrawingCanvasSchema.parse(value)),
+    ),
+    layers: byId(
+      hydration.layers.map((value) => DrawingStructureLayerSchema.parse(value)),
+    ),
+    objects: byId(
+      hydration.objects.map((value) => DrawingObjectSchema.parse(value)),
+    ),
+    styles: byId(
+      hydration.styles.map((value) =>
+        DrawingStyleDefinitionSchema.parse(value),
+      ),
+    ),
+    blocks: byId(
+      hydration.blocks.map((value) => DrawingBlockSchema.parse(value)),
+    ),
+    blockInstances: byId(
+      hydration.blockInstances.map((value) =>
+        DrawingBlockInstanceSchema.parse(value),
+      ),
+    ),
+    propertySchemas: byId(
+      hydration.propertySchemas.map((value) =>
+        DrawingPropertySchemaSchema.parse(value),
+      ),
+    ),
+    propertyValues: byId(
+      hydration.propertyValues.map((value) =>
+        DrawingPropertyValueSchema.parse(value),
+      ),
+    ),
+    tables: byId(
+      hydration.tables.map((value) => DrawingTableSchema.parse(value)),
+    ),
   };
-  validateDrawingStructureState({ revisionId: hydration.revisionId, ...structure });
+  validateDrawingStructureState({
+    revisionId: hydration.revisionId,
+    ...structure,
+  });
   return createDrawingDocumentState({
     revisionId: hydration.revisionId,
     structure,
@@ -150,8 +181,13 @@ function resolveActiveIdentity(
         isAccessibleCanvas(state, canvas.id),
     )
     .sort((left, right) => {
-      const pageOrder = pages[left.pageId].sortOrder - pages[right.pageId].sortOrder;
-      return pageOrder || left.sortOrder - right.sortOrder || left.id.localeCompare(right.id);
+      const pageOrder =
+        pages[left.pageId].sortOrder - pages[right.pageId].sortOrder;
+      return (
+        pageOrder ||
+        left.sortOrder - right.sortOrder ||
+        left.id.localeCompare(right.id)
+      );
     })[0];
   if (!fallback)
     throw new DrawingDocumentStoreError(
@@ -167,11 +203,17 @@ function snapshotFor(
   >,
 ): DrawingDocumentSnapshot {
   if (state.structure) {
-    if (state.objects !== state.structure.objects || state.layers !== state.structure.layers)
+    if (
+      state.objects !== state.structure.objects ||
+      state.layers !== state.structure.layers
+    )
       throw new DrawingDocumentStoreError(
         "Drawing objects and layers must share the canonical structure maps.",
       );
-    validateDrawingStructureState({ revisionId: state.revisionId, ...state.structure });
+    validateDrawingStructureState({
+      revisionId: state.revisionId,
+      ...state.structure,
+    });
   }
   return { ...state, ...resolveActiveIdentity(state, requested) };
 }
@@ -188,35 +230,69 @@ type ActiveCanvasSlice = {
   objects: Record<string, DrawingObject>;
 };
 
-const activeCanvasSlices = new WeakMap<
-  DrawingDocumentSnapshot,
-  Map<string, ActiveCanvasSlice>
->();
+export type DrawingActiveCanvasSliceCache = {
+  select(
+    layers: Record<string, DrawingLayer>,
+    objects: Record<string, DrawingObject>,
+    canvasId: string,
+  ): ActiveCanvasSlice;
+  readonly buildCount: number;
+};
 
-/** Memoizes canonical canvas indexes by stable snapshot identity and canvas ID. */
+/** Caches slice work against canonical map identity, never transient UI snapshots. */
+export function createDrawingActiveCanvasSliceCache(): DrawingActiveCanvasSliceCache {
+  const byLayers = new WeakMap<
+    Record<string, DrawingLayer>,
+    WeakMap<Record<string, DrawingObject>, Map<string, ActiveCanvasSlice>>
+  >();
+  let buildCount = 0;
+  return {
+    select(layers, objects, canvasId) {
+      let byObjects = byLayers.get(layers);
+      if (!byObjects) {
+        byObjects = new WeakMap();
+        byLayers.set(layers, byObjects);
+      }
+      let byCanvas = byObjects.get(objects);
+      if (!byCanvas) {
+        byCanvas = new Map();
+        byObjects.set(objects, byCanvas);
+      }
+      const cached = byCanvas.get(canvasId);
+      if (cached) return cached;
+      const scopedLayers = Object.fromEntries(
+        Object.entries(layers).filter(
+          ([, layer]) => !canvasId || layer.canvasId === canvasId,
+        ),
+      ) as Record<string, DrawingLayer>;
+      const layerIds = new Set(Object.keys(scopedLayers));
+      const scopedObjects = Object.fromEntries(
+        Object.entries(objects).filter(([, object]) =>
+          layerIds.has(object.layerId),
+        ),
+      ) as Record<string, DrawingObject>;
+      const slice = { layers: scopedLayers, objects: scopedObjects };
+      byCanvas.set(canvasId, slice);
+      buildCount += 1;
+      return slice;
+    },
+    get buildCount() {
+      return buildCount;
+    },
+  };
+}
+
+const activeCanvasSlices = createDrawingActiveCanvasSliceCache();
+
+/** Memoizes canonical canvas indexes by stable entity-map identity and canvas ID. */
 export function drawingActiveCanvasSlice(
   snapshot: DrawingDocumentSnapshot,
 ): ActiveCanvasSlice {
-  const canvasId = snapshot.activeCanvasId ?? "";
-  let byCanvas = activeCanvasSlices.get(snapshot);
-  if (!byCanvas) {
-    byCanvas = new Map();
-    activeCanvasSlices.set(snapshot, byCanvas);
-  }
-  const cached = byCanvas.get(canvasId);
-  if (cached) return cached;
-  const layers = Object.fromEntries(
-    Object.entries(snapshot.layers).filter(([, layer]) =>
-      !canvasId || layer.canvasId === canvasId,
-    ),
-  ) as Record<string, DrawingLayer>;
-  const layerIds = new Set(Object.keys(layers));
-  const objects = Object.fromEntries(
-    Object.entries(snapshot.objects).filter(([, object]) => layerIds.has(object.layerId)),
-  ) as Record<string, DrawingObject>;
-  const slice = { layers, objects };
-  byCanvas.set(canvasId, slice);
-  return slice;
+  return activeCanvasSlices.select(
+    snapshot.layers,
+    snapshot.objects,
+    snapshot.activeCanvasId ?? "",
+  );
 }
 
 /**
@@ -228,7 +304,10 @@ export function drawingTransientAuthorizationKey(
   input: {
     draft: boolean;
     canEdit: boolean;
-    activeLayer?: Pick<DrawingLayer, "id" | "visible" | "locked" | "version"> | null;
+    activeLayer?: Pick<
+      DrawingLayer,
+      "id" | "visible" | "locked" | "version"
+    > | null;
   },
 ) {
   const layer = input.activeLayer;
@@ -245,17 +324,28 @@ export function drawingTransientAuthorizationKey(
 }
 
 /** Clears raw interaction input synchronously while its authorization key is stale. */
-export function sanitizeDrawingTransientInput<T extends {
-  activeLayerId: string | null;
-  activeTool: string;
-  selectedIds: string[];
-}>(input: T, invalidated: boolean): {
-  activeLayerId: string | null;
-  activeTool: "select";
-  selectedIds: string[];
-} | T {
+export function sanitizeDrawingTransientInput<
+  T extends {
+    activeLayerId: string | null;
+    activeTool: string;
+    selectedIds: string[];
+  },
+>(
+  input: T,
+  invalidated: boolean,
+):
+  | {
+      activeLayerId: string | null;
+      activeTool: "select";
+      selectedIds: string[];
+    }
+  | T {
   return invalidated
-    ? { activeLayerId: input.activeLayerId, activeTool: "select", selectedIds: [] }
+    ? {
+        activeLayerId: input.activeLayerId,
+        activeTool: "select",
+        selectedIds: [],
+      }
     : input;
 }
 
@@ -273,18 +363,23 @@ export function deriveDrawingTransientState(
   },
 ): DrawingTransientState {
   const { layers, objects } = drawingActiveCanvasSlice(snapshot);
-  const eligible = (layer: DrawingLayer | undefined) => Boolean(
-    layer &&
-    (layer.systemKind === "work" || layer.systemKind === "custom") &&
-    layer.visible &&
-    !layer.locked,
-  );
-  const activeLayer = input.canEdit && eligible(layers[input.activeLayerId ?? ""])
-    ? input.activeLayerId
-    : input.canEdit
-      ? Object.values(layers).find((layer) => layer.systemKind === "work" && eligible(layer))?.id ??
-        Object.values(layers).find(eligible)?.id ?? null
-      : null;
+  const eligible = (layer: DrawingLayer | undefined) =>
+    Boolean(
+      layer &&
+        (layer.systemKind === "work" || layer.systemKind === "custom") &&
+        layer.visible &&
+        !layer.locked,
+    );
+  const activeLayer =
+    input.canEdit && eligible(layers[input.activeLayerId ?? ""])
+      ? input.activeLayerId
+      : input.canEdit
+        ? (Object.values(layers).find(
+            (layer) => layer.systemKind === "work" && eligible(layer),
+          )?.id ??
+          Object.values(layers).find(eligible)?.id ??
+          null)
+        : null;
   const selectedIds = input.canEdit
     ? input.selectedIds.filter((id) => {
         const object = objects[id];
@@ -335,7 +430,9 @@ export function createDrawingDocumentStore(
     },
     dispatch(command) {
       if (revisionStatus !== "draft")
-        throw new DrawingDocumentStoreError("Only draft drawing revisions may be mutated.");
+        throw new DrawingDocumentStoreError(
+          "Only draft drawing revisions may be mutated.",
+        );
       const applied = applyDrawingCommand(snapshot, command, options);
       set(snapshotFor(applied.state, snapshot));
       return applied;
@@ -361,7 +458,11 @@ export function createDrawingDocumentStore(
         canvas.id === snapshot.activeCanvasId
       )
         return;
-      set({ ...snapshot, activePageId: canvas.pageId, activeCanvasId: canvas.id });
+      set({
+        ...snapshot,
+        activePageId: canvas.pageId,
+        activeCanvasId: canvas.id,
+      });
     },
   };
 }

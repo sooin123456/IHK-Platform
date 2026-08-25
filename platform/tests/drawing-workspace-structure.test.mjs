@@ -16,7 +16,10 @@ import {
   reorderDrawingLayerCommand,
   applyDrawingCommand,
   undoDrawingCommand,
+  redoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
+import { createDrawingActiveCanvasSliceCache } from "../app/lukas/lib/drawing-document-store.client.ts";
+import { nextDrawingCanvasFocusIntent } from "../app/lukas/lib/drawing-pages-focus.ts";
 import {
   DrawingObjectSchema,
   DrawingPropertyValueSchema,
@@ -323,32 +326,263 @@ test("page, canvas, and layer navigation commands reject duplicates, pin default
       },
     },
   });
-  const documentState = { revisionId: ids.revision, layers: current.layers, structure: current };
+  const documentState = {
+    revisionId: ids.revision,
+    layers: current.layers,
+    structure: current,
+  };
 
   assert.equal(
-    createDrawingCanvasCommand(documentState, "actor-a", ids.page, "paper", "Paper", () => "00000000-0000-4000-8000-000000000124").actions[0].entity.name,
+    createDrawingCanvasCommand(
+      documentState,
+      "actor-a",
+      ids.page,
+      "paper",
+      "Paper",
+      () => "00000000-0000-4000-8000-000000000124",
+    ).actions[0].entity.name,
     "Paper 2",
   );
   assert.throws(
-    () => reorderDrawingCanvasCommand(documentState, "actor-a", ids.canvas, "down"),
+    () =>
+      reorderDrawingCanvasCommand(documentState, "actor-a", ids.canvas, "down"),
     /default paper canvas/i,
   );
-  const reorder = reorderDrawingLayerCommand(documentState, "actor-a", ids.modelLayer, "down");
+  assert.throws(
+    () =>
+      reorderDrawingCanvasCommand(
+        documentState,
+        "actor-a",
+        ids.modelCanvas,
+        "up",
+      ),
+    /cannot move farther/i,
+  );
+  const reorder = reorderDrawingLayerCommand(
+    documentState,
+    "actor-a",
+    ids.modelLayer,
+    "down",
+  );
   assert.equal(
-    reorder.actions.find(({ entity }) => entity.id === ids.modelLayer).entity.sortOrder,
+    reorder.actions.find(({ entity }) => entity.id === ids.modelLayer).entity
+      .sortOrder,
     1,
   );
   assert.equal(
-    reorder.actions.find(({ entity }) => entity.id === secondLayerId).entity.sortOrder,
+    reorder.actions.find(({ entity }) => entity.id === secondLayerId).entity
+      .sortOrder,
     0,
   );
   assert.throws(
-    () => deleteDrawingPageCommand({ ...documentState, structure: state({ canvases: { [ids.canvas]: canvas() } }) }, "actor-a", ids.page),
+    () =>
+      deleteDrawingPageCommand(
+        {
+          ...documentState,
+          structure: state({ canvases: { [ids.canvas]: canvas() } }),
+        },
+        "actor-a",
+        ids.page,
+      ),
     /at least one page/i,
   );
   assert.equal(
-    drawingPageDeletionReason({ ...documentState, structure: state({ canvases: { [ids.canvas]: canvas() } }) }, ids.page),
+    drawingPageDeletionReason(
+      {
+        ...documentState,
+        structure: state({ canvases: { [ids.canvas]: canvas() } }),
+      },
+      ids.page,
+    ),
     "A drawing document requires at least one page.",
+  );
+});
+
+test("canvas factories suffix editable layer names across the page and replay layer order history", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  const documentState = {
+    revisionId: ids.revision,
+    layers: current.layers,
+    structure: current,
+  };
+  const createIds = [
+    "00000000-0000-4000-8000-000000000130",
+    "00000000-0000-4000-8000-000000000131",
+    "00000000-0000-4000-8000-000000000132",
+    "00000000-0000-4000-8000-000000000133",
+  ];
+  const createId = () => createIds.shift();
+  const first = createDrawingCanvasCommand(
+    documentState,
+    "actor-a",
+    ids.page,
+    "paper",
+    "Paper",
+    createId,
+  );
+  const withFirst = applyDrawingStructureActions(current, first.actions).state;
+  const second = createDrawingCanvasCommand(
+    {
+      revisionId: ids.revision,
+      layers: withFirst.layers,
+      structure: withFirst,
+    },
+    "actor-a",
+    ids.page,
+    "model",
+    "Model",
+    createId,
+  );
+  assert.equal(first.actions[1].entity.name, "Paper work");
+  assert.equal(second.actions[1].entity.name, "Model work");
+  const withSecond = applyDrawingStructureActions(
+    withFirst,
+    second.actions,
+  ).state;
+  const thirdIds = [
+    "00000000-0000-4000-8000-000000000134",
+    "00000000-0000-4000-8000-000000000135",
+  ];
+  const third = createDrawingCanvasCommand(
+    {
+      revisionId: ids.revision,
+      layers: withSecond.layers,
+      structure: withSecond,
+    },
+    "actor-a",
+    ids.page,
+    "paper",
+    "Paper",
+    () => thirdIds.shift(),
+  );
+  assert.equal(third.actions[1].entity.name, "Paper work 2");
+  const withThird = applyDrawingStructureActions(
+    withSecond,
+    third.actions,
+  ).state;
+  const fourth = createDrawingCanvasCommand(
+    {
+      revisionId: ids.revision,
+      layers: withThird.layers,
+      structure: withThird,
+    },
+    "actor-a",
+    ids.page,
+    "model",
+    "Model",
+    (() => {
+      const ids = [
+        "00000000-0000-4000-8000-000000000136",
+        "00000000-0000-4000-8000-000000000137",
+      ];
+      return () => ids.shift();
+    })(),
+  );
+  assert.equal(fourth.actions[1].entity.name, "Model work 2");
+
+  const detail = {
+    ...current.layers[ids.layer],
+    id: ids.modelLayer,
+    name: "Detail",
+    systemKind: "custom",
+    sortOrder: 1,
+  };
+  const canonical = state({
+    canvases: { [ids.canvas]: canvas() },
+    layers: { ...current.layers, [detail.id]: detail },
+  });
+  const reorder = reorderDrawingLayerCommand(
+    {
+      revisionId: ids.revision,
+      layers: canonical.layers,
+      structure: canonical,
+    },
+    "actor-a",
+    ids.layer,
+    "down",
+  );
+  const recorded = applyDrawingCommand(
+    {
+      revisionId: ids.revision,
+      objects: canonical.objects,
+      layers: canonical.layers,
+      operations: [],
+      undoStackByActor: {},
+      redoStackByActor: {},
+      structure: canonical,
+    },
+    reorder,
+  );
+  const undone = undoDrawingCommand(recorded.state, "actor-a");
+  const redone = redoDrawingCommand(undone.state, "actor-a");
+  assert.equal(
+    redone.operation.forward.actions.every(
+      (action) => action.baseVersion === 3 && action.entity.version === 3,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    redone.operation.inverse.actions.map((action) => action.baseVersion),
+    [4, 4],
+  );
+});
+
+test("active canvas slices cache by canonical maps and deletion focus intents survive non-active removal", () => {
+  const cache = createDrawingActiveCanvasSliceCache();
+  const layers = {};
+  const objects = {};
+  for (let canvasIndex = 0; canvasIndex < 20; canvasIndex += 1) {
+    const canvasId = `canvas-${canvasIndex}`;
+    const layerId = `layer-${canvasIndex}`;
+    layers[layerId] = { id: layerId, canvasId, version: 1 };
+    for (let objectIndex = 0; objectIndex < 500; objectIndex += 1)
+      objects[`${canvasIndex}-${objectIndex}`] = {
+        id: `${canvasIndex}-${objectIndex}`,
+        layerId,
+      };
+  }
+  const a = cache.select(layers, objects, "canvas-0");
+  const b = cache.select(layers, objects, "canvas-1");
+  assert.strictEqual(cache.select(layers, objects, "canvas-0"), a);
+  assert.equal(a.objects["0-499"].id, "0-499");
+  assert.equal(b.objects["1-499"].id, "1-499");
+  for (let canvasIndex = 2; canvasIndex < 20; canvasIndex += 1)
+    cache.select(layers, objects, `canvas-${canvasIndex}`);
+  assert.equal(cache.buildCount, 20);
+  assert.notStrictEqual(cache.select({ ...layers }, objects, "canvas-0"), a);
+  assert.equal(cache.buildCount, 21);
+
+  const focus = nextDrawingCanvasFocusIntent(
+    {
+      activeCanvasId: ids.canvas,
+      pages: [
+        { id: ids.page, sortOrder: 0 },
+        { id: "page-2", sortOrder: 1 },
+      ],
+      canvases: [
+        { id: ids.canvas, pageId: ids.page, sortOrder: 0 },
+        { id: ids.modelCanvas, pageId: ids.page, sortOrder: 1 },
+        { id: "canvas-2", pageId: "page-2", sortOrder: 0 },
+      ],
+    },
+    { deletedCanvasIds: [ids.modelCanvas] },
+    4,
+  );
+  assert.deepEqual(focus, { canvasId: ids.canvas, token: 5 });
+  assert.deepEqual(
+    nextDrawingCanvasFocusIntent(
+      {
+        activeCanvasId: ids.canvas,
+        pages: [{ id: ids.page, sortOrder: 0 }],
+        canvases: [
+          { id: ids.canvas, pageId: ids.page, sortOrder: 0 },
+          { id: ids.modelCanvas, pageId: ids.page, sortOrder: 1 },
+        ],
+      },
+      { deletedCanvasIds: [ids.canvas] },
+      focus.token,
+    ),
+    { canvasId: ids.modelCanvas, token: 6 },
   );
 });
 
@@ -1051,11 +1285,12 @@ test("fresh structure entities start at version one and documents cannot lose th
     DrawingStructureError,
   );
   assert.throws(
-    () => applyDrawingStructureActions(current, [
-      { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
-      { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
-      { kind: "delete_page", id: ids.page, baseVersion: 1 },
-    ]),
+    () =>
+      applyDrawingStructureActions(current, [
+        { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
+        { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+        { kind: "delete_page", id: ids.page, baseVersion: 1 },
+      ]),
     /at least one page/i,
   );
 });
