@@ -176,6 +176,14 @@ const p3CollaborationStateMigration = () =>
     ),
     "utf8",
   );
+const p3CollaborationStateFenceMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825193714_drawing_workspace_p3_collaboration_state_fence.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const p2TemplateCloneFinalLedgerMigration = () =>
   readFile(
     new URL(
@@ -509,6 +517,7 @@ before(async () => {
   await db.exec(await p2LineageSnapshotWriterMigration());
   await db.exec(await p2TemplateCloneSecurityMigration());
   await db.exec(await p3CollaborationStateMigration());
+  await db.exec(await p3CollaborationStateFenceMigration());
   await db.exec(await p2TemplateCloneFinalLedgerMigration());
   await db.exec(await task9ContractFixesMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
@@ -553,6 +562,13 @@ test("P3 collaboration bootstrap is one canonical capability-scoped payload", as
   );
   assert.equal(payload.sha256, canonicalDigest.rows[0].sha);
   assert.deepEqual(payload.recentOutcomes, []);
+
+  await db.exec("set role lukas_drawing_collaboration");
+  const privateOwner = await db.query(
+    "select private.lukas_drawing_collaboration_bootstrap($1,$2,$3) result",
+    [OWNER, PROJECT, ids.revisionId],
+  );
+  assert.deepEqual(privateOwner.rows[0].result, payload);
 
   await asActor(REVIEWER);
   const reviewer = await db.query(
@@ -613,7 +629,7 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   const firstBytes = Buffer.from([0, 1, 2, 3]);
   await db.exec("reset role; set role lukas_drawing_collaboration");
   const stored = await db.query(
-    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,0::bigint,null)",
     [OWNER, PROJECT, ids.revisionId, firstBytes],
   );
   assert.equal(stored.rows[0].byte_size, firstBytes.length);
@@ -621,11 +637,81 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     stored.rows[0].yjs_sha256,
     createHash("sha256").update(firstBytes).digest("hex"),
   );
+  assert.equal(stored.rows[0].store_generation, 1);
   const editorStore = await db.query(
-    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
-    [EDITOR, PROJECT, ids.revisionId, Buffer.from([3, 2, 1])],
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+    [
+      EDITOR,
+      PROJECT,
+      ids.revisionId,
+      Buffer.from([3, 2, 1]),
+      stored.rows[0].store_generation,
+      stored.rows[0].yjs_sha256,
+    ],
   );
   assert.deepEqual([...editorStore.rows[0].yjs_state], [3, 2, 1]);
+  assert.equal(editorStore.rows[0].store_generation, 2);
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([9, 9]),
+        stored.rows[0].store_generation,
+        stored.rows[0].yjs_sha256,
+      ],
+    ),
+    (error) => error.code === "P3S03",
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([8, 8]),
+        editorStore.rows[0].store_generation,
+        stored.rows[0].yjs_sha256,
+      ],
+    ),
+    (error) => error.code === "P3S03",
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([7, 7]),
+        stored.rows[0].store_generation,
+        editorStore.rows[0].yjs_sha256,
+      ],
+    ),
+    (error) => error.code === "P3S03",
+  );
+  const afterStale = await db.query(
+    "select * from private.lukas_drawing_collaboration_load_state($1,$2,$3)",
+    [OWNER, PROJECT, ids.revisionId],
+  );
+  assert.deepEqual([...afterStale.rows[0].yjs_state], [3, 2, 1]);
+  assert.equal(afterStale.rows[0].store_generation, 2);
+  assert.equal(afterStale.rows[0].yjs_sha256, editorStore.rows[0].yjs_sha256);
+  const retry = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+    [
+      EDITOR,
+      PROJECT,
+      ids.revisionId,
+      Buffer.from([3, 2, 1]),
+      stored.rows[0].store_generation,
+      stored.rows[0].yjs_sha256,
+    ],
+  );
+  assert.equal(retry.rows[0].store_generation, 2);
 
   const reviewerLoad = await db.query(
     "select * from private.lukas_drawing_collaboration_load_state($1,$2,$3)",
@@ -634,8 +720,8 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   assert.equal(reviewerLoad.rows.length, 1);
   await assert.rejects(
     db.query(
-      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
-      [REVIEWER, PROJECT, ids.revisionId, Buffer.from([9])],
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+      [REVIEWER, PROJECT, ids.revisionId, Buffer.from([9]), editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
     ),
     (error) => error.code === "P3A02",
   );
@@ -646,8 +732,8 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   ]) {
     await assert.rejects(
       db.query(
-        "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,$4::smallint,$5::bytea,$6::bigint)",
-        [OWNER, PROJECT, ids.revisionId, schema, bytes, sequence],
+        "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,$4::smallint,$5::bytea,$6::bigint,$7::bigint,$8)",
+        [OWNER, PROJECT, ids.revisionId, schema, bytes, sequence, editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
       ),
       (error) => error.code === "P3S01",
     );
@@ -677,14 +763,19 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     {},
   );
   await db.exec("reset role; set role lukas_drawing_collaboration");
-  await db.query(
-    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
-    [OWNER, PROJECT, ids.revisionId, Buffer.from([4, 5])],
+  const advanced = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
+    [OWNER, PROJECT, ids.revisionId, Buffer.from([4, 5]), editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
+  );
+  assert.equal(advanced.rows[0].store_generation, 3);
+  const current = await db.query(
+    "select * from private.lukas_drawing_collaboration_load_state($1,$2,$3)",
+    [OWNER, PROJECT, ids.revisionId],
   );
   await assert.rejects(
     db.query(
-      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([6])],
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([6]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
     ),
     (error) => error.code === "P3S02",
   );
@@ -747,6 +838,13 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     ),
     (error) => error.code === "P3S01",
   );
+  await db.exec("reset role");
+  await asActor(OWNER);
+  const publicAtSequenceOne = await db.query(
+    "select public.lukas_drawing_collaboration_bootstrap($1) result",
+    [ids.revisionId],
+  );
+  assert.deepEqual(publicAtSequenceOne.rows[0].result, bootstrap.rows[0].result);
 
   await db.exec("reset role; alter table public.lukas_drawing_revisions disable trigger user");
   await db.query(
@@ -756,8 +854,8 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
   await assert.rejects(
     db.query(
-      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([7])],
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([7]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
     ),
     (error) => error.code === "P3A02",
   );
@@ -769,8 +867,8 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
   await assert.rejects(
     db.query(
-      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([8])],
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([8]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
     ),
     (error) => error.code === "P3A02",
   );
@@ -783,10 +881,11 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     has_table_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_states','select') collaboration_table,
     has_function_privilege('authenticated','private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)','execute') authenticated_private,
     has_function_privilege('anon','private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)','execute') anon_private,
-    has_function_privilege('service_role','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') service_store,
+    has_function_privilege('service_role','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') service_store,
     has_function_privilege('service_role','public.lukas_drawing_collaboration_bootstrap(uuid)','execute') service_public,
     has_function_privilege('authenticated','public.lukas_drawing_collaboration_bootstrap(uuid)','execute') authenticated_public,
-    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') collaboration_store`);
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') collaboration_store,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') unsafe_store`);
   assert.deepEqual(privileges.rows[0], {
     authenticated_table: false,
     service_table: false,
@@ -798,11 +897,12 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     service_public: false,
     authenticated_public: true,
     collaboration_store: true,
+    unsafe_store: false,
   });
   const privateSignatures = [
     "private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid)",
     "private.lukas_drawing_collaboration_load_state(uuid,uuid,uuid)",
-    "private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)",
+    "private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text)",
     "private.lukas_drawing_collaboration_lookup_operations(uuid,uuid[])",
     "private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)",
   ];

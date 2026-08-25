@@ -108,20 +108,57 @@ and two real users must complete the field flow.
 
 ## Drawing Workspace P3 collaboration database
 
-The P3 state migration creates `lukas_drawing_collaboration` as a `NOLOGIN`
-database role. After applying the migration, create or rotate a separate runtime
-login through the deployment secret manager and grant it only that role. Never
-commit its password or place its database URL in a `VITE_*` variable. The
-collaboration service must not use the Supabase service-role key.
+The P3 state migration creates `lukas_drawing_collaboration` as a
+`NOLOGIN NOINHERIT` database role. After applying the migration, create or rotate
+a separate `LOGIN NOINHERIT` runtime role through the deployment secret manager,
+then grant it membership in only `lukas_drawing_collaboration`. Never commit its
+password or place its database URL in a `VITE_*` variable. The collaboration
+service must not use the Supabase service-role key.
 
-Before deploying the collaboration service, verify that the runtime login inherits
-only the dedicated role, Data API roles cannot read the private state or execute
-private collaboration functions, and the role itself cannot log in:
+As the database operator, grant the generated login only the dedicated role
+after its password has been installed out of band:
+
+```sql
+grant lukas_drawing_collaboration to "<runtime-login>";
+```
+
+Membership does not activate the dedicated privileges on the runtime session.
+Every newly opened physical pool connection must execute
+`SET ROLE lukas_drawing_collaboration` before calling a private collaboration
+function. A per-request transaction may instead use
+`SET LOCAL ROLE lukas_drawing_collaboration`; it must do so in every transaction.
+Do not rely on a one-time statement issued through an arbitrary pooled checkout.
+`RESET ROLE` before returning a connection that may be reused outside the
+collaboration service.
+
+Before deploying the collaboration service, connect as the runtime login and
+verify the inactive session, explicit role transition, and active function grant.
+Replace `<runtime-login>` only in the operator session; never paste its password
+into the runbook:
 
 ```sql
 select rolname, rolcanlogin, rolinherit
 from pg_roles
-where rolname = 'lukas_drawing_collaboration';
+where rolname in ('lukas_drawing_collaboration', '<runtime-login>')
+order by rolname;
+
+select session_user, current_user,
+  has_function_privilege(
+    current_user,
+    'private.lukas_drawing_collaboration_load_state(uuid,uuid,uuid)',
+    'execute'
+  ) as can_load_before_set_role;
+
+set role lukas_drawing_collaboration;
+
+select session_user, current_user,
+  has_function_privilege(
+    current_user,
+    'private.lukas_drawing_collaboration_load_state(uuid,uuid,uuid)',
+    'execute'
+  ) as can_load_after_set_role;
+
+reset role;
 
 select grantee, routine_schema, routine_name, privilege_type
 from information_schema.role_routine_grants
@@ -135,13 +172,34 @@ select has_table_privilege(
 ) as authenticated_can_read_private_state;
 ```
 
-The role must report `rolcanlogin = false`; private service functions must be
-executable only through `lukas_drawing_collaboration`; the table check must be
-false. Confirm stored `byte_size` and `yjs_sha256` match the exact `yjs_state`
-bytes, and that no collaboration-state table appears in `supabase_realtime`.
+The dedicated role must report `rolcanlogin = false` and `rolinherit = false`;
+the runtime login must report `rolinherit = false`. Before `SET ROLE`, the
+function check must be false. After it, `current_user` must be
+`lukas_drawing_collaboration` and the function check must be true. Private service
+functions must be executable only through that active role; the table check must
+remain false because the service writes only through bounded functions. Confirm
+stored `byte_size` and `yjs_sha256` match the exact `yjs_state` bytes and preserve
+the returned `store_generation` plus SHA as the CAS token for the next store.
+On `P3S03`, reload, merge, and retry; never resubmit stale full-state bytes with a
+guessed token. No collaboration-state table may appear in `supabase_realtime`.
 Only the public invalidation tables listed by the workspace Realtime adapter may
 be added to that publication. The migration never changes the locked `realtime`
 schema.
+
+Run the real transaction-snapshot gate only against a disposable PostgreSQL
+fixture where the actor already owns or edits the project:
+
+```sh
+P3_POSTGRES_CONCURRENCY_DATABASE_URL=<secret-test-database-url> \
+P3_POSTGRES_ACTOR_ID=<fixture-user-uuid> \
+P3_POSTGRES_PROJECT_ID=<fixture-project-uuid> \
+node --test tests/drawing-workspace-p3-postgres-concurrency.test.mjs
+```
+
+The test holds a `REPEATABLE READ` reader transaction, commits a valid Drawing
+operation from a second connection, proves the public and service bootstraps are
+identical inside the reader snapshot, then proves a new transaction observes the
+committed sequence. Missing fixture variables are reported as `UNEXECUTED`.
 
 ## Drawing Workspace P0/P1 release runbook
 

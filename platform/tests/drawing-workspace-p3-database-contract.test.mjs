@@ -9,6 +9,13 @@ const migration = await readFile(
   ),
   "utf8",
 );
+const fenceMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260825193714_drawing_workspace_p3_collaboration_state_fence.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(migration, /create role lukas_drawing_collaboration\s+noinherit\s+nologin/i);
@@ -75,4 +82,22 @@ test("P3 collaboration publication changes are idempotent application-table addi
   }
   assert.match(migration, /from pg_catalog\.pg_publication_tables/i);
   assert.match(migration, /pg_catalog\.to_regclass/i);
+});
+
+test("P3 collaboration forward fix fences equal-checkpoint state stores", () => {
+  assert.match(fenceMigration, /add column store_generation bigint/i);
+  assert.match(
+    fenceMigration,
+    /lukas_drawing_collaboration_store_state\(\s*p_user_id uuid,[\s\S]*p_expected_generation bigint,[\s\S]*p_expected_sha256 text/i,
+  );
+  assert.match(fenceMigration, /p_expected_generation[\s\S]*store_generation/i);
+  assert.match(fenceMigration, /p_expected_sha256[\s\S]*yjs_sha256/i);
+  assert.match(
+    fenceMigration,
+    /store_generation\s*=\s*v_existing\.store_generation\s*\+\s*1/i,
+  );
+  assert.match(
+    fenceMigration,
+    /revoke all on function private\.lukas_drawing_collaboration_store_state\(uuid,uuid,uuid,smallint,bytea,bigint\)/i,
+  );
 });
