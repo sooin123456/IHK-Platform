@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Form } from "react-router";
 
 import {
+  applyDrawingStyleSelection,
+  detachDrawingStyleSelection,
   isEditableDrawingLayer,
+  resetDrawingStyleOverrides,
   updateDrawingSelectionProperties,
   type DrawingCommand,
   type DrawingDocumentState,
   type DrawingInspectorPatch,
 } from "~/lukas/lib/drawing-commands";
-import type { DrawingObject } from "~/lukas/lib/drawing-workspace.types";
+import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
+import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
 import type {
   DrawingObjectIssueLink,
   DrawingWorkspaceIssue,
@@ -22,7 +26,7 @@ type Props = {
   issues: DrawingWorkspaceIssue[];
   onCommand: (command: DrawingCommand) => void;
   selectedIds: string[];
-  state: Pick<DrawingDocumentState, "layers" | "objects">;
+  state: Pick<DrawingDocumentState, "layers" | "objects" | "structure">;
 };
 
 function sharedValue(
@@ -31,6 +35,14 @@ function sharedValue(
 ) {
   const first = objects[0] ? value(objects[0]) : "";
   return objects.every((object) => value(object) === first) ? first : "";
+}
+
+function sharedStyleValue(
+  styles: DrawingStyle[],
+  value: (style: DrawingStyle) => string,
+) {
+  const first = styles[0] ? value(styles[0]) : "";
+  return styles.every((style) => value(style) === first) ? first : "";
 }
 
 function inspectorError(error: unknown) {
@@ -54,6 +66,15 @@ export function DrawingInspector({
     () => selectedIds.map((id) => state.objects[id]).filter(Boolean),
     [selectedIds, state.objects],
   );
+  const styleResolution = useMemo(() => {
+    const resolver = createDrawingStyleResolutionCache(state.structure?.styles ?? {});
+    try {
+      return { styles: selectedObjects.map((object) => resolver.resolve(object)), error: null };
+    } catch (caught) {
+      return { styles: [] as DrawingStyle[], error: inspectorError(caught) };
+    }
+  }, [selectedObjects, state.structure?.styles]);
+  const selectedStyles = styleResolution.styles;
   const selectionKey = selectedObjects
     .map((object) => `${object.id}:${object.version}`)
     .join("|");
@@ -184,6 +205,7 @@ export function DrawingInspector({
       const fill = String(data.get("fill") ?? "");
       patch.fill = fill === "" ? null : fill;
     }
+    if (dirty.has("fontSize")) patch.fontSize = Number(data.get("fontSize"));
     if (dirty.has("text")) patch.text = String(data.get("text") ?? "");
     try {
       const command = updateDrawingSelectionProperties(
@@ -200,6 +222,24 @@ export function DrawingInspector({
     }
   }
 
+  function applyStyle(styleId: string) {
+    try {
+      if (!styleId) return;
+      onCommand(applyDrawingStyleSelection(state, selectedIds, actorId, styleId));
+      setError(null);
+    } catch (caught) { setError(inspectorError(caught)); }
+  }
+
+  function resetOverrides() {
+    try { onCommand(resetDrawingStyleOverrides(state, selectedIds, actorId)); setError(null); }
+    catch (caught) { setError(inspectorError(caught)); }
+  }
+
+  function detachStyle() {
+    try { onCommand(detachDrawingStyleSelection(state, selectedIds, actorId)); setError(null); }
+    catch (caught) { setError(inspectorError(caught)); }
+  }
+
   if (selectedObjects.length === 0) {
     return (
       <section aria-labelledby="drawing-inspector-title">
@@ -209,6 +249,15 @@ export function DrawingInspector({
         <p className="mt-4 text-sm leading-6 text-slate-400">
           객체를 선택하면 속성을 편집할 수 있습니다.
         </p>
+      </section>
+    );
+  }
+
+  if (styleResolution.error) {
+    return (
+      <section aria-labelledby="drawing-inspector-title">
+        <h2 className="text-sm font-bold" id="drawing-inspector-title">속성</h2>
+        <p className="mt-4 text-sm text-red-300" role="alert">{styleResolution.error}</p>
       </section>
     );
   }
@@ -285,6 +334,28 @@ export function DrawingInspector({
       <p className="mt-1 text-xs text-slate-400">
         {selectedObjects.length}개 객체 선택
       </p>
+      {state.structure ? (
+        <div className="mt-4 grid gap-2 border-t border-white/10 pt-4">
+          <label className="grid gap-1 text-xs" htmlFor="inspector-style">
+            공유 스타일
+            <select
+              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              defaultValue={sharedValue(selectedObjects, (object) => object.styleId ?? "")}
+              id="inspector-style"
+              onChange={(event) => applyStyle(event.currentTarget.value)}
+            >
+              <option disabled value="">인라인 또는 혼합 값</option>
+              {Object.values(state.structure.styles).sort((left, right) => left.name.localeCompare(right.name)).map((style) => (
+                <option key={style.id} value={style.id}>{style.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={resetOverrides} type="button">재정의 초기화</button>
+            <button className="min-h-9 rounded border border-white/20 px-2 text-sm" disabled={selectedObjects.some((object) => !object.styleId)} onClick={detachStyle} type="button">스타일 분리</button>
+          </div>
+        </div>
+      ) : null}
       <form
         className="mt-4 grid gap-3"
         data-drawing-shortcuts="ignore"
@@ -332,9 +403,9 @@ export function DrawingInspector({
           선 색상
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={sharedValue(
-              selectedObjects,
-              (object) => object.style.stroke ?? "",
+            defaultValue={sharedStyleValue(
+              selectedStyles,
+              (style) => style.stroke,
             )}
             disabled={!canEdit}
             id="inspector-stroke"
@@ -349,9 +420,7 @@ export function DrawingInspector({
           선 두께
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-            defaultValue={sharedValue(selectedObjects, (object) =>
-              String(object.style.strokeWidth),
-            )}
+            defaultValue={sharedStyleValue(selectedStyles, (style) => String(style.strokeWidth))}
             disabled={!canEdit}
             id="inspector-stroke-width"
             max={1000}
@@ -367,9 +436,9 @@ export function DrawingInspector({
           채우기
           <input
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={sharedValue(
-              selectedObjects,
-              (object) => object.style.fill ?? "",
+            defaultValue={sharedStyleValue(
+              selectedStyles,
+              (style) => style.fill ?? "",
             )}
             disabled={!canEdit}
             id="inspector-fill"
@@ -379,6 +448,23 @@ export function DrawingInspector({
             placeholder="비우면 채우기 없음"
           />
         </label>
+
+        {textOnly ? (
+          <label className="grid gap-1 text-xs" htmlFor="inspector-font-size">
+            글꼴 크기
+            <input
+              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              defaultValue={selectedStyles.every((style) => style.fontSize === selectedStyles[0]?.fontSize) ? String(selectedStyles[0]?.fontSize ?? "") : ""}
+              id="inspector-font-size"
+              max={10000}
+              min={0.000001}
+              name="fontSize"
+              onChange={() => markDirty("fontSize")}
+              step="any"
+              type="number"
+            />
+          </label>
+        ) : null}
 
         {textOnly ? (
           <label className="grid gap-1 text-xs" htmlFor="inspector-text">

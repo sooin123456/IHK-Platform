@@ -52,6 +52,7 @@ import {
   sanitizeDrawingTransientInput,
   type DrawingDocumentStore,
 } from "~/lukas/lib/drawing-document-store.client";
+import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
 import {
   canPersistDrawingMutation,
   claimLegacyDrawingOperations,
@@ -73,6 +74,7 @@ import {
   DrawingObjectSchema,
   PdfCalibrationSchema,
 } from "~/lukas/lib/drawing-workspace.types";
+import type { DrawingObject, DrawingStyle } from "~/lukas/lib/drawing-workspace.types";
 import {
   drawingRevisionDecisionFields,
   drawingIssueLinkReady,
@@ -88,6 +90,7 @@ import {
 import { DrawingInspector } from "./drawing-inspector";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
+import { DrawingStylesPanel } from "./drawing-styles-panel";
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
@@ -449,9 +452,24 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const activeDrawingState = transient.state;
+  const resolvedObjects = useMemo(() => {
+    const resolver = createDrawingStyleResolutionCache(
+      activeDrawingState.structure?.styles ?? {},
+    );
+    const objects: Array<DrawingObject & { style: DrawingStyle }> = [];
+    let styleError: string | null = null;
+    for (const object of Object.values(activeDrawingState.objects)) {
+      try {
+        objects.push({ ...object, style: resolver.resolve(object) });
+      } catch (caught) {
+        styleError = caught instanceof Error ? caught.message : "도면 스타일을 해석할 수 없습니다.";
+      }
+    }
+    return { objects, styleError };
+  }, [activeDrawingState.objects, activeDrawingState.structure?.styles]);
   const visibleObjects = useMemo(
     () =>
-      Object.values(activeDrawingState.objects)
+      resolvedObjects.objects
         .filter((object) => activeDrawingState.layers[object.layerId]?.visible)
         .sort((left, right) => {
           const layerOrder =
@@ -459,7 +477,7 @@ export default function DrawingWorkspaceClient({
             (activeDrawingState.layers[right.layerId]?.sortOrder ?? 0);
           return layerOrder || left.id.localeCompare(right.id);
         }),
-    [activeDrawingState.layers, activeDrawingState.objects],
+    [activeDrawingState.layers, resolvedObjects.objects],
   );
   const resolvedActiveLayerId = transient.activeLayerId;
   const activeCanvas = drawingState.activeCanvasId
@@ -1267,6 +1285,12 @@ export default function DrawingWorkspaceClient({
               state={drawingState}
             />
           </div>
+          <DrawingStylesPanel
+            actorId={currentUserId}
+            canEdit={editing.canEdit}
+            onCommand={applyCommand}
+            state={drawingState}
+          />
         </aside>
 
         <section
@@ -1281,6 +1305,14 @@ export default function DrawingWorkspaceClient({
             }
           >
             <div className="min-h-0 min-w-0">
+              {resolvedObjects.styleError ? (
+                <p
+                  className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
+                  role="alert"
+                >
+                  {resolvedObjects.styleError}
+                </p>
+              ) : null}
               {surface.layout === "canvas" && surface.sourceError ? (
                 <p
                   className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"

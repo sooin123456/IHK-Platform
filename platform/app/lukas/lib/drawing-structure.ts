@@ -433,10 +433,15 @@ function validateReferences(state: DrawingStructureState): void {
     }
     validateStyleReference(object.styleId, state, `Object ${object.id}`);
   }
+  const styleNames = new Set<string>();
   for (const style of Object.values(state.styles)) {
     if (style.revisionId !== state.revisionId) {
       throw new DrawingStructureError(`Style ${style.id} belongs to another revision.`);
     }
+    if (styleNames.has(style.name)) {
+      throw new DrawingStructureError(`Drawing style name ${style.name} must be unique.`);
+    }
+    styleNames.add(style.name);
   }
   for (const block of Object.values(state.blocks)) {
     if (block.revisionId !== state.revisionId) {

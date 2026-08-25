@@ -49,6 +49,7 @@ import type {
   DrawingGeometry,
   DrawingLayer,
   DrawingObject,
+  DrawingStyle,
   Point,
   Viewport,
 } from "~/lukas/lib/drawing-workspace.types";
@@ -1107,7 +1108,7 @@ type DrawingCanvasProps = {
   canEdit: boolean;
   layerId: string | null;
   layers: DrawingLayer[];
-  objects: DrawingObject[];
+  objects: Array<DrawingObject & { style: DrawingStyle }>;
   onCommand: (command: DrawingCommand) => void;
   onSelectionChange: (selectedIds: string[]) => void;
   onToolComplete: (tool: DrawingTool) => void;
@@ -1185,7 +1186,7 @@ function isCancelled(error: unknown) {
 
 function geometryShape(
   geometry: DrawingGeometry,
-  style: DrawingObject["style"],
+  style: DrawingStyle,
   preview = false,
   calibration?: DimensionCalibrationEvidence | null,
 ) {
@@ -1300,7 +1301,7 @@ function geometryShape(
 
 type CommittedDrawingLayerProps = {
   calibration: DimensionCalibrationEvidence | null;
-  objects: DrawingObject[];
+  objects: Array<DrawingObject & { style: DrawingStyle }>;
   viewportX: number;
   viewportY: number;
   viewportZoom: number;
@@ -1757,7 +1758,7 @@ export const DrawingCanvas = forwardRef<
     controllerState.previewPoint,
     calibrationId,
   );
-  const previewStyle: DrawingObject["style"] = {
+  const previewStyle: DrawingStyle = {
     stroke: "#60a5fa",
     strokeWidth: 2 / viewport.zoom,
     fill: null,

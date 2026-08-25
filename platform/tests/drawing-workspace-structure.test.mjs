@@ -672,6 +672,24 @@ test("resolved style merges a referenced definition with finite validated overri
   );
 });
 
+test("strict structure actions reject duplicate trimmed style definition names", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  assert.throws(
+    () => applyDrawingStructureActions(current, [{
+      kind: "put_style",
+      entity: {
+        id: "00000000-0000-4000-8000-000000000011",
+        revisionId: ids.revision,
+        name: "Default",
+        value: { stroke: "#000000", strokeWidth: 1, fill: null },
+        version: 1,
+      },
+      baseVersion: null,
+    }]),
+    /style.*name.*unique|unique.*style.*name/i,
+  );
+});
+
 test("structure object actions require the matching block conversion batch", () => {
   const existingCanvas = canvas();
   const current = state({ canvases: { [existingCanvas.id]: existingCanvas } });

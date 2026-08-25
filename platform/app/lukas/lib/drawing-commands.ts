@@ -29,6 +29,7 @@ import {
   DrawingCanvasSchema,
   DrawingPageSchema,
   DrawingStructureLayerSchema,
+  DrawingStyleDefinitionSchema,
 } from "./drawing-workspace.types.ts";
 
 export type ObjectPatch = Partial<
@@ -266,6 +267,93 @@ export function renameDrawingCanvasCommand(
       },
       baseVersion: canvas.version,
     },
+  ]);
+}
+
+type StyleCommandState = Pick<DrawingDocumentState, "revisionId" | "layers" | "objects" | "structure">;
+
+function requireStyleCommandState(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+) {
+  const canonical = requireStructureState(state);
+  return canonical;
+}
+
+function uniqueStyleName(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  name: string,
+  styleId?: string,
+): string {
+  const normalized = entityName(name);
+  if (
+    Object.values(requireStyleCommandState(state).structure.styles).some(
+      (style) => style.id !== styleId && style.name === normalized,
+    )
+  ) {
+    throw new DrawingCommandError(`Drawing style ${normalized} already exists.`);
+  }
+  return normalized;
+}
+
+/** Creates a named full drawing-style definition via the strict structure RPC. */
+export function createDrawingStyleCommand(
+  state: StyleCommandState,
+  actorId: string,
+  name: string,
+  value: DrawingStyle,
+  createId: () => string = () => crypto.randomUUID(),
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStyleCommandState(state);
+  const style = DrawingStyleDefinitionSchema.parse({
+    id: createId(),
+    revisionId: canonical.revisionId,
+    name: uniqueStyleName(canonical, name),
+    value: DrawingStyleSchema.parse(value),
+    version: 1,
+  });
+  return structureCommand(actorId, [
+    { kind: "put_style", entity: style, baseVersion: null },
+  ]);
+}
+
+/** Renames or replaces a definition; referenced objects remain untouched. */
+export function updateDrawingStyleCommand(
+  state: StyleCommandState,
+  actorId: string,
+  styleId: string,
+  patch: Partial<Pick<import("./drawing-workspace.types.ts").DrawingStyleDefinition, "name" | "value">>,
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStyleCommandState(state);
+  const existing = canonical.structure.styles[styleId];
+  if (!existing) throw new DrawingCommandError("Drawing style does not exist.");
+  const style = DrawingStyleDefinitionSchema.parse({
+    ...existing,
+    ...(patch.name === undefined ? {} : { name: uniqueStyleName(canonical, patch.name, styleId) }),
+    ...(patch.value === undefined ? {} : { value: DrawingStyleSchema.parse(patch.value) }),
+  });
+  return structureCommand(actorId, [
+    { kind: "put_style", entity: style, baseVersion: existing.version },
+  ]);
+}
+
+/** Deletion is intentionally unavailable while any object or block primitive references it. */
+export function deleteDrawingStyleCommand(
+  state: StyleCommandState,
+  actorId: string,
+  styleId: string,
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStyleCommandState(state);
+  const existing = canonical.structure.styles[styleId];
+  if (!existing) throw new DrawingCommandError("Drawing style does not exist.");
+  const referenced =
+    Object.values(canonical.structure.objects ?? state.objects).some((object) => object.styleId === styleId) ||
+    Object.values(canonical.structure.blocks ?? {}).some((block) =>
+      block.primitives.some((primitive) => primitive.styleId === styleId),
+    );
+  if (referenced)
+    throw new DrawingCommandError("Referenced drawing style cannot be deleted.");
+  return structureCommand(actorId, [
+    { kind: "delete_style", id: styleId, baseVersion: existing.version },
   ]);
 }
 
@@ -1669,8 +1757,83 @@ export type DrawingInspectorPatch = {
   stroke?: string;
   strokeWidth?: number;
   fill?: string | null;
+  fontSize?: number;
   text?: string;
 };
+
+type StyleSelectionState = Pick<DrawingDocumentState, "layers" | "objects" | "structure">;
+
+function styleSelectionTargets(
+  state: StyleSelectionState,
+  selectedIds: string[],
+): DrawingObject[] {
+  const targets = [...new Set(selectedIds)].map((id) => requireObject(state.objects, id));
+  if (targets.length === 0) throw new DrawingCommandError("Select at least one drawing object.");
+  for (const object of targets) {
+    if (!mutableDrawingObject(state, object.id))
+      throw new LockedDrawingLayerError(object.layerId);
+  }
+  return targets;
+}
+
+/** Assigns one shared style and clears per-object overrides atomically. */
+export function applyDrawingStyleSelection(
+  state: StyleSelectionState,
+  selectedIds: string[],
+  actorId: string,
+  styleId: string,
+): Extract<DrawingCommand, { type: "update_objects" }> {
+  if (!state.structure?.styles[styleId])
+    throw new DrawingCommandError("Drawing style does not exist.");
+  return {
+    type: "update_objects",
+    actorId,
+    updates: styleSelectionTargets(state, selectedIds).map((object) => ({
+      objectId: object.id,
+      baseVersion: object.version,
+      patch: { styleId, style: {} },
+    })),
+  };
+}
+
+/** Clears selected referenced-style overrides without changing their definition. */
+export function resetDrawingStyleOverrides(
+  state: StyleSelectionState,
+  selectedIds: string[],
+  actorId: string,
+): Extract<DrawingCommand, { type: "update_objects" }> {
+  return {
+    type: "update_objects",
+    actorId,
+    updates: styleSelectionTargets(state, selectedIds).map((object) => {
+      if (!object.styleId)
+        throw new DrawingCommandError("Inline drawing styles do not have overrides to reset.");
+      return { objectId: object.id, baseVersion: object.version, patch: { style: {} } };
+    }),
+  };
+}
+
+/** Converts a referenced style into its current complete inline effective value. */
+export function detachDrawingStyleSelection(
+  state: StyleSelectionState,
+  selectedIds: string[],
+  actorId: string,
+): Extract<DrawingCommand, { type: "update_objects" }> {
+  if (!state.structure)
+    throw new DrawingCommandError("Drawing structure state is required for styles.");
+  return {
+    type: "update_objects",
+    actorId,
+    updates: styleSelectionTargets(state, selectedIds).map((object) => ({
+      objectId: object.id,
+      baseVersion: object.version,
+      patch: {
+        styleId: null,
+        style: resolveDrawingStyle(object, state.structure!.styles),
+      },
+    })),
+  };
+}
 
 /** Builds one atomic, version-aware property command for an exact selection. */
 export function updateDrawingSelectionProperties(
@@ -1687,6 +1850,7 @@ export function updateDrawingSelectionProperties(
     "stroke",
     "strokeWidth",
     "fill",
+    "fontSize",
     "text",
   ]);
   if (keys.some((key) => !allowedKeys.has(key))) {
@@ -1705,6 +1869,9 @@ export function updateDrawingSelectionProperties(
       : {}),
     ...(patch.fill !== undefined
       ? { fill: DrawingFillColorSchema.parse(patch.fill) }
+      : {}),
+    ...(patch.fontSize !== undefined
+      ? { fontSize: DrawingStyleSchema.shape.fontSize.unwrap().parse(patch.fontSize) }
       : {}),
   };
   if (parsed.layerId !== undefined) {
@@ -1728,10 +1895,17 @@ export function updateDrawingSelectionProperties(
   ) {
     throw new DrawingCommandError("Text can only update text objects.");
   }
+  if (
+    parsed.fontSize !== undefined &&
+    targets.some((object) => object.geometry.type !== "text")
+  ) {
+    throw new DrawingCommandError("Font size can only update text objects.");
+  }
   const changesStyle =
     parsed.stroke !== undefined ||
     parsed.strokeWidth !== undefined ||
-    parsed.fill !== undefined;
+    parsed.fill !== undefined ||
+    parsed.fontSize !== undefined;
   const updates = targets.map((object) => {
     const objectPatch: ObjectPatch = {};
     if (parsed.name !== undefined) objectPatch.name = parsed.name;
@@ -1744,6 +1918,7 @@ export function updateDrawingSelectionProperties(
           ? { strokeWidth: parsed.strokeWidth }
           : {}),
         ...(parsed.fill !== undefined ? { fill: parsed.fill } : {}),
+        ...(parsed.fontSize !== undefined ? { fontSize: parsed.fontSize } : {}),
       };
     }
     if (parsed.text !== undefined && object.geometry.type === "text") {
