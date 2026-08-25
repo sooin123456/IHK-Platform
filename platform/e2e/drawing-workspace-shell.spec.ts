@@ -1,15 +1,23 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const previewPath = "/workspace-preview/drawing-workspace";
+const realtimeTestPreviewPath = `${previewPath}?realtimeTest=1`;
 test.describe.configure({ timeout: 30_000 });
 
-async function openPreview(page: Page) {
+async function openPreview(page: Page, path = previewPath) {
   page.setDefaultTimeout(5_000);
-  await page.goto(previewPath, {
+  await page.goto(path, {
     timeout: 15_000,
     waitUntil: "domcontentloaded",
   });
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
+}
+
+async function waitForPreviewRealtimeEffect(page: Page) {
+  await expect(
+    page.getByRole("status", { name: "실시간 미리보기 준비됨" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
@@ -20,12 +28,48 @@ test("local preview keeps its realtime indicator connected without a Supabase re
     if (new URL(request.url()).port === "54321")
       supabaseRequests.push(request.url());
   });
-  await openPreview(page);
+  await openPreview(page, realtimeTestPreviewPath);
+  await waitForPreviewRealtimeEffect(page);
 
   await expect(
     page.getByRole("status", { name: "실시간 상태: 실시간 연결됨" }),
   ).toBeVisible();
   expect(supabaseRequests).toEqual([]);
+});
+
+test("preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes", async ({
+  page,
+}) => {
+  await openPreview(page, realtimeTestPreviewPath);
+  await waitForPreviewRealtimeEffect(page);
+
+  const loaderNonce = page.getByLabel("미리보기 loader nonce");
+  const initialNonce = await loaderNonce.textContent();
+  const localLayerName = "Realtime local edit";
+  await page
+    .getByRole("textbox", { name: "새 레이어 이름" })
+    .fill(localLayerName);
+  await page.getByRole("button", { name: "레이어 추가" }).click();
+  const localLayer = page.getByRole("textbox", {
+    name: `레이어 이름: ${localLayerName}`,
+  });
+  await expect(localLayer).toBeVisible();
+
+  await page.getByRole("button", { name: "실시간 갱신 시험" }).click();
+  await expect(page.getByLabel("실시간 갱신 횟수")).toHaveText("1");
+  await expect(loaderNonce).not.toHaveText(initialNonce ?? "");
+  await expect(localLayer).toBeVisible();
+
+  await page.getByRole("button", { name: "테스트 사용자 전환" }).click();
+  await expect(localLayer).toBeHidden();
+
+  await page.getByRole("button", { name: "테스트 보기 권한" }).click();
+  await expect(
+    page.getByText("읽기 전용 레이어 목록", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "새 레이어 이름" }),
+  ).toBeHidden();
 });
 
 test("local preview click selects the Style tab and reveals its panel", async ({

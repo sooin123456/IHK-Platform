@@ -477,6 +477,7 @@ type Props = {
   currentUserId: string;
   previewMode?: boolean;
   realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
+  previewHarness?: { onInvalidate: () => void };
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -490,6 +491,7 @@ export default function DrawingWorkspaceClient({
   currentUserId,
   previewMode = false,
   realtimeAdapter,
+  previewHarness,
   roomUrl,
   sourceUrl,
   workspace,
@@ -568,6 +570,7 @@ export default function DrawingWorkspaceClient({
     projectId: revision.project_id,
     revisionId: revision.id,
     userId: currentUserId,
+    onInvalidate: previewHarness?.onInvalidate,
   });
   const documentStoreRef = useRef<DrawingDocumentStore | null>(null);
   if (!documentStoreRef.current) {

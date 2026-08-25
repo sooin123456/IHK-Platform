@@ -1,7 +1,13 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
+import { useCallback, useMemo, useState } from "react";
+
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
-import { createInertDrawingWorkspaceRealtimeAdapter } from "~/lukas/lib/drawing-workspace-realtime";
+import {
+  connectedDrawingWorkspaceRealtimeView,
+  createInertDrawingWorkspaceRealtimeAdapter,
+  type DrawingWorkspaceRealtimeAdapter,
+} from "~/lukas/lib/drawing-workspace-realtime";
 import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
 import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
@@ -62,7 +68,34 @@ const ids = {
 
 const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
+const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
+
+type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
+  emit(): void;
+};
+
+function createPreviewRealtimeAdapter({
+  onReady,
+}: {
+  onReady: () => void;
+}): PreviewRealtimeAdapter {
+  let emit: (() => void) | null = null;
+  return {
+    emit() {
+      emit?.();
+    },
+    initialView: connectedDrawingWorkspaceRealtimeView(),
+    subscribe({ onEvent, onStatus }) {
+      emit = onEvent;
+      onStatus("SUBSCRIBED");
+      onReady();
+      return () => {
+        if (emit === onEvent) emit = null;
+      };
+    },
+  };
+}
 
 const styleWall: DrawingStyleDefinition = {
   id: ids.styleWall,
@@ -628,7 +661,12 @@ export function loader({ request }: Route.LoaderArgs) {
     throw new Response("Not Found", { status: 404 });
   const fixture = localDrawingWorkspacePreviewFixture();
   validateLocalDrawingWorkspacePreviewFixture(fixture);
-  return fixture;
+  const realtimeTest = new URL(request.url).searchParams.get("realtimeTest") === "1";
+  return {
+    ...fixture,
+    previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
+    realtimeTest,
+  };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -670,12 +708,38 @@ export async function action({ request }: Route.ActionArgs) {
 export default function LocalDrawingWorkspacePreview({
   loaderData,
 }: Route.ComponentProps) {
+  const [realtimeReady, setRealtimeReady] = useState(false);
+  const [realtimeInvalidations, setRealtimeInvalidations] = useState(0);
+  const [alternateUser, setAlternateUser] = useState(false);
+  const [viewer, setViewer] = useState(false);
+  const realtimeAdapter = useMemo(
+    () => createPreviewRealtimeAdapter({ onReady: () => setRealtimeReady(true) }),
+    [],
+  );
+  const onInvalidate = useCallback(
+    () => setRealtimeInvalidations((count) => count + 1),
+    [],
+  );
+  const previewHarness = useMemo(() => ({ onInvalidate }), [onInvalidate]);
   return (
     <>
       <DrawingWorkspaceClient
         {...loaderData}
+        capability={
+          loaderData.realtimeTest && viewer ? "viewer" : loaderData.capability
+        }
+        currentUserId={
+          loaderData.realtimeTest && alternateUser
+            ? previewAlternateUserId
+            : loaderData.currentUserId
+        }
         previewMode
-        realtimeAdapter={previewRealtimeAdapter}
+        realtimeAdapter={
+          loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
+        }
+        previewHarness={
+          loaderData.realtimeTest ? previewHarness : undefined
+        }
       />
       <aside
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
@@ -683,6 +747,41 @@ export default function LocalDrawingWorkspacePreview({
       >
         P2 로컬 기능 미리보기 · 서버 저장 안 됨
       </aside>
+      {loaderData.realtimeTest ? (
+        <aside className="fixed bottom-3 left-3 z-50 flex items-center gap-2 rounded-md bg-slate-950 p-2 text-xs text-white">
+          <p
+            aria-label={
+              realtimeReady
+                ? "실시간 미리보기 준비됨"
+                : "실시간 미리보기 준비 중"
+            }
+            role="status"
+          >
+            {realtimeReady
+              ? "실시간 미리보기 준비됨"
+              : "실시간 미리보기 준비 중"}
+          </p>
+          <output aria-label="실시간 갱신 횟수">
+            {realtimeInvalidations}
+          </output>
+          <output aria-label="미리보기 loader nonce">
+            {loaderData.previewLoaderNonce}
+          </output>
+          <button
+            disabled={!realtimeReady}
+            onClick={() => realtimeAdapter.emit()}
+            type="button"
+          >
+            실시간 갱신 시험
+          </button>
+          <button onClick={() => setAlternateUser(true)} type="button">
+            테스트 사용자 전환
+          </button>
+          <button onClick={() => setViewer(true)} type="button">
+            테스트 보기 권한
+          </button>
+        </aside>
+      ) : null}
     </>
   );
 }

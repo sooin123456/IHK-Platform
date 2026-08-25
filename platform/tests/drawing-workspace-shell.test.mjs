@@ -21,12 +21,6 @@ const workspaceModule = await vite.ssrLoadModule(
 const realtimeModule = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace-realtime.ts",
 );
-const documentStoreModule = await vite.ssrLoadModule(
-  "/app/lukas/lib/drawing-document-store.ts",
-);
-const drawingCommandsModule = await vite.ssrLoadModule(
-  "/app/lukas/lib/drawing-commands.ts",
-);
 const exportDialogModule = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-export-dialog.tsx",
 );
@@ -129,60 +123,6 @@ test("local preview exposes its inert connected realtime state in the workspace 
   assert.match(
     renderWorkspace(),
     /aria-label="실시간 상태: 실시간 연결됨"[^>]*>[^<]*실시간 연결됨/,
-  );
-});
-
-test("same-revision loader refresh keeps the locally edited drawing graph", () => {
-  const local = drawingCommandsModule.createDrawingDocumentState({
-    revisionId: "revision-a",
-    layers: [
-      {
-        id: "00000000-0000-4000-8000-000000000101",
-        locked: false,
-        name: "Local edits",
-        systemKind: "work",
-        version: 1,
-        visible: true,
-      },
-    ],
-    objects: [
-      {
-        geometry: {
-          height: 1,
-          origin: { x: 0, y: 0 },
-          rotation: 0,
-          type: "rectangle",
-          width: 1,
-        },
-        id: "00000000-0000-4000-8000-000000000102",
-        layerId: "00000000-0000-4000-8000-000000000101",
-        name: "Unsaved local edit",
-        style: { fill: null, stroke: "#111111", strokeWidth: 1 },
-        version: 1,
-      },
-    ],
-  });
-  const freshLoaderState = drawingCommandsModule.createDrawingDocumentState({
-    revisionId: "revision-a",
-    layers: [],
-    objects: [],
-  });
-  const documentStore = documentStoreModule.createDrawingDocumentStore(local);
-  const locallyEditedSnapshot = documentStore.getSnapshot();
-
-  const lifecycleKey = "user-a:revision-a";
-  const nextKey = workspaceModule.replaceDrawingWorkspaceGraphForLifecycle({
-    documentStore,
-    lifecycleKey,
-    previousLifecycleKey: lifecycleKey,
-    recoveredState: freshLoaderState,
-  });
-
-  assert.equal(nextKey, lifecycleKey);
-  assert.equal(documentStore.getSnapshot(), locallyEditedSnapshot);
-  assert.equal(
-    documentStore.getSnapshot().objects["00000000-0000-4000-8000-000000000102"].name,
-    "Unsaved local edit",
   );
 });
 
