@@ -1,0 +1,8 @@
+node_modules
+build
+collaboration/dist
+.git
+.env*
+*.log
+tests
+e2e
