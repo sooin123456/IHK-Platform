@@ -9,14 +9,18 @@ import {
 } from "./drawing-commands.ts";
 import {
   DRAWING_COLLABORATION_SCHEMA_VERSION,
+  DRAWING_COLLABORATION_SERVER_ORIGIN,
   DRAWING_COLLABORATION_COLLECTIONS,
-  DrawingCollaborationClientAppendSchema,
   DrawingCollaborationMetaSchema,
   DrawingCollaborationOperationSchema,
   DrawingCollaborationStatusSchema,
   drawingCollaborationWritableCapabilities,
   type DrawingCollaborationOperation,
 } from "./drawing-collaboration-protocol.ts";
+import {
+  appendDrawingCollaborationOperation,
+  readDrawingCollaborationLedger,
+} from "./drawing-collaboration-yjs.ts";
 import { validateDrawingStructureState } from "./drawing-structure.ts";
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
 import {
@@ -169,6 +173,10 @@ function errorMessage(error: unknown) {
 
 function cloneDocument(document: Y.Doc) {
   const clone = new Y.Doc();
+  clone.getMap("serverMeta");
+  clone.getArray("operationOrder");
+  clone.getArray("operations");
+  clone.getMap("operationStatus");
   Y.applyUpdate(clone, Y.encodeStateAsUpdate(document));
   return clone;
 }
@@ -237,10 +245,7 @@ export function createDrawingDraftAdapter(
       baseOperationSequence,
       meta.baseOperationSequence,
     );
-    const ledger = DrawingCollaborationClientAppendSchema.parse({
-      operationOrder: candidate.getArray("operationOrder").toArray(),
-      operations: candidate.getMap("operations").toJSON(),
-    });
+    const ledger = readDrawingCollaborationLedger(candidate);
     const rawStatuses = candidate.getMap("operationStatus").toJSON();
     const statuses = new Map();
     for (const [operationId, value] of Object.entries(rawStatuses)) {
@@ -395,8 +400,8 @@ export function createDrawingDraftAdapter(
         prepared.operation,
       );
       assertWritable(operation.actorId);
-      const operations = document.getMap("operations");
-      const existing = operations.get(operation.clientOperationId);
+      const ledger = readDrawingCollaborationLedger(document);
+      const existing = ledger.operations[operation.clientOperationId];
       if (existing !== undefined) {
         if (!same(existing, operation))
           throw new Error(
@@ -409,10 +414,7 @@ export function createDrawingDraftAdapter(
       if (!same(preparedState, prepared.state))
         throw new Error("Prepared drawing state does not match its operation.");
       document.transact(() => {
-        operations.set(operation.clientOperationId, operation);
-        document
-          .getArray<string>("operationOrder")
-          .push([operation.clientOperationId]);
+        appendDrawingCollaborationOperation(document, operation);
       });
       return true;
     },
@@ -434,7 +436,7 @@ export function createDrawingDraftAdapter(
         return false;
       }
       candidate.destroy();
-      Y.applyUpdate(document, update);
+      Y.applyUpdate(document, update, DRAWING_COLLABORATION_SERVER_ORIGIN);
       return true;
     },
     replaceAuthoritative(state, next = {}) {

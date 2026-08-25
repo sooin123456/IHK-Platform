@@ -32,7 +32,7 @@ export function createDrawingYjsDocument(authoritativeState?: Uint8Array) {
     );
   document.getMap("serverMeta");
   document.getArray("operationOrder");
-  document.getMap("operations");
+  document.getArray("operations");
   document.getMap("operationStatus");
   return document;
 }

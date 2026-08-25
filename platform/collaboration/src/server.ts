@@ -20,6 +20,10 @@ import {
   validateDrawingCollaborationAppend,
 } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
 import {
+  appendDrawingCollaborationOperation,
+  readDrawingCollaborationLedger,
+} from "../../app/lukas/lib/drawing-collaboration-yjs.ts";
+import {
   authorizeDrawingRoom,
   createDrawingAccessTokenVerifier,
   type DrawingConnectionContext,
@@ -99,8 +103,7 @@ function same(left: unknown, right: unknown): boolean {
 function documentCollections(document: Y.Doc) {
   return {
     serverMeta: document.getMap("serverMeta").toJSON(),
-    operationOrder: document.getArray<string>("operationOrder").toArray(),
-    operations: document.getMap("operations").toJSON(),
+    ledger: readDrawingCollaborationLedger(document),
     operationStatus: document.getMap("operationStatus").toJSON(),
   };
 }
@@ -108,7 +111,7 @@ function documentCollections(document: Y.Doc) {
 function ensureDrawingCollections(document: Y.Doc) {
   document.getMap("serverMeta");
   document.getArray("operationOrder");
-  document.getMap("operations");
+  document.getArray("operations");
   document.getMap("operationStatus");
 }
 
@@ -122,11 +125,11 @@ function validateLedgerWithoutAppend(document: Y.Doc, roomName: string) {
   if (meta.projectId !== room.projectId || meta.revisionId !== room.revisionId)
     throw new Error("Drawing document scope does not match its room.");
   DrawingCollaborationClientAppendSchema.parse({
-    operationOrder: value.operationOrder,
-    operations: value.operations,
+    operationOrder: value.ledger.operationOrder,
+    operations: value.ledger.operations,
   });
   for (const [operationId, status] of Object.entries(value.operationStatus)) {
-    if (!(operationId in value.operations))
+    if (!(operationId in value.ledger.operations))
       throw new Error("Drawing status must reference an operation.");
     DrawingCollaborationStatusSchema.parse(status);
   }
@@ -181,7 +184,7 @@ export async function initializeDrawingCollaborationDocument(
     }))
       meta.set(key, value);
     document.getArray("operationOrder");
-    document.getMap("operations");
+    document.getArray("operations");
     document.getMap("operationStatus");
   }, DRAWING_COLLABORATION_SERVER_ORIGIN);
   return document;
@@ -200,7 +203,6 @@ export function validateDrawingClientUpdate(
   if (update.byteLength > 1024 * 1024)
     throw new Error("Drawing collaboration update is too large.");
   const before = documentCollections(current);
-  const existingOperationIds = new Set(before.operationOrder);
   const candidate = new Y.Doc();
   try {
     Y.applyUpdate(
@@ -209,21 +211,26 @@ export function validateDrawingClientUpdate(
       DRAWING_COLLABORATION_SERVER_ORIGIN,
     );
     let protectedStructureChanged = false;
-    let existingOperationTouched = false;
+    const insertedOperations: unknown[] = [];
+    const insertedOrder: unknown[] = [];
     candidate.getMap("serverMeta").observe(() => {
       protectedStructureChanged = true;
     });
     candidate.getMap("operationStatus").observe(() => {
       protectedStructureChanged = true;
     });
-    candidate.getMap("operations").observe((event) => {
-      for (const [operationId, change] of event.changes.keys)
-        if (change.action !== "add" || existingOperationIds.has(operationId))
-          existingOperationTouched = true;
+    candidate.getArray("operations").observe((event) => {
+      if (event.changes.delta.some((change) => "delete" in change))
+        protectedStructureChanged = true;
+      for (const change of event.changes.delta)
+        if (Array.isArray(change.insert))
+          insertedOperations.push(...change.insert);
     });
     candidate.getArray("operationOrder").observe((event) => {
       if (event.changes.delta.some((change) => "delete" in change))
         protectedStructureChanged = true;
+      for (const change of event.changes.delta)
+        if (Array.isArray(change.insert)) insertedOrder.push(...change.insert);
     });
     Y.applyUpdate(candidate, update);
     if (protectedStructureChanged)
@@ -238,17 +245,32 @@ export function validateDrawingClientUpdate(
       candidate,
       `drawing:${context.projectId}:${context.revisionId}`,
     );
-    const beforeLedger = DrawingCollaborationClientAppendSchema.parse({
-      operationOrder: before.operationOrder,
-      operations: before.operations,
-    });
-    const afterLedger = DrawingCollaborationClientAppendSchema.parse({
-      operationOrder: after.operationOrder,
-      operations: after.operations,
-    });
+    const beforeLedger = before.ledger;
+    const afterLedger = after.ledger;
+    const inserted = insertedOperations.map((value) =>
+      DrawingCollaborationOperationSchema.parse(value),
+    );
+    if (
+      inserted.length !== insertedOrder.length ||
+      !same(
+        inserted.map((operation) => operation.clientOperationId).sort(),
+        insertedOrder.map(String).sort(),
+      )
+    )
+      throw new Error(
+        "Drawing operation envelopes and order must append together.",
+      );
+    for (const operation of inserted) {
+      if (operation.actorId !== context.userId)
+        throw new Error(
+          "Client may append only its verified actor operations.",
+        );
+      if (operation.revisionId !== context.revisionId)
+        throw new Error(
+          "Drawing operation revision must match the collaboration room.",
+        );
+    }
     if (same(beforeLedger, afterLedger)) return;
-    if (existingOperationTouched)
-      throw new Error("Clients cannot rewrite protected collaboration state.");
     validateDrawingCollaborationAppend(
       beforeLedger,
       afterLedger,
@@ -325,7 +347,7 @@ export async function reconcileAcceptedDrawingOperations(
   transact: (mutation: () => void) => void | Promise<void> = (mutation) =>
     document.transact(mutation, DRAWING_COLLABORATION_SERVER_ORIGIN),
 ) {
-  const operations = document.getMap("operations").toJSON();
+  const operations = readDrawingCollaborationLedger(document).operations;
   const statuses = document.getMap("operationStatus");
   const pending = Object.keys(operations).filter((id) => {
     const status = statuses.get(id) as { status?: string } | undefined;
@@ -782,9 +804,9 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         });
       }
     }
-    const operations = document.getMap("operations");
+    const operations = readDrawingCollaborationLedger(document).operations;
     const statuses = document.getMap("operationStatus");
-    const existing = operations.get(receipt.operationId);
+    const existing = operations[receipt.operationId];
     const current = statuses.get(receipt.operationId) as
       | { status?: string; resultVersions?: unknown }
       | undefined;
@@ -800,8 +822,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     document.transact(
       () => {
         if (!existing) {
-          operations.set(receipt.operationId, receipt.operation);
-          document.getArray("operationOrder").push([receipt.operationId]);
+          appendDrawingCollaborationOperation(document, receipt.operation);
         }
         if (!current)
           statuses.set(receipt.operationId, {

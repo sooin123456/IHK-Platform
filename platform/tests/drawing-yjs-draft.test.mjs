@@ -79,7 +79,7 @@ function initializedDoc() {
     meta.set("freezeState", "active");
     meta.set("freezeRequestId", null);
     doc.getArray("operationOrder");
-    doc.getMap("operations");
+    doc.getArray("operations");
     doc.getMap("operationStatus");
   });
   return doc;
@@ -114,7 +114,7 @@ function recorded(
 
 function append(doc, envelope) {
   doc.transact(() => {
-    doc.getMap("operations").set(envelope.clientOperationId, envelope);
+    doc.getArray("operations").push([envelope]);
     doc.getArray("operationOrder").push([envelope.clientOperationId]);
   });
 }
@@ -591,6 +591,61 @@ test("same durable operation ID from two offline docs converges once in both arr
     assert.deepEqual(snapshot.pendingOperationIds, [ids.operationA]);
     assert.equal(snapshot.state.objects[ids.objectA].name, "recovered");
     assert.equal(snapshot.state.operations.length, 1);
+  }
+});
+
+test("same durable ID with any mismatched offline envelope quarantines in 100 CRDT orders", () => {
+  const base = initializedDoc();
+  const baseUpdate = Y.encodeStateAsUpdate(base);
+  const baseVector = Y.encodeStateVector(base);
+  const canonical = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "canonical" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  for (let trial = 0; trial < 100; trial++) {
+    const mismatched =
+      trial % 2
+        ? {
+            ...structuredClone(canonical),
+            createdAt: "2026-08-26T00:00:01.000Z",
+          }
+        : {
+            ...structuredClone(canonical),
+            forward: {
+              ...structuredClone(canonical.forward),
+              updates: [
+                {
+                  ...structuredClone(canonical.forward.updates[0]),
+                  patch: { name: `mismatch-${trial}` },
+                },
+              ],
+            },
+          };
+    const first = new Y.Doc();
+    const second = new Y.Doc();
+    Y.applyUpdate(first, baseUpdate);
+    Y.applyUpdate(second, baseUpdate);
+    first.clientID = 10_000 + trial * 2;
+    second.clientID = 10_001 + trial * 2;
+    append(first, trial % 2 ? canonical : mismatched);
+    append(second, trial % 2 ? mismatched : canonical);
+    const merged = initializedDoc();
+    for (const update of trial % 2
+      ? [
+          Y.encodeStateAsUpdate(first, baseVector),
+          Y.encodeStateAsUpdate(second, baseVector),
+        ]
+      : [
+          Y.encodeStateAsUpdate(second, baseVector),
+          Y.encodeStateAsUpdate(first, baseVector),
+        ])
+      Y.applyUpdate(merged, update);
+    assert.ok(create(merged).getSnapshot().quarantine, `trial ${trial}`);
   }
 });
 

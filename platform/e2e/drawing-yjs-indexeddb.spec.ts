@@ -118,10 +118,9 @@ function object(id: string, index = 0) {
   };
 }
 
-function authoritativeFixture(
+function authoritativeDocument(
   revisionId: string,
   freezeState: "active" | "frozen",
-  envelope?: Record<string, unknown>,
 ) {
   const document = new Y.Doc();
   document.transact(() => {
@@ -134,32 +133,32 @@ function authoritativeFixture(
     meta.set("freezeState", freezeState);
     meta.set("freezeRequestId", null);
     document.getMap("operationStatus");
-    document.getMap("operations");
+    document.getArray("operations");
     document.getArray("operationOrder");
-    if (envelope) {
-      const operationId = String(envelope.clientOperationId);
-      document.getMap("operations").set(operationId, envelope);
-      document.getArray("operationOrder").push([operationId]);
-    }
   }, DRAWING_COLLABORATION_SERVER_ORIGIN);
+  return document;
+}
+
+function authoritativeFixture(
+  revisionId: string,
+  freezeState: "active" | "frozen",
+) {
+  const document = authoritativeDocument(revisionId, freezeState);
   const update = [...Y.encodeStateAsUpdate(document)];
   document.destroy();
   return update;
 }
 
-function frozenEnvelope(revisionId: string) {
-  const frozenObject = object(ids.frozenObject);
-  return {
-    clientOperationId: ids.frozenOperation,
-    revisionId,
-    actorId: ids.actor,
-    schemaVersion: 1,
-    type: "add_objects",
-    baseVersions: {},
-    forward: { type: "add_objects", objects: [frozenObject] },
-    inverse: { type: "delete_objects", objectIds: [frozenObject.id] },
-    createdAt: "2026-08-26T00:00:00.000Z",
-  };
+function authoritativeActiveAndFreeze(revisionId: string) {
+  const document = authoritativeDocument(revisionId, "active");
+  const initialUpdate = [...Y.encodeStateAsUpdate(document)];
+  const vector = Y.encodeStateVector(document);
+  document.transact(() => {
+    document.getMap("serverMeta").set("freezeState", "frozen");
+  }, DRAWING_COLLABORATION_SERVER_ORIGIN);
+  const freezeUpdate = [...Y.encodeStateAsUpdate(document, vector)];
+  document.destroy();
+  return { initialUpdate, freezeUpdate };
 }
 
 test("revision-scoped adapter recovers 100 canonical offline operations before network", async ({
@@ -308,9 +307,11 @@ test("valid frozen adapter recovery survives version-change close", async ({
   page,
 }) => {
   const revision = "00000000-0000-4000-8000-000000000604";
+  const { freezeUpdate, initialUpdate } =
+    authoritativeActiveAndFreeze(revision);
   await openPreview(page);
   const result = await page.evaluate(
-    async ({ initialUpdate, fixtureIds }) => {
+    async ({ freezeUpdate, initialUpdate, fixtureIds }) => {
       const persistencePath =
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
       const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
@@ -343,7 +344,54 @@ test("valid frozen adapter recovery survives version-change close", async ({
       });
       if (!firstHandle) throw new Error("Browser persistence did not open.");
       await firstHandle.whenSynced();
+      const activeAdapter = draft.createDrawingDraftAdapter({
+        document: first,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+        createId: () => fixtureIds.frozenOperation,
+        now: () => "2026-08-26T00:00:00.000Z",
+      });
+      activeAdapter.appendDurableLocal(
+        activeAdapter.prepareLocal({
+          type: "add_objects",
+          actorId: fixtureIds.actor,
+          objects: [
+            {
+              id: fixtureIds.frozenObject,
+              name: "Recovered",
+              layerId: fixtureIds.layer,
+              geometry: {
+                type: "rectangle",
+                origin: { x: 0, y: 0 },
+                width: 10,
+                height: 10,
+                rotation: 0,
+              },
+              style: { stroke: "#111111", strokeWidth: 1, fill: null },
+              version: 1,
+            },
+          ],
+        }),
+      );
       await firstHandle.flush();
+      const freezeApplied = activeAdapter.applyServerProjection(
+        Uint8Array.from(freezeUpdate),
+      );
+      const freezeQuarantine = activeAdapter.getSnapshot().quarantine;
+      let frozenMutationRejected = false;
+      try {
+        activeAdapter.prepareLocal({
+          type: "delete_objects",
+          actorId: fixtureIds.actor,
+          objectIds: [fixtureIds.frozenObject],
+        });
+      } catch {
+        frozenMutationRejected = true;
+      }
+      await firstHandle.flush();
+      activeAdapter.dispose();
 
       const upgraded = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open(firstHandle.name, 2);
@@ -354,13 +402,17 @@ test("valid frozen adapter recovery survives version-change close", async ({
       await new Promise((resolve) => setTimeout(resolve, 0));
       const closedByVersionChange = firstHandle.closed;
       const postCloseOperation = {
-        ...first.getMap("operations").get(fixtureIds.frozenOperation),
+        ...first
+          .getArray("operations")
+          .toArray()
+          .find(
+            (value: Record<string, unknown>) =>
+              value.clientOperationId === fixtureIds.frozenOperation,
+          ),
         clientOperationId: "00000000-0000-4000-8000-000000000609",
       };
       first.transact(() => {
-        first
-          .getMap("operations")
-          .set(postCloseOperation.clientOperationId, postCloseOperation);
+        first.getArray("operations").push([postCloseOperation]);
         first
           .getArray("operationOrder")
           .push([postCloseOperation.clientOperationId]);
@@ -386,37 +438,50 @@ test("valid frozen adapter recovery survives version-change close", async ({
         frozen: false,
       });
       const snapshot = adapter.getSnapshot();
-      const postClosePersisted = recoveredDocument
-        .getMap("operations")
-        .has(postCloseOperation.clientOperationId);
+      const recoveredEnvelopes = recoveredDocument
+        .getArray("operations")
+        .toArray();
+      const postClosePersisted = recoveredEnvelopes.some(
+        (value: Record<string, unknown>) =>
+          value.clientOperationId === postCloseOperation.clientOperationId,
+      );
+      const recoveryEnvelope = recoveredEnvelopes.find(
+        (value: Record<string, unknown>) =>
+          value.clientOperationId === fixtureIds.frozenOperation,
+      );
       adapter.dispose();
       await recoveredHandle.dispose();
       return {
         closedByVersionChange,
+        freezeApplied,
+        freezeQuarantine,
+        frozenMutationRejected,
         postClosePersisted,
         frozen: snapshot.frozen,
         quarantine: snapshot.quarantine,
         pendingOperationIds: snapshot.pendingOperationIds,
         objectIds: Object.keys(snapshot.state.objects),
+        recoveryEnvelopeId: recoveryEnvelope?.clientOperationId ?? null,
       };
     },
     {
-      initialUpdate: authoritativeFixture(
-        revision,
-        "frozen",
-        frozenEnvelope(revision),
-      ),
+      initialUpdate,
+      freezeUpdate,
       fixtureIds: ids,
     },
   );
 
   expect(result).toEqual({
     closedByVersionChange: true,
+    freezeApplied: true,
+    freezeQuarantine: null,
+    frozenMutationRejected: true,
     postClosePersisted: false,
     frozen: true,
     quarantine: null,
     pendingOperationIds: [ids.frozenOperation],
     objectIds: [ids.frozenObject],
+    recoveryEnvelopeId: ids.frozenOperation,
   });
 });
 

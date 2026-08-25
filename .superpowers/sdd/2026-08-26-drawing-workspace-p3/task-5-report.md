@@ -10,9 +10,10 @@
 
 ## Review fixes
 
-- Canonical operation order now de-duplicates identical durable IDs after a genuine two-document Yjs merge. Client, shared protocol, persisted-room validation, and live service update validation use the same canonical ledger while still rejecting rewrites, deletion/reinsert ordering, forged actors, and distinct-operation loss.
+- Replaced the last-write-wins operation map with one bounded, public append-only Y.Array contribution ledger. A shared reader inspects every raw envelope, canonicalizes identical same-ID recovery, and rejects any mismatched same-ID contribution without depending on the CRDT winner or private Yjs structs.
+- Client projection, persisted-room validation, and live service validation now apply that same rule. One hundred deterministic merge-order/mutation trials prove mismatched envelopes are always quarantined/rejected, while identical cross-realm duplicates and genuinely distinct concurrent operations still converge.
 - Client full-room projection now requires exactly the same four top-level Yjs collections as the collaboration service.
-- The Chromium harness no longer writes `serverMeta` or an unknown recovery collection from page code. It consumes a server-origin authoritative update, authors 100 canonical operations through `prepareLocal`/`appendDurableLocal`, then reopens persistence and a real adapter. Frozen recovery uses a valid authoritative frozen room with a real pending envelope.
+- The Chromium frozen path now starts active, appends and persists a real local pending operation through the adapter, applies a later authoritative server-origin freeze continuation, closes on IndexedDB version change, and reopens to prove the pending envelope remains exportable and the valid room remains frozen.
 
 ## TDD evidence
 
@@ -26,6 +27,7 @@
 - Duplicate authoritative sequences: failed because duplicate Postgres order was initially tie-broken rather than rejected.
 - Fresh-server Chromium rerun exposed a Vite-internal `/@id/yjs` dependency; the test was changed first to require a stable module-owned Y.Doc factory and failed until that API existed.
 - Review RED: same-ID two-document merge quarantined in both arrival orders; a rogue top-level map was accepted by the client; protocol/service rejected the idempotent merged ledger; and the replacement Chromium adapter fixtures were 0/2 until authoritative initial updates were applied through the server-origin document seam.
+- Rereview RED: a same-ID mismatched envelope hidden as the Y.Map CRDT loser escaped client quarantine and live service rejection; the frozen Chromium fixture also authored pending work and frozen metadata together instead of exercising the real sequence.
 
 ### GREEN
 
@@ -36,7 +38,7 @@
 - `npm run typecheck -- --pretty false`: pass.
 - `npm run typecheck:collaboration -- --pretty false`: pass.
 - `git diff --check`: pass.
-- Review GREEN: protocol, service, adapter, command, document-store, and outbox suite 184/184; real Chromium 3/3 with canonical adapter state, two same-origin browser realms sharing IndexedDB, and no quarantine.
+- Rereview GREEN: protocol, service, adapter, command, document-store, and outbox suite 186/186; real Chromium 3/3 with 100-operation recovery, two same-origin browser realms sharing IndexedDB, valid server-origin freeze-after-persist recovery, and no quarantine.
 
 ## Honest gates
 

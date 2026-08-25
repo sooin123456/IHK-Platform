@@ -116,7 +116,7 @@ function initializedDocument() {
   doc.getMap("serverMeta").set("freezeState", "active");
   doc.getMap("serverMeta").set("freezeRequestId", null);
   doc.getArray("operationOrder");
-  doc.getMap("operations");
+  doc.getArray("operations");
   doc.getMap("operationStatus");
   return doc;
 }
@@ -125,7 +125,7 @@ function appendUpdate(current, envelope = operation()) {
   const next = new Y.Doc();
   Y.applyUpdate(next, Y.encodeStateAsUpdate(current));
   next.transact(() => {
-    next.getMap("operations").set(envelope.clientOperationId, envelope);
+    next.getArray("operations").push([envelope]);
     next.getArray("operationOrder").push([envelope.clientOperationId]);
   });
   return Y.encodeStateAsUpdate(next, Y.encodeStateVector(current));
@@ -358,12 +358,9 @@ test("empty documents are initialized by the server and complete client updates 
   for (const mutate of [
     (candidate) =>
       candidate
-        .getMap("operations")
-        .set(
-          ids.operation,
-          operation({ createdAt: "2026-08-26T01:00:00.000Z" }),
-        ),
-    (candidate) => candidate.getMap("operations").delete(ids.operation),
+        .getArray("operations")
+        .push([operation({ createdAt: "2026-08-26T01:00:00.000Z" })]),
+    (candidate) => candidate.getArray("operations").delete(0),
     (candidate) => candidate.getArray("operationOrder").delete(0),
     (candidate) =>
       candidate.getMap("operationStatus").set(ids.operation, {
@@ -406,11 +403,11 @@ test("clone validation accepts concurrent Y.Array appends in either Yjs order", 
     },
   });
   first.transact(() => {
-    first.getMap("operations").set(ids.operation, firstOperation);
+    first.getArray("operations").push([firstOperation]);
     first.getArray("operationOrder").push([ids.operation]);
   });
   second.transact(() => {
-    second.getMap("operations").set(ids.operation2, secondOperation);
+    second.getArray("operations").push([secondOperation]);
     second.getArray("operationOrder").push([ids.operation2]);
   });
   const firstUpdate = Y.encodeStateAsUpdate(first, baseVector);
@@ -447,7 +444,7 @@ test("clone validation accepts concurrent recovery of the same immutable operati
   Y.applyUpdate(second, baseState);
   for (const document of [first, second])
     document.transact(() => {
-      document.getMap("operations").set(ids.operation, operation());
+      document.getArray("operations").push([operation()]);
       document.getArray("operationOrder").push([ids.operation]);
     });
   const firstUpdate = Y.encodeStateAsUpdate(first, baseVector);
@@ -471,6 +468,73 @@ test("clone validation accepts concurrent recovery of the same immutable operati
     Y.applyUpdate(merged, candidate);
     assert.doesNotThrow(() =>
       validatePersistedDrawingState(Y.encodeStateAsUpdate(merged), {
+        projectId: ids.project,
+        revisionId: ids.revision,
+      }),
+    );
+  }
+});
+
+test("clone validation rejects every hidden mismatched envelope across 100 CRDT orders", () => {
+  const { validateDrawingClientUpdate, validatePersistedDrawingState } =
+    requireModules();
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  const canonical = operation();
+  for (let trial = 0; trial < 100; trial++) {
+    const mismatched =
+      trial % 2
+        ? {
+            ...structuredClone(canonical),
+            createdAt: "2026-08-26T00:00:01.000Z",
+          }
+        : {
+            ...structuredClone(canonical),
+            forward: {
+              ...structuredClone(canonical.forward),
+              layer: {
+                ...structuredClone(canonical.forward.layer),
+                name: `Mismatch ${trial}`,
+              },
+            },
+          };
+    const base = initializedDocument();
+    const baseState = Y.encodeStateAsUpdate(base);
+    const baseVector = Y.encodeStateVector(base);
+    const accepted = new Y.Doc();
+    const candidate = new Y.Doc();
+    Y.applyUpdate(accepted, baseState);
+    Y.applyUpdate(candidate, baseState);
+    accepted.clientID = 20_001 + trial * 2;
+    candidate.clientID = 20_000 + trial * 2;
+    for (const [document, envelope] of [
+      [accepted, trial % 2 ? canonical : mismatched],
+      [candidate, trial % 2 ? mismatched : canonical],
+    ])
+      document.transact(() => {
+        document.getArray("operations").push([envelope]);
+        document.getArray("operationOrder").push([ids.operation]);
+      });
+    const current = new Y.Doc();
+    Y.applyUpdate(current, baseState);
+    Y.applyUpdate(current, Y.encodeStateAsUpdate(accepted, baseVector));
+    assert.throws(
+      () =>
+        validateDrawingClientUpdate(
+          current,
+          Y.encodeStateAsUpdate(candidate, baseVector),
+          context,
+        ),
+      undefined,
+      `trial ${trial}`,
+    );
+    Y.applyUpdate(current, Y.encodeStateAsUpdate(candidate, baseVector));
+    assert.throws(() =>
+      validatePersistedDrawingState(Y.encodeStateAsUpdate(current), {
         projectId: ids.project,
         revisionId: ids.revision,
       }),
@@ -503,7 +567,7 @@ test("clone validation rejects delete-reinsert reordering of existing operation 
   attacker.transact(() => {
     attacker.getArray("operationOrder").delete(0, 1);
     attacker.getArray("operationOrder").push([ids.operation, ids.operation3]);
-    attacker.getMap("operations").set(ids.operation3, third);
+    attacker.getArray("operations").push([third]);
   });
   assert.throws(() =>
     validateDrawingClientUpdate(
@@ -556,10 +620,9 @@ test("clone validation rejects equal-value writes to protected CRDT structures",
     validateDrawingClientUpdate(
       current,
       maliciousUpdate((attacker) => {
-        const operations = attacker.getMap("operations");
-        operations.delete(ids.operation);
-        operations.set(ids.operation, operation());
-        operations.set(ids.operation3, third);
+        const operations = attacker.getArray("operations");
+        operations.delete(0, 1);
+        operations.push([operation(), third]);
         attacker.getArray("operationOrder").push([ids.operation3]);
       }),
       context,
@@ -573,7 +636,7 @@ test("clone validation rejects equal-value writes to protected CRDT structures",
         order.delete(0, 1);
         order.insert(0, [ids.operation]);
         order.push([ids.operation3]);
-        attacker.getMap("operations").set(ids.operation3, third);
+        attacker.getArray("operations").push([third]);
       }),
       context,
     ),
@@ -1060,7 +1123,13 @@ test("a Task 3 CAS conflict reloads, merges, validates, and retries once", async
   assert.equal(stored.baseOperationSequence, 5);
   const merged = new Y.Doc();
   Y.applyUpdate(merged, stored.state);
-  assert.equal(merged.getMap("operations").has(ids.operation), true);
+  assert.equal(
+    merged
+      .getArray("operations")
+      .toArray()
+      .some((value) => value.clientOperationId === ids.operation),
+    true,
+  );
   assert.equal(merged.getMap("serverMeta").get("baseOperationSequence"), 5);
 });
 
@@ -1124,7 +1193,13 @@ test("store reconciliation applies authoritative merged bytes and checkpoint bac
       revisionId: ids.revision,
     },
   });
-  assert.equal(live.getMap("operations").has(ids.operation2), true);
+  assert.equal(
+    live
+      .getArray("operations")
+      .toArray()
+      .some((value) => value.clientOperationId === ids.operation2),
+    true,
+  );
   assert.equal(live.getMap("serverMeta").get("baseOperationSequence"), 5);
   await runtime.stop();
 });
@@ -1597,7 +1672,13 @@ test("Hocuspocus v4 decodes a real framed Sync/Update before collaboration valid
     },
   };
   await new MessageReceiver(message).apply(document, connection);
-  assert.equal(document.getMap("operations").has(ids.operation), true);
+  assert.equal(
+    document
+      .getArray("operations")
+      .toArray()
+      .some((value) => value.clientOperationId === ids.operation),
+    true,
+  );
   await runtime.stop();
 });
 
