@@ -756,7 +756,11 @@ function acknowledgedFinalEffects(
       !objects.every((object, index) => inverse.objectIds[index] === object.id)
     )
       throw new Error("Object add inverse is not exact.");
-    exactBaseVersions(operation, Object.fromEntries(objects.map((object) => [object.id, object.version])));
+    exactBaseVersions(operation, Object.fromEntries(
+      objects
+        .filter((object) => object.version > 1)
+        .map((object) => [object.id, object.version - 1]),
+    ));
     return uniqueAcknowledgedTargets(objects.map((object) => ({
       target: `objects:${object.id}`,
       matches: (state) => valuesMatch(state.objects[object.id], object),

@@ -16,6 +16,7 @@ import {
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
+  undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { DrawingOperationInputSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 import { parseWorkspaceMutation } from "../app/lukas/lib/drawing-workspace.server.ts";
@@ -961,6 +962,114 @@ test("an acknowledged P2 create already present in the loader does not become co
 
   assert.deepEqual(restored.conflictedOperationIds, []);
   assert.equal((await outbox.entries()).length, 0);
+});
+
+test("recovery consumes an acknowledged fresh object add with no object base", async () => {
+  const initial = p2State();
+  const objectId = "00000000-0000-4000-8000-000000000225";
+  const added = applyDrawingCommand(initial, {
+    type: "add_objects",
+    actorId: ids.ownerA,
+    objects: [rectangle({ id: objectId })],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  assert.deepEqual(added.operation.baseVersions, {});
+
+  const { outbox, recovered } = await restoreAcknowledgedP2(added.state, [added]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.objects[objectId].version, 1);
+  assert.deepEqual(await outbox.entries(), []);
+});
+
+test("recovery consumes an acknowledged tombstone restore with the preceding base", async () => {
+  const deleted = applyDrawingCommand(p2State(), {
+    type: "delete_objects",
+    actorId: ids.ownerA,
+    objectIds: [ids.object],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  const restored = undoDrawingCommand(
+    deleted.state,
+    ids.ownerA,
+    { createId: () => ids.operation2, now: () => "2026-08-25T00:00:02.000Z" },
+  );
+  assert.ok(restored && !("kind" in restored));
+  assert.equal(restored.state.objects[ids.object].version, 3);
+  assert.deepEqual(restored.operation.baseVersions, { [ids.object]: 2 });
+
+  const { outbox, recovered } = await restoreAcknowledgedP2(restored.state, [restored]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.objects[ids.object].version, 3);
+  assert.deepEqual(await outbox.entries(), []);
+});
+
+test("recovery reconciles acknowledged structure and object additions as one mixed prefix", async () => {
+  const created = createModel();
+  const objectId = "00000000-0000-4000-8000-000000000226";
+  const added = applyDrawingCommand(created.state, {
+    type: "add_objects",
+    actorId: ids.ownerA,
+    objects: [rectangle({ id: objectId, layerId: p2.modelLayer })],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+
+  const { outbox, recovered } = await restoreAcknowledgedP2(
+    added.state,
+    [created, added],
+  );
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 1);
+  assert.equal(recovered.state.objects[objectId].layerId, p2.modelLayer);
+  assert.deepEqual(await outbox.entries(), []);
+});
+
+test("acknowledged object additions quarantine noncanonical bases and result versions", async () => {
+  const initial = p2State();
+  const objectId = "00000000-0000-4000-8000-000000000227";
+  const extraId = "00000000-0000-4000-8000-000000000228";
+  const added = applyDrawingCommand(initial, {
+    type: "add_objects",
+    actorId: ids.ownerA,
+    objects: [rectangle({ id: objectId })],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  const deleted = applyDrawingCommand(initial, {
+    type: "delete_objects",
+    actorId: ids.ownerA,
+    objectIds: [ids.object],
+  }, { createId: () => ids.operation2, now: () => "2026-08-25T00:00:02.000Z" });
+  const restored = undoDrawingCommand(
+    deleted.state,
+    ids.ownerA,
+    { createId: () => ids.operation3, now: () => "2026-08-25T00:00:03.000Z" },
+  );
+  assert.ok(restored && !("kind" in restored));
+  const cases = [
+    { name: "wrong fresh base", applied: added, baseVersions: { [objectId]: 1 }, serverState: added.state },
+    { name: "missing restore base", applied: restored, baseVersions: {}, serverState: restored.state },
+    { name: "wrong restore base", applied: restored, baseVersions: { [ids.object]: 3 }, serverState: restored.state },
+    { name: "extra base", applied: added, baseVersions: { [extraId]: 1 }, serverState: added.state },
+    { name: "wrong loader result version", applied: added, baseVersions: {}, serverState: {
+      ...added.state,
+      objects: { ...added.state.objects, [objectId]: { ...added.state.objects[objectId], version: 2 } },
+    } },
+  ];
+
+  for (const candidate of cases) {
+    const malformed = {
+      ...candidate.applied,
+      operation: { ...candidate.applied.operation, baseVersions: candidate.baseVersions },
+    };
+    const { outbox, recovered } = await restoreAcknowledgedP2(
+      candidate.serverState,
+      [malformed],
+    );
+    assert.deepEqual(
+      recovered.conflictedOperationIds,
+      [candidate.applied.operation.clientOperationId],
+      candidate.name,
+    );
+    assert.equal((await outbox.entries())[0].status, "conflicted", candidate.name);
+  }
 });
 
 test("recovery consumes an acknowledged P2 create then update as one final-state chain", async () => {
