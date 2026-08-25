@@ -15,11 +15,17 @@ async function openPreview(page: Page) {
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
   page,
 }) => {
+  const supabaseRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).port === "54321")
+      supabaseRequests.push(request.url());
+  });
   await openPreview(page);
 
   await expect(
     page.getByRole("status", { name: "실시간 상태: 실시간 연결됨" }),
   ).toBeVisible();
+  expect(supabaseRequests).toEqual([]);
 });
 
 test("local preview click selects the Style tab and reveals its panel", async ({

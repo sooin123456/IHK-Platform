@@ -242,6 +242,22 @@ export function duplicateDrawingWorkspaceSelection(
   return duplicateDrawingSelection(state, selectedIds, actorId, createId);
 }
 
+export function replaceDrawingWorkspaceGraphForLifecycle({
+  documentStore,
+  lifecycleKey,
+  previousLifecycleKey,
+  recoveredState,
+}: {
+  documentStore: DrawingDocumentStore;
+  lifecycleKey: string;
+  previousLifecycleKey: string | null;
+  recoveredState: DrawingDocumentState;
+}) {
+  if (previousLifecycleKey === lifecycleKey) return previousLifecycleKey;
+  documentStore.replace(recoveredState);
+  return lifecycleKey;
+}
+
 export function createDrawingWorkspaceBlockMutationAdapter({
   activeCanvasId,
   actorId,
@@ -545,6 +561,7 @@ export default function DrawingWorkspaceClient({
   const { file, document: drawingDocument } = workspace;
   const navigation = useNavigation();
   const { revision } = drawingDocument;
+  const persistenceLifecycleKey = `${currentUserId}\u0000${revision.id}`;
   const realtime = useDrawingWorkspaceRealtime({
     adapter: realtimeAdapter,
     enabled: true,
@@ -564,6 +581,7 @@ export default function DrawingWorkspaceClient({
     );
   }
   const documentStore = documentStoreRef.current;
+  const initializedPersistenceLifecycleKeyRef = useRef<string | null>(null);
   const drawingState = useSyncExternalStore(
     documentStore.subscribe,
     documentStore.getSnapshot,
@@ -891,7 +909,14 @@ export default function DrawingWorkspaceClient({
             "서버 상태와 로컬 작업의 기준 버전이 다릅니다.",
           );
         if (!active) return;
-        documentStore.replace(recovered.state);
+        initializedPersistenceLifecycleKeyRef.current =
+          replaceDrawingWorkspaceGraphForLifecycle({
+            documentStore,
+            lifecycleKey: persistenceLifecycleKey,
+            previousLifecycleKey:
+              initializedPersistenceLifecycleKeyRef.current,
+            recoveredState: recovered.state,
+          });
         drawingStateRef.current = documentStore.getSnapshot();
         setOutboxReady(true);
         setSaveState((current) => ({ ...current, storageError: false }));
@@ -934,7 +959,7 @@ export default function DrawingWorkspaceClient({
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, [currentUserId, documentStore, revision]);
+  }, [documentStore, persistenceLifecycleKey]);
 
   useEffect(() => {
     setSelectedIds((current) => {

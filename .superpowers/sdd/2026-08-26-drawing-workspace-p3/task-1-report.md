@@ -33,3 +33,22 @@
 ## Concern
 
 A later serial browser retry intermittently failed an existing Style-tab click assertion after the new indicator test had passed. The same test and a full 5/5 run both passed earlier; no production behavior was changed to mask that timing-sensitive browser failure.
+
+## Fix round 1 — preserve the graph on Realtime refresh
+
+### RED evidence
+
+- Added `same-revision loader refresh keeps the locally edited drawing graph` to the workspace shell test. It initially failed because `replaceDrawingWorkspaceGraphForLifecycle` did not exist.
+
+### Implementation
+
+- Persistence/outbox lifecycle now depends on one stable `currentUserId + revision.id` key rather than the loader `revision` object.
+- The recovery path has an explicit lifecycle gate: a fresh server graph only replaces the document store after a user or revision identity change. Same-ID Realtime revalidation leaves the locally edited graph untouched.
+- Revision status and capability remain direct render-time authorization inputs, so a same-ID downgrade still takes effect immediately without resetting the graph.
+- The preview browser test now records requests and asserts no request reaches port `54321`.
+
+### GREEN evidence
+
+- `node --test tests/drawing-workspace-realtime.test.mjs tests/drawing-workspace-shell.test.mjs tests/drawing-workspace-outbox.test.mjs` — 76 passing.
+- `npm run typecheck` — passing.
+- Serial Chromium runs passed the new port-54321 request test, then intermittently failed the pre-existing Style-tab click or Arrow-key hydration assertions. No readiness/test-timing changes were made outside this task's scope.
