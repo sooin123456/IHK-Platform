@@ -302,9 +302,11 @@ export function validateDrawingCollaborationAppend(
   const room = parseDrawingRoomName(roomName);
   if (next.operationOrder.length <= current.operationOrder.length)
     throw new Error("Client updates must append drawing operations.");
-  for (const [index, operationId] of current.operationOrder.entries()) {
+  const currentIds = new Set(current.operationOrder);
+  const nextIds = new Set(next.operationOrder);
+  for (const operationId of current.operationOrder) {
     if (
-      next.operationOrder[index] !== operationId ||
+      !nextIds.has(operationId) ||
       !sameJsonValue(
         next.operations[operationId],
         current.operations[operationId],
@@ -312,8 +314,8 @@ export function validateDrawingCollaborationAppend(
     )
       throw new Error("Existing drawing operations and order are immutable.");
   }
-  for (const appendedId of next.operationOrder.slice(
-    current.operationOrder.length,
+  for (const appendedId of next.operationOrder.filter(
+    (operationId) => !currentIds.has(operationId),
   )) {
     const appended = next.operations[appendedId];
     if (appended.actorId !== actorId)

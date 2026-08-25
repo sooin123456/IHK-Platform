@@ -4,7 +4,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import {
+  applyAwarenessUpdate,
+  Awareness,
+  encodeAwarenessUpdate,
+} from "y-protocols/awareness";
 import * as Y from "yjs";
+import {
+  IncomingMessage,
+  MessageReceiver,
+  OutgoingMessage,
+} from "@hocuspocus/server";
 
 const configModule = await import("../collaboration/src/config.ts").catch(
   () => null,
@@ -24,7 +34,9 @@ const ids = {
   revision: "00000000-0000-4000-8000-000000000402",
   actor: "00000000-0000-4000-8000-000000000403",
   operation: "00000000-0000-4000-8000-000000000404",
+  operation2: "00000000-0000-4000-8000-000000000407",
   layer: "00000000-0000-4000-8000-000000000405",
+  layer2: "00000000-0000-4000-8000-000000000408",
 };
 const roomName = `drawing:${ids.project}:${ids.revision}`;
 const supabaseUrl = "https://example.supabase.co";
@@ -55,12 +67,13 @@ async function signingFixture(algorithm = "RS256") {
         email: "editor@example.com",
         ...overrides,
       };
-      return new SignJWT(claims)
+      const builder = new SignJWT(claims)
         .setProtectedHeader({ alg: algorithm, kid: "active" })
         .setIssuer(options.issuer ?? `${supabaseUrl}/auth/v1`)
-        .setIssuedAt(now)
-        .setExpirationTime(options.expiration ?? now + 60)
-        .sign(pair.privateKey);
+        .setIssuedAt(now);
+      if (!options.omitExpiration)
+        builder.setExpirationTime(options.expiration ?? now + 60);
+      return builder.sign(pair.privateKey);
     },
   };
 }
@@ -161,6 +174,7 @@ test("JWT verification accepts RS256 and ES256 but rejects malformed claims and 
     await fixture.token({ aud: "wrong" }),
     await fixture.token({}, { issuer: "https://wrong.example/auth/v1" }),
     await fixture.token({}, { expiration: Math.floor(Date.now() / 1000) - 1 }),
+    await fixture.token({}, { omitExpiration: true }),
   ]) {
     await assert.rejects(() =>
       verifyDrawingAccessToken({ token, supabaseUrl, jwks: fixture.jwks }),
@@ -208,7 +222,11 @@ test("remote JWKS verification cache can be purged for signing-key rotation", as
 
 test("room authorization binds verified user, origin, room and authoritative capability", async () => {
   const { authorizeDrawingRoom } = requireModules();
-  const verifyToken = async () => ({ userId: ids.actor, email: null });
+  const verifyToken = async () => ({
+    userId: ids.actor,
+    email: null,
+    expiresAtMs: Date.now() + 60_000,
+  });
   const authorize = async () => ({
     capability: "editor",
     canWrite: true,
@@ -364,6 +382,55 @@ test("empty documents are initialized by the server and complete client updates 
   }
 });
 
+test("clone validation accepts concurrent Y.Array appends in either Yjs order", () => {
+  const { validateDrawingClientUpdate } = requireModules();
+  const base = initializedDocument();
+  const baseState = Y.encodeStateAsUpdate(base);
+  const baseVector = Y.encodeStateVector(base);
+  const first = new Y.Doc();
+  const second = new Y.Doc();
+  Y.applyUpdate(first, baseState);
+  Y.applyUpdate(second, baseState);
+  first.clientID = 100;
+  second.clientID = 50;
+  const firstOperation = operation();
+  const secondOperation = operation({
+    clientOperationId: ids.operation2,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer2, name: "Second" },
+    },
+  });
+  first.transact(() => {
+    first.getMap("operations").set(ids.operation, firstOperation);
+    first.getArray("operationOrder").push([ids.operation]);
+  });
+  second.transact(() => {
+    second.getMap("operations").set(ids.operation2, secondOperation);
+    second.getArray("operationOrder").push([ids.operation2]);
+  });
+  const firstUpdate = Y.encodeStateAsUpdate(first, baseVector);
+  const secondUpdate = Y.encodeStateAsUpdate(second, baseVector);
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  const firstArrival = new Y.Doc();
+  Y.applyUpdate(firstArrival, baseState);
+  Y.applyUpdate(firstArrival, firstUpdate);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(firstArrival, secondUpdate, context),
+  );
+  const secondArrival = new Y.Doc();
+  Y.applyUpdate(secondArrival, baseState);
+  Y.applyUpdate(secondArrival, secondUpdate);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(secondArrival, firstUpdate, context),
+  );
+});
+
 test("Awareness is bounded and identity is overwritten from verified context", () => {
   const { sanitizeDrawingAwarenessState } = requireModules();
   const value = sanitizeDrawingAwarenessState(
@@ -393,10 +460,143 @@ test("Awareness is bounded and identity is overwritten from verified context", (
   );
 });
 
+test("Awareness binds one clientId to its connection and bounds ten-second leases", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const now = 1_000;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    now: () => now,
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const context = await runtime.hooks.authenticate({
+    token: "x",
+    origin: "https://app.example.com",
+    roomName,
+  });
+  const connection = { context };
+  const peer = {};
+  const document = {
+    getConnections: () => [connection, peer],
+    getClients: (target) =>
+      target === connection ? new Set([1]) : new Set([99]),
+  };
+  const state = (expiresAt = now + 10_000) => ({
+    pageId: null,
+    canvasId: null,
+    cursorWorld: null,
+    selectedIds: [],
+    activeTool: null,
+    softLocks: [{ entityId: ids.layer, leaseId: ids.operation2, expiresAt }],
+  });
+  await assert.rejects(() =>
+    runtime.hooks.beforeAwareness({
+      context,
+      connection,
+      document,
+      states: new Map([[99, state()]]),
+    }),
+  );
+  await assert.rejects(() =>
+    runtime.hooks.beforeAwareness({
+      context,
+      connection,
+      document,
+      states: new Map([
+        [1, state()],
+        [2, state()],
+      ]),
+    }),
+  );
+  await assert.rejects(() =>
+    runtime.hooks.beforeAwareness({
+      context,
+      connection,
+      document,
+      states: new Map([[1, state(now + 10_001)]]),
+    }),
+  );
+  await assert.doesNotReject(() =>
+    runtime.hooks.beforeAwareness({
+      context,
+      connection,
+      document,
+      states: new Map([[1, state()]]),
+    }),
+  );
+  const peerDocument = new Y.Doc();
+  peerDocument.clientID = 99;
+  const peerAwareness = new Awareness(peerDocument);
+  peerAwareness.setLocalState({ user: { id: ids.actor } });
+  const roomDocument = new Y.Doc();
+  const roomAwareness = new Awareness(roomDocument);
+  applyAwarenessUpdate(
+    roomAwareness,
+    encodeAwarenessUpdate(peerAwareness, [99]),
+    null,
+  );
+  peerAwareness.setLocalState(null);
+  const removalFrame = new OutgoingMessage(roomName)
+    .createAwarenessUpdateMessage(peerAwareness, [99])
+    .toUint8Array();
+  const removalMessage = new IncomingMessage(removalFrame);
+  removalMessage.readVarString();
+  await assert.rejects(() =>
+    new MessageReceiver(removalMessage).apply(
+      {
+        name: roomName,
+        awareness: roomAwareness,
+        getConnections: document.getConnections,
+        getClients: document.getClients,
+        callbacks: {
+          beforeHandleAwareness: (_room, states) =>
+            runtime.hooks.beforeAwareness({
+              context,
+              connection,
+              document,
+              states,
+            }),
+        },
+      },
+      connection,
+    ),
+  );
+  assert.equal(roomAwareness.getStates().has(99), true);
+  peerAwareness.destroy();
+  peerDocument.destroy();
+  roomAwareness.destroy();
+  roomDocument.destroy();
+  await runtime.stop();
+});
+
 test("storage retries transient reads and uses exact generation/SHA CAS without stale overwrite", async () => {
   const { createDrawingCollaborationStorage } = requireModules();
   let loads = 0;
   let storeAttempts = 0;
+  let lookupAttempts = 0;
   const stores = [];
   const storage = createDrawingCollaborationStorage({
     database: {
@@ -422,6 +622,14 @@ test("storage retries transient reads and uses exact generation/SHA CAS without 
         stores.push(input);
         return { generation: 5, sha256: "c".repeat(64) };
       },
+      async lookupOperations() {
+        lookupAttempts += 1;
+        if (lookupAttempts === 1)
+          throw Object.assign(new Error("connection reset"), {
+            code: "ECONNRESET",
+          });
+        return [];
+      },
     },
     sleep: async () => {},
   });
@@ -440,14 +648,21 @@ test("storage retries transient reads and uses exact generation/SHA CAS without 
   assert.equal(storeAttempts, 2);
   assert.equal(stores[0].expectedGeneration, 4);
   assert.equal(stores[0].expectedSha256, "b".repeat(64));
+  await storage.lookupOperations(ids.revision, [ids.operation]);
+  assert.equal(lookupAttempts, 2);
 });
 
 test("a Task 3 CAS conflict reloads, merges, validates, and retries once", async () => {
   const { createDrawingCollaborationStorage, validatePersistedDrawingState } =
     requireModules();
-  const remote = initializedDocument();
+  const base = initializedDocument();
+  const baseState = Y.encodeStateAsUpdate(base);
+  const remote = new Y.Doc();
+  Y.applyUpdate(remote, baseState);
+  remote.getMap("serverMeta").set("baseOperationSequence", 5);
   const local = new Y.Doc();
-  Y.applyUpdate(local, Y.encodeStateAsUpdate(remote));
+  Y.applyUpdate(local, baseState);
+  local.getMap("serverMeta").set("baseOperationSequence", 3);
   Y.applyUpdate(local, appendUpdate(local));
   let attempts = 0;
   const received = [];
@@ -457,7 +672,7 @@ test("a Task 3 CAS conflict reloads, merges, validates, and retries once", async
         yjsState: Y.encodeStateAsUpdate(remote),
         generation: 4,
         sha256: "b".repeat(64),
-        baseOperationSequence: 0,
+        baseOperationSequence: 5,
       }),
       async store(input) {
         attempts += 1;
@@ -470,19 +685,87 @@ test("a Task 3 CAS conflict reloads, merges, validates, and retries once", async
     sleep: async () => {},
     validateState: validatePersistedDrawingState,
   });
-  await storage.store({
+  const stored = await storage.store({
     userId: ids.actor,
     projectId: ids.project,
     revisionId: ids.revision,
     state: Y.encodeStateAsUpdate(local),
-    baseOperationSequence: 0,
+    baseOperationSequence: 3,
   });
   assert.equal(attempts, 2);
   assert.equal(received[1].expectedGeneration, 4);
   assert.equal(received[1].expectedSha256, "b".repeat(64));
+  assert.equal(received[1].baseOperationSequence, 5);
+  assert.equal(stored.baseOperationSequence, 5);
   const merged = new Y.Doc();
-  Y.applyUpdate(merged, received[1].state);
+  Y.applyUpdate(merged, stored.state);
   assert.equal(merged.getMap("operations").has(ids.operation), true);
+  assert.equal(merged.getMap("serverMeta").get("baseOperationSequence"), 5);
+});
+
+test("store reconciliation applies authoritative merged bytes and checkpoint back to the live room", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const live = initializedDocument();
+  Y.applyUpdate(live, appendUpdate(live));
+  const authoritative = new Y.Doc();
+  Y.applyUpdate(authoritative, Y.encodeStateAsUpdate(live));
+  const second = operation({
+    clientOperationId: ids.operation2,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer2, name: "Remote" },
+    },
+  });
+  Y.applyUpdate(authoritative, appendUpdate(authoritative, second));
+  authoritative.getMap("serverMeta").set("baseOperationSequence", 5);
+  const authoritativeState = Y.encodeStateAsUpdate(authoritative);
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      async store() {
+        return {
+          generation: 2,
+          sha256: "b".repeat(64),
+          state: authoritativeState,
+          baseOperationSequence: 5,
+        };
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  await runtime.hooks.store({
+    document: live,
+    roomName,
+    context: {
+      userId: ids.actor,
+      projectId: ids.project,
+      revisionId: ids.revision,
+    },
+  });
+  assert.equal(live.getMap("operations").has(ids.operation2), true);
+  assert.equal(live.getMap("serverMeta").get("baseOperationSequence"), 5);
+  await runtime.stop();
 });
 
 test("accepted polling and signed outcome receipts are authoritative and idempotent", async () => {
@@ -493,6 +776,7 @@ test("accepted polling and signed outcome receipts are authoritative and idempot
     receiptId: "00000000-0000-4000-8000-000000000406",
     roomName,
     operationId: ids.operation,
+    operation: operation(),
     outcome: "rejected",
     resultVersions: {},
   });
@@ -551,6 +835,222 @@ test("accepted polling and signed outcome receipts are authoritative and idempot
   );
 });
 
+test("poll reconciliation validates the complete batch before one atomic status transaction", async () => {
+  const { reconcileAcceptedDrawingOperations } = requireModules();
+  const doc = initializedDocument();
+  Y.applyUpdate(doc, appendUpdate(doc));
+  const second = operation({
+    clientOperationId: ids.operation2,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer2, name: "Second" },
+    },
+  });
+  Y.applyUpdate(doc, appendUpdate(doc, second));
+  const accepted = (envelope, sequence) => ({
+    revisionId: ids.revision,
+    clientOperationId: envelope.clientOperationId,
+    actorId: envelope.actorId,
+    operationType: envelope.type,
+    baseVersions: envelope.baseVersions,
+    forward: envelope.forward,
+    inverse: envelope.inverse,
+    sequence,
+    resultVersions: {},
+  });
+  await assert.rejects(() =>
+    reconcileAcceptedDrawingOperations(doc, async () => [
+      accepted(operation(), 1),
+      { ...accepted(second, 2), actorId: randomUUID() },
+    ]),
+  );
+  assert.equal(doc.getMap("operationStatus").size, 0);
+});
+
+test("signed outcomes persist before 204 semantics, survive an unloaded room, and replay idempotently", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const secret = "receipt-secret-that-is-long-enough";
+  const receipt = JSON.stringify({
+    receiptId: "00000000-0000-4000-8000-000000000406",
+    roomName,
+    operationId: ids.operation,
+    operation: operation(),
+    outcome: "rejected",
+    resultVersions: {},
+  });
+  const signature = createHmac("sha256", secret).update(receipt).digest("hex");
+  let persisted = null;
+  let stores = 0;
+  const storage = {
+    load: async () =>
+      persisted
+        ? {
+            yjsState: persisted,
+            generation: stores,
+            sha256: "a".repeat(64),
+            baseOperationSequence: 0,
+          }
+        : null,
+    bootstrap: async () => ({
+      sha256: "a".repeat(64),
+      operationSequence: 0,
+    }),
+    async store(input) {
+      stores += 1;
+      assert.equal(input.userId, ids.actor);
+      assert.equal(input.projectId, ids.project);
+      assert.equal(input.revisionId, ids.revision);
+      persisted = input.state;
+      return {
+        generation: stores,
+        sha256: "a".repeat(64),
+        state: input.state,
+        baseOperationSequence: input.baseOperationSequence,
+      };
+    },
+    lookupOperations: async () => [],
+  };
+  const makeRuntime = () =>
+    createDrawingCollaborationServer({
+      config: {
+        port: 0,
+        supabaseUrl,
+        databaseUrl: "postgres://unused",
+        allowedOrigins: new Set(["https://app.example.com"]),
+        internalSecret: secret,
+        authorizationIntervalMs: 30_000,
+        debounceMs: 10,
+        maxDebounceMs: 20,
+      },
+      verifyToken: async () => ({
+        userId: ids.actor,
+        email: null,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      authorize: async () => ({
+        capability: "editor",
+        canWrite: true,
+        revisionStatus: "draft",
+      }),
+      storage,
+      setInterval: () => 1,
+      clearInterval: () => {},
+    });
+
+  const first = makeRuntime();
+  assert.equal(first.hocuspocus.documents.has(roomName), false);
+  await first.applyOutcomeReceipt(receipt, signature);
+  await first.stop();
+  assert.ok(persisted);
+  const stored = new Y.Doc();
+  Y.applyUpdate(stored, persisted);
+  assert.equal(
+    stored.getMap("operationStatus").get(ids.operation).status,
+    "rejected",
+  );
+
+  const restarted = makeRuntime();
+  await restarted.applyOutcomeReceipt(receipt, signature);
+  await restarted.stop();
+  assert.equal(
+    stores,
+    2,
+    "restart replay performs one idempotent durable store",
+  );
+});
+
+test("polling persists server status with room scope and contains room lookup failures", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const pending = initializedDocument();
+  Y.applyUpdate(pending, appendUpdate(pending));
+  const storedScopes = [];
+  let failLookup = false;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => ({
+        yjsState: Y.encodeStateAsUpdate(pending),
+        generation: 1,
+        sha256: "a".repeat(64),
+        baseOperationSequence: 0,
+      }),
+      async store(input) {
+        storedScopes.push(input);
+        return {
+          generation: 2,
+          sha256: "b".repeat(64),
+          state: input.state,
+          baseOperationSequence: input.baseOperationSequence,
+        };
+      },
+      async lookupOperations() {
+        if (failLookup) throw new Error("transient lookup failure");
+        return [
+          {
+            revisionId: ids.revision,
+            clientOperationId: ids.operation,
+            actorId: ids.actor,
+            operationType: "add_layer",
+            baseVersions: {},
+            forward: operation().forward,
+            inverse: {},
+            sequence: 1,
+            resultVersions: {},
+          },
+        ];
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const context = await runtime.hooks.authenticate({
+    token: "x",
+    origin: "https://app.example.com",
+    roomName,
+  });
+  const document = await runtime.hocuspocus.createDocument(
+    roomName,
+    new Request("http://localhost"),
+    "test",
+    { readOnly: false, isAuthenticated: true },
+    context,
+  );
+  await runtime.runReconciliationCheck();
+  assert.equal(
+    document.getMap("operationStatus").get(ids.operation).status,
+    "acked",
+  );
+  assert.equal(storedScopes.at(-1).userId, ids.actor);
+  assert.equal(storedScopes.at(-1).projectId, ids.project);
+  assert.equal(storedScopes.at(-1).revisionId, ids.revision);
+  failLookup = true;
+  document.transact(
+    () => document.getMap("operationStatus").delete(ids.operation),
+    { source: "local", skipStoreHooks: true, context },
+  );
+  await assert.doesNotReject(() => runtime.runReconciliationCheck());
+  await runtime.stop();
+});
+
 test("service hooks reauthorize token sync/messages/Awareness and passive connections", async () => {
   const { createDrawingCollaborationServer } = requireModules();
   let access = {
@@ -571,7 +1071,11 @@ test("service hooks reauthorize token sync/messages/Awareness and passive connec
       debounceMs: 10,
       maxDebounceMs: 20,
     },
-    verifyToken: async () => ({ userId: ids.actor, email: null }),
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: 120_000,
+    }),
     authorize: async () => access,
     storage: {
       load: async () => null,
@@ -595,16 +1099,30 @@ test("service hooks reauthorize token sync/messages/Awareness and passive connec
     context,
     readOnly: false,
     closed: false,
+    tokenRequests: 0,
     close() {
       this.closed = true;
+    },
+    requestToken() {
+      this.tokenRequests += 1;
     },
   };
   assert.equal(intervalMs, 30_000);
   runtime.trackConnection(connection);
-  await runtime.hooks.beforeMessage({
+  await runtime.hooks.beforeSync({
     context,
     document: initializedDocument(),
-    update: appendUpdate(initializedDocument()),
+    connection,
+    type: 0,
+    payload: new Uint8Array(),
+  });
+  const syncDocument = initializedDocument();
+  await runtime.hooks.beforeSync({
+    context,
+    document: syncDocument,
+    connection,
+    type: 2,
+    payload: appendUpdate(syncDocument),
   });
   const awareness = new Map([
     [1, { user: { id: randomUUID(), displayName: "spoof", color: "#ffffff" } }],
@@ -616,10 +1134,97 @@ test("service hooks reauthorize token sync/messages/Awareness and passive connec
   await runtime.runPassiveAuthorizationCheck();
   assert.equal(connection.readOnly, true);
   assert.equal(connection.closed, false);
-  access = null;
-  now = 60_000;
+  access = { capability: "editor", canWrite: true, revisionStatus: "draft" };
+  now = 90_000;
+  await runtime.runPassiveAuthorizationCheck();
+  assert.equal(connection.tokenRequests, 1);
+  now = 120_000;
   await runtime.runPassiveAuthorizationCheck();
   assert.equal(connection.closed, true);
+  await runtime.stop();
+});
+
+test("Hocuspocus v4 decodes a real framed Sync/Update before collaboration validation", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      bootstrap: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      async store(input) {
+        return {
+          generation: 1,
+          sha256: "a".repeat(64),
+          state: input.state,
+          baseOperationSequence: input.baseOperationSequence,
+        };
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const context = await runtime.hooks.authenticate({
+    token: "x",
+    origin: "https://app.example.com",
+    roomName,
+  });
+  const document = await runtime.hocuspocus.createDocument(
+    roomName,
+    new Request("http://localhost"),
+    "frame-test",
+    { readOnly: false, isAuthenticated: true },
+    context,
+  );
+  const update = appendUpdate(document);
+  const frame = new OutgoingMessage(roomName)
+    .createSyncMessage()
+    .writeUpdate(update)
+    .toUint8Array();
+  const message = new IncomingMessage(frame);
+  assert.equal(message.readVarString(), roomName);
+  const connection = {
+    context,
+    readOnly: false,
+    request: new Request("http://localhost"),
+    messageAddress: roomName,
+    send() {},
+    close() {},
+    requestToken() {},
+    callbacks: {
+      beforeSync: (_connection, decoded) =>
+        runtime.hooks.beforeSync({
+          context,
+          document,
+          connection,
+          type: decoded.type,
+          payload: decoded.payload,
+        }),
+    },
+  };
+  await new MessageReceiver(message).apply(document, connection);
+  assert.equal(document.getMap("operations").has(ids.operation), true);
   await runtime.stop();
 });
 
@@ -638,7 +1243,11 @@ test("health distinguishes readiness and graceful shutdown flushes exactly once"
       debounceMs: 10,
       maxDebounceMs: 20,
     },
-    verifyToken: async () => ({ userId: ids.actor, email: null }),
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 120_000,
+    }),
     authorize: async () => ({
       capability: "editor",
       canWrite: true,
@@ -680,7 +1289,11 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
       debounceMs: 10,
       maxDebounceMs: 20,
     },
-    verifyToken: async () => ({ userId: ids.actor, email: null }),
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 120_000,
+    }),
     authorize: async () => ({
       capability: "editor",
       canWrite: true,
@@ -704,8 +1317,75 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
   }
 });
 
+test("outcome endpoint distinguishes invalid signatures from retriable persistence failures", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const secret = "receipt-secret-that-is-long-enough";
+  const body = JSON.stringify({
+    receiptId: "00000000-0000-4000-8000-000000000406",
+    roomName,
+    operationId: ids.operation,
+    operation: operation(),
+    outcome: "rejected",
+    resultVersions: {},
+  });
+  const signature = createHmac("sha256", secret).update(body).digest("hex");
+  let stores = 0;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: secret,
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 120_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      bootstrap: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      store: async () => {
+        stores += 1;
+        if (stores === 1) throw new Error("database unavailable");
+        return { generation: stores, sha256: "a".repeat(64) };
+      },
+    },
+  });
+  const server = await runtime.start();
+  try {
+    const unavailable = await fetch(`${server.httpURL}/internal/outcomes`, {
+      method: "POST",
+      body,
+      headers: { "x-1hk-signature": signature },
+    });
+    assert.equal(unavailable.status, 503);
+    const unauthorized = await fetch(`${server.httpURL}/internal/outcomes`, {
+      method: "POST",
+      body,
+      headers: { "x-1hk-signature": "0".repeat(64) },
+    });
+    assert.equal(unauthorized.status, 401);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("service startup fails closed when asymmetric JWKS preflight fails", async () => {
   const { createDrawingCollaborationServer } = requireModules();
+  let purges = 0;
   const runtime = createDrawingCollaborationServer({
     config: {
       port: 0,
@@ -720,7 +1400,14 @@ test("service startup fails closed when asymmetric JWKS preflight fails", async 
     preflightAuth: async () => {
       throw new Error("HS256-only JWKS");
     },
-    verifyToken: async () => ({ userId: ids.actor, email: null }),
+    purgeAuth: () => {
+      purges += 1;
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 120_000,
+    }),
     authorize: async () => ({
       capability: "editor",
       canWrite: true,
@@ -739,6 +1426,8 @@ test("service startup fails closed when asymmetric JWKS preflight fails", async 
   });
   try {
     await assert.rejects(() => runtime.start(), /HS256-only/);
+    runtime.purgeAuthCache();
+    assert.equal(purges, 1);
   } finally {
     await runtime.stop();
   }
@@ -755,6 +1444,7 @@ test("collaboration OCI contract is Node 22 multi-stage, non-root, one-port and 
   assert.match(dockerfile, /^EXPOSE 1234$/m);
   assert.equal((dockerfile.match(/^EXPOSE /gm) ?? []).length, 1);
   assert.match(dockerfile, /^HEALTHCHECK /m);
+  assert.match(dockerfile, /process\.env\.PORT/);
   assert.doesNotMatch(
     dockerfile,
     /@vercel|@supabase|service.?role|\bws\b|lib0/i,

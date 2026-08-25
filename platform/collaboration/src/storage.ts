@@ -135,7 +135,11 @@ export function createDrawingCollaborationStorage(input: {
           generation: stored.generation,
           sha256: stored.sha256,
         });
-        return stored;
+        return {
+          ...stored,
+          state,
+          baseOperationSequence: value.baseOperationSequence,
+        };
       } catch (error) {
         if (
           casAttempt > 0 ||
@@ -147,7 +151,18 @@ export function createDrawingCollaborationStorage(input: {
           throw error;
         const current = await load(value);
         if (!current) throw error;
-        state = Y.mergeUpdates([current.yjsState, state]);
+        const merged = new Y.Doc();
+        Y.applyUpdate(merged, Y.mergeUpdates([current.yjsState, state]));
+        const baseOperationSequence = Math.max(
+          current.baseOperationSequence,
+          value.baseOperationSequence,
+        );
+        merged
+          .getMap("serverMeta")
+          .set("baseOperationSequence", baseOperationSequence);
+        state = Y.encodeStateAsUpdate(merged);
+        merged.destroy();
+        value = { ...value, baseOperationSequence };
         if (!input.validateState) throw error;
         input.validateState(state, value);
         token = { generation: current.generation, sha256: current.sha256 };
@@ -160,7 +175,13 @@ export function createDrawingCollaborationStorage(input: {
     store,
     authorize: input.database.authorize,
     bootstrap: input.database.bootstrap,
-    lookupOperations: input.database.lookupOperations,
+    lookupOperations: input.database.lookupOperations
+      ? (revisionId: string, operationIds: string[]) =>
+          retry(
+            () => input.database.lookupOperations!(revisionId, operationIds),
+            sleep,
+          )
+      : undefined,
     health: input.database.health,
     close: input.database.close,
   };

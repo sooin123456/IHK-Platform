@@ -16,5 +16,5 @@ COPY --from=build /app/collaboration/dist ./collaboration/dist
 USER node
 EXPOSE 1234
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:1234/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "collaboration/dist/collaboration/src/server.js"]

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import { Server } from "@hocuspocus/server";
 import * as Y from "yjs";
@@ -11,6 +12,7 @@ import {
   DrawingAwarenessStateSchema,
   DrawingCollaborationClientAppendSchema,
   DrawingCollaborationMetaSchema,
+  DrawingCollaborationOperationSchema,
   DrawingCollaborationStatusSchema,
   parseDrawingRoomName,
   validateDrawingCollaborationAppend,
@@ -41,7 +43,10 @@ type TrackedConnection = {
   context: DrawingConnectionContext;
   readOnly: boolean;
   close: (event?: { code: number; reason: string }) => void;
+  requestToken?: () => void;
 };
+
+class OutcomeReceiptAuthenticationError extends Error {}
 
 const ReceiptSchema = z
   .object({
@@ -59,25 +64,31 @@ const ReceiptSchema = z
       }
     }),
     operationId: z.string().uuid(),
+    operation: DrawingCollaborationOperationSchema,
     outcome: z.enum(["rejected", "conflicted"]),
     resultVersions: z
       .record(z.string().uuid(), z.number().int().positive())
       .refine((value) => Object.keys(value).length <= 256),
   })
-  .strict();
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
+  .strict()
+  .superRefine((receipt, context) => {
+    const room = parseDrawingRoomName(receipt.roomName);
+    if (receipt.operation.clientOperationId !== receipt.operationId)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operationId"],
+        message: "Receipt operation ID must match its envelope.",
+      });
+    if (receipt.operation.revisionId !== room.revisionId)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operation", "revisionId"],
+        message: "Receipt operation revision must match its room.",
+      });
+  });
 
 function same(left: unknown, right: unknown): boolean {
-  return canonical(left) === canonical(right);
+  return isDeepStrictEqual(left, right);
 }
 
 function documentCollections(document: Y.Doc) {
@@ -204,14 +215,19 @@ export function validateDrawingClientUpdate(
       !same(before.operationStatus, after.operationStatus)
     )
       throw new Error("Clients cannot author server collaboration state.");
+    validateLedgerWithoutAppend(
+      candidate,
+      `drawing:${context.projectId}:${context.revisionId}`,
+    );
+    if (
+      same(before.operationOrder, after.operationOrder) &&
+      same(before.operations, after.operations)
+    )
+      return;
     validateDrawingCollaborationAppend(
       { operationOrder: before.operationOrder, operations: before.operations },
       { operationOrder: after.operationOrder, operations: after.operations },
       context.userId,
-      `drawing:${context.projectId}:${context.revisionId}`,
-    );
-    validateLedgerWithoutAppend(
-      candidate,
       `drawing:${context.projectId}:${context.revisionId}`,
     );
   } finally {
@@ -222,8 +238,9 @@ export function validateDrawingClientUpdate(
 export function sanitizeDrawingAwarenessState(
   input: Record<string, unknown>,
   identity: { userId: string; displayName: string; color: string },
+  now = Date.now(),
 ) {
-  return DrawingAwarenessStateSchema.parse({
+  const state = DrawingAwarenessStateSchema.parse({
     user: {
       id: identity.userId,
       displayName: identity.displayName,
@@ -236,6 +253,13 @@ export function sanitizeDrawingAwarenessState(
     activeTool: input.activeTool ?? null,
     softLocks: input.softLocks ?? [],
   });
+  if (
+    state.softLocks.some(
+      (lock) => lock.expiresAt <= now || lock.expiresAt > now + 10_000,
+    )
+  )
+    throw new Error("Drawing soft-lock leases must expire within ten seconds.");
+  return state;
 }
 
 export function createOutcomeReceiptVerifier(secret: string) {
@@ -273,6 +297,8 @@ function acceptedMatchesEnvelope(
 export async function reconcileAcceptedDrawingOperations(
   document: Y.Doc,
   lookup: (operationIds: string[]) => Promise<DrawingAcceptedOperation[]>,
+  transact: (mutation: () => void) => void | Promise<void> = (mutation) =>
+    document.transact(mutation, DRAWING_COLLABORATION_SERVER_ORIGIN),
 ) {
   const operations = document.getMap("operations").toJSON();
   const statuses = document.getMap("operationStatus");
@@ -280,26 +306,40 @@ export async function reconcileAcceptedDrawingOperations(
     const status = statuses.get(id) as { status?: string } | undefined;
     return !status || status.status === "pending";
   });
-  if (!pending.length) return;
+  if (!pending.length) return false;
   const accepted = await lookup(pending.slice(0, 256));
   const revisionId = String(document.getMap("serverMeta").get("revisionId"));
-  document.transact(() => {
-    for (const row of accepted) {
-      const envelope = operations[row.clientOperationId] as
-        | Record<string, unknown>
-        | undefined;
-      if (!envelope || !acceptedMatchesEnvelope(row, envelope, revisionId))
-        throw new Error(
-          "Accepted drawing operation does not match its immutable envelope.",
-        );
-      statuses.set(row.clientOperationId, {
-        operationId: row.clientOperationId,
-        status: "acked",
-        authoritativeSequence: row.sequence,
-        resultVersions: row.resultVersions,
-      });
+  if (
+    accepted.length > pending.length ||
+    new Set(accepted.map((row) => row.clientOperationId)).size !==
+      accepted.length
+  )
+    throw new Error("Accepted drawing operation lookup is invalid.");
+  const validated = accepted.map((row) => {
+    const envelope = operations[row.clientOperationId] as
+      | Record<string, unknown>
+      | undefined;
+    if (
+      !pending.includes(row.clientOperationId) ||
+      !envelope ||
+      !acceptedMatchesEnvelope(row, envelope, revisionId)
+    )
+      throw new Error(
+        "Accepted drawing operation does not match its immutable envelope.",
+      );
+    return DrawingCollaborationStatusSchema.parse({
+      operationId: row.clientOperationId,
+      status: "acked",
+      authoritativeSequence: row.sequence,
+      resultVersions: row.resultVersions,
+    });
+  });
+  await transact(() => {
+    for (const status of validated) {
+      statuses.set(status.operationId, status);
     }
-  }, DRAWING_COLLABORATION_SERVER_ORIGIN);
+  });
+  return validated.length > 0;
 }
 
 type Dependencies = {
@@ -315,6 +355,7 @@ type Dependencies = {
     "load" | "store" | "bootstrap" | "lookupOperations" | "health" | "close"
   >;
   preflightAuth?: () => Promise<void>;
+  purgeAuth?: () => void;
   now?: () => number;
   setInterval?: typeof globalThis.setInterval;
   clearInterval?: typeof globalThis.clearInterval;
@@ -349,7 +390,24 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       now,
     });
 
-  async function reauthorize(context: DrawingConnectionContext) {
+  function requireFreshToken(
+    context: DrawingConnectionContext,
+    connection?: TrackedConnection,
+  ) {
+    const remaining = context.expiresAtMs - now();
+    if (remaining <= 0) {
+      connection?.close({ code: 4401, reason: "token-expired" });
+      throw new Error("Drawing access token expired.");
+    }
+    if (remaining <= dependencies.config.authorizationIntervalMs)
+      connection?.requestToken?.();
+  }
+
+  async function reauthorize(
+    context: DrawingConnectionContext,
+    connection?: TrackedConnection,
+  ) {
+    requireFreshToken(context, connection);
     const access = await dependencies.authorize(
       context.userId,
       context.projectId,
@@ -370,24 +428,91 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     }) {
       return authenticate(input);
     },
-    async beforeMessage(input: {
+    async beforeSync(input: {
       context: DrawingConnectionContext;
       document: Y.Doc;
-      update: Uint8Array;
+      connection: TrackedConnection;
+      type: number;
+      payload: Uint8Array;
     }) {
-      await reauthorize(input.context);
-      validateDrawingClientUpdate(input.document, input.update, input.context);
+      if (input.type !== 1 && input.type !== 2) return;
+      await reauthorize(input.context, input.connection);
+      input.connection.readOnly = !input.context.canWrite;
+      if (!input.context.canWrite) return;
+      validateDrawingClientUpdate(input.document, input.payload, input.context);
     },
     async beforeAwareness(input: {
       context: DrawingConnectionContext;
       states: Map<number, Record<string, unknown>>;
+      connection?: TrackedConnection;
+      document?: {
+        getConnections: () => any[];
+        getClients: (connection: any) => Set<any>;
+      };
     }) {
-      await reauthorize(input.context);
-      for (const [clientId, state] of input.states)
-        input.states.set(
-          clientId,
-          sanitizeDrawingAwarenessState(state, input.context),
+      await reauthorize(input.context, input.connection);
+      if (input.states.size > 1)
+        throw new Error("One Awareness client is allowed per connection.");
+      if (input.connection && input.document) {
+        const owned = input.document.getClients(input.connection);
+        for (const clientId of input.states.keys()) {
+          if (owned.size && !owned.has(clientId))
+            throw new Error(
+              "Awareness client does not belong to this connection.",
+            );
+          for (const peer of input.document.getConnections())
+            if (
+              peer !== input.connection &&
+              input.document.getClients(peer).has(clientId)
+            )
+              throw new Error(
+                "Awareness client belongs to another connection.",
+              );
+        }
+      }
+      for (const [clientId, state] of input.states) {
+        const sanitized = sanitizeDrawingAwarenessState(
+          state,
+          input.context,
+          now(),
         );
+        if (
+          new TextEncoder().encode(JSON.stringify(sanitized)).byteLength >
+          16_384
+        )
+          throw new Error("Drawing Awareness update is too large.");
+        input.states.set(clientId, sanitized);
+      }
+    },
+    async store(input: {
+      document: Y.Doc;
+      roomName: string;
+      context: Pick<DrawingStorageScope, "userId" | "projectId" | "revisionId">;
+    }) {
+      validateLedgerWithoutAppend(input.document, input.roomName);
+      const meta = DrawingCollaborationMetaSchema.parse(
+        input.document.getMap("serverMeta").toJSON(),
+      );
+      if (
+        !input.context.userId ||
+        input.context.projectId !== meta.projectId ||
+        input.context.revisionId !== meta.revisionId
+      )
+        throw new Error("Drawing collaboration store scope is invalid.");
+      const stored = await dependencies.storage.store({
+        ...input.context,
+        state: Y.encodeStateAsUpdate(input.document),
+        baseOperationSequence: meta.baseOperationSequence,
+      });
+      if (stored.state) {
+        validatePersistedDrawingState(stored.state, input.context);
+        Y.applyUpdate(input.document, stored.state, {
+          source: "local",
+          skipStoreHooks: true,
+          context: input.context,
+        });
+      }
+      return stored;
     },
   };
 
@@ -426,8 +551,14 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         connections.delete(payload.connection);
       });
     },
-    beforeHandleMessage(payload) {
-      return hooks.beforeMessage(payload);
+    beforeSync(payload) {
+      return hooks.beforeSync({
+        context: payload.context,
+        document: payload.document,
+        connection: payload.connection,
+        type: payload.type,
+        payload: payload.payload,
+      });
     },
     beforeHandleAwareness(payload) {
       if (!payload.context)
@@ -435,6 +566,8 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       return hooks.beforeAwareness({
         context: payload.context,
         states: payload.states,
+        connection: payload.connection,
+        document: payload.document,
       });
     },
     async onLoadDocument(payload) {
@@ -460,24 +593,67 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       return payload.document;
     },
     async onStoreDocument(payload) {
-      validateLedgerWithoutAppend(payload.document, payload.documentName);
-      const meta = DrawingCollaborationMetaSchema.parse(
-        payload.document.getMap("serverMeta").toJSON(),
-      );
-      await dependencies.storage.store({
-        ...payload.lastContext,
-        state: Y.encodeStateAsUpdate(payload.document),
-        baseOperationSequence: meta.baseOperationSequence,
+      await hooks.store({
+        document: payload.document,
+        roomName: payload.documentName,
+        context: payload.lastContext,
       });
     },
   });
   const hocuspocus = server.hocuspocus;
 
+  function persistenceContext(document: Y.Doc): DrawingConnectionContext {
+    const meta = DrawingCollaborationMetaSchema.parse(
+      document.getMap("serverMeta").toJSON(),
+    );
+    const connected =
+      "getConnections" in document
+        ? (
+            document as typeof document & {
+              getConnections(): TrackedConnection[];
+            }
+          )
+            .getConnections()
+            .map((connection) => connection.context)
+            .find((context) => context?.canWrite)
+        : undefined;
+    const statuses = document.getMap("operationStatus");
+    const operation = Object.entries(
+      document.getMap("operations").toJSON(),
+    ).find(([operationId]) => {
+      const status = statuses.get(operationId) as
+        | { status?: string }
+        | undefined;
+      return !status || status.status === "pending";
+    })?.[1] as { actorId?: string } | undefined;
+    const userId = connected?.userId ?? operation?.actorId;
+    if (!userId)
+      throw new Error(
+        "Drawing collaboration persistence actor is unavailable.",
+      );
+    return (
+      connected ?? {
+        userId,
+        email: null,
+        expiresAtMs: Number.POSITIVE_INFINITY,
+        capability: "editor",
+        canWrite: true,
+        revisionStatus: "draft",
+        projectId: meta.projectId,
+        revisionId: meta.revisionId,
+        roomName: `drawing:${meta.projectId}:${meta.revisionId}`,
+        displayName: "server",
+        color: "#000000",
+        lastAuthorizedAt: now(),
+      }
+    );
+  }
+
   async function runPassiveAuthorizationCheck() {
     await Promise.all(
       [...connections].map(async (connection) => {
         try {
-          await reauthorize(connection.context);
+          await reauthorize(connection.context, connection);
           connection.readOnly = !connection.context.canWrite;
         } catch {
           connection.close({ code: 4403, reason: "permission-revoked" });
@@ -489,58 +665,101 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
 
   async function runReconciliationCheck() {
     if (!dependencies.storage.lookupOperations) return;
-    await Promise.all(
+    await Promise.allSettled(
       [...hocuspocus.documents.values()].map((document) =>
-        reconcileAcceptedDrawingOperations(document, (ids) =>
-          dependencies.storage.lookupOperations!(
-            String(document.getMap("serverMeta").get("revisionId")),
-            ids,
-          ),
-        ),
+        (async () => {
+          const context = persistenceContext(document);
+          const changed = await reconcileAcceptedDrawingOperations(
+            document,
+            (ids) =>
+              dependencies.storage.lookupOperations!(context.revisionId, ids),
+            (mutation) =>
+              document.transact(mutation, { source: "local", context }),
+          );
+          if (changed)
+            await hooks.store({
+              document,
+              roomName: context.roomName,
+              context,
+            });
+        })(),
       ),
     );
   }
 
   const interval = (dependencies.setInterval ?? globalThis.setInterval)(() => {
-    void runPassiveAuthorizationCheck();
-    void runReconciliationCheck();
+    void runPassiveAuthorizationCheck().catch(() => {});
+    void runReconciliationCheck().catch(() => {});
   }, dependencies.config.authorizationIntervalMs);
 
   const verifyReceipt = createOutcomeReceiptVerifier(
     dependencies.config.internalSecret,
   );
-  function applyOutcomeReceipt(body: string, signature: string | undefined) {
-    const receipt = verifyReceipt(body, signature);
-    const document = hocuspocus.documents.get(receipt.roomName);
-    if (!document) return receipt;
+  async function applyOutcomeReceipt(
+    body: string,
+    signature: string | undefined,
+  ) {
+    let receipt: ReturnType<typeof verifyReceipt>;
+    try {
+      receipt = verifyReceipt(body, signature);
+    } catch {
+      throw new OutcomeReceiptAuthenticationError(
+        "Outcome receipt authentication failed.",
+      );
+    }
+    const room = parseDrawingRoomName(receipt.roomName);
+    const context: DrawingConnectionContext = {
+      userId: receipt.operation.actorId,
+      email: null,
+      expiresAtMs: Number.POSITIVE_INFINITY,
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+      ...room,
+      roomName: receipt.roomName,
+      displayName: "server",
+      color: "#000000",
+      lastAuthorizedAt: now(),
+    };
+    const document = await hocuspocus.createDocument(
+      receipt.roomName,
+      new Request("http://localhost/internal/outcomes"),
+      receipt.receiptId,
+      { readOnly: false, isAuthenticated: true },
+      context,
+    );
     const operations = document.getMap("operations");
-    if (!operations.has(receipt.operationId))
-      throw new Error("Outcome receipt operation is unavailable.");
     const statuses = document.getMap("operationStatus");
+    const existing = operations.get(receipt.operationId);
     const current = statuses.get(receipt.operationId) as
-      | { status?: string }
+      | { status?: string; resultVersions?: unknown }
       | undefined;
+    if (existing && !same(existing, receipt.operation))
+      throw new Error("Outcome receipt operation is immutable.");
     if (
       current?.status === "acked" ||
       (current &&
         (current.status !== receipt.outcome ||
-          !same(
-            (current as { resultVersions?: unknown }).resultVersions,
-            receipt.resultVersions,
-          )))
+          !same(current.resultVersions, receipt.resultVersions)))
     )
       throw new Error("Outcome receipt conflicts with authoritative status.");
-    if (!current)
-      document.transact(
-        () =>
+    document.transact(
+      () => {
+        if (!existing) {
+          operations.set(receipt.operationId, receipt.operation);
+          document.getArray("operationOrder").push([receipt.operationId]);
+        }
+        if (!current)
           statuses.set(receipt.operationId, {
             operationId: receipt.operationId,
             status: receipt.outcome,
             authoritativeSequence: null,
             resultVersions: receipt.resultVersions,
-          }),
-        DRAWING_COLLABORATION_SERVER_ORIGIN,
-      );
+          });
+      },
+      { source: "local", context },
+    );
+    await hooks.store({ document, roomName: receipt.roomName, context });
     return receipt;
   }
 
@@ -586,13 +805,17 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
             if (Buffer.byteLength(body) > 16 * 1024) break;
           }
           try {
-            applyOutcomeReceipt(
+            await applyOutcomeReceipt(
               body,
               request.headers["x-1hk-signature"] as string | undefined,
             );
             response.writeHead(204).end();
-          } catch {
-            response.writeHead(401).end();
+          } catch (error) {
+            response
+              .writeHead(
+                error instanceof OutcomeReceiptAuthenticationError ? 401 : 503,
+              )
+              .end();
           }
           return;
         }
@@ -638,6 +861,9 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     runPassiveAuthorizationCheck,
     runReconciliationCheck,
     applyOutcomeReceipt,
+    purgeAuthCache() {
+      dependencies.purgeAuth?.();
+    },
     health,
     start,
     stop,
@@ -663,6 +889,7 @@ export function createDrawingCollaborationServerFromEnvironment(
     storage,
     authorize: database.authorize!,
     preflightAuth: tokenVerifier.preflight,
+    purgeAuth: tokenVerifier.purge,
     verifyToken: tokenVerifier.verify,
   });
 }
@@ -675,5 +902,6 @@ if (
   const shutdown = () => void runtime.stop();
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
+  process.on("SIGHUP", () => runtime.purgeAuthCache());
   await runtime.start();
 }

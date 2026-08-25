@@ -15,7 +15,11 @@ const UserIdSchema = z
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   );
 
-export type VerifiedDrawingUser = { userId: string; email: string | null };
+export type VerifiedDrawingUser = {
+  userId: string;
+  email: string | null;
+  expiresAtMs: number;
+};
 export type DrawingRoomAuthorization = {
   capability: string;
   canWrite: boolean;
@@ -73,6 +77,7 @@ export async function verifyDrawingAccessToken(input: {
     algorithms: ["RS256", "ES256"],
     issuer: `${supabaseUrl}/auth/v1`,
     audience: "authenticated",
+    requiredClaims: ["sub", "exp", "iss", "aud"],
   });
   return verifiedPayload(result.payload);
 }
@@ -123,10 +128,13 @@ export function createDrawingAccessTokenVerifier(input: {
 
 function verifiedPayload(payload: JWTPayload): VerifiedDrawingUser {
   const userId = UserIdSchema.parse(payload.sub);
+  if (!Number.isSafeInteger(payload.exp) || payload.exp! <= 0)
+    throw new Error("Drawing access token expiry is required.");
   if (payload.role !== "authenticated" || payload.is_anonymous === true)
     throw new Error("Only authenticated non-anonymous users may collaborate.");
   return {
     userId,
+    expiresAtMs: payload.exp! * 1_000,
     email:
       typeof payload.email === "string" && payload.email.length <= 320
         ? payload.email
