@@ -1003,7 +1003,7 @@ export function pasteDrawingBlockInstancesClipboardCommand(
         entity: DrawingBlockInstanceSchema.parse({
           ...snapshot,
           id,
-          ...(snapshot.lineageId ? { lineageId: id } : {}),
+          lineageId: id,
           layerId: layer.id,
           origin: {
             x: snapshot.origin.x + offset.x,

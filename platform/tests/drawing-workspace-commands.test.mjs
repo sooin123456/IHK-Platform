@@ -2088,6 +2088,7 @@ test("workspace block mutation adapter no-ops hidden, locked, and mixed selectio
         blockInstances: {
           [instanceId]: {
             id: instanceId,
+            lineageId: instanceId,
             blockId,
             layerId: otherLayerId,
             name: "Selected placement",

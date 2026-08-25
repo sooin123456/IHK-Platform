@@ -21,6 +21,7 @@ import {
 import { createDrawingActiveCanvasSliceCache } from "../app/lukas/lib/drawing-document-store.ts";
 import { nextDrawingCanvasFocusIntent } from "../app/lukas/lib/drawing-pages-focus.ts";
 import {
+  DrawingBlockInstanceSchema,
   DrawingObjectSchema,
   DrawingPropertyValueSchema,
   DrawingStructureActionSchema,
@@ -117,6 +118,28 @@ function state(overrides = {}) {
     ...overrides,
   };
 }
+
+test("canonical block instances require immutable lineage", () => {
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Required lineage",
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  assert.equal(DrawingBlockInstanceSchema.safeParse(instance).success, false);
+  assert.equal(
+    DrawingBlockInstanceSchema.safeParse({
+      ...instance,
+      lineageId: instance.id,
+    }).success,
+    true,
+  );
+});
 
 test("structure actions reject unknown fields and restore exact prior entities", () => {
   const action = { kind: "put_canvas", entity: canvas(), baseVersion: null };
@@ -724,6 +747,7 @@ test("structure object actions require the matching block conversion batch", () 
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Block 1",
@@ -798,6 +822,7 @@ test("block conversion batches pair a new instance with their new definition", (
           kind: "put_block_instance",
           entity: {
             id: ids.instance,
+            lineageId: ids.instance,
             blockId: ids.style,
             layerId: ids.layer,
             name: "Existing block instance",
@@ -1012,6 +1037,7 @@ test("block conversion primitives must exactly represent the deleted objects", (
           kind: "put_block_instance",
           entity: {
             id: ids.instance,
+            lineageId: ids.instance,
             blockId: ids.block,
             layerId: ids.layer,
             name: "Block",
@@ -1075,6 +1101,7 @@ test("block conversion rejects objects from a layer other than its instance laye
           kind: "put_block_instance",
           entity: {
             id: ids.instance,
+            lineageId: ids.instance,
             blockId: ids.block,
             layerId: ids.layer,
             name: "Block",
@@ -1138,6 +1165,7 @@ test("translation-only block conversion preserves the canonical primitive throug
       kind: "put_block_instance",
       entity: {
         id: ids.instance,
+        lineageId: ids.instance,
         blockId: ids.block,
         layerId: ids.layer,
         name: "Block",
@@ -1228,6 +1256,7 @@ test("rotated and scaled block conversion is rejected before geometry or style m
       kind: "put_block_instance",
       entity: {
         id: ids.instance,
+        lineageId: ids.instance,
         blockId: ids.block,
         layerId: ids.layer,
         name: "Rotated block",

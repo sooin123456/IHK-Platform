@@ -168,6 +168,14 @@ const p2LineageSnapshotWriterMigration = () =>
   );
 const p2TemplateCloneSecurityMigration = () =>
   readFile(new URL("../supabase/migrations/20260825190000_drawing_workspace_template_clone_security.sql", import.meta.url), "utf8");
+const p2TemplateCloneFinalLedgerMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825200000_drawing_workspace_template_clone_final_ledger.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -480,6 +488,7 @@ before(async () => {
   await db.exec(await p2LegacyTemplateSnapshotCloneMigration());
   await db.exec(await p2LineageSnapshotWriterMigration());
   await db.exec(await p2TemplateCloneSecurityMigration());
+  await db.exec(await p2TemplateCloneFinalLedgerMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -3337,6 +3346,7 @@ test("block library and instance inspector remain readable while approved viewer
   };
   const instance = {
     id: instanceId,
+    lineageId: instanceId,
     blockId,
     layerId,
     name: "Approved placement",
@@ -3495,6 +3505,7 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
   };
   const activeInstance = {
     id: activeInstanceId,
+    lineageId: activeInstanceId,
     blockId,
     layerId: lockedLayerId,
     name: "Hidden active placement",
@@ -3507,6 +3518,7 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
   const offCanvasInstance = {
     ...activeInstance,
     id: offCanvasInstanceId,
+    lineageId: offCanvasInstanceId,
     layerId: otherLayerId,
     name: "Off canvas placement",
   };
@@ -5879,6 +5891,171 @@ test("P2 explicit-source template clones keep documents source-free and preserve
   );
 });
 
+test("cloned block-instance lineage survives delete and undo while forged action lineage is rejected atomically", async () => {
+  const source = await createDocument("Instance lineage template");
+  const persisted = await createPersistedBlockInstance(
+    source,
+    "Lineage placement",
+  );
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [source.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','lineage')",
+    [
+      source.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const cloned = await db.query(
+    "select public.lukas_drawing_create_from_template($1,'Lineage clone',null,$2) result",
+    [source.revisionId, randomUUID()],
+  );
+  const clone = cloned.rows[0].result;
+  await db.exec("reset role");
+  const copied = await db.query(
+    `select id,lineage_id "lineageId",block_id "blockId",layer_id "layerId",
+      name,origin,rotation::float8 rotation,scale_x::float8 "scaleX",
+      scale_y::float8 "scaleY",version
+     from public.lukas_drawing_block_instances where revision_id=$1`,
+    [clone.revisionId],
+  );
+  assert.equal(copied.rows.length, 1);
+  const instance = copied.rows[0];
+  assert.notEqual(instance.id, instance.lineageId);
+  assert.equal(instance.lineageId, persisted.instance.lineageId);
+
+  await asActor(OWNER);
+  for (const lineage of [undefined, randomUUID()]) {
+    const freshId = randomUUID();
+    const clientOperationId = randomUUID();
+    const entity = {
+      ...instance,
+      id: freshId,
+      name: "Forged lineage",
+      version: 1,
+    };
+    if (lineage === undefined) delete entity.lineageId;
+    else entity.lineageId = lineage;
+    await assert.rejects(
+      applyOperationWithId(
+        clone.revisionId,
+        clientOperationId,
+        "mutate_structure",
+        {},
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "put_block_instance", entity, baseVersion: null },
+          ],
+        },
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "delete_block_instance", id: freshId, baseVersion: 1 },
+          ],
+        },
+      ),
+      (error) => error.code === "P1C01",
+    );
+    await db.exec("reset role");
+    const sideEffects = await db.query(
+      `select
+        (select count(*)::int from public.lukas_drawing_block_instances where id=$1) instances,
+        (select count(*)::int from public.lukas_drawing_operations where revision_id=$2 and client_operation_id=$3) operations`,
+      [freshId, clone.revisionId, clientOperationId],
+    );
+    assert.deepEqual(sideEffects.rows[0], { instances: 0, operations: 0 });
+    await asActor(OWNER);
+  }
+
+  const deleteForward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+    ],
+  };
+  const restoreForward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_block_instance", entity: instance, baseVersion: null },
+    ],
+  };
+  await applyOperation(
+    clone.revisionId,
+    "mutate_structure",
+    { [instance.id]: 1 },
+    deleteForward,
+    restoreForward,
+  );
+  await applyOperation(
+    clone.revisionId,
+    "mutate_structure",
+    {},
+    restoreForward,
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "delete_block_instance", id: instance.id, baseVersion: 3 },
+      ],
+    },
+  );
+  await db.exec("reset role");
+  const restored = await db.query(
+    `select lineage_id "lineageId",version
+     from public.lukas_drawing_block_instances where id=$1`,
+    [instance.id],
+  );
+  assert.deepEqual(restored.rows, [{ lineageId: instance.lineageId, version: 3 }]);
+
+  await asActor(OWNER);
+  const mismatchedClientOperationId = randomUUID();
+  await assert.rejects(
+    applyOperationWithId(
+      clone.revisionId,
+      mismatchedClientOperationId,
+      "mutate_structure",
+      { [instance.id]: 3 },
+      {
+        type: "mutate_structure",
+        actions: [
+          {
+            kind: "put_block_instance",
+            entity: { ...instance, lineageId: randomUUID(), version: 3 },
+            baseVersion: 3,
+          },
+        ],
+      },
+      {
+        type: "mutate_structure",
+        actions: [
+          {
+            kind: "put_block_instance",
+            entity: { ...instance, version: 3 },
+            baseVersion: 4,
+          },
+        ],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await db.exec("reset role");
+  const unchanged = await db.query(
+    `select i.lineage_id "lineageId",i.version,
+      (select count(*)::int from public.lukas_drawing_operations o
+       where o.revision_id=i.revision_id and o.client_operation_id=$2) operations
+     from public.lukas_drawing_block_instances i where i.id=$1`,
+    [instance.id, mismatchedClientOperationId],
+  );
+  assert.deepEqual(unchanged.rows, [
+    { lineageId: instance.lineageId, version: 3, operations: 0 },
+  ]);
+});
+
 test("template clone request IDs return one destination and bind their payload", async () => {
   const source = await createDocument("Idempotent template");
   const review = await db.query(
@@ -5903,10 +6080,132 @@ test("template clone request IDs return one destination and bind their payload",
   );
   await db.exec("reset role");
   const created = await db.query(
-    "select count(*)::int count from public.lukas_drawing_documents where clone_requested_by=$1 and clone_request_id=$2",
+    `select count(*)::int count
+     from private.lukas_drawing_template_clone_requests
+     where actor_id=$1 and client_request_id=$2`,
     [OWNER, requestId],
   );
   assert.equal(created.rows[0].count, 1);
+});
+
+test("template clone bindings cannot be forged through document rows and never create ledger authority", async () => {
+  const plain = await createDocument("Unbound document");
+  const updateRequestId = randomUUID();
+  const insertRequestId = randomUUID();
+  const forgedHash = "f".repeat(64);
+  await db.exec("reset role; begin");
+  let updateError = null;
+  let insertError = null;
+  try {
+    await db.exec("savepoint forged_update");
+    try {
+      await db.query(
+        `update public.lukas_drawing_documents
+         set clone_requested_by=$1,clone_request_id=$2,clone_request_hash=$3
+         where id=$4`,
+        [OWNER, updateRequestId, forgedHash, plain.documentId],
+      );
+    } catch (error) {
+      updateError = error;
+    }
+    await db.exec("rollback to savepoint forged_update");
+
+    await db.exec("savepoint forged_insert");
+    try {
+      await db.query(
+        `insert into public.lukas_drawing_documents(
+          project_id,title,created_by,clone_requested_by,clone_request_id,clone_request_hash
+        ) values($1,'Forged clone binding',$2,$2,$3,$4)`,
+        [PROJECT, OWNER, insertRequestId, forgedHash],
+      );
+    } catch (error) {
+      insertError = error;
+    }
+    await db.exec("rollback to savepoint forged_insert");
+
+    const ledger = await db.query(
+      `select count(*)::int count
+       from private.lukas_drawing_template_clone_requests
+       where actor_id=$1 and client_request_id in ($2,$3)`,
+      [OWNER, updateRequestId, insertRequestId],
+    );
+    assert.equal(updateError?.code, "P1C01");
+    assert.equal(insertError?.code, "P1C01");
+    assert.equal(ledger.rows[0].count, 0);
+  } finally {
+    await db.exec("rollback");
+  }
+});
+
+test("template clone ledger rows are append-only and only the public four-argument RPC is executable", async () => {
+  const source = await createDocument("Append-only ledger template");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [source.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','ledger')",
+    [
+      source.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const requestId = randomUUID();
+  await db.query(
+    "select public.lukas_drawing_create_from_template($1,'Ledger clone',null,$2)",
+    [source.revisionId, requestId],
+  );
+
+  await db.exec("reset role; begin");
+  let updateError = null;
+  let deleteError = null;
+  try {
+    await db.exec("savepoint mutate_ledger");
+    try {
+      await db.query(
+        `update private.lukas_drawing_template_clone_requests
+         set request_hash=$1 where actor_id=$2 and client_request_id=$3`,
+        ["e".repeat(64), OWNER, requestId],
+      );
+    } catch (error) {
+      updateError = error;
+    }
+    await db.exec("rollback to savepoint mutate_ledger");
+    await db.exec("savepoint delete_ledger");
+    try {
+      await db.query(
+        `delete from private.lukas_drawing_template_clone_requests
+         where actor_id=$1 and client_request_id=$2`,
+        [OWNER, requestId],
+      );
+    } catch (error) {
+      deleteError = error;
+    }
+    await db.exec("rollback to savepoint delete_ledger");
+    assert.equal(updateError?.code, "P1C01");
+    assert.equal(deleteError?.code, "P1C01");
+  } finally {
+    await db.exec("rollback");
+  }
+
+  const privileges = await db.query(
+    `select
+      has_function_privilege('authenticated','public.lukas_drawing_create_from_template(uuid,text,uuid,uuid)','execute') public_four,
+      has_function_privilege('authenticated','public.lukas_drawing_create_from_template(uuid,text,uuid)','execute') public_three,
+      has_function_privilege('authenticated','private.lukas_drawing_create_from_template(uuid,text,uuid,uuid)','execute') private_four,
+      has_function_privilege('authenticated','private.lukas_drawing_create_from_template(uuid,text,uuid)','execute') private_three,
+      has_function_privilege('authenticated','private.lukas_drawing_clone_v1_snapshot(jsonb,uuid,uuid,text,uuid)','execute') private_v1`,
+  );
+  assert.deepEqual(privileges.rows[0], {
+    public_four: true,
+    public_three: false,
+    private_four: false,
+    private_three: false,
+    private_v1: false,
+  });
 });
 
 test("template clone rejects corrupt snapshots atomically and makes viewer denial non-enumerating", async () => {
@@ -6123,14 +6422,19 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
       "insert into public.lukas_qto_project_members(project_id,user_id,role) values ($1,$2,'reviewer')",
       [PROJECT, REVIEWER],
     );
+    await upgradeDb.query(
+      `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256,immutable)
+       values($1,$2,$3,'pdf',$4,true)`,
+      [PDF, PROJECT, OWNER, PDF_SHA],
+    );
     await upgradeDb.exec("set role authenticated");
     await upgradeDb.query(
       "select set_config('request.jwt.claim.sub',$1,false)",
       [OWNER],
     );
     const created = await upgradeDb.query(
-      "select public.lukas_drawing_create_document($1,null,'v1 template',true) result",
-      [PROJECT],
+      "select public.lukas_drawing_create_document($1,$2,'v1 template',false) result",
+      [PROJECT, PDF],
     );
     const source = created.rows[0].result;
     const review = await upgradeDb.query(
@@ -6166,6 +6470,7 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
     await upgradeDb.exec(await p2LegacyTemplateSnapshotCloneMigration());
     await upgradeDb.exec(await p2LineageSnapshotWriterMigration());
     await upgradeDb.exec(await p2TemplateCloneSecurityMigration());
+    await upgradeDb.exec(await p2TemplateCloneFinalLedgerMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
@@ -6179,17 +6484,121 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
       "select set_config('request.jwt.claim.sub',$1,false)",
       [OWNER],
     );
-    const clone = await upgradeDb.query(
+    const blankClone = await upgradeDb.query(
       "select public.lukas_drawing_create_from_template($1,'v1 promoted',null,$2) result",
       [source.revisionId, randomUUID()],
     );
+    const sourcedClone = await upgradeDb.query(
+      "select public.lukas_drawing_create_from_template($1,'v1 promoted source',$2,$3) result",
+      [source.revisionId, PDF, randomUUID()],
+    );
     await upgradeDb.exec("reset role");
     const promoted = await upgradeDb.query(
-      `select count(*)::int count from public.lukas_drawing_canvases
-       where revision_id=$1 and space_kind='paper' and sort_order=0`,
-      [clone.rows[0].result.revisionId],
+      `select revision_id "revisionId",background_source_file_id "sourceFileId",
+        background_source_sha256 "sourceSha256",background_pdf_page "pdfPageNumber",
+        calibration
+       from public.lukas_drawing_canvases
+       where revision_id in ($1,$2) and space_kind='paper' and sort_order=0
+       order by revision_id`,
+      [
+        blankClone.rows[0].result.revisionId,
+        sourcedClone.rows[0].result.revisionId,
+      ],
     );
-    assert.equal(promoted.rows[0].count, 1);
+    assert.equal(promoted.rows.length, 2);
+    const blankCanvas = promoted.rows.find(
+      (row) => row.revisionId === blankClone.rows[0].result.revisionId,
+    );
+    const sourcedCanvas = promoted.rows.find(
+      (row) => row.revisionId === sourcedClone.rows[0].result.revisionId,
+    );
+    assert.deepEqual(blankCanvas, {
+      revisionId: blankClone.rows[0].result.revisionId,
+      sourceFileId: null,
+      sourceSha256: null,
+      pdfPageNumber: null,
+      calibration: null,
+    });
+    assert.deepEqual(sourcedCanvas, {
+      revisionId: sourcedClone.rows[0].result.revisionId,
+      sourceFileId: PDF,
+      sourceSha256: PDF_SHA,
+      pdfPageNumber: 1,
+      calibration: null,
+    });
+    const cloneDocuments = await upgradeDb.query(
+      `select source_file_id "sourceFileId",source_sha256 "sourceSha256"
+       from public.lukas_drawing_documents where id in ($1,$2) order by id`,
+      [
+        blankClone.rows[0].result.documentId,
+        sourcedClone.rows[0].result.documentId,
+      ],
+    );
+    assert.ok(
+      cloneDocuments.rows.every(
+        (row) => row.sourceFileId === null && row.sourceSha256 === null,
+      ),
+    );
+
+    const metadataTamperCases = [
+      ["{revision,documentId}", randomUUID()],
+      ["{revision,sequence}", 99],
+      ["{revision,version}", 99],
+      ["{operationSequence}", 99],
+    ];
+    for (const [path, value] of metadataTamperCases) {
+      await upgradeDb.exec("begin");
+      try {
+        await upgradeDb.exec(
+          `alter table public.lukas_drawing_snapshots disable trigger all;
+           alter table public.lukas_drawing_revision_approvals disable trigger all`,
+        );
+        await upgradeDb.query(
+          `update public.lukas_drawing_snapshots
+           set canonical_json=jsonb_set(canonical_json,$2::text[],to_jsonb($3::text),false)
+           where revision_id=$1`,
+          [source.revisionId, path, String(value)],
+        );
+        if (path !== "{revision,documentId}") {
+          await upgradeDb.query(
+            `update public.lukas_drawing_snapshots
+             set canonical_json=jsonb_set(canonical_json,$2::text[],to_jsonb($3::bigint),false)
+             where revision_id=$1`,
+            [source.revisionId, path, Number(value)],
+          );
+        }
+        await upgradeDb.query(
+          `update public.lukas_drawing_snapshots
+           set sha256=encode(extensions.digest(convert_to(canonical_json::text,'UTF8'),'sha256'),'hex')
+           where revision_id=$1`,
+          [source.revisionId],
+        );
+        await upgradeDb.query(
+          `update public.lukas_drawing_revision_approvals a
+           set snapshot_sha256=s.sha256
+           from public.lukas_drawing_snapshots s
+           where a.revision_id=$1 and s.revision_id=a.revision_id`,
+          [source.revisionId],
+        );
+        await upgradeDb.exec("set role authenticated");
+        await upgradeDb.query(
+          "select set_config('request.jwt.claim.sub',$1,false)",
+          [OWNER],
+        );
+        await assert.rejects(
+          upgradeDb.query(
+            "select public.lukas_drawing_create_from_template($1,'metadata probe',null,$2)",
+            [source.revisionId, randomUUID()],
+          ),
+          (error) =>
+            error.code === "P1R01" &&
+            error.message === "Drawing template target is unavailable",
+        );
+      } finally {
+        await upgradeDb.exec("rollback");
+        await upgradeDb.exec("reset role");
+      }
+    }
   } finally {
     await upgradeDb.close();
   }

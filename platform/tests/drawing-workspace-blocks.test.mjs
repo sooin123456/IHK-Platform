@@ -245,6 +245,7 @@ test("block transforms and bounds enclose every geometry at 30 degrees with sign
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Placed",
@@ -306,6 +307,7 @@ test("multiline text bounds use the renderer line-height contract after rotation
     block,
     {
       id: ids.instance,
+      lineageId: ids.instance,
       blockId: ids.block,
       layerId: ids.layer,
       name: "Placed",
@@ -350,6 +352,7 @@ test("dimension bounds include the deterministic rendered label rectangle", () =
       block,
       {
         id: ids.instance,
+        lineageId: ids.instance,
         blockId: ids.block,
         layerId: ids.layer,
         name: "Placed",
@@ -391,6 +394,7 @@ test("calibrated dimension bounds reserve deterministic space for every finite n
     block,
     {
       id: ids.instance,
+      lineageId: ids.instance,
       blockId: ids.block,
       layerId: ids.layer,
       name: "Placed",
@@ -430,6 +434,7 @@ test("production render adapter orders committed and hit items together and disp
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.otherLayer,
     name: "Top block",
@@ -482,6 +487,7 @@ test("render models resolve live style definitions with primitive overrides and 
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Styled 1",
@@ -613,6 +619,7 @@ test("block conversion validator rejects a rotated or scaled creation instance",
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Invalid conversion",
@@ -875,6 +882,7 @@ test("mixed instance-object shortcuts fail before producing any partial command"
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Placed",
@@ -944,6 +952,7 @@ test("instance clipboard is a deep snapshot and pastes on the current active can
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Snapshot name",
@@ -1004,6 +1013,7 @@ test("instance clipboard is a deep snapshot and pastes on the current active can
   assert.deepEqual(command.actions[0].entity, {
     ...instance,
     id: pastedId,
+    lineageId: pastedId,
     layerId: secondLayer,
     origin: { x: 20, y: 30 },
     version: 1,
@@ -1052,6 +1062,7 @@ test("production cache and unified adapter handle one thousand instances without
         id,
         {
           id,
+          lineageId: id,
           blockId: ids.block,
           layerId: ids.layer,
           name: `I${index}`,
@@ -1149,6 +1160,7 @@ test("active-canvas transient state and hit candidates include eligible instance
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Hit 1",
@@ -1256,6 +1268,7 @@ test("semantic active-canvas block selection remains inspectable when its layer 
   };
   const instance = {
     id: ids.instance,
+    lineageId: ids.instance,
     blockId: ids.block,
     layerId: ids.layer,
     name: "Hidden placement",

@@ -353,7 +353,7 @@ export const DrawingBlockSchema = z
 export const DrawingBlockInstanceSchema = z
   .object({
     id: Uuid,
-    lineageId: Uuid.optional(),
+    lineageId: Uuid,
     blockId: Uuid,
     layerId: Uuid,
     name: ExactTrimmedName,

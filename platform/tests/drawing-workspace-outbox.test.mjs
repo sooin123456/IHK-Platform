@@ -52,6 +52,45 @@ function operation(clientOperationId, overrides = {}) {
   };
 }
 
+function blockInstanceOperation(
+  clientOperationId,
+  { includeLineage = true, restore = false } = {},
+) {
+  const blockId = "00000000-0000-4000-8000-000000000040";
+  const instanceId = "00000000-0000-4000-8000-000000000041";
+  const entity = {
+    id: instanceId,
+    ...(includeLineage ? { lineageId: instanceId } : {}),
+    blockId,
+    layerId: ids.layer,
+    name: "Persisted instance",
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  return {
+    clientOperationId,
+    revisionId: ids.revisionA,
+    type: "mutate_structure",
+    baseVersions: restore ? { [instanceId]: 1 } : {},
+    forward: {
+      type: "mutate_structure",
+      actions: restore
+        ? [{ kind: "delete_block_instance", id: instanceId, baseVersion: 1 }]
+        : [{ kind: "put_block_instance", entity, baseVersion: null }],
+    },
+    inverse: {
+      type: "mutate_structure",
+      actions: restore
+        ? [{ kind: "put_block_instance", entity, baseVersion: null }]
+        : [{ kind: "delete_block_instance", id: instanceId, baseVersion: 1 }],
+    },
+    createdAt: "2026-08-24T01:00:00.000Z",
+  };
+}
+
 function memoryAdapter(events = []) {
   const records = new Map();
   let enqueueSequence = 0;
@@ -320,6 +359,21 @@ test("a recorded mutate_structure operation parses and enqueues unchanged", asyn
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(applied.operation);
   assert.equal((await outbox.pending())[0].type, "mutate_structure");
+});
+
+test("new outbox and server operations reject a block instance without lineage", async () => {
+  const missingLineage = blockInstanceOperation(ids.operation1, {
+    includeLineage: false,
+  });
+  const events = [];
+  const outbox = scopedOutbox(memoryAdapter(events));
+  await assert.rejects(outbox.enqueue(missingLineage));
+  assert.deepEqual(events, []);
+
+  const mutation = new FormData();
+  mutation.set("intent", "apply_operation");
+  mutation.set("operation_json", JSON.stringify(missingLineage));
+  assert.throws(() => parseWorkspaceMutation(mutation));
 });
 
 test("referenced-style updates survive the command, operation, outbox, and server boundaries", async () => {
@@ -1471,6 +1525,33 @@ test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange
   );
   database.onversionchange();
   assert.equal(database.closed, true);
+});
+
+test("legacy IndexedDB claim alone normalizes missing block-instance lineage and durably rewrites it", async () => {
+  const legacyOperation = blockInstanceOperation(ids.operation1, {
+    includeLineage: false,
+    restore: true,
+  });
+  const record = {
+    operation: legacyOperation,
+    status: "pending",
+    retryCount: 0,
+    clientOperationId: legacyOperation.clientOperationId,
+    revisionId: legacyOperation.revisionId,
+    createdAt: legacyOperation.createdAt,
+  };
+  const { factory } = fakeIndexedDb({ records: [record] });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory);
+
+  assert.equal(await adapter.claimLegacy(ids.revisionA, ids.ownerA), 1);
+  const [claimed] = await adapter.list();
+  const restored = claimed.operation.inverse.actions[0].entity;
+  assert.equal(restored.lineageId, restored.id);
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(claimed.operation).success,
+    true,
+  );
+  assert.equal(claimed.ownerId, ids.ownerA);
 });
 
 test("legacy claim assigns sequences by causal v1 delivery order instead of UUID order", async () => {

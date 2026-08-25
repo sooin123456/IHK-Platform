@@ -319,6 +319,40 @@ type StoredDrawingOutboxEntry = (
   createdAt: string;
 };
 
+function normalizeLegacyPersistedDrawingOperation(
+  value: unknown,
+): DrawingOperationInput {
+  const candidate = structuredClone(value) as {
+    type?: unknown;
+    forward?: { actions?: unknown[] };
+    inverse?: { actions?: unknown[] };
+  };
+  if (candidate?.type === "mutate_structure") {
+    for (const payload of [candidate.forward, candidate.inverse]) {
+      if (!Array.isArray(payload?.actions)) continue;
+      for (const action of payload.actions) {
+        if (
+          action &&
+          typeof action === "object" &&
+          (action as { kind?: unknown }).kind === "put_block_instance"
+        ) {
+          const entity = (action as { entity?: unknown }).entity;
+          if (
+            entity &&
+            typeof entity === "object" &&
+            !("lineageId" in entity) &&
+            typeof (entity as { id?: unknown }).id === "string"
+          )
+            (entity as { lineageId: string }).lineageId = (
+              entity as { id: string }
+            ).id;
+        }
+      }
+    }
+  }
+  return DrawingOperationInputSchema.parse(candidate);
+}
+
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
@@ -418,8 +452,12 @@ export function createIndexedDbDrawingOutboxAdapter(
             ),
         );
       for (const entry of legacy) {
+        const operation = normalizeLegacyPersistedDrawingOperation(
+          entry.operation,
+        );
         const claimedEntry = {
           ...entry,
+          operation,
           ownerId,
           enqueueSequence: ++enqueueSequence,
         } satisfies DrawingOutboxEntry;
