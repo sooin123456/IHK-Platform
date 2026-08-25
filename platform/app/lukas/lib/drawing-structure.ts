@@ -12,6 +12,7 @@ import type {
   DrawingStyleDefinition,
   DrawingStyleOverride,
   DrawingTable,
+  DrawingGeometry,
 } from "./drawing-workspace.types.ts";
 import {
   DrawingStructureActionSchema,
@@ -93,6 +94,89 @@ const collectionForKind: Record<DrawingStructureAction["kind"], StructureCollect
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function transformPoint(
+  point: { x: number; y: number },
+  instance: DrawingBlockInstance,
+  inverse: boolean,
+) {
+  const angle = (instance.rotation * Math.PI) / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  if (inverse) {
+    const x = point.x - instance.origin.x;
+    const y = point.y - instance.origin.y;
+    return {
+      x: (x * cosine + y * sine) / instance.scaleX,
+      y: (-x * sine + y * cosine) / instance.scaleY,
+    };
+  }
+  const x = point.x * instance.scaleX;
+  const y = point.y * instance.scaleY;
+  return {
+    x: x * cosine - y * sine + instance.origin.x,
+    y: x * sine + y * cosine + instance.origin.y,
+  };
+}
+
+function transformGeometry(
+  geometry: DrawingGeometry,
+  instance: DrawingBlockInstance,
+  inverse: boolean,
+): DrawingGeometry {
+  const point = (value: { x: number; y: number }) => transformPoint(value, instance, inverse);
+  const scaleX = Math.abs(instance.scaleX);
+  const scaleY = Math.abs(instance.scaleY);
+  const uniform = scaleX === scaleY;
+  const scale = scaleX;
+  const rotation = inverse
+    ? (geometry.type === "rectangle" ? geometry.rotation - instance.rotation : 0)
+    : (geometry.type === "rectangle" ? geometry.rotation + instance.rotation : 0);
+  switch (geometry.type) {
+    case "line": return { ...geometry, start: point(geometry.start), end: point(geometry.end) };
+    case "polyline": return { ...geometry, points: geometry.points.map(point) };
+    case "rectangle": return { ...geometry, origin: point(geometry.origin), width: inverse ? geometry.width / scaleX : geometry.width * scaleX, height: inverse ? geometry.height / scaleY : geometry.height * scaleY, rotation };
+    case "circle":
+      if (!uniform) throw new DrawingStructureError("A non-uniform block instance cannot exactly convert a circle.");
+      return { ...geometry, center: point(geometry.center), radius: inverse ? geometry.radius / scale : geometry.radius * scale };
+    case "text": return { ...geometry, origin: point(geometry.origin), width: inverse ? geometry.width / scaleX : geometry.width * scaleX };
+    case "dimension":
+      if (!uniform) throw new DrawingStructureError("A non-uniform block instance cannot exactly convert a dimension.");
+      return { ...geometry, start: point(geometry.start), end: point(geometry.end), offset: inverse ? geometry.offset / scale : geometry.offset * scale };
+  }
+}
+
+/** Converts world geometry to a block primitive relative to one instance transform. */
+export function drawingBlockPrimitiveFromObject(
+  object: DrawingObject,
+  instance: DrawingBlockInstance,
+  localId: string,
+) {
+  return {
+    localId,
+    name: object.name,
+    geometry: transformGeometry(object.geometry, instance, true),
+    styleId: object.styleId ?? null,
+    style: clone(object.style),
+  };
+}
+
+function drawingObjectFromBlockPrimitive(
+  primitive: DrawingBlock["primitives"][number],
+  instance: DrawingBlockInstance,
+) {
+  return {
+    name: primitive.name,
+    layerId: instance.layerId,
+    geometry: transformGeometry(primitive.geometry, instance, false),
+    styleId: primitive.styleId,
+    style: clone(primitive.style),
+  };
 }
 
 function cloneState(state: DrawingStructureState): DrawingStructureState {
@@ -184,6 +268,11 @@ function validateActionBases(
         }
         if (tombstone && JSON.stringify(tombstone.entity) !== JSON.stringify(action.entity)) {
           throw new DrawingStructureError(`${action.kind} must restore the exact tombstoned entity.`);
+        }
+        if (!tombstone && action.entity.version !== 1) {
+          throw new DrawingStructureError(
+            `${action.kind} must create a fresh entity at version 1.`,
+          );
         }
       } else if (!existing || existing.version !== action.baseVersion) {
         throw new DrawingStructureError(`${action.kind} base version does not match operation-start state.`);
@@ -412,6 +501,23 @@ function validateObjectCompound(
         );
       }
     }
+    const block = entityFor(blocks[0]) as DrawingBlock;
+    const instance = entityFor(instances[0]) as DrawingBlockInstance;
+    const expected = objectActions.map((action, index) =>
+      drawingBlockPrimitiveFromObject(
+        state.objects[idFor(action)],
+        instance,
+        block.primitives[index]?.localId ?? "",
+      ),
+    );
+    if (
+      block.primitives.length !== expected.length ||
+      expected.some((primitive, index) => !sameJson(block.primitives[index], primitive))
+    ) {
+      throw new DrawingStructureError(
+        "Block conversion primitives must exactly represent the deleted objects in instance-relative coordinates.",
+      );
+    }
   }
   if (isReverseConversion) {
     const blocks = actions.filter((action) => action.kind === "delete_block");
@@ -431,6 +537,46 @@ function validateObjectCompound(
     ) {
       throw new DrawingStructureError(
         "Block conversion inverse must remove the matching instance and definition.",
+      );
+    }
+    const block = state.blocks[idFor(blocks[0])];
+    const instance = state.blockInstances[idFor(instances[0])];
+    const expected = block.primitives.map((primitive) =>
+      drawingObjectFromBlockPrimitive(primitive, instance),
+    );
+    const restored = objectActions.map((action) => entityFor(action) as DrawingObject);
+    const remaining = [...expected];
+    for (const object of restored) {
+      const tombstone = state.tombstones?.[object.id];
+      if (
+        !tombstone ||
+        tombstone.collection !== "objects" ||
+        !sameJson(tombstone.entity, object)
+      ) {
+        throw new DrawingStructureError(
+          "Block conversion inverse must restore only the exact captured objects.",
+        );
+      }
+      const candidate = {
+        name: object.name,
+        layerId: object.layerId,
+        geometry: object.geometry,
+        styleId: object.styleId ?? null,
+        style: object.style,
+      };
+      const index = remaining.findIndex((expectedObject) =>
+        sameJson(expectedObject, candidate),
+      );
+      if (index < 0) {
+        throw new DrawingStructureError(
+          "Block conversion inverse must restore the exact block primitive objects.",
+        );
+      }
+      remaining.splice(index, 1);
+    }
+    if (remaining.length !== 0) {
+      throw new DrawingStructureError(
+        "Block conversion inverse must restore every block primitive object.",
       );
     }
   }
@@ -543,12 +689,15 @@ export function applyDrawingStructureActions(
     }
     validateReferences(next);
   }
-  if (
-    actions.some(
-      (action) =>
-        action.kind === "delete_canvas" && protectedDefaultCanvasIds.has(action.id),
-    )
-  ) {
+  const deletedPageIds = new Set(
+    actions
+      .filter((action) => action.kind === "delete_page")
+      .map(idFor),
+  );
+  if (actions.some((action) => {
+    if (action.kind !== "delete_canvas" || !protectedDefaultCanvasIds.has(action.id)) return false;
+    return !deletedPageIds.has(state.canvases[action.id]?.pageId);
+  })) {
     throw new DrawingStructureError("The operation-start default paper canvas cannot be deleted.");
   }
   validateFinalCanvasInvariant(next);

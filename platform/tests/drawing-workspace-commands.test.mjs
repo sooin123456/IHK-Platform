@@ -1921,6 +1921,24 @@ test("referenced-style copy fails closed unless it explicitly resolves to portab
   assert.deepEqual(pasted.objects[0].style, {
     stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
   });
+  assert.throws(() =>
+    drawingCommands.duplicateDrawingSelection(
+      state,
+      [ids.rectangle],
+      "actor-a",
+      environment().createId,
+    ),
+  );
+  const duplicate = drawingCommands.duplicateDrawingSelection(
+    state,
+    [ids.rectangle],
+    "actor-a",
+    environment().createId,
+    () => ({ stroke: "#111111", strokeWidth: 2, fill: "#ffffff" }),
+  );
+  assert.deepEqual(duplicate.objects[0].style, {
+    stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
+  });
 });
 
 test("duplicate and Delete create add and delete commands without mutating originals", () => {

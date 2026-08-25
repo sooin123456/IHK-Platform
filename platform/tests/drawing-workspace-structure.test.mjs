@@ -275,3 +275,72 @@ test("default canvases, cross-kind IDs, nested extras, and invalid calendar date
   });
   assert.throws(() => applyDrawingStructureActions(dateState, [{ kind: "put_property_value", entity: { id: ids.instance, schemaId: ids.block, objectId: ids.object, blockInstanceId: null, value: "2026-02-30", version: 1 }, baseVersion: null }]), DrawingStructureError);
 });
+
+test("block conversion primitives must exactly represent the deleted objects", () => {
+  const current = state({
+    canvases: { [ids.canvas]: canvas() },
+    objects: { [ids.object]: object({ styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }) },
+  });
+  assert.throws(() => applyDrawingStructureActions(current, [
+    { kind: "delete_object", id: ids.object, baseVersion: 1 },
+    { kind: "put_block", entity: { id: ids.block, revisionId: ids.revision, name: "Block", primitives: [{ localId: "p", name: "Wrong", geometry: { ...object().geometry, width: 99 }, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }], version: 1 }, baseVersion: null },
+    { kind: "put_block_instance", entity: { id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 0, y: 0 }, rotation: 0, scaleX: 1, scaleY: 1, version: 1 }, baseVersion: null },
+  ]), DrawingStructureError);
+});
+
+test("block conversion preserves the canonical transformed primitive through its inverse", () => {
+  const source = object({
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 2, fill: null },
+    geometry: { type: "rectangle", origin: { x: 14, y: 26 }, width: 20, height: 10, rotation: 0 },
+  });
+  const current = state({
+    canvases: { [ids.canvas]: canvas() },
+    objects: { [ids.object]: source },
+  });
+  const actions = [
+    { kind: "delete_object", id: ids.object, baseVersion: 1 },
+    { kind: "put_block", entity: {
+      id: ids.block, revisionId: ids.revision, name: "Block", version: 1,
+      primitives: [{ localId: "p", name: source.name, geometry: { type: "rectangle", origin: { x: 2, y: 3 }, width: 10, height: 5, rotation: 0 }, styleId: null, style: source.style }],
+    }, baseVersion: null },
+    { kind: "put_block_instance", entity: {
+      id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 10, y: 20 }, rotation: 0, scaleX: 2, scaleY: 2, version: 1,
+    }, baseVersion: null },
+  ];
+  const converted = applyDrawingStructureActions(current, actions);
+  assert.deepEqual(converted.state.blocks[ids.block].primitives[0].geometry, {
+    type: "rectangle", origin: { x: 2, y: 3 }, width: 10, height: 5, rotation: 0,
+  });
+  const restored = applyDrawingStructureActions(converted.state, converted.inverse);
+  assert.deepEqual(
+    { ...restored.state.objects[ids.object], version: source.version },
+    source,
+  );
+  const malformedInverse = structuredClone(converted.inverse);
+  malformedInverse.at(-1).entity.name = "Unrelated";
+  assert.throws(
+    () => applyDrawingStructureActions(converted.state, malformedInverse),
+    DrawingStructureError,
+  );
+  const withoutCapturedObjects = structuredClone(converted.state);
+  withoutCapturedObjects.tombstones = {};
+  assert.throws(
+    () => applyDrawingStructureActions(withoutCapturedObjects, converted.inverse),
+    DrawingStructureError,
+  );
+});
+
+test("fresh structure entities start at version one and pages may remove their default canvas before themselves", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() }, layers: {} });
+  assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000095", name: "Model", spaceKind: "model", sortOrder: 1, version: 99 }), baseVersion: null }]), DrawingStructureError);
+  assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_style", entity: { id: "00000000-0000-4000-8000-000000000096", revisionId: ids.revision, name: "Fresh", value: { stroke: "#111111", strokeWidth: 1, fill: null }, version: 2 }, baseVersion: null }]), DrawingStructureError);
+  const deleted = applyDrawingStructureActions(current, [
+    { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+    { kind: "delete_page", id: ids.page, baseVersion: 1 },
+  ]);
+  assert.deepEqual(deleted.state.pages, {});
+  const restored = applyDrawingStructureActions(deleted.state, deleted.inverse);
+  assert.equal(restored.state.canvases[ids.canvas].version, 3);
+  assert.equal(restored.state.pages[ids.page].name, "Page 1");
+});

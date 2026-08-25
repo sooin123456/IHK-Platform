@@ -10,7 +10,7 @@ import {
   DrawingObjectSchema,
   DrawingOperationInputSchema,
   DrawingStructureActionSchema,
-  DrawingStyleSchema,
+  DrawingStyleOverrideSchema,
 } from "./drawing-workspace.types.ts";
 import type { DrawingOperationInput } from "./drawing-workspace.types.ts";
 
@@ -242,7 +242,8 @@ const ObjectPatchSchema = z
     name: DrawingObjectNameSchema.optional(),
     layerId: Uuid.optional(),
     geometry: DrawingGeometrySchema.optional(),
-    style: DrawingStyleSchema.optional(),
+    styleId: Uuid.nullable().optional(),
+    style: DrawingStyleOverrideSchema.optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0);

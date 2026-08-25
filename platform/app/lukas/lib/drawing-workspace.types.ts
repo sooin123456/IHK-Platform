@@ -168,7 +168,7 @@ export type DrawingObject = {
   layerId: string;
   geometry: DrawingGeometry;
   styleId?: string | null;
-  style: DrawingStyle;
+  style: DrawingStyleOverride;
   version: number;
 };
 
@@ -474,7 +474,8 @@ const DrawingOperationObjectPatchSchema = z
     name: DrawingObjectNameSchema.optional(),
     layerId: Uuid.optional(),
     geometry: DrawingGeometrySchema.optional(),
-    style: DrawingStyleSchema.optional(),
+    styleId: Uuid.nullable().optional(),
+    style: DrawingStyleOverrideSchema.optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0);

@@ -253,9 +253,11 @@ export function DrawingInspector({
           <div>
             <dt className="text-xs text-slate-400">선 색상 · 두께</dt>
             <dd>
-              {sharedValue(selectedObjects, (object) => object.style.stroke)} ·{" "}
+              {sharedValue(selectedObjects, (object) => object.style.stroke ?? "")} ·{" "}
               {sharedValue(selectedObjects, (object) =>
-                String(object.style.strokeWidth),
+                object.style.strokeWidth === undefined
+                  ? ""
+                  : String(object.style.strokeWidth),
               )}
             </dd>
           </div>
@@ -332,7 +334,7 @@ export function DrawingInspector({
             className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
             defaultValue={sharedValue(
               selectedObjects,
-              (object) => object.style.stroke,
+              (object) => object.style.stroke ?? "",
             )}
             disabled={!canEdit}
             id="inspector-stroke"

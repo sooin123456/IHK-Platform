@@ -4,6 +4,7 @@ import type {
   DrawingLayerInput,
   DrawingObject,
   DrawingOperationInput,
+  DrawingStyle,
   DrawingStructureAction,
   Point,
 } from "./drawing-workspace.types.ts";
@@ -20,6 +21,7 @@ import {
   DrawingLayerSchema,
   DrawingObjectNameSchema,
   DrawingObjectSchema,
+  DrawingStyleSchema,
   DrawingStrokeColorSchema,
   DrawingStrokeWidthSchema,
 } from "./drawing-workspace.types.ts";
@@ -845,7 +847,7 @@ export function redoDrawingCommand(
 }
 
 export type DrawingClipboard = {
-  items: Array<Pick<DrawingObject, "name" | "layerId" | "geometry" | "style">>;
+  items: Array<Pick<DrawingObject, "name" | "layerId" | "geometry"> & { style: DrawingStyle }>;
 };
 
 export type DrawingMoveSnapshot = Pick<
@@ -951,7 +953,7 @@ export function deleteDrawingSelection(
 export function copyDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
   selectedIds: string[],
-  resolveStyle: ((object: DrawingObject) => DrawingObject["style"]) | undefined = undefined,
+  resolveStyle: ((object: DrawingObject) => DrawingStyle) | undefined = undefined,
 ): DrawingClipboard {
   return {
     items: [...new Set(selectedIds)].flatMap((objectId) => {
@@ -967,7 +969,9 @@ export function copyDrawingSelection(
               name: object.name,
               layerId: object.layerId,
               geometry: object.geometry,
-              style: object.styleId ? resolveStyle!(object) : object.style,
+              style: object.styleId
+                ? resolveStyle!(object)
+                : DrawingStyleSchema.parse(object.style),
             }),
           ]
         : [];
@@ -1185,9 +1189,10 @@ export function duplicateDrawingSelection(
   selectedIds: string[],
   actorId: string,
   createId?: () => string,
+  resolveStyle?: (object: DrawingObject) => DrawingStyle,
 ): Extract<DrawingCommand, { type: "add_objects" }> | null {
   return pasteDrawingClipboard(
-    copyDrawingSelection(state, selectedIds),
+    copyDrawingSelection(state, selectedIds, resolveStyle),
     actorId,
     createId,
   );

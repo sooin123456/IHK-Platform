@@ -18,6 +18,7 @@ import {
   createDrawingDocumentState,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { DrawingOperationInputSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import { parseWorkspaceMutation } from "../app/lukas/lib/drawing-workspace.server.ts";
 
 const ids = {
   revisionA: "00000000-0000-4000-8000-000000000001",
@@ -237,6 +238,42 @@ test("a recorded mutate_structure operation parses and enqueues unchanged", asyn
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(applied.operation);
   assert.equal((await outbox.pending())[0].type, "mutate_structure");
+});
+
+test("referenced-style updates survive the command, operation, outbox, and server boundaries", async () => {
+  const pageId = "00000000-0000-4000-8000-000000000033";
+  const canvasId = "00000000-0000-4000-8000-000000000034";
+  const styleId = "00000000-0000-4000-8000-000000000035";
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "Page 1", sortOrder: 0, version: 1 } },
+      canvases: { [canvasId]: { id: canvasId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
+      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId, sortOrder: 0, version: 1 } },
+      objects: { [ids.object]: rectangle({ layerId: ids.layer, styleId, style: { fill: "#ffffff" } }) },
+      styles: { [styleId]: { id: styleId, revisionId: ids.revisionA, name: "Default", value: { stroke: "#111111", strokeWidth: 2, fill: null }, version: 1 } },
+      blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const applied = applyDrawingCommand(initial, {
+    type: "update_objects", actorId: ids.ownerA,
+    updates: [{ objectId: ids.object, patch: { styleId, style: { fill: "#aabbcc" } } }],
+  }, { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" });
+  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(applied.operation);
+  const queued = (await outbox.pending())[0];
+  assert.deepEqual(queued.forward.updates[0].patch, { styleId, style: { fill: "#aabbcc" } });
+  const operation = Object.fromEntries(
+    ["baseVersions", "clientOperationId", "createdAt", "forward", "inverse", "revisionId", "type"]
+      .map((key) => [key, applied.operation[key]]),
+  );
+  const form = new FormData();
+  form.set("intent", "apply_operation");
+  form.set("operation_json", JSON.stringify(operation));
+  assert.deepEqual(parseWorkspaceMutation(form), {
+    intent: "apply_operation", operation,
+  });
 });
 
 test("enqueue rejects a malformed nested operation before durable storage", async () => {
