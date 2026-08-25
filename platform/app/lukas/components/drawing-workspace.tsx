@@ -82,8 +82,10 @@ import {
 import {
   createDrawingAccessTokenResolver,
   createDrawingCollaborationCommandBridge,
+  drawingCollaborationAuthority,
   drawingCollaborationLifecycleKey,
   initializeDrawingCollaborationDocument,
+  openDrawingCollaborationLocalAttempt,
   openDrawingCollaborationConnection,
   reconcileDrawingCollaborationDraft,
   type DrawingCollaborationConnection,
@@ -613,12 +615,19 @@ export default function DrawingWorkspaceClient({
   const { file, document: drawingDocument } = workspace;
   const navigation = useNavigation();
   const { revision } = drawingDocument;
+  const authority = drawingCollaborationAuthority({
+    bootstrap: collaborationBootstrap,
+    fallbackCapability: capability,
+    fallbackRevisionStatus: revision.status,
+  });
+  const effectiveCapability = authority.capability;
+  const effectiveRevisionStatus = authority.revisionStatus;
   const collaborationBootstrapRef = useRef(collaborationBootstrap);
-  const capabilityRef = useRef(capability);
-  const revisionStatusRef = useRef(revision.status);
+  const capabilityRef = useRef(effectiveCapability);
+  const revisionStatusRef = useRef(effectiveRevisionStatus);
   collaborationBootstrapRef.current = collaborationBootstrap;
-  capabilityRef.current = capability;
-  revisionStatusRef.current = revision.status;
+  capabilityRef.current = effectiveCapability;
+  revisionStatusRef.current = effectiveRevisionStatus;
   const persistenceLifecycleKey = drawingCollaborationLifecycleKey(
     currentUserId,
     revision.project_id,
@@ -641,7 +650,7 @@ export default function DrawingWorkspaceClient({
       {
         activePageId: revision.activePageId,
         activeCanvasId: revision.activeCanvasId,
-        revisionStatus: revision.status,
+        revisionStatus: effectiveRevisionStatus,
       },
     );
   }
@@ -677,14 +686,14 @@ export default function DrawingWorkspaceClient({
     setSelectedIds([]);
   }, [drawingState]);
   const capabilityCanPersist = canPersistDrawingMutation(
-    capability,
+    effectiveCapability,
     persistenceState,
   );
   const baseCanEdit =
     outboxReady &&
     !reviewPreparing &&
     capabilityCanPersist &&
-    revision.status === "draft";
+    authority.canWrite;
   const authorizationProbe = useMemo(
     () =>
       deriveDrawingTransientState(drawingState, {
@@ -700,7 +709,7 @@ export default function DrawingWorkspaceClient({
     ? authorizationProbe.state.layers[authorizationProbe.activeLayerId]
     : null;
   const authorizationKey = drawingTransientAuthorizationKey(drawingState, {
-    draft: revision.status === "draft",
+    draft: effectiveRevisionStatus === "draft",
     canEdit: baseCanEdit,
     activeLayer: authorizationLayer,
   });
@@ -796,14 +805,13 @@ export default function DrawingWorkspaceClient({
       }
     : revision.pages.find((candidate) => "width_mm" in candidate);
   const editingContext = drawingEditingContext(
-    capability,
+    effectiveCapability,
     Object.values(activeDrawingState.layers),
     resolvedActiveLayerId,
   );
   const editing = {
     ...editingContext,
-    canEdit:
-      baseCanEdit && editingContext.canEdit && revision.status === "draft",
+    canEdit: baseCanEdit && editingContext.canEdit && authority.canWrite,
   };
   const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
 
@@ -854,13 +862,13 @@ export default function DrawingWorkspaceClient({
   }, [page]);
   const calibrationId = calibration?.id ?? null;
   const reviewControls = drawingWorkspaceReviewControls({
-    capability,
+    capability: effectiveCapability,
     createdBy: revision.created_by,
     currentUserId,
     reviewEvidence: revision.reviewEvidence,
     revisionId: revision.id,
     revisionVersion: revision.version,
-    status: revision.status,
+    status: effectiveRevisionStatus,
   });
   const surface = drawingWorkspaceSurface({
     file: {
@@ -911,10 +919,15 @@ export default function DrawingWorkspaceClient({
   useEffect(() => {
     let active = true;
     let outbox: DrawingOutbox;
-    let draft: DrawingDraftAdapter | null = null;
-    let yjsPersistence: DrawingYjsPersistence | null = null;
+    let attempt: {
+      document: Y.Doc;
+      persistence: DrawingYjsPersistence | null;
+      adapter: DrawingDraftAdapter;
+      dispose(): Promise<void>;
+    } | null = null;
     let connection: DrawingCollaborationConnection | null = null;
-    let yjsDocument: Y.Doc | null = null;
+    let connecting: Promise<void> | null = null;
+    let initializing: Promise<void> | null = null;
     const actionUrl = window.location.href;
     const refresh = async () => {
       const [entries, legacy] = await Promise.all([
@@ -970,42 +983,88 @@ export default function DrawingWorkspaceClient({
     });
     persistenceRef.current = persistence;
 
-    const initialize = async () => {
+    const runConnect = async () => {
+      if (!active || !attempt || connection) return;
+      try {
+        const opened = await collaborationConnectionFactory({
+          document: attempt.document,
+          projectId: revision.project_id,
+          revisionId: revision.id,
+          resolveToken: createDrawingAccessTokenResolver(),
+          url: import.meta.env.VITE_DRAWING_COLLABORATION_URL,
+          onPhase: (phase) => active && setCollaborationPhase(phase),
+        });
+        if (!active) opened?.dispose();
+        else {
+          connection = opened;
+          collaborationConnectionRef.current = opened;
+        }
+      } catch {
+        if (active) setCollaborationPhase("degraded");
+      }
+    };
+    const connect = () => {
+      if (!connecting)
+        connecting = runConnect().finally(() => {
+          connecting = null;
+        });
+      return connecting;
+    };
+    const runInitialize = async () => {
       const bootstrap = collaborationBootstrapRef.current;
       const base = bootstrap
         ? drawingStateFromBootstrap(bootstrap)
         : drawingStateFromRevision(revision);
       try {
-        yjsDocument = new Y.Doc();
-        initializeDrawingCollaborationDocument({
-          document: yjsDocument,
-          projectId: revision.project_id,
-          revisionId: revision.id,
-          baseSnapshotSha256: bootstrap?.sha256 ?? file.sha256,
-          baseOperationSequence: bootstrap?.operationSequence ?? 0,
+        setOutboxReady(false);
+        collaborationAdapterRef.current = null;
+        collaborationCommandRef.current = null;
+        connection?.dispose();
+        connection = null;
+        collaborationConnectionRef.current = null;
+        await attempt?.dispose();
+        attempt = await openDrawingCollaborationLocalAttempt({
+          createDocument() {
+            const document = new Y.Doc();
+            initializeDrawingCollaborationDocument({
+              document,
+              projectId: revision.project_id,
+              revisionId: revision.id,
+              baseSnapshotSha256: bootstrap?.sha256 ?? file.sha256,
+              baseOperationSequence: bootstrap?.operationSequence ?? 0,
+            });
+            return document;
+          },
+          openPersistence: (document) =>
+            collaborationPersistenceFactory({
+              revisionId: revision.id,
+              document,
+            }),
+          createAdapter: (document) =>
+            createDrawingDraftAdapter({
+              document,
+              authoritativeState: base,
+              actorId: currentUserId,
+              authorization: capabilityRef.current,
+              frozen: revisionStatusRef.current !== "draft",
+              baseOperationSequence: bootstrap?.operationSequence ?? 0,
+              replaceProjection: (state) => documentStore.replace(state),
+            }),
+          reconcile: (adapter) =>
+            reconcileDrawingCollaborationDraft({
+              actorId: currentUserId,
+              adapter,
+              outbox,
+              recentOutcomes: bootstrap?.recentOutcomes ?? [],
+            }),
         });
-        yjsPersistence = await collaborationPersistenceFactory({
-          revisionId: revision.id,
-          document: yjsDocument,
-        });
-        await yjsPersistence?.whenSynced();
-        draft = createDrawingDraftAdapter({
-          document: yjsDocument,
-          authoritativeState: base,
-          actorId: currentUserId,
-          authorization: capabilityRef.current,
-          frozen: revisionStatusRef.current !== "draft",
-          baseOperationSequence: bootstrap?.operationSequence ?? 0,
-          replaceProjection: (state) => documentStore.replace(state),
-        });
-        await reconcileDrawingCollaborationDraft({
-          actorId: currentUserId,
-          adapter: draft,
-          outbox,
-          recentOutcomes: bootstrap?.recentOutcomes ?? [],
-        });
-        if (!active) return;
-        collaborationAdapterRef.current = draft;
+        if (!active) {
+          await attempt.dispose();
+          attempt = null;
+          return;
+        }
+        const draft = attempt.adapter;
+        collaborationAdapterRef.current = attempt.adapter;
         collaborationCommandRef.current =
           createDrawingCollaborationCommandBridge({
             adapter: draft,
@@ -1013,10 +1072,6 @@ export default function DrawingWorkspaceClient({
             afterAppend: () => {
               connection?.flush();
               void flushOutboxRef.current?.();
-            },
-            replaceProjection: (applied) => {
-              documentStore.replace(applied.state);
-              drawingStateRef.current = documentStore.getSnapshot();
             },
           });
         initializedPersistenceLifecycleKeyRef.current =
@@ -1028,24 +1083,10 @@ export default function DrawingWorkspaceClient({
           });
         drawingStateRef.current = documentStore.getSnapshot();
         setOutboxReady(true);
+        setPersistenceState({ failed: false, volatileCount: 0 });
         setSaveState((current) => ({ ...current, storageError: false }));
         await refresh();
-        connection = await collaborationConnectionFactory({
-          document: yjsDocument,
-          projectId: revision.project_id,
-          revisionId: revision.id,
-          resolveToken: createDrawingAccessTokenResolver(),
-          url: import.meta.env.VITE_DRAWING_COLLABORATION_URL,
-          onPhase: (phase) => active && setCollaborationPhase(phase),
-        });
-        if (
-          !active ||
-          revisionStatusRef.current !== "draft" ||
-          (capabilityRef.current !== "admin" &&
-            capabilityRef.current !== "editor")
-        )
-          connection?.dispose();
-        else collaborationConnectionRef.current = connection;
+        await connect();
       } catch {
         if (active) {
           markStorageFailed();
@@ -1053,10 +1094,18 @@ export default function DrawingWorkspaceClient({
         }
       }
     };
+    const initialize = () => {
+      if (!initializing)
+        initializing = runInitialize().finally(() => {
+          initializing = null;
+        });
+      return initializing;
+    };
     retryStorageRef.current = () => void initialize();
     const online = () => {
       setSaveState((current) => ({ ...current, online: true }));
       void flush();
+      void connect();
     };
     const offline = () =>
       setSaveState((current) => ({ ...current, online: false }));
@@ -1076,9 +1125,7 @@ export default function DrawingWorkspaceClient({
       persistence.dispose();
       outbox.dispose();
       connection?.dispose();
-      draft?.dispose();
-      void yjsPersistence?.dispose();
-      yjsDocument?.destroy();
+      void attempt?.dispose().catch(() => undefined);
       collaborationAdapterRef.current = null;
       collaborationCommandRef.current = null;
       collaborationConnectionRef.current = null;
@@ -1094,24 +1141,24 @@ export default function DrawingWorkspaceClient({
   useEffect(() => {
     const adapter = collaborationAdapterRef.current;
     if (!adapter) return;
-    adapter.setAuthorization(capability);
-    adapter.setFrozen(revision.status !== "draft");
+    adapter.setAuthorization(effectiveCapability);
+    adapter.setFrozen(effectiveRevisionStatus !== "draft");
     if (collaborationBootstrap)
       adapter.replaceAuthoritative(
         drawingStateFromBootstrap(collaborationBootstrap),
         { baseOperationSequence: collaborationBootstrap.operationSequence },
       );
-    if (
-      revision.status !== "draft" ||
-      (capability !== "admin" && capability !== "editor")
-    ) {
-      collaborationConnectionRef.current?.dispose();
-      collaborationConnectionRef.current = null;
+    if (!authority.canWrite) {
       setActiveTool("select");
       setActiveLayerId(null);
       setSelectedIds([]);
     }
-  }, [capability, collaborationBootstrap, revision.status]);
+  }, [
+    authority.canWrite,
+    collaborationBootstrap,
+    effectiveCapability,
+    effectiveRevisionStatus,
+  ]);
 
   useEffect(() => {
     const refresh = () =>
@@ -1142,11 +1189,12 @@ export default function DrawingWorkspaceClient({
     (applied: AppliedDrawingCommand) => {
       if (
         reviewFrozenRef.current ||
+        !authority.canWrite ||
         !collaborationCommandRef.current ||
         !canPersistDrawingMutation(
-          capability,
+          effectiveCapability,
           persistenceState,
-          revision.status,
+          effectiveRevisionStatus,
         )
       )
         return;
@@ -1154,18 +1202,24 @@ export default function DrawingWorkspaceClient({
         .applyRecorded(applied)
         .catch(markStorageFailed);
     },
-    [capability, persistenceState, revision.status],
+    [
+      authority.canWrite,
+      effectiveCapability,
+      effectiveRevisionStatus,
+      persistenceState,
+    ],
   );
 
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
       if (
         reviewFrozenRef.current ||
+        !authority.canWrite ||
         !outboxReady ||
         !canPersistDrawingMutation(
-          capability,
+          effectiveCapability,
           persistenceState,
-          revision.status,
+          effectiveRevisionStatus,
         )
       )
         return;
@@ -1173,7 +1227,13 @@ export default function DrawingWorkspaceClient({
       if (!bridge) return;
       void bridge.applyCommand(command).catch(markStorageFailed);
     },
-    [capability, outboxReady, persistenceState, revision.status],
+    [
+      authority.canWrite,
+      effectiveCapability,
+      effectiveRevisionStatus,
+      outboxReady,
+      persistenceState,
+    ],
   );
   const blockMutationAdapter = useMemo(
     () =>
@@ -1199,37 +1259,49 @@ export default function DrawingWorkspaceClient({
   const undo = useCallback(() => {
     if (
       !outboxReady ||
-      !canPersistDrawingMutation(capability, persistenceState, revision.status)
+      !authority.canWrite ||
+      !canPersistDrawingMutation(
+        effectiveCapability,
+        persistenceState,
+        effectiveRevisionStatus,
+      )
     )
       return;
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
   }, [
-    capability,
+    authority.canWrite,
     commitApplied,
     currentUserId,
     outboxReady,
     persistenceState,
-    revision.status,
+    effectiveCapability,
+    effectiveRevisionStatus,
   ]);
 
   const redo = useCallback(() => {
     if (
       !outboxReady ||
-      !canPersistDrawingMutation(capability, persistenceState, revision.status)
+      !authority.canWrite ||
+      !canPersistDrawingMutation(
+        effectiveCapability,
+        persistenceState,
+        effectiveRevisionStatus,
+      )
     )
       return;
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
   }, [
-    capability,
+    authority.canWrite,
     commitApplied,
     currentUserId,
     outboxReady,
     persistenceState,
-    revision.status,
+    effectiveCapability,
+    effectiveRevisionStatus,
   ]);
 
   const copySelection = useCallback(() => {
@@ -1614,7 +1686,9 @@ export default function DrawingWorkspaceClient({
             role="status"
           >
             {collaborationPhase === "connected"
-              ? "공동 편집 연결됨"
+              ? authority.canWrite
+                ? "공동 편집 연결됨"
+                : "공동 편집 연결됨 · 읽기 전용"
               : collaborationPhase === "degraded"
                 ? "공동 편집 오프라인"
                 : "공동 편집 연결 중"}
@@ -1761,9 +1835,9 @@ export default function DrawingWorkspaceClient({
           이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다.
           복구하면 현재 로그인 사용자가 복구 책임자로 기록됩니다.{" "}
           {canPersistDrawingMutation(
-            capability,
+            effectiveCapability,
             persistenceState,
-            revision.status,
+            effectiveRevisionStatus,
           ) ? (
             <Button
               onClick={async () => {
@@ -1774,10 +1848,10 @@ export default function DrawingWorkspaceClient({
                 if (!drawingOutbox) return;
                 try {
                   await claimLegacyDrawingOperations({
-                    capability,
+                    capability: effectiveCapability,
                     confirmed,
                     outbox: drawingOutbox,
-                    revisionStatus: revision.status,
+                    revisionStatus: effectiveRevisionStatus,
                   });
                   retryStorageRef.current();
                 } catch {
@@ -2282,11 +2356,11 @@ export default function DrawingWorkspaceClient({
                 blockMutationAdapter.canMutate)
             }
             canLinkIssues={drawingIssueLinkReady({
-              capability,
+              capability: effectiveCapability,
               objectIds: Object.keys(activeDrawingState.objects),
               saveStatus,
               selectedIds: transient.selectedIds,
-              status: revision.status,
+              status: effectiveRevisionStatus,
             })}
             issueLinks={revision.issueLinks}
             issues={revision.issues}

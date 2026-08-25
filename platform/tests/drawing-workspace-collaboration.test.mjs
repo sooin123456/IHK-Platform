@@ -3,7 +3,10 @@ import test from "node:test";
 
 import {
   createDrawingCollaborationCommandBridge,
+  drawingCollaborationAuthority,
   drawingCollaborationLifecycleKey,
+  drawingCollaborationPhaseForProviderStatus,
+  openDrawingCollaborationLocalAttempt,
   reconcileDrawingCollaborationDraft,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
 import {
@@ -44,6 +47,139 @@ test("collaboration lifecycle identity uses only user, project, and revision IDs
     drawingCollaborationLifecycleKey(ids.user, ids.project, ids.revision),
     `${ids.user}\0${ids.project}\0${ids.revision}`,
   );
+});
+
+test("transactional bootstrap status and canWrite override a stale draft workspace row", () => {
+  assert.deepEqual(
+    drawingCollaborationAuthority({
+      fallbackCapability: "editor",
+      fallbackRevisionStatus: "draft",
+      bootstrap: {
+        capability: "editor",
+        revisionStatus: "review_requested",
+        canWrite: false,
+      },
+    }),
+    {
+      capability: "editor",
+      revisionStatus: "review_requested",
+      canWrite: false,
+    },
+  );
+});
+
+test("provider disconnect is visibly degraded and reconnect becomes connected", () => {
+  assert.equal(
+    drawingCollaborationPhaseForProviderStatus("disconnected"),
+    "degraded",
+  );
+  assert.equal(
+    drawingCollaborationPhaseForProviderStatus("connected"),
+    "connected",
+  );
+  assert.equal(
+    drawingCollaborationPhaseForProviderStatus("connecting"),
+    "connecting",
+  );
+});
+
+test("failed local initialization disposes each partial resource and a retry leaves one live attempt", async () => {
+  const live = { documents: 0, persistence: 0, adapters: 0 };
+  let attempt = 0;
+  const open = () =>
+    openDrawingCollaborationLocalAttempt({
+      createDocument() {
+        live.documents++;
+        return {
+          destroy() {
+            live.documents--;
+          },
+        };
+      },
+      async openPersistence() {
+        live.persistence++;
+        return {
+          async whenSynced() {},
+          async dispose() {
+            live.persistence--;
+          },
+        };
+      },
+      createAdapter() {
+        live.adapters++;
+        return {
+          dispose() {
+            live.adapters--;
+          },
+        };
+      },
+      async reconcile() {
+        attempt++;
+        if (attempt === 1) throw new Error("repair failed after adapter");
+      },
+    });
+
+  await assert.rejects(open(), /repair failed after adapter/);
+  assert.deepEqual(live, { documents: 0, persistence: 0, adapters: 0 });
+  const recovered = await open();
+  assert.deepEqual(live, { documents: 1, persistence: 1, adapters: 1 });
+  await recovered.dispose();
+  assert.deepEqual(live, { documents: 0, persistence: 0, adapters: 0 });
+});
+
+test("adapter construction failure closes the already-open persistence and document", async () => {
+  const live = { documents: 0, persistence: 0 };
+  await assert.rejects(
+    openDrawingCollaborationLocalAttempt({
+      createDocument() {
+        live.documents++;
+        return {
+          destroy() {
+            live.documents--;
+          },
+        };
+      },
+      async openPersistence() {
+        live.persistence++;
+        return {
+          async whenSynced() {},
+          async dispose() {
+            live.persistence--;
+          },
+        };
+      },
+      createAdapter() {
+        throw new Error("adapter construction failed");
+      },
+      async reconcile() {},
+    }),
+    /adapter construction failed/,
+  );
+  assert.deepEqual(live, { documents: 0, persistence: 0 });
+});
+
+test("document cleanup still runs when persistence disposal itself fails", async () => {
+  let documents = 0;
+  await assert.rejects(
+    openDrawingCollaborationLocalAttempt({
+      createDocument() {
+        documents++;
+        return { destroy() { documents--; } };
+      },
+      async openPersistence() {
+        return {
+          async whenSynced() {},
+          async dispose() { throw new Error("persistence close failed"); },
+        };
+      },
+      createAdapter() {
+        throw new Error("adapter construction failed");
+      },
+      async reconcile() {},
+    }),
+    /persistence close failed/,
+  );
+  assert.equal(documents, 0);
 });
 
 test("command bridge persists before appending and only then exposes the provider update", async () => {

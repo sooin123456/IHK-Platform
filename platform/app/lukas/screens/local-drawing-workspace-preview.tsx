@@ -1,6 +1,6 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import {
@@ -81,7 +81,9 @@ const previewCollaborationConnectionFactory = async ({
     phase: "connected" as const,
     flush() {},
     async refreshToken() {},
-    dispose() {},
+    dispose() {
+      onPhase?.("degraded");
+    },
   };
 };
 
@@ -89,11 +91,7 @@ type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
   emit(): void;
 };
 
-function createPreviewRealtimeAdapter({
-  onReady,
-}: {
-  onReady: () => void;
-}): PreviewRealtimeAdapter {
+function createPreviewRealtimeAdapter(): PreviewRealtimeAdapter {
   let emit: (() => void) | null = null;
   return {
     emit() {
@@ -103,7 +101,6 @@ function createPreviewRealtimeAdapter({
     subscribe({ onEvent, onStatus }) {
       emit = onEvent;
       onStatus("SUBSCRIBED");
-      onReady();
       return () => {
         if (emit === onEvent) emit = null;
       };
@@ -677,9 +674,49 @@ export function loader({ request }: Route.LoaderArgs) {
   validateLocalDrawingWorkspacePreviewFixture(fixture);
   const realtimeTest =
     new URL(request.url).searchParams.get("realtimeTest") === "1";
+  const collaborationRetryTest =
+    new URL(request.url).searchParams.get("collaborationRetryTest") === "1";
+  const bootstrapReadOnlyTest =
+    new URL(request.url).searchParams.get("bootstrapReadOnlyTest") === "1";
+  const revision = fixture.workspace.document.revision;
   return {
     ...fixture,
+    collaborationBootstrap: bootstrapReadOnlyTest
+      ? {
+          canonicalJson: {
+            schemaVersion: 2 as const,
+            revision: {
+              id: revision.id,
+              documentId: revision.document_id,
+              projectId: revision.project_id,
+              sequence: revision.sequence,
+              version: revision.version,
+            },
+            sources: [],
+            pages: revision.pages,
+            canvases: revision.canvases ?? [],
+            layers: revision.layers,
+            objects: revision.objects,
+            styles: revision.styles ?? [],
+            blocks: revision.blocks ?? [],
+            blockInstances: revision.blockInstances ?? [],
+            propertySchemas: revision.propertySchemas ?? [],
+            propertyValues: revision.propertyValues ?? [],
+            tables: revision.tables ?? [],
+            issues: revision.issues,
+            operationSequence: 0,
+          },
+          operationSequence: 0,
+          schemaVersion: 2 as const,
+          sha256: sourceSha256,
+          revisionStatus: "review_requested" as const,
+          capability: "editor" as const,
+          canWrite: false,
+          recentOutcomes: [],
+        }
+      : undefined,
     previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
+    collaborationRetryTest,
     realtimeTest,
   };
 }
@@ -727,16 +764,70 @@ export default function LocalDrawingWorkspacePreview({
   const [realtimeInvalidations, setRealtimeInvalidations] = useState(0);
   const [alternateUser, setAlternateUser] = useState(false);
   const [viewer, setViewer] = useState(false);
-  const realtimeAdapter = useMemo(
-    () =>
-      createPreviewRealtimeAdapter({ onReady: () => setRealtimeReady(true) }),
-    [],
-  );
+  const [localResources, setLocalResources] = useState(0);
+  const [providers, setProviders] = useState(0);
+  const persistenceAttempts = useRef(0);
+  const providerAttempts = useRef(0);
+  const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
   const onInvalidate = useCallback(
     () => setRealtimeInvalidations((count) => count + 1),
     [],
   );
   const previewHarness = useMemo(() => ({ onInvalidate }), [onInvalidate]);
+  useEffect(() => {
+    if (!loaderData.realtimeTest) return;
+    const frame = requestAnimationFrame(() => setRealtimeReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, [loaderData.realtimeTest]);
+  const retryPersistenceFactory = useMemo(
+    () => async () => {
+      const number = ++persistenceAttempts.current;
+      let disposed = false;
+      setLocalResources((count) => count + 1);
+      return {
+        name: `preview-retry-${number}`,
+        get closed() {
+          return disposed;
+        },
+        async whenSynced() {
+          if (number === 1) throw new Error("preview IndexedDB open failed");
+        },
+        async flush() {},
+        async dispose() {
+          if (disposed) return;
+          disposed = true;
+          setLocalResources((count) => count - 1);
+        },
+      };
+    },
+    [],
+  );
+  const retryConnectionFactory = useMemo(
+    () =>
+      async ({
+        onPhase,
+      }: {
+        onPhase?: (phase: "connected" | "connecting" | "degraded") => void;
+      }) => {
+        const number = ++providerAttempts.current;
+        onPhase?.("connecting");
+        if (number === 1) throw new Error("preview provider creation failed");
+        let disposed = false;
+        setProviders((count) => count + 1);
+        onPhase?.("connected");
+        return {
+          phase: "connected" as const,
+          flush() {},
+          async refreshToken() {},
+          dispose() {
+            if (disposed) return;
+            disposed = true;
+            setProviders((count) => count - 1);
+          },
+        };
+      },
+    [],
+  );
   return (
     <>
       <DrawingWorkspaceClient
@@ -750,8 +841,16 @@ export default function LocalDrawingWorkspacePreview({
             : loaderData.currentUserId
         }
         previewMode
-        collaborationConnectionFactory={previewCollaborationConnectionFactory}
-        collaborationPersistenceFactory={previewCollaborationPersistenceFactory}
+        collaborationConnectionFactory={
+          loaderData.collaborationRetryTest
+            ? retryConnectionFactory
+            : previewCollaborationConnectionFactory
+        }
+        collaborationPersistenceFactory={
+          loaderData.collaborationRetryTest
+            ? retryPersistenceFactory
+            : previewCollaborationPersistenceFactory
+        }
         realtimeAdapter={
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
         }
@@ -794,6 +893,12 @@ export default function LocalDrawingWorkspacePreview({
           <button onClick={() => setViewer(true)} type="button">
             테스트 보기 권한
           </button>
+        </aside>
+      ) : null}
+      {loaderData.collaborationRetryTest ? (
+        <aside className="fixed bottom-3 left-3 z-50 rounded-md bg-slate-950 p-2 text-xs text-white">
+          <output aria-label="협업 로컬 리소스 수">{localResources}</output>
+          <output aria-label="협업 provider 수">{providers}</output>
         </aside>
       ) : null}
     </>

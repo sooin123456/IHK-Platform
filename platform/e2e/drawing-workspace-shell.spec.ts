@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 const previewPath = "/workspace-preview/drawing-workspace";
 const realtimeTestPreviewPath = `${previewPath}?realtimeTest=1`;
+const retryTestPreviewPath = `${previewPath}?collaborationRetryTest=1`;
+const staleBootstrapPreviewPath = `${previewPath}?bootstrapReadOnlyTest=1`;
 test.describe.configure({ timeout: 30_000 });
 
 async function openPreview(page: Page, path = previewPath) {
@@ -50,6 +52,38 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   expect(collaborationSockets).toEqual([]);
 });
 
+test("collaboration initialization retry cleans partial resources and restores editing", async ({
+  page,
+}) => {
+  await openPreview(page, retryTestPreviewPath);
+  await expect(page.getByText(/로컬 저장 실패/)).toBeVisible();
+  await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("0");
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  await expect(page.getByText(/로컬 저장 실패/)).toBeHidden();
+  await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("1");
+  await expect(page.getByLabel("협업 provider 수")).toHaveText("0");
+  await expect(
+    page.getByRole("textbox", { name: "새 레이어 이름" }),
+  ).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByLabel("협업 provider 수")).toHaveText("1");
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toBeVisible();
+});
+
+test("transactional read-only bootstrap blocks stale draft editing before initialization", async ({
+  page,
+}) => {
+  await openPreview(page, staleBootstrapPreviewPath);
+  await expect(
+    page.getByRole("textbox", { name: "새 레이어 이름" }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toHaveText("공동 편집 연결됨 · 읽기 전용");
+});
+
 test("preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes", async ({
   page,
 }) => {
@@ -80,6 +114,9 @@ test("preview keeps a local edit through realtime revalidation and resets only w
   await expect(
     page.getByText("읽기 전용 레이어 목록", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toHaveText("공동 편집 연결됨 · 읽기 전용");
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeHidden();
@@ -205,9 +242,7 @@ test("1280px structure panel keeps disabled explanations readable below controls
           width: explanation.width,
           y: explanation.y,
         },
-        controls: controls
-          ? { height: controls.height, y: controls.y }
-          : null,
+        controls: controls ? { height: controls.height, y: controls.y } : null,
       };
     }),
   );

@@ -38,6 +38,96 @@ export type DrawingCollaborationConnection = {
   dispose(): void;
 };
 
+export function drawingCollaborationPhaseForProviderStatus(status: string) {
+  if (status === "connected") return "connected" as const;
+  if (status === "disconnected") return "degraded" as const;
+  return "connecting" as const;
+}
+
+type DrawingCollaborationCapability =
+  | "admin"
+  | "editor"
+  | "reviewer"
+  | "commenter"
+  | "viewer";
+type DrawingCollaborationRevisionStatus =
+  | "draft"
+  | "review_requested"
+  | "approved"
+  | "superseded";
+
+export function drawingCollaborationAuthority({
+  bootstrap,
+  fallbackCapability,
+  fallbackRevisionStatus,
+}: {
+  bootstrap?: {
+    capability: DrawingCollaborationCapability;
+    revisionStatus: DrawingCollaborationRevisionStatus;
+    canWrite: boolean;
+  };
+  fallbackCapability: DrawingCollaborationCapability;
+  fallbackRevisionStatus: DrawingCollaborationRevisionStatus;
+}) {
+  if (bootstrap)
+    return {
+      capability: bootstrap.capability,
+      revisionStatus: bootstrap.revisionStatus,
+      canWrite: bootstrap.canWrite,
+    };
+  return {
+    capability: fallbackCapability,
+    revisionStatus: fallbackRevisionStatus,
+    canWrite:
+      fallbackRevisionStatus === "draft" &&
+      (fallbackCapability === "admin" || fallbackCapability === "editor"),
+  };
+}
+
+export async function openDrawingCollaborationLocalAttempt<
+  Document extends { destroy(): void },
+  Persistence extends { whenSynced(): Promise<void>; dispose(): Promise<void> },
+  Adapter extends { dispose(): void },
+>({
+  createDocument,
+  openPersistence,
+  createAdapter,
+  reconcile,
+}: {
+  createDocument(): Document;
+  openPersistence(document: Document): Promise<Persistence | null>;
+  createAdapter(document: Document): Adapter;
+  reconcile(adapter: Adapter): Promise<void>;
+}) {
+  const document = createDocument();
+  let persistence: Persistence | null = null;
+  let adapter: Adapter | null = null;
+  let disposed = false;
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    try {
+      adapter?.dispose();
+    } finally {
+      try {
+        await persistence?.dispose();
+      } finally {
+        document.destroy();
+      }
+    }
+  };
+  try {
+    persistence = await openPersistence(document);
+    await persistence?.whenSynced();
+    adapter = createAdapter(document);
+    await reconcile(adapter);
+    return { document, persistence, adapter, dispose };
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+}
+
 export function initializeDrawingCollaborationDocument({
   document,
   projectId,
@@ -127,7 +217,7 @@ export async function openDrawingCollaborationConnection({
     document,
     token: resolveToken,
     onStatus: ({ status }) =>
-      onPhase?.(status === "connected" ? "connected" : "connecting"),
+      onPhase?.(drawingCollaborationPhaseForProviderStatus(status)),
   });
   return {
     phase: "connecting",
@@ -139,7 +229,10 @@ export async function openDrawingCollaborationConnection({
 
 type DraftCommandAdapter = Pick<
   DrawingDraftAdapter,
-  "prepareLocal" | "preparePersistedLocal" | "appendDurableLocal"
+  | "prepareLocal"
+  | "preparePersistedLocal"
+  | "prepareRecordedLocal"
+  | "appendDurableLocal"
 >;
 
 type RepairDraftAdapter = Pick<
@@ -155,13 +248,19 @@ function operationInput(operation: DrawingCollaborationOperation) {
 }
 
 function collaborationOperation(
-  operation: DrawingOperationInput,
+  operation: DrawingOperationInput & { actorId?: string },
   actorId: string,
 ): DrawingCollaborationOperation {
   return DrawingCollaborationOperationSchema.parse({
-    ...operation,
+    clientOperationId: operation.clientOperationId,
+    revisionId: operation.revisionId,
     actorId,
     schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+    type: operation.type,
+    baseVersions: operation.baseVersions,
+    forward: operation.forward,
+    inverse: operation.inverse,
+    createdAt: operation.createdAt,
   });
 }
 
@@ -196,12 +295,10 @@ export function createDrawingCollaborationCommandBridge({
   adapter,
   outbox,
   afterAppend,
-  replaceProjection,
 }: {
   adapter: DraftCommandAdapter;
   outbox: Pick<DrawingOutbox, "enqueue">;
   afterAppend?: (prepared: PreparedDrawingDraft) => void;
-  replaceProjection?: (applied: AppliedDrawingCommand) => void;
 }) {
   const persist = async (prepared: PreparedDrawingDraft) => {
     await outbox.enqueue(operationInput(prepared.operation));
@@ -214,12 +311,7 @@ export function createDrawingCollaborationCommandBridge({
       return persist(adapter.prepareLocal(command));
     },
     async applyRecorded(applied: AppliedDrawingCommand) {
-      const prepared = adapter.preparePersistedLocal(
-        collaborationOperation(applied.operation, applied.operation.actorId),
-      );
-      await persist(prepared);
-      replaceProjection?.(applied);
-      return prepared;
+      return persist(adapter.prepareRecordedLocal(applied.operation));
     },
   };
 }

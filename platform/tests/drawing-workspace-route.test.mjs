@@ -133,7 +133,7 @@ test("workspace wires durable collaborative recovery and the four visible save s
   assert.match(shell, /\{saveStatus\}/);
   assert.match(
     shell,
-    /canPersistDrawingMutation\(\s*capability,\s*persistenceState,?\s*\)/,
+    /canPersistDrawingMutation\(\s*effectiveCapability,\s*persistenceState/,
   );
   assert.match(shell, /로컬 저장 실패/);
   assert.match(shell, /다시 시도/);

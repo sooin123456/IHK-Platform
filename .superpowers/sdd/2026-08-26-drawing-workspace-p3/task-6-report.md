@@ -19,9 +19,10 @@
   boundary. It serializes neither tokens nor internal/service secrets, refreshes
   the provider token on reconnect/visibility, and exposes connected, connecting,
   or degraded state while offline edits remain durable.
-- Capability/revision downgrade immediately freezes the adapter, disposes the
-  provider, clears selection/tool state, and denies further persistence. Local
-  storage failure also freezes mutation until explicit recovery.
+- Capability/revision downgrade immediately freezes the adapter, clears
+  selection/tool state, and denies further persistence while retaining the
+  provider for read-only observation. Local storage failure also freezes
+  mutation until explicit recovery.
 - The React server now sends HMAC-authenticated, idempotent accepted/rejected/
   conflicted receipts after the authoritative RPC. A lost accepted receipt
   returns retryable 503 so the same durable operation ID is replayed safely.
@@ -30,6 +31,27 @@
 - Fixed the shared Yjs adapter's `add_layer` creation-version check, discovered
   by hydrated browser testing, so a durable new layer projects instead of being
   quarantined as a provisional conflict.
+
+## Review fixes
+
+- Recorded undo/redo operations are reduced to the exact collaboration envelope
+  before outbox/Yjs publication. The adapter keeps the local actor's history
+  relationship while replaying the shared business operation, and the redundant
+  second `DrawingDocumentStore.replace` path was removed.
+- A schema-valid operation that became durable before a same-object remote edit
+  is always appended. Projection classifies the losing pending operation as a
+  provisional conflict; reload repair terminates with both immutable IDs and the
+  remote winner instead of repeatedly failing initialization.
+- Bootstrap `revisionStatus`, `capability`, and `canWrite` now override a stale
+  independently loaded workspace row for adapter freeze, pointer safety, and all
+  local mutation gates.
+- Viewer/commenter/reviewer clients stay connected read-only. Provider disconnect
+  is visibly degraded, automatic reconnect returns to connected, and remote
+  projection continues after authorization downgrade.
+- Each local initialization attempt owns and deterministically disposes its
+  document, persistence, and adapter. Retry is single-flight, clears the failed
+  persistence authority on success, and provider construction failure degrades
+  collaboration without misclassifying local durability or disabling editing.
 
 ## TDD evidence
 
@@ -48,16 +70,35 @@
   conflicted; creation-version semantics fixed it.
 - The accepted-RPC/lost-receipt regression initially returned 400 instead of the
   required retryable 503; receipt transport exceptions now preserve retry.
+- Review RED: edit → remote → undo failed with `Drawing collaboration operations
+  have exact fields.` before reaching Yjs; the exact-envelope/history regression
+  now completes undo, a second remote projection, and redo with one store
+  publication per Yjs transaction.
+- Review RED: a deferred durable enqueue followed by a same-object remote edit
+  threw `Drawing operation does not reproduce its canonical command`; reload
+  repair repeated the failure. Both live and repaired cases now retain the local
+  ID as provisional conflict evidence and publish the remote winner.
+- Review RED: stale workspace `draft` plus transactional
+  `review_requested/canWrite=false` still exposed layer editing, viewer downgrade
+  lost the connected read-only state, provider disconnect mapped to connecting,
+  and retry leaked/retained failed local authority. Node and hydrated Chromium
+  regressions cover each corrected boundary.
+- Review RED: the existing realtime preview barrier intermittently stayed in
+  `준비 중` during fresh full-shell runs. Readiness now advances on the first
+  post-hydration animation frame; the focused browser case passed three
+  consecutive fresh contexts.
 
 ### GREEN
 
-- Focused collaboration/outbox/Yjs/service command: 115 passed, 0 failed.
-- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 547 passed,
-  0 failed, 1 existing explicitly skipped gate (548 total).
-- Fresh-server hydrated Chromium workspace shell: 6 passed, 0 failed. This
+- Focused collaboration/outbox/Yjs/service command: 122 passed, 0 failed.
+- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 554 passed,
+  0 failed, 1 existing explicitly skipped gate (555 total).
+- Fresh-server hydrated Chromium workspace shell: 8 passed, 0 failed. This
   includes same-revision local edit preservation, user-key reset, downgrade to
-  viewer, visible collaboration status, and zero preview Supabase/collaboration
-  requests.
+  viewer with a retained provider, transactional stale-row freeze, deterministic
+  resource retry, visible collaboration status, and zero preview
+  Supabase/collaboration requests. The formerly flaky readiness case also passed
+  3/3 consecutive repetitions.
 - Real Chromium `y-indexeddb` recovery: 3 passed, 0 failed, including 100 offline
   operations, frozen recovery, and two-browser-realm same-ID deduplication.
 - `npm run typecheck`: passed.
@@ -95,3 +136,4 @@
 ## Commit
 
 - `feat: integrate collaborative drawing commands`
+- Review hardening follow-up: `fix: harden collaborative drawing integration`

@@ -6,7 +6,13 @@ import * as Y from "yjs";
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
+  redoDrawingCommand,
+  undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
+import {
+  createDrawingCollaborationCommandBridge,
+  reconcileDrawingCollaborationDraft,
+} from "../app/lukas/lib/drawing-collaboration-client.ts";
 
 const draftModule = await import("../app/lukas/lib/drawing-yjs-draft.ts").catch(
   () => null,
@@ -359,9 +365,164 @@ test("a durable new layer projects instead of becoming a provisional conflict", 
   assert.deepEqual(adapter.getSnapshot().provisionalConflictOperationIds, []);
 });
 
+test("bridge normalizes recorded undo and redo while every local and remote transaction projects once", async () => {
+  const doc = initializedDoc();
+  let operationNumber = 0;
+  let publications = 0;
+  const adapter = create(doc, {
+    createId: () =>
+      [ids.operationA, ids.operationB, ids.operationC][operationNumber++],
+  });
+  adapter.subscribe(() => publications++);
+  const queued = [];
+  const bridge = createDrawingCollaborationCommandBridge({
+    adapter,
+    outbox: {
+      async enqueue(value) {
+        queued.push(value);
+      },
+    },
+  });
+
+  await bridge.applyCommand({
+    type: "update_objects",
+    actorId: ids.actorA,
+    updates: [{ objectId: ids.objectA, patch: { name: "local" } }],
+  });
+  append(
+    doc,
+    recorded(
+      adapter.getSnapshot().state,
+      {
+        type: "update_objects",
+        actorId: ids.actorB,
+        updates: [{ objectId: ids.objectB, patch: { name: "remote-1" } }],
+      },
+      "00000000-0000-4000-8000-000000000512",
+    ).envelope,
+  );
+  const undone = undoDrawingCommand(adapter.getSnapshot().state, ids.actorA, {
+    createId: () => ids.operationB,
+    now: () => "2026-08-26T00:00:01.000Z",
+  });
+  assert.equal(undone?.operation.historyAction, "undo");
+  await bridge.applyRecorded(undone);
+  append(
+    doc,
+    recorded(
+      adapter.getSnapshot().state,
+      {
+        type: "update_objects",
+        actorId: ids.actorB,
+        updates: [{ objectId: ids.objectB, patch: { name: "remote-2" } }],
+      },
+      "00000000-0000-4000-8000-000000000513",
+    ).envelope,
+  );
+  const redone = redoDrawingCommand(adapter.getSnapshot().state, ids.actorA, {
+    createId: () => ids.operationC,
+    now: () => "2026-08-26T00:00:02.000Z",
+  });
+  assert.equal(redone?.operation.historyAction, "redo");
+  await bridge.applyRecorded(redone);
+
+  const snapshot = adapter.getSnapshot();
+  assert.equal(snapshot.state.objects[ids.objectA].name, "local");
+  assert.equal(snapshot.state.objects[ids.objectB].name, "remote-2");
+  assert.deepEqual(snapshot.state.undoStackByActor[ids.actorA], [
+    ids.operationA,
+  ]);
+  assert.deepEqual(snapshot.state.redoStackByActor[ids.actorA], []);
+  assert.equal(publications, 5);
+  const exactInputFields = [
+    "baseVersions",
+    "clientOperationId",
+    "createdAt",
+    "forward",
+    "inverse",
+    "revisionId",
+    "type",
+  ].sort();
+  assert.equal(queued.length, 3);
+  assert.deepEqual(Object.keys(queued[1]).sort(), exactInputFields);
+  assert.deepEqual(Object.keys(queued[2]).sort(), exactInputFields);
+});
+
+test("durable enqueue race appends a provisional conflict and boot repair terminates with the remote winner", async () => {
+  const doc = initializedDoc();
+  const adapter = create(doc, { createId: () => ids.operationA });
+  let releaseEnqueue;
+  let durableOperation;
+  const enqueueStarted = new Promise((resolve) => {
+    releaseEnqueue = resolve;
+  });
+  const bridge = createDrawingCollaborationCommandBridge({
+    adapter,
+    outbox: {
+      async enqueue(value) {
+        durableOperation = value;
+        await enqueueStarted;
+      },
+    },
+  });
+  const local = bridge.applyCommand({
+    type: "update_objects",
+    actorId: ids.actorA,
+    updates: [{ objectId: ids.objectA, patch: { name: "local" } }],
+  });
+  await Promise.resolve();
+  const remote = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorB,
+      updates: [{ objectId: ids.objectA, patch: { name: "remote" } }],
+    },
+    ids.operationB,
+  ).envelope;
+  append(doc, remote);
+  releaseEnqueue();
+  await local;
+  assert.equal(adapter.getSnapshot().state.objects[ids.objectA].name, "remote");
+  assert.deepEqual(adapter.getSnapshot().provisionalConflictOperationIds, [
+    ids.operationA,
+  ]);
+
+  const recoveredDoc = initializedDoc();
+  append(recoveredDoc, remote);
+  const recovered = create(recoveredDoc);
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.actorA,
+    adapter: recovered,
+    outbox: {
+      async entries() {
+        return [{ operation: durableOperation, status: "pending" }];
+      },
+      async enqueue() {},
+      async markAcked() {},
+    },
+    recentOutcomes: [],
+  });
+  assert.equal(recovered.operations().at(-1).clientOperationId, ids.operationA);
+  assert.equal(
+    recovered.getSnapshot().state.objects[ids.objectA].name,
+    "remote",
+  );
+  assert.deepEqual(recovered.getSnapshot().provisionalConflictOperationIds, [
+    ids.operationA,
+  ]);
+});
+
 test("authorization, freeze, and disposal stop mutation without authoring server status", () => {
   const doc = initializedDoc();
   const adapter = create(doc, { createId: () => ids.operationA });
+  const alreadyDurable = adapter.prepareLocal({
+    type: "update_objects",
+    actorId: ids.actorA,
+    updates: [
+      { objectId: ids.objectA, patch: { name: "durable-before-downgrade" } },
+    ],
+  });
   adapter.setAuthorization("viewer");
   assert.throws(() =>
     adapter.prepareLocal({
@@ -369,6 +530,27 @@ test("authorization, freeze, and disposal stop mutation without authoring server
       actorId: ids.actorA,
       updates: [{ objectId: ids.objectA, patch: { name: "blocked" } }],
     }),
+  );
+  assert.equal(adapter.appendDurableLocal(alreadyDurable), true);
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "durable-before-downgrade",
+  );
+  append(
+    doc,
+    recorded(
+      adapter.getSnapshot().state,
+      {
+        type: "update_objects",
+        actorId: ids.actorB,
+        updates: [{ objectId: ids.objectB, patch: { name: "observed" } }],
+      },
+      ids.operationB,
+    ).envelope,
+  );
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectB].name,
+    "observed",
   );
   adapter.setAuthorization("editor");
   adapter.setFrozen(true);

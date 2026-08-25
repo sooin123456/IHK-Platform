@@ -47,6 +47,7 @@ export type DrawingDraftSnapshot = {
 export type PreparedDrawingDraft = {
   operation: DrawingCollaborationOperation;
   state: DrawingDocumentState;
+  recordedOperation?: DrawingRecordedOperation;
 };
 
 export type DrawingDraftAdapter = {
@@ -56,6 +57,9 @@ export type DrawingDraftAdapter = {
   prepareLocal(command: DrawingCommand): PreparedDrawingDraft;
   preparePersistedLocal(
     operation: DrawingCollaborationOperation,
+  ): PreparedDrawingDraft;
+  prepareRecordedLocal(
+    operation: DrawingRecordedOperation,
   ): PreparedDrawingDraft;
   appendDurableLocal(prepared: PreparedDrawingDraft): boolean;
   applyServerProjection(update: Uint8Array): boolean;
@@ -145,6 +149,7 @@ function replay(
   state: DrawingDocumentState,
   operation: DrawingCollaborationOperation,
   authoritativeResultVersions?: Record<string, number>,
+  recordedOperation?: DrawingRecordedOperation,
 ): DrawingDocumentState {
   const applied = applyDrawingCommand(state, commandFor(operation), {
     createId: () => operation.clientOperationId,
@@ -161,12 +166,47 @@ function replay(
     throw new DrawingDraftIntegrityError(
       "Drawing operation result versions are not authoritative.",
     );
+  let next = applied.state;
+  if (
+    recordedOperation?.historyAction &&
+    recordedOperation.originalOperationId
+  ) {
+    const actorId = operation.actorId;
+    const originalOperationId = recordedOperation.originalOperationId;
+    const undo = [...(state.undoStackByActor[actorId] ?? [])];
+    const redo = [...(state.redoStackByActor[actorId] ?? [])];
+    next = {
+      ...applied.state,
+      operations: [
+        ...applied.state.operations.slice(0, -1),
+        {
+          ...applied.operation,
+          originalOperationId,
+          historyAction: recordedOperation.historyAction,
+        },
+      ],
+      undoStackByActor: {
+        ...applied.state.undoStackByActor,
+        [actorId]:
+          recordedOperation.historyAction === "undo"
+            ? undo.slice(0, -1)
+            : [...undo, originalOperationId],
+      },
+      redoStackByActor: {
+        ...applied.state.redoStackByActor,
+        [actorId]:
+          recordedOperation.historyAction === "undo"
+            ? [...redo, originalOperationId]
+            : redo.slice(0, -1),
+      },
+    };
+  }
   try {
-    validateState(applied.state);
+    validateState(next);
   } catch (error) {
     throw new DrawingDraftIntegrityError(errorMessage(error));
   }
-  return applied.state;
+  return next;
 }
 
 function errorMessage(error: unknown) {
@@ -236,6 +276,7 @@ export function createDrawingDraftAdapter(
   let locallyFrozen = options.frozen;
   let disposed = false;
   let baseOperationSequence = options.baseOperationSequence ?? 0;
+  const recordedHistory = new Map<string, DrawingRecordedOperation>();
   const listeners = new Set<() => void>();
   const persistenceSynced = Promise.resolve(
     options.localPersistenceSynced,
@@ -308,7 +349,12 @@ export function createDrawingDraftAdapter(
 
     let state = structuredClone(authoritativeState);
     for (const item of acknowledged)
-      state = replay(state, item.operation, item.status.resultVersions);
+      state = replay(
+        state,
+        item.operation,
+        item.status.resultVersions,
+        recordedHistory.get(item.operationId),
+      );
     const provisionalConflictOperationIds: string[] = [];
     for (const item of pending) {
       if (hasVersionConflict(state, item.operation)) {
@@ -316,7 +362,12 @@ export function createDrawingDraftAdapter(
         continue;
       }
       try {
-        state = replay(state, item.operation);
+        state = replay(
+          state,
+          item.operation,
+          undefined,
+          recordedHistory.get(item.operationId),
+        );
       } catch (error) {
         if (error instanceof DrawingDraftIntegrityError) throw error;
         provisionalConflictOperationIds.push(item.operationId);
@@ -381,10 +432,13 @@ export function createDrawingDraftAdapter(
   };
   document.on("afterTransaction", afterTransaction);
 
-  const assertWritable = (actorId: string) => {
+  const assertLocalActor = (actorId: string) => {
     if (disposed) throw new Error("Drawing draft adapter is disposed.");
     if (actorId !== options.actorId)
       throw new Error("Drawing command actor does not match the local actor.");
+  };
+  const assertWritable = (actorId: string) => {
+    assertLocalActor(actorId);
     if (
       !drawingCollaborationWritableCapabilities.includes(
         authorization as (typeof drawingCollaborationWritableCapabilities)[number],
@@ -419,14 +473,22 @@ export function createDrawingDraftAdapter(
     },
     preparePersistedLocal(input) {
       const operation = DrawingCollaborationOperationSchema.parse(input);
-      assertWritable(operation.actorId);
-      return { operation, state: replay(snapshot.state, operation) };
+      assertLocalActor(operation.actorId);
+      return { operation, state: snapshot.state };
+    },
+    prepareRecordedLocal(recordedOperation) {
+      assertWritable(recordedOperation.actorId);
+      return {
+        operation: envelopeFor(recordedOperation),
+        state: snapshot.state,
+        recordedOperation,
+      };
     },
     appendDurableLocal(prepared) {
       const operation = DrawingCollaborationOperationSchema.parse(
         prepared.operation,
       );
-      assertWritable(operation.actorId);
+      assertLocalActor(operation.actorId);
       const ledger = readDrawingCollaborationLedger(document);
       const existing = ledger.operations[operation.clientOperationId];
       if (existing !== undefined) {
@@ -436,13 +498,19 @@ export function createDrawingDraftAdapter(
           );
         return false;
       }
-      // Revalidate against the current projection after the outbox durability wait.
-      const preparedState = replay(snapshot.state, operation);
-      if (!same(preparedState, prepared.state))
-        throw new Error("Prepared drawing state does not match its operation.");
-      document.transact(() => {
-        appendDrawingCollaborationOperation(document, operation);
-      });
+      if (prepared.recordedOperation?.historyAction)
+        recordedHistory.set(
+          operation.clientOperationId,
+          structuredClone(prepared.recordedOperation),
+        );
+      try {
+        document.transact(() => {
+          appendDrawingCollaborationOperation(document, operation);
+        });
+      } catch (error) {
+        recordedHistory.delete(operation.clientOperationId);
+        throw error;
+      }
       return true;
     },
     applyServerProjection(update) {
