@@ -11,10 +11,13 @@ import * as workspaceServer from "../app/lukas/lib/drawing-workspace.server.ts";
 import {
   applyDrawingOperation,
   createDrawingDocument,
+  createDrawingDocumentFromTemplate,
   handleWorkspaceMutation,
   linkDrawingObjectIssue,
   loadAllDrawingObjects,
+  loadAllDrawingRows,
   loadDrawingWorkspace,
+  loadDrawingTemplateCandidates,
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
@@ -35,6 +38,17 @@ const ids = {
 };
 
 const sourceSha = "a".repeat(64);
+
+const p2Ids = {
+  canvas: "00000000-0000-4000-8000-000000000013",
+  style: "00000000-0000-4000-8000-000000000014",
+  block: "00000000-0000-4000-8000-000000000015",
+  instance: "00000000-0000-4000-8000-000000000016",
+  schema: "00000000-0000-4000-8000-000000000017",
+  value: "00000000-0000-4000-8000-000000000018",
+  table: "00000000-0000-4000-8000-000000000019",
+  template: "00000000-0000-4000-8000-000000000020",
+};
 
 test("workspace object loading paginates beyond the Supabase response cap", async () => {
   const calls = [];
@@ -78,6 +92,125 @@ test("workspace object loading paginates beyond the Supabase response cap", asyn
     [1_000, 1_999],
     [2_000, 2_999],
   ]);
+});
+
+test("bounded drawing row pagination has deterministic ID ties and removes duplicate rows", async () => {
+  const calls = [];
+  const rows = Array.from({ length: 2_005 }, (_, index) => ({
+    id: String(index).padStart(5, "0"),
+  }));
+  rows.splice(1_000, 0, { id: "00999" });
+  const client = {
+    from(table) {
+      const builder = {
+        select() { return builder; },
+        eq() { return builder; },
+        order(column) { calls.push([table, "order", column]); return builder; },
+        range(from, to) {
+          calls.push([table, from, to]);
+          return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+        },
+      };
+      return builder;
+    },
+  };
+  const loaded = await loadAllDrawingRows(client, {
+    table: "lukas_drawing_blocks",
+    projectId: ids.project,
+    revisionId: ids.revision,
+    order: ["id"],
+    pageSize: 1_000,
+  });
+  assert.equal(loaded.length, 2_005);
+  assert.equal(new Set(loaded.map((row) => row.id)).size, 2_005);
+  assert.deepEqual(loaded.map((row) => row.id), [...loaded.map((row) => row.id)].sort());
+  assert.deepEqual(calls.filter((call) => typeof call[1] === "number"), [
+    ["lukas_drawing_blocks", 0, 999],
+    ["lukas_drawing_blocks", 1_000, 1_999],
+    ["lukas_drawing_blocks", 2_000, 2_999],
+  ]);
+});
+
+test("P2 loader strictly converts snake-case rows and fails closed for broken canvas ancestry", async () => {
+  const client = queryClient({
+    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
+    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
+    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", page_number: 0, version: 1 }], error: null },
+    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: sourceSha, background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
+    lukas_drawing_layers: { data: [{ id: ids.sourceLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Source", sort_order: 0, visible: true, locked: true, system_kind: "source", version: 1 }, { id: ids.workLayer, page_id: ids.page, canvas_id: p2Ids.canvas, revision_id: ids.revision, project_id: ids.project, name: "Work", sort_order: 1, visible: true, locked: false, system_kind: "work", version: 1 }], error: null },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_styles: { data: [], error: null },
+    lukas_drawing_blocks: { data: [], error: null },
+    lukas_drawing_block_instances: { data: [], error: null },
+    lukas_drawing_property_schemas: { data: [], error: null },
+    lukas_drawing_property_values: { data: [], error: null },
+    lukas_drawing_tables: { data: [], error: null },
+  });
+  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  assert.deepEqual(loaded.document.revision.pages[0], {
+    id: ids.page,
+    revisionId: ids.revision,
+    name: "A-101",
+    sortOrder: 0,
+    version: 1,
+    canvases: [{ id: p2Ids.canvas, pageId: ids.page, name: "Paper", spaceKind: "paper", widthMillimeters: 841, heightMillimeters: 594, background: { sourceFileId: ids.file, sourceSha256: sourceSha, pdfPageNumber: 1, calibration: null }, sortOrder: 0, version: 1 }],
+    layers: [{ id: ids.sourceLayer, name: "Source", visible: true, locked: true, systemKind: "source", canvasId: p2Ids.canvas, sortOrder: 0, version: 1 }, { id: ids.workLayer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: p2Ids.canvas, sortOrder: 1, version: 1 }],
+    objects: [],
+    blockInstances: [],
+  });
+
+  const malformed = queryClient({
+    ...Object.fromEntries(client.calls.map((call) => [call.table, { data: [], error: null }])),
+    lukas_qto_files: { data: { id: ids.file, project_id: ids.project, kind: "pdf", sha256: sourceSha, immutable: true }, error: null },
+    lukas_drawing_documents: { data: { id: ids.document, project_id: ids.project, source_file_id: ids.file, source_sha256: sourceSha }, error: null },
+    lukas_drawing_revisions: { data: { id: ids.revision, document_id: ids.document, project_id: ids.project, status: "draft", version: 1 }, error: null },
+    lukas_drawing_pages: { data: [{ id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "A-101", page_number: 0, version: 1 }], error: null },
+    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas, page_id: ids.page, revision_id: ids.revision, project_id: ids.project, name: "Paper", space_kind: "paper", width_mm: 841, height_mm: 594, background_source_file_id: ids.file, background_source_sha256: "b".repeat(64), background_pdf_page: 1, calibration: null, sort_order: 0, version: 1 }], error: null },
+  });
+  await assert.rejects(loadDrawingWorkspace(malformed, ids.project, ids.file), /source evidence|ancestry/i);
+});
+
+test("template clone accepts only project-bound source IDs and parses its authoritative response", async () => {
+  const calls = [];
+  const client = { async rpc(name, args) { calls.push([name, args]); return { data: { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template }, error: null }; } };
+  const result = await createDrawingDocumentFromTemplate(client, p2Ids.template, " Template draft ", ids.file);
+  assert.deepEqual(result, { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template });
+  assert.deepEqual(calls, [["lukas_drawing_create_from_template", { p_source_revision_id: p2Ids.template, p_title: "Template draft", p_source_file_id: ids.file }]]);
+});
+
+test("template clone rejects browser authority fields, foreign candidates, and non-draft destinations", async () => {
+  assert.throws(() => parseWorkspaceMutation(form({ intent: "create_from_template", source_revision_id: p2Ids.template, title: "Draft", project_id: ids.project })));
+  const base = {
+    ...loadedWorkspace(),
+    templateCandidates: [{ revisionId: p2Ids.template, title: "Approved", approvedAt: "2026-08-25T00:00:00.000Z", snapshotSha256: sourceSha }],
+  };
+  const cloneForm = form({ intent: "create_from_template", source_revision_id: p2Ids.template, title: "Draft" });
+  const accepted = await handleWorkspaceMutation({
+    client: { async rpc() { return { data: { documentId: ids.document, revisionId: ids.revision, sourceRevisionId: p2Ids.template }, error: null }; } },
+    projectId: ids.project, capability: "editor", workspace: base, form: cloneForm,
+  });
+  assert.equal(accepted.status, 200);
+  const foreign = await handleWorkspaceMutation({
+    client: { async rpc() { throw new Error("must not call"); } }, projectId: ids.project,
+    capability: "editor", workspace: base,
+    form: form({ intent: "create_from_template", source_revision_id: ids.actor, title: "Draft" }),
+  });
+  assert.equal(foreign.status, 409);
+  const reviewed = await handleWorkspaceMutation({
+    client: { async rpc() { throw new Error("must not call"); } }, projectId: ids.project,
+    capability: "editor", workspace: { ...base, document: { ...base.document, revision: { ...base.document.revision, status: "review_requested" } } }, form: cloneForm,
+  });
+  assert.equal(reviewed.status, 409);
+});
+
+test("template candidates expose only approved project revisions with matching immutable snapshot evidence", async () => {
+  const candidate = await loadDrawingTemplateCandidates(queryClient({
+    lukas_drawing_revisions: { data: [{ id: p2Ids.template, document_id: ids.document, project_id: ids.project, status: "approved", version: 3, approved_at: "2026-08-25T00:00:00.000Z" }], error: null },
+    lukas_drawing_documents: { data: [{ id: ids.document, project_id: ids.project, title: "Approved A-101" }], error: null },
+    lukas_drawing_snapshots: { data: [{ id: ids.link, revision_id: p2Ids.template, project_id: ids.project, revision_version: 3, sha256: sourceSha }], error: null },
+  }), ids.project);
+  assert.deepEqual(candidate, [{ revisionId: p2Ids.template, title: "Approved A-101", approvedAt: "2026-08-25T00:00:00.000Z", snapshotSha256: sourceSha }]);
 });
 
 function form(fields) {
@@ -187,8 +320,8 @@ test("stable domain SQLSTATEs map to terminal conflict or rejection while databa
   for (const [code, kind, status] of [
     ["P1C01", "conflict", 409],
     ["P1R01", "rejected", 409],
-    ["40001", "rpc", 400],
-    ["40P01", "rpc", 400],
+    ["40001", "retryable", 503],
+    ["40P01", "retryable", 503],
   ]) {
     const result = await handleWorkspaceMutation({
       client: {
@@ -407,7 +540,10 @@ function queryClient(responses) {
         range(from, to) {
           call.range = [from, to];
           call.terminal = "range";
-          return Promise.resolve(response);
+          return Promise.resolve({
+            ...response,
+            data: Array.isArray(response.data) ? response.data : [],
+          });
         },
         limit(value) {
           call.limit = value;

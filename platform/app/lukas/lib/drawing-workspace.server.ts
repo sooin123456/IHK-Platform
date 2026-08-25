@@ -4,15 +4,36 @@ import { z } from "zod";
 
 import {
   DrawingGeometrySchema,
+  DrawingBlockInstanceSchema,
+  DrawingBlockSchema,
+  DrawingCanvasSchema,
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectNameSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
+  DrawingPageSchema,
+  DrawingPropertySchemaSchema,
+  DrawingPropertyValueSchema,
   DrawingStructureActionSchema,
+  DrawingStyleDefinitionSchema,
   DrawingStyleOverrideSchema,
+  DrawingStructureLayerSchema,
+  DrawingTableSchema,
 } from "./drawing-workspace.types.ts";
-import type { DrawingOperationInput } from "./drawing-workspace.types.ts";
+import type {
+  DrawingBlockInstance,
+  DrawingBlock,
+  DrawingCanvas,
+  DrawingLayer,
+  DrawingObject,
+  DrawingOperationInput,
+  DrawingPage,
+  DrawingPropertySchema,
+  DrawingPropertyValue,
+  DrawingStyleDefinition,
+  DrawingTable,
+} from "./drawing-workspace.types.ts";
 
 type TableDefinition<Row, Insert = never, Update = never> = {
   Row: Row;
@@ -165,6 +186,13 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_pages: TableDefinition<DrawingPageRow>;
       lukas_drawing_layers: TableDefinition<DrawingLayerRow>;
       lukas_drawing_objects: TableDefinition<DrawingObjectRow>;
+      lukas_drawing_canvases: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_styles: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_blocks: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_block_instances: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_property_schemas: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_property_values: TableDefinition<Record<string, unknown>>;
+      lukas_drawing_tables: TableDefinition<Record<string, unknown>>;
       lukas_drawing_snapshots: TableDefinition<DrawingSnapshotRow>;
       lukas_drawing_issues: TableDefinition<DrawingWorkspaceIssue>;
       lukas_drawing_object_issue_links: TableDefinition<DrawingObjectIssueLink>;
@@ -183,6 +211,11 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_base_versions: Json;
         p_forward: Json;
         p_inverse: Json;
+      }>;
+      lukas_drawing_create_from_template: DrawingRpc<{
+        p_source_revision_id: string;
+        p_title: string;
+        p_source_file_id: string | null;
       }>;
       lukas_drawing_request_review: DrawingRpc<{ p_revision_id: string }>;
       lukas_drawing_record_revision_decision: DrawingRpc<{
@@ -204,31 +237,83 @@ export type DrawingWorkspaceClient = SupabaseClient<DrawingWorkspaceDatabase>;
 
 const drawingObjectPageSize = 1_000;
 
+type DrawingRowsQuery = {
+  table: string;
+  projectId: string;
+  revisionId?: string;
+  order: readonly string[];
+  pageSize?: number;
+  filters?: ReadonlyArray<readonly [string, unknown]>;
+  select?: string;
+};
+
+type DrawingRowsRequest = {
+  select(columns: string): DrawingRowsRequest;
+  eq(column: string, value: unknown): DrawingRowsRequest;
+  order(column: string): DrawingRowsRequest;
+  range(from: number, to: number): Promise<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+};
+
+/**
+ * Supabase applies a response cap even to otherwise unbounded selects.  Keep
+ * every workspace collection complete, ordered, and stable across pages.
+ */
+export async function loadAllDrawingRows<TRow extends { id: string }>(
+  client: Pick<DrawingWorkspaceClient, "from">,
+  query: DrawingRowsQuery,
+): Promise<TRow[]> {
+  const pageSize = query.pageSize ?? drawingObjectPageSize;
+  if (!Number.isInteger(pageSize) || pageSize <= 0)
+    throw new Error("Drawing row page size must be a positive integer.");
+  if (!query.order.includes("id"))
+    throw new Error("Drawing row pagination requires an ID tie-breaker.");
+
+  const rows = new Map<string, TRow>();
+  for (let from = 0; ; from += pageSize) {
+    let request = (client as unknown as { from: (table: string) => DrawingRowsRequest })
+      .from(query.table)
+      .select(query.select ?? "*")
+      .eq("project_id", query.projectId);
+    if (query.revisionId) request = request.eq("revision_id", query.revisionId);
+    for (const [column, value] of query.filters ?? [])
+      request = request.eq(column, value);
+    for (const column of query.order) request = request.order(column);
+    const { data, error } = await request.range(from, from + pageSize - 1);
+    if (error)
+      throw new Error(`도면 ${query.table}을 불러오지 못했습니다: ${error.message}`);
+    if (!Array.isArray(data) || data.some((row) => !row || typeof row !== "object" || typeof (row as { id?: unknown }).id !== "string"))
+      throw new Error(`도면 ${query.table} 응답 형식이 올바르지 않습니다.`);
+    const page = data as TRow[];
+    for (const row of page) rows.set(row.id, row);
+    if (page.length < pageSize)
+      return [...rows.values()].sort((left, right) =>
+        query.order.reduce((result, column) => {
+          if (result !== 0) return result;
+          return String((left as Record<string, unknown>)[column]).localeCompare(
+            String((right as Record<string, unknown>)[column]),
+          );
+        }, 0),
+      );
+  }
+}
+
 export async function loadAllDrawingObjects(
   client: DrawingWorkspaceClient,
   projectId: string,
   revisionId: string,
   pageSize = drawingObjectPageSize,
 ) {
-  if (!Number.isInteger(pageSize) || pageSize <= 0)
-    throw new Error("Drawing object page size must be a positive integer.");
-  const objects: DrawingObjectRow[] = [];
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await client
-      .from("lukas_drawing_objects")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("revision_id", revisionId)
-      .eq("status", "active")
-      .order("created_at")
-      .order("id")
-      .range(from, from + pageSize - 1);
-    if (error)
-      throw new Error(`도면 객체를 불러오지 못했습니다: ${error.message}`);
-    const page = data ?? [];
-    objects.push(...page);
-    if (page.length < pageSize) return objects;
-  }
+  return loadAllDrawingRows<DrawingObjectRow>(client, {
+    table: "lukas_drawing_objects",
+    projectId,
+    revisionId,
+    order: ["created_at", "id"],
+    pageSize,
+    filters: [["status", "active"]],
+  });
 }
 
 const Uuid = z.string().uuid();
@@ -375,6 +460,12 @@ const CreateDocumentMutationSchema = z.object({
   intent: z.literal("create_document"),
   title: Title,
 });
+const CreateFromTemplateMutationSchema = z.object({
+  intent: z.literal("create_from_template"),
+  sourceRevisionId: Uuid,
+  title: Title,
+  sourceFileId: Uuid.nullable(),
+}).strict();
 const ApplyOperationMutationSchema = z.object({
   intent: z.literal("apply_operation"),
   operation: DrawingOperationInputSchema,
@@ -403,6 +494,7 @@ const RecordRevisionDecisionMutationSchema = z.object({
 
 export type WorkspaceMutation =
   | z.infer<typeof CreateDocumentMutationSchema>
+  | z.infer<typeof CreateFromTemplateMutationSchema>
   | { intent: "apply_operation"; operation: DrawingOperationInput }
   | z.infer<typeof CreateLayerMutationSchema>
   | z.infer<typeof LinkIssueMutationSchema>
@@ -411,6 +503,7 @@ export type WorkspaceMutation =
 
 const allowedFormFields = {
   create_document: new Set(["intent", "title", "document_mode"]),
+  create_from_template: new Set(["intent", "source_revision_id", "title", "source_file_id"]),
   apply_operation: new Set(["intent", "operation_json"]),
   create_layer: new Set(["intent", "name"]),
   link_issue: new Set(["intent", "object_id", "issue_id"]),
@@ -456,6 +549,13 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
       intent,
       title: form.get("title"),
     });
+  if (knownIntent === "create_from_template")
+    return CreateFromTemplateMutationSchema.parse({
+      intent,
+      sourceRevisionId: form.get("source_revision_id"),
+      title: form.get("title"),
+      sourceFileId: form.get("source_file_id") || null,
+    });
   if (knownIntent === "apply_operation")
     return ApplyOperationMutationSchema.parse({
       intent,
@@ -486,6 +586,7 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
 
 export type DrawingWorkspace = {
   file: DrawingWorkspaceFile;
+  templateCandidates: DrawingTemplateCandidate[];
   document:
     | (DrawingDocumentRow & {
         revision: DrawingRevisionRow & {
@@ -502,6 +603,236 @@ export type DrawingWorkspace = {
       })
     | null;
 };
+
+type DrawingWorkspaceP2Page = DrawingPage & {
+  canvases: DrawingCanvas[];
+  layers: DrawingLayer[];
+  objects: DrawingObject[];
+  blockInstances: DrawingBlockInstance[];
+};
+
+type DrawingWorkspaceP2 = {
+  pages: DrawingWorkspaceP2Page[];
+  canvases: DrawingCanvas[];
+  layers: DrawingLayer[];
+  objects: DrawingObject[];
+  styles: DrawingStyleDefinition[];
+  blocks: DrawingBlock[];
+  blockInstances: DrawingBlockInstance[];
+  propertySchemas: DrawingPropertySchema[];
+  propertyValues: DrawingPropertyValue[];
+  tables: DrawingTable[];
+};
+
+export type DrawingTemplateCandidate = {
+  revisionId: string;
+  title: string;
+  approvedAt: string;
+  snapshotSha256: string;
+};
+
+const P2PageRowSchema = z.object({
+  id: Uuid,
+  revision_id: Uuid,
+  project_id: Uuid,
+  name: z.string(),
+  page_number: z.number().int().nonnegative(),
+  version: z.number().int().positive(),
+}).strict();
+const P2CanvasRowSchema = z.object({
+  id: Uuid, page_id: Uuid, revision_id: Uuid, project_id: Uuid, name: z.string(),
+  space_kind: z.enum(["paper", "model"]), width_mm: z.number(), height_mm: z.number(),
+  background_source_file_id: Uuid.nullable(), background_source_sha256: z.string().nullable(),
+  background_pdf_page: z.number().int().nullable(), calibration: z.unknown().nullable(),
+  sort_order: z.number().int().nonnegative(), version: z.number().int().positive(),
+}).strict();
+const P2LayerRowSchema = z.object({
+  id: Uuid, page_id: Uuid, canvas_id: Uuid, revision_id: Uuid, project_id: Uuid,
+  name: z.string(), sort_order: z.number().int().nonnegative(), visible: z.boolean(),
+  locked: z.boolean(), system_kind: z.enum(["source", "work", "custom"]),
+  version: z.number().int().positive(),
+}).strict();
+const P2ObjectRowSchema = z.object({
+  id: Uuid, name: z.string(), layer_id: Uuid, revision_id: Uuid, project_id: Uuid,
+  geometry: z.unknown(), style_id: Uuid.nullable(), style: z.unknown(),
+  version: z.number().int().positive(),
+}).strict();
+const P2StyleRowSchema = z.object({
+  id: Uuid, revision_id: Uuid, project_id: Uuid, name: z.string(), value: z.unknown(),
+  version: z.number().int().positive(),
+}).strict();
+const P2BlockRowSchema = z.object({
+  id: Uuid, revision_id: Uuid, project_id: Uuid, name: z.string(), primitives: z.unknown(),
+  version: z.number().int().positive(),
+}).strict();
+const P2BlockInstanceRowSchema = z.object({
+  id: Uuid, block_id: Uuid, layer_id: Uuid, revision_id: Uuid, project_id: Uuid,
+  name: z.string(), origin: z.unknown(), rotation: z.number(), scale_x: z.number(),
+  scale_y: z.number(), version: z.number().int().positive(),
+}).strict();
+const P2PropertySchemaRowSchema = z.object({
+  id: Uuid, revision_id: Uuid, project_id: Uuid, name: z.string(), value_type: z.unknown(),
+  enum_options: z.unknown(), applies_to: z.unknown(), required: z.boolean(),
+  version: z.number().int().positive(),
+}).strict();
+const P2PropertyValueRowSchema = z.object({
+  id: Uuid, schema_id: Uuid, object_id: Uuid.nullable(), block_instance_id: Uuid.nullable(),
+  revision_id: Uuid, project_id: Uuid, value: z.unknown(), version: z.number().int().positive(),
+}).strict();
+const P2TableRowSchema = z.object({
+  id: Uuid, revision_id: Uuid, project_id: Uuid, name: z.string(), columns_json: z.unknown(),
+  rows_json: z.unknown(), version: z.number().int().positive(),
+}).strict();
+
+function p2RowError(entity: string): never {
+  throw new Error(`Drawing ${entity} metadata is invalid.`);
+}
+
+function requireP2Ancestry(
+  condition: unknown,
+  message = "Drawing P2 ancestry is invalid.",
+): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function parseP2Workspace(
+  projectId: string,
+  revisionId: string,
+  file: DrawingWorkspaceFile,
+  rows: {
+    pages: unknown[]; canvases: unknown[]; layers: unknown[]; objects: unknown[];
+    styles: unknown[]; blocks: unknown[]; blockInstances: unknown[];
+    propertySchemas: unknown[]; propertyValues: unknown[]; tables: unknown[];
+  },
+): DrawingWorkspaceP2 {
+  const pages = rows.pages.map((row) => {
+    const value = P2PageRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("page");
+    return DrawingPageSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, sortOrder: value.data.page_number, version: value.data.version });
+  });
+  const canvases = rows.canvases.map((row) => {
+    const value = P2CanvasRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("canvas");
+    const background = value.data.background_source_file_id === null ? null : {
+      sourceFileId: value.data.background_source_file_id,
+      sourceSha256: value.data.background_source_sha256,
+      pdfPageNumber: value.data.background_pdf_page,
+      calibration: value.data.calibration,
+    };
+    return DrawingCanvasSchema.parse({ id: value.data.id, pageId: value.data.page_id, name: value.data.name, spaceKind: value.data.space_kind, widthMillimeters: value.data.width_mm, heightMillimeters: value.data.height_mm, background, sortOrder: value.data.sort_order, version: value.data.version });
+  });
+  const layers = rows.layers.map((row) => {
+    const value = P2LayerRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("layer");
+    return DrawingStructureLayerSchema.parse({ id: value.data.id, name: value.data.name, visible: value.data.visible, locked: value.data.locked, systemKind: value.data.system_kind, canvasId: value.data.canvas_id, sortOrder: value.data.sort_order, version: value.data.version });
+  });
+  const objects = rows.objects.map((row) => {
+    const value = P2ObjectRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("object");
+    return DrawingObjectSchema.parse({ id: value.data.id, name: value.data.name, layerId: value.data.layer_id, geometry: value.data.geometry, styleId: value.data.style_id, style: value.data.style, version: value.data.version });
+  });
+  const styles = rows.styles.map((row) => {
+    const value = P2StyleRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("style");
+    return DrawingStyleDefinitionSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, value: value.data.value, version: value.data.version });
+  });
+  const blocks = rows.blocks.map((row) => {
+    const value = P2BlockRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("block");
+    return DrawingBlockSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, primitives: value.data.primitives, version: value.data.version });
+  });
+  const blockInstances = rows.blockInstances.map((row) => {
+    const value = P2BlockInstanceRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("block instance");
+    return DrawingBlockInstanceSchema.parse({ id: value.data.id, blockId: value.data.block_id, layerId: value.data.layer_id, name: value.data.name, origin: value.data.origin, rotation: value.data.rotation, scaleX: value.data.scale_x, scaleY: value.data.scale_y, version: value.data.version });
+  });
+  const propertySchemas = rows.propertySchemas.map((row) => {
+    const value = P2PropertySchemaRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("property schema");
+    return DrawingPropertySchemaSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, valueType: value.data.value_type, enumOptions: value.data.enum_options, appliesTo: value.data.applies_to, required: value.data.required, version: value.data.version });
+  });
+  const propertyValues = rows.propertyValues.map((row) => {
+    const value = P2PropertyValueRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("property value");
+    return DrawingPropertyValueSchema.parse({ id: value.data.id, schemaId: value.data.schema_id, objectId: value.data.object_id, blockInstanceId: value.data.block_instance_id, value: value.data.value, version: value.data.version });
+  });
+  const tables = rows.tables.map((row) => {
+    const value = P2TableRowSchema.safeParse(row);
+    if (!value.success) return p2RowError("table");
+    return DrawingTableSchema.parse({ id: value.data.id, revisionId: value.data.revision_id, name: value.data.name, columns: value.data.columns_json, rows: value.data.rows_json, version: value.data.version });
+  });
+  const scopedRows = [
+    ...rows.pages.map((row) => P2PageRowSchema.parse(row)),
+    ...rows.canvases.map((row) => P2CanvasRowSchema.parse(row)),
+    ...rows.layers.map((row) => P2LayerRowSchema.parse(row)),
+    ...rows.objects.map((row) => P2ObjectRowSchema.parse(row)),
+    ...rows.styles.map((row) => P2StyleRowSchema.parse(row)),
+    ...rows.blocks.map((row) => P2BlockRowSchema.parse(row)),
+    ...rows.blockInstances.map((row) => P2BlockInstanceRowSchema.parse(row)),
+    ...rows.propertySchemas.map((row) => P2PropertySchemaRowSchema.parse(row)),
+    ...rows.propertyValues.map((row) => P2PropertyValueRowSchema.parse(row)),
+    ...rows.tables.map((row) => P2TableRowSchema.parse(row)),
+  ];
+  requireP2Ancestry(scopedRows.every((row) => row.project_id === projectId && row.revision_id === revisionId));
+  const byId = <T extends { id: string }>(values: T[]) => new Set(values.map((value) => value.id));
+  const pageIds = byId(pages), canvasIds = byId(canvases), layerIds = byId(layers), blockIds = byId(blocks), objectIds = byId(objects), instanceIds = byId(blockInstances), propertySchemaIds = byId(propertySchemas);
+  requireP2Ancestry(pages.every((page) => page.revisionId === revisionId));
+  requireP2Ancestry(canvases.every((canvas) => pageIds.has(canvas.pageId)));
+  requireP2Ancestry(canvases.every((canvas) => canvas.background === null || (canvas.background.sourceFileId === file.id && canvas.background.sourceSha256 === file.sha256)), "Drawing canvas source evidence is invalid.");
+  requireP2Ancestry(layers.every((layer) => canvasIds.has(layer.canvasId)));
+  requireP2Ancestry(objects.every((object) => layerIds.has(object.layerId)));
+  requireP2Ancestry(blocks.every((block) => block.revisionId === revisionId) && styles.every((style) => style.revisionId === revisionId) && propertySchemas.every((schema) => schema.revisionId === revisionId) && tables.every((table) => table.revisionId === revisionId));
+  requireP2Ancestry(blockInstances.every((instance) => blockIds.has(instance.blockId) && layerIds.has(instance.layerId)));
+  requireP2Ancestry(propertyValues.every((value) => propertySchemaIds.has(value.schemaId) && (value.objectId === null || objectIds.has(value.objectId)) && (value.blockInstanceId === null || instanceIds.has(value.blockInstanceId))));
+  requireP2Ancestry(tables.every((table) => table.columns.every((column) => column.propertySchemaId === null || propertySchemaIds.has(column.propertySchemaId)) && table.rows.every((row) => (row.objectId === null || objectIds.has(row.objectId)) && (row.blockInstanceId === null || instanceIds.has(row.blockInstanceId)))));
+  for (const page of pages) {
+    const pageCanvases = canvases.filter((canvas) => canvas.pageId === page.id);
+    requireP2Ancestry(pageCanvases.length > 0 && pageCanvases.filter((canvas) => canvas.spaceKind === "paper" && canvas.sortOrder === 0).length === 1, "Drawing page default canvas is missing.");
+    requireP2Ancestry(pageCanvases.every((canvas) => layers.some((layer) => layer.canvasId === canvas.id && layer.systemKind !== "source" && layer.visible && !layer.locked)), "Drawing canvas editable layer is missing.");
+  }
+  const sorted = <T extends { id: string }>(values: T[], order: (value: T) => number) => [...values].sort((left, right) => order(left) - order(right) || left.id.localeCompare(right.id));
+  return {
+    pages: sorted(pages, (page) => page.sortOrder).map((page) => ({ ...page, canvases: sorted(canvases.filter((canvas) => canvas.pageId === page.id), (canvas) => canvas.sortOrder), layers: sorted(layers.filter((layer) => canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId)), (layer) => layer.sortOrder), objects: sorted(objects.filter((object) => layers.some((layer) => layer.id === object.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0), blockInstances: sorted(blockInstances.filter((instance) => layers.some((layer) => layer.id === instance.layerId && canvases.some((canvas) => canvas.pageId === page.id && canvas.id === layer.canvasId))), () => 0) })),
+    canvases: sorted(canvases, (canvas) => canvas.sortOrder), layers: sorted(layers, (layer) => layer.sortOrder), objects: sorted(objects, () => 0), styles: sorted(styles, () => 0), blocks: sorted(blocks, () => 0), blockInstances: sorted(blockInstances, () => 0), propertySchemas: sorted(propertySchemas, () => 0), propertyValues: sorted(propertyValues, () => 0), tables: sorted(tables, () => 0),
+  };
+}
+
+const TemplateRevisionRowSchema = z.object({
+  id: Uuid, document_id: Uuid, project_id: Uuid, status: z.literal("approved"),
+  version: z.number().int().positive(), approved_at: z.string().datetime(),
+}).strict();
+const TemplateDocumentRowSchema = z.object({ id: Uuid, project_id: Uuid, title: z.string() }).strict();
+const TemplateSnapshotRowSchema = z.object({ id: Uuid, revision_id: Uuid, project_id: Uuid, revision_version: z.number().int().positive(), sha256: Sha256 }).strict();
+
+export async function loadDrawingTemplateCandidates(
+  client: DrawingWorkspaceClient,
+  projectId: string,
+): Promise<DrawingTemplateCandidate[]> {
+  const [revisionRows, documentRows, snapshotRows] = await Promise.all([
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_revisions", projectId, order: ["approved_at", "id"], filters: [["status", "approved"]], select: "id,document_id,project_id,status,version,approved_at" }),
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_documents", projectId, order: ["id"], select: "id,project_id,title" }),
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_snapshots", projectId, order: ["revision_id", "id"], select: "id,revision_id,project_id,revision_version,sha256" }),
+  ]);
+  const documents = new Map(documentRows.map((row) => {
+    const parsed = TemplateDocumentRowSchema.safeParse(row);
+    if (!parsed.success) return p2RowError("template document");
+    return [parsed.data.id, parsed.data] as const;
+  }));
+  const snapshots = new Map(snapshotRows.map((row) => {
+    const parsed = TemplateSnapshotRowSchema.safeParse(row);
+    if (!parsed.success) return p2RowError("template snapshot");
+    return [`${parsed.data.revision_id}:${parsed.data.revision_version}`, parsed.data] as const;
+  }));
+  return revisionRows.map((row) => {
+    const revision = TemplateRevisionRowSchema.safeParse(row);
+    if (!revision.success) return p2RowError("template revision");
+    const document = documents.get(revision.data.document_id);
+    const snapshot = snapshots.get(`${revision.data.id}:${revision.data.version}`);
+    if (!document || !snapshot || document.project_id !== projectId || snapshot.project_id !== projectId)
+      return p2RowError("template candidate ancestry");
+    return { revisionId: revision.data.id, title: Title.parse(document.title), approvedAt: revision.data.approved_at, snapshotSha256: snapshot.sha256 };
+  }).sort((left, right) => left.approvedAt.localeCompare(right.approvedAt) || left.revisionId.localeCompare(right.revisionId));
+}
 
 export async function loadDrawingWorkspace(
   client: DrawingWorkspaceClient,
@@ -534,7 +865,7 @@ export async function loadDrawingWorkspace(
     throw new Error(
       `도면 문서를 불러오지 못했습니다: ${documentError.message}`,
     );
-  if (!document) return { file: file as DrawingWorkspaceFile, document: null };
+  if (!document) return { file: file as DrawingWorkspaceFile, templateCandidates: [], document: null };
 
   const { data: revision, error: revisionError } = await client
     .from("lukas_drawing_revisions")
@@ -548,7 +879,7 @@ export async function loadDrawingWorkspace(
     throw new Error(
       `도면 리비전을 불러오지 못했습니다: ${revisionError.message}`,
     );
-  if (!revision) return { file: file as DrawingWorkspaceFile, document: null };
+  if (!revision) return { file: file as DrawingWorkspaceFile, templateCandidates: [], document: null };
 
   const [pagesResult, layersResult, objects, issuesResult, linksResult] =
     await Promise.all([
@@ -595,6 +926,48 @@ export async function loadDrawingWorkspace(
     (link) =>
       activeObjectIds.has(link.object_id) && issueIds.has(link.issue_id),
   );
+  const [p2Pages, p2Canvases, p2Layers, p2Objects, p2Styles, p2Blocks, p2BlockInstances, p2PropertySchemas, p2PropertyValues, p2Tables] = await Promise.all([
+    loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["page_number", "id"], select: "id,revision_id,project_id,name,page_number,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,primitives,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: ["id"], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_property_schemas", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value_type,enum_options,applies_to,required,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: ["id"], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
+    loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
+  ]);
+  if (p2Canvases.length > 0) {
+    if (
+      document.project_id !== projectId ||
+      document.source_file_id !== file.id ||
+      document.source_sha256 !== file.sha256 ||
+      revision.project_id !== projectId ||
+      revision.document_id !== document.id
+    )
+      throw new Error("Drawing document source ancestry is invalid.");
+    const templateCandidates = await loadDrawingTemplateCandidates(client, projectId);
+    const p2 = parseP2Workspace(projectId, revision.id, file as DrawingWorkspaceFile, {
+      pages: p2Pages, canvases: p2Canvases, layers: p2Layers, objects: p2Objects,
+      styles: p2Styles, blocks: p2Blocks, blockInstances: p2BlockInstances,
+      propertySchemas: p2PropertySchemas, propertyValues: p2PropertyValues, tables: p2Tables,
+    });
+    return {
+      file: file as DrawingWorkspaceFile,
+      templateCandidates,
+      document: {
+        ...document,
+        revision: {
+          ...revision,
+          ...p2,
+          issues,
+          issueLinks,
+          reviewEvidence: null,
+        },
+      },
+    } as unknown as DrawingWorkspace;
+  }
   const sourceLayers = layers.filter((layer) => layer.system_kind === "source");
   if (
     layers.some(
@@ -673,6 +1046,7 @@ export async function loadDrawingWorkspace(
   }
   return {
     file: file as DrawingWorkspaceFile,
+    templateCandidates: await loadDrawingTemplateCandidates(client, projectId),
     document: {
       ...document,
       revision: {
@@ -696,11 +1070,17 @@ export async function loadDrawingWorkspaceSourceUrl(
   const backgroundPage = workspace.document.revision.pages.find(
     (page) => page.background_pdf_page !== null,
   );
-  if (workspace.file.kind === "pdf" && !backgroundPage) return null;
+  const p2Background = (workspace.document.revision.pages as unknown as Array<{
+    canvases?: DrawingCanvas[];
+  }>).flatMap((page) => page.canvases ?? []).find((canvas) => canvas.background?.pdfPageNumber !== null)?.background ?? null;
+  if (workspace.file.kind === "pdf" && !backgroundPage && !p2Background) return null;
   if (
-    backgroundPage &&
-    (backgroundPage.background_source_file_id !== workspace.file.id ||
-      backgroundPage.background_source_sha256 !== workspace.file.sha256)
+    (backgroundPage &&
+      (backgroundPage.background_source_file_id !== workspace.file.id ||
+        backgroundPage.background_source_sha256 !== workspace.file.sha256)) ||
+    (p2Background &&
+      (p2Background.sourceFileId !== workspace.file.id ||
+        p2Background.sourceSha256 !== workspace.file.sha256))
   ) {
     throw new Response("도면 배경 원본 증거가 일치하지 않습니다.", {
       status: 409,
@@ -771,8 +1151,18 @@ export class DrawingWorkspaceRejectedError extends Error {
   }
 }
 
+export class DrawingWorkspaceRetryableError extends Error {
+  readonly kind = "retryable" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DrawingWorkspaceRetryableError";
+  }
+}
+
 const drawingConflictCodes = new Set(["23505", "23P01", "P1C01"]);
 const drawingRejectedCodes = new Set(["P1R01"]);
+const drawingRetryableCodes = new Set(["40001", "40P01"]);
 
 function rpcResult<T>(
   data: T | null,
@@ -783,6 +1173,8 @@ function rpcResult<T>(
       throw new DrawingWorkspaceConflictError(error.message);
     if (error.code && drawingRejectedCodes.has(error.code))
       throw new DrawingWorkspaceRejectedError(error.message);
+    if (error.code && drawingRetryableCodes.has(error.code))
+      throw new DrawingWorkspaceRetryableError(error.message);
     throw new DrawingWorkspaceRpcError(error.message);
   }
   if (data === null)
@@ -809,6 +1201,32 @@ export async function createDrawingDocument(
     p_blank: file.kind !== "pdf" || parsed.mode === "blank",
   });
   return rpcResult(data, error);
+}
+
+const CreateFromTemplateResultSchema = z.object({
+  documentId: Uuid,
+  revisionId: Uuid,
+  sourceRevisionId: Uuid,
+}).strict();
+
+export async function createDrawingDocumentFromTemplate(
+  client: DrawingWorkspaceClient,
+  sourceRevisionId: string,
+  title: string,
+  sourceFileId: string | null = null,
+) {
+  const parsed = CreateFromTemplateMutationSchema.parse({
+    intent: "create_from_template",
+    sourceRevisionId,
+    title,
+    sourceFileId,
+  });
+  const { data, error } = await client.rpc("lukas_drawing_create_from_template", {
+    p_source_revision_id: parsed.sourceRevisionId,
+    p_title: parsed.title,
+    p_source_file_id: parsed.sourceFileId,
+  });
+  return CreateFromTemplateResultSchema.parse(rpcResult(data, error));
 }
 
 export async function applyDrawingOperation(
@@ -889,7 +1307,7 @@ export type DrawingWorkspaceActionBody =
     }
   | {
       ok: false;
-      kind: "validation" | "rpc" | "conflict" | "rejected";
+      kind: "validation" | "rpc" | "conflict" | "rejected" | "retryable";
       error: string;
     };
 
@@ -919,6 +1337,13 @@ function assertCurrentWorkspaceRevision(
     throw new DrawingWorkspaceConflictError(
       "현재 파일의 도면 리비전과 요청이 일치하지 않습니다.",
     );
+}
+
+function assertDraftWorkspace(workspace: DrawingWorkspace) {
+  const revision = workspace.document?.revision;
+  if (!revision || (revision.status !== undefined && revision.status !== "draft"))
+    throw new DrawingWorkspaceConflictError("초안 리비전에서만 도면을 변경할 수 있습니다.");
+  return revision;
 }
 
 const WorkspaceDocumentModeSchema = z.enum(["blank", "pdf_background"]);
@@ -974,7 +1399,20 @@ export async function handleWorkspaceMutation({
             mode,
           },
         );
+      } else if (mutation.intent === "create_from_template") {
+        assertDraftWorkspace(workspace);
+        if (!workspace.templateCandidates.some((candidate) => candidate.revisionId === mutation.sourceRevisionId))
+          throw new DrawingWorkspaceRejectedError("도면 template 대상은 사용할 수 없습니다.");
+        if (mutation.sourceFileId !== null && mutation.sourceFileId !== workspace.file.id)
+          throw new DrawingWorkspaceRejectedError("도면 template 원본은 사용할 수 없습니다.");
+        result = await createDrawingDocumentFromTemplate(
+          client,
+          mutation.sourceRevisionId,
+          mutation.title,
+          mutation.sourceFileId,
+        );
       } else if (mutation.intent === "apply_operation") {
+        assertDraftWorkspace(workspace);
         assertCurrentWorkspaceRevision(
           workspace,
           mutation.operation.revisionId,
@@ -982,6 +1420,7 @@ export async function handleWorkspaceMutation({
         result = await applyDrawingOperation(client, mutation.operation);
         clientOperationId = mutation.operation.clientOperationId;
       } else if (mutation.intent === "create_layer") {
+        assertDraftWorkspace(workspace);
         const revisionId = currentWorkspaceRevisionId(workspace);
         const operation = DrawingOperationInputSchema.parse({
           clientOperationId: environment.createId(),
@@ -1043,11 +1482,13 @@ export async function handleWorkspaceMutation({
         ? "conflict"
         : error instanceof DrawingWorkspaceRejectedError
           ? "rejected"
+          : error instanceof DrawingWorkspaceRetryableError
+            ? "retryable"
           : error instanceof DrawingWorkspaceRpcError
             ? "rpc"
             : "validation";
     return {
-      status: kind === "conflict" || kind === "rejected" ? 409 : 400,
+      status: kind === "conflict" || kind === "rejected" ? 409 : kind === "retryable" ? 503 : 400,
       body: {
         ok: false,
         kind,
