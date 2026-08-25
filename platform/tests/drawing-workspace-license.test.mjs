@@ -12,6 +12,7 @@ const viewerUrl = new URL(
   "../app/lukas/components/pdf-drawing-viewer.client.tsx",
   import.meta.url,
 );
+const lockUrl = new URL("../package-lock.json", import.meta.url);
 
 test("drawing editor dependencies are permissive and noticed", async () => {
   const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
@@ -25,6 +26,35 @@ test("drawing editor dependencies are permissive and noticed", async () => {
     notice,
     /\|\s*@electric-sql\/pglite\s*\|\s*0\.5\.3\s*\|.*\|\s*Apache-2\.0\s*\|/,
   );
+});
+
+test("drawing export uses the exact unmodified MIT pdf-lib dependency", async () => {
+  const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+
+  assert.equal(pkg.dependencies["pdf-lib"], "1.17.1");
+  assert.equal(lock.packages["node_modules/pdf-lib"].version, "1.17.1");
+  assert.equal(lock.packages["node_modules/pdf-lib"].license, "MIT");
+  assert.match(
+    notice,
+    /\|\s*pdf-lib\s*\|\s*1\.17\.1\s*\|\s*https:\/\/github\.com\/Hopding\/pdf-lib\s*\|\s*MIT\s*\|\s*No\s*\|\s*npm\s*\|/,
+  );
+  assert.equal(pkg.dependencies["svg2pdf.js"], undefined);
+  assert.equal(pkg.dependencies["canvg"], undefined);
+  assert.equal(pkg.dependencies["jspdf"], undefined);
+  for (const dependencyPath of [
+    "node_modules/pdf-lib",
+    "node_modules/@pdf-lib/standard-fonts",
+    "node_modules/@pdf-lib/upng",
+    "node_modules/pdf-lib/node_modules/pako",
+    "node_modules/pdf-lib/node_modules/tslib",
+  ]) {
+    assert.doesNotMatch(
+      lock.packages[dependencyPath].license,
+      /GPL|MPL|source[- ]available/i,
+    );
+  }
 });
 
 test("viewer delegates PDF.js primitives to the shared renderer", async () => {

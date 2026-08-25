@@ -23,8 +23,11 @@ const previewModule = await vite.ssrLoadModule(
 );
 test.after(() => vite.close());
 
-function renderWorkspace() {
-  const fixture = previewModule.localDrawingWorkspacePreviewFixture();
+function renderWorkspace(overrides = {}) {
+  const fixture = {
+    ...previewModule.localDrawingWorkspacePreviewFixture(),
+    ...overrides,
+  };
   return renderToStaticMarkup(
     createElement(RouterProvider, {
       router: createMemoryRouter(
@@ -96,4 +99,13 @@ test("local preview uses project-owned drawing copy", () => {
   assert.doesNotMatch(fixture.workspace.document.title, /Rayon/);
   assert.doesNotMatch(fixture.workspace.file.original_filename, /Rayon/);
   assert.doesNotMatch(renderWorkspace(), /Rayon \/ /);
+});
+
+test("workspace offers the native export dialog to editors and viewers", () => {
+  const editor = renderWorkspace();
+  const viewer = renderWorkspace({ capability: "viewer" });
+
+  assert.match(editor, /<button[^>]*>[^<]*내보내기/);
+  assert.match(viewer, /<button[^>]*>[^<]*내보내기/);
+  assert.doesNotMatch(viewer, /name="intent"[^>]*value="export"/);
 });

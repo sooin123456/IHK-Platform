@@ -104,6 +104,7 @@ import {
   DrawingCommandMenu,
   type DrawingCommandId,
 } from "./drawing-command-menu";
+import { DrawingExportDialog } from "./drawing-export-dialog";
 import { DrawingInspector } from "./drawing-inspector";
 import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
@@ -1394,6 +1395,12 @@ export default function DrawingWorkspaceClient({
             <Cloud className="size-4" />
             {saveStatus}
           </span>
+          <DrawingExportDialog
+            createdAt={drawingDocument.created_at}
+            documentState={drawingState}
+            sourceUrl={sourceUrl}
+            title={drawingDocument.title}
+          />
           {editing.canEdit ? (
             <>
               <Button
