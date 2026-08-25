@@ -281,6 +281,189 @@ test("block transforms and bounds enclose every geometry at 30 degrees with sign
   );
 });
 
+test("multiline text bounds use the renderer line-height contract after rotation and nonuniform scale", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Multiline",
+    version: 1,
+    primitives: [
+      {
+        localId: "text",
+        name: "Text",
+        geometry: {
+          type: "text",
+          origin: { x: -4, y: -2 },
+          width: 12,
+          text: "Panel\nA",
+        },
+        styleId: null,
+        style: { ...inlineStyle, fontSize: 6 },
+      },
+    ],
+  };
+  const bounds = blockInstanceBounds(
+    block,
+    {
+      id: ids.instance,
+      blockId: ids.block,
+      layerId: ids.layer,
+      name: "Placed",
+      origin: { x: 100, y: 50 },
+      rotation: 30,
+      scaleX: -2,
+      scaleY: 3,
+      version: 1,
+    },
+    {},
+  );
+  assert.ok(Math.abs(bounds.x - 67.54359353944897) < 1e-9);
+  assert.ok(Math.abs(bounds.y - 36.80384757729337) < 1e-9);
+  assert.ok(Math.abs(bounds.width - 42.38460969082652) < 1e-9);
+  assert.ok(Math.abs(bounds.height - 49.41229744348774) < 1e-9);
+});
+
+test("dimension bounds include the deterministic rendered label rectangle", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Dimension label",
+    version: 1,
+    primitives: [
+      {
+        localId: "dimension",
+        name: "Dimension",
+        geometry: {
+          type: "dimension",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+          offset: 4,
+          calibrationId: null,
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+  };
+  assert.deepEqual(
+    blockInstanceBounds(
+      block,
+      {
+        id: ids.instance,
+        blockId: ids.block,
+        layerId: ids.layer,
+        name: "Placed",
+        origin: { x: 0, y: 0 },
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        version: 1,
+      },
+      {},
+    ),
+    { x: 0, y: 0, width: 26.599999999999998, height: 18.4 },
+  );
+});
+
+test("calibrated dimension bounds reserve deterministic space for every finite numeric label", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Calibrated dimension label",
+    version: 1,
+    primitives: [
+      {
+        localId: "dimension",
+        name: "Dimension",
+        geometry: {
+          type: "dimension",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+          offset: 4,
+          calibrationId: ids.style,
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+  };
+  const bounds = blockInstanceBounds(
+    block,
+    {
+      id: ids.instance,
+      blockId: ids.block,
+      layerId: ids.layer,
+      name: "Placed",
+      origin: { x: 0, y: 0 },
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+      version: 1,
+    },
+    {},
+  );
+  assert.ok(bounds.width >= 177.79);
+  assert.equal(bounds.height, 18.4);
+});
+
+test("production render adapter orders committed and hit items together and dispatches the visual topmost overlap", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  assert.equal(typeof blocks.drawingCanvasRenderAdapter, "function");
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Overlap",
+    version: 1,
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 10 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+  };
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.otherLayer,
+    name: "Top block",
+    origin: { x: 10, y: 20 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const model = blockInstanceRenderModel(block, instance, {});
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    layers: structure().layers,
+    objects: [
+      {
+        ...object(ids.objectA),
+        style: { ...inlineStyle },
+      },
+    ],
+    blockInstances: [
+      { ...model, bounds: blockInstanceBounds(block, instance, {}) },
+    ],
+    zoom: 1,
+  });
+  assert.deepEqual(
+    adapter.items.map((item) => item.id),
+    [ids.objectA, ids.instance],
+  );
+  assert.deepEqual(
+    adapter.hitItems.map((item) => item.id),
+    [ids.objectA, ids.instance],
+  );
+  assert.equal(adapter.topmostAt({ x: 15, y: 25 })?.id, ids.instance);
+});
+
 test("render models resolve live style definitions with primitive overrides and fail closed", () => {
   const block = {
     id: ids.block,
@@ -389,6 +572,68 @@ test("create from selection is one exact atomic structure command with undo and 
   assert.equal(
     redone.state.structure.blockInstances[ids.instance].name,
     "Panel",
+  );
+});
+
+test("block conversion validator rejects a rotated or scaled creation instance", () => {
+  const current = state({
+    objects: {
+      [ids.objectA]: {
+        ...object(ids.objectA),
+        geometry: {
+          type: "rectangle",
+          origin: { x: 10, y: 20 },
+          width: 20,
+          height: 10,
+          rotation: 30,
+        },
+      },
+    },
+  });
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Invalid conversion",
+    primitives: [
+      {
+        localId: "local-a",
+        name: "Outline",
+        geometry: {
+          type: "rectangle",
+          origin: { x: 0, y: 0 },
+          width: 10,
+          height: 20,
+          rotation: 0,
+        },
+        styleId: ids.style,
+        style: { fill: "#abcdef" },
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Invalid conversion",
+    origin: { x: 10, y: 20 },
+    rotation: 30,
+    scaleX: 2,
+    scaleY: 0.5,
+    version: 1,
+  };
+  assert.throws(
+    () =>
+      applyDrawingCommand(current, {
+        type: "mutate_structure",
+        actorId: ids.actor,
+        actions: [
+          { kind: "put_block", entity: block, baseVersion: null },
+          { kind: "put_block_instance", entity: instance, baseVersion: null },
+          { kind: "delete_object", id: ids.objectA, baseVersion: 1 },
+        ],
+      }),
+    /translation-only|rotation.*zero|scale.*one/i,
   );
 });
 
@@ -581,7 +826,206 @@ test("definition and instance commands preserve identity, transforms, guards, co
   );
 });
 
-test("one thousand cached instance models render and hit-test within a reported budget", () => {
+test("shift selection replaces the current selection when candidate kind changes", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  assert.equal(typeof blocks.drawingKindExclusiveSelection, "function");
+  assert.deepEqual(
+    blocks.drawingKindExclusiveSelection(
+      [ids.objectA, ids.objectB],
+      ids.instance,
+      true,
+      new Set([ids.objectA, ids.objectB]),
+      new Set([ids.instance]),
+    ),
+    [ids.instance],
+  );
+  assert.deepEqual(
+    blocks.drawingKindExclusiveSelection(
+      [ids.instance],
+      ids.objectA,
+      true,
+      new Set([ids.objectA, ids.objectB]),
+      new Set([ids.instance]),
+    ),
+    [ids.objectA],
+  );
+});
+
+test("mixed instance-object shortcuts fail before producing any partial command", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  assert.equal(typeof blocks.drawingSelectionEntityKind, "function");
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Mixed guard",
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Placed",
+    origin: { x: 10, y: 20 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const current = state({
+    blocks: { [ids.block]: block },
+    blockInstances: { [ids.instance]: instance },
+  });
+  const before = structuredClone(current);
+  assert.equal(
+    blocks.drawingSelectionEntityKind(current, [ids.objectA, ids.instance]),
+    "mixed",
+  );
+  for (const operation of [
+    () =>
+      blocks.deleteDrawingBlockInstancesCommand(current, ids.actor, [
+        ids.objectA,
+        ids.instance,
+      ]),
+    () =>
+      blocks.moveDrawingBlockInstancesCommand(
+        current,
+        ids.actor,
+        [ids.objectA, ids.instance],
+        { x: 1, y: 0 },
+      ),
+    () =>
+      blocks.duplicateDrawingBlockInstancesCommand(current, ids.actor, [
+        ids.objectA,
+        ids.instance,
+      ]),
+  ]) {
+    assert.throws(operation, /one selection kind|block instances/i);
+  }
+  assert.deepEqual(current, before);
+});
+
+test("instance clipboard is a deep snapshot and pastes on the current active canvas layer", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  assert.equal(typeof blocks.copyDrawingBlockInstancesClipboard, "function");
+  const secondCanvas = "00000000-0000-4000-8000-000000000716";
+  const secondLayer = "00000000-0000-4000-8000-000000000717";
+  const pastedId = "00000000-0000-4000-8000-000000000718";
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Clipboard",
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Snapshot name",
+    origin: { x: 10, y: 20 },
+    rotation: 30,
+    scaleX: -2,
+    scaleY: 0.5,
+    version: 4,
+  };
+  const current = state({
+    canvases: {
+      ...structure().canvases,
+      [secondCanvas]: {
+        id: secondCanvas,
+        pageId: ids.page,
+        name: "Model",
+        spaceKind: "model",
+        widthMillimeters: 500,
+        heightMillimeters: 500,
+        background: null,
+        sortOrder: 1,
+        version: 1,
+      },
+    },
+    layers: {
+      ...structure().layers,
+      [secondLayer]: {
+        id: secondLayer,
+        name: "Other canvas",
+        visible: true,
+        locked: false,
+        systemKind: "custom",
+        canvasId: secondCanvas,
+        sortOrder: 0,
+        version: 1,
+      },
+    },
+    objects: {},
+    blocks: { [ids.block]: block },
+    blockInstances: { [ids.instance]: instance },
+  });
+  const clipboard = blocks.copyDrawingBlockInstancesClipboard(current, [
+    ids.instance,
+  ]);
+  current.structure.blockInstances[ids.instance].name = "Edited source";
+  current.structure.blockInstances[ids.instance].origin.x = 999;
+  const command = blocks.pasteDrawingBlockInstancesClipboardCommand(
+    current,
+    ids.actor,
+    clipboard,
+    {
+      activeCanvasId: secondCanvas,
+      activeLayerId: secondLayer,
+      createId: () => pastedId,
+      offset: { x: 10, y: 10 },
+    },
+  );
+  assert.deepEqual(command.actions[0].entity, {
+    ...instance,
+    id: pastedId,
+    layerId: secondLayer,
+    origin: { x: 20, y: 30 },
+    version: 1,
+  });
+  assert.throws(
+    () =>
+      blocks.pasteDrawingBlockInstancesClipboardCommand(
+        state({ objects: {}, blocks: {}, blockInstances: {} }),
+        ids.actor,
+        clipboard,
+        {
+          activeCanvasId: ids.canvas,
+          activeLayerId: ids.layer,
+        },
+      ),
+    /definition.*no longer exists/i,
+  );
+});
+
+test("production cache and unified adapter handle one thousand instances without selection recompute and invalidate definitions and styles", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  assert.equal(typeof blocks.createDrawingBlockRenderCache, "function");
   const block = {
     id: ids.block,
     revisionId: ids.revision,
@@ -595,36 +1039,92 @@ test("one thousand cached instance models render and hit-test within a reported 
           start: { x: 0, y: 0 },
           end: { x: 10, y: 10 },
         },
-        styleId: null,
-        style: inlineStyle,
+        styleId: ids.style,
+        style: {},
       },
     ],
     version: 1,
   };
+  const instances = Object.fromEntries(
+    Array.from({ length: 1_000 }, (_, index) => {
+      const id = `10000000-0000-4000-8${String(index).padStart(3, "0")}-000000000001`;
+      return [
+        id,
+        {
+          id,
+          blockId: ids.block,
+          layerId: ids.layer,
+          name: `I${index}`,
+          origin: { x: index, y: index % 20 },
+          rotation: 30,
+          scaleX: 2,
+          scaleY: 0.5,
+          version: 1,
+        },
+      ];
+    }),
+  );
+  const blocksMap = { [ids.block]: block };
+  const styles = structure().styles;
+  const layers = structure().layers;
+  const cache = blocks.createDrawingBlockRenderCache();
   const started = performance.now();
-  let checksum = 0;
-  for (let index = 0; index < 1_000; index += 1) {
-    const instance = {
-      id: crypto.randomUUID(),
-      blockId: ids.block,
-      layerId: ids.layer,
-      name: `I${index}`,
-      origin: { x: index, y: index % 20 },
-      rotation: 30,
-      scaleX: 2,
-      scaleY: 0.5,
-      version: 1,
-    };
-    const model = blockInstanceRenderModel(block, instance, {});
-    const bounds = blockInstanceBounds(block, instance, {});
-    checksum += model.primitives.length + bounds.width;
-  }
+  const first = cache.select({
+    activeCanvasId: ids.canvas,
+    blocks: blocksMap,
+    instances,
+    layers,
+    styles,
+  });
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    blockInstances: first.instances,
+    layers,
+    objects: [],
+    zoom: 1,
+  });
   const elapsed = performance.now() - started;
-  assert.ok(checksum > 1_000);
+  assert.equal(adapter.items.length, 1_000);
   assert.ok(
     elapsed < 250,
-    `1,000 block instance render/hit models took ${elapsed.toFixed(1)}ms`,
+    `1,000 production cached render/hit items took ${elapsed.toFixed(1)}ms`,
   );
+  assert.equal(cache.resolveCount, 1_000);
+  const selectionRerender = cache.select({
+    activeCanvasId: ids.canvas,
+    blocks: blocksMap,
+    instances,
+    layers,
+    styles,
+  });
+  assert.equal(selectionRerender, first);
+  assert.equal(cache.resolveCount, 1_000);
+  const changedBlock = {
+    ...blocksMap,
+    [ids.block]: { ...block, name: "Changed", version: 2 },
+  };
+  cache.select({
+    activeCanvasId: ids.canvas,
+    blocks: changedBlock,
+    instances,
+    layers,
+    styles,
+  });
+  assert.equal(cache.resolveCount, 2_000);
+  cache.select({
+    activeCanvasId: ids.canvas,
+    blocks: changedBlock,
+    instances,
+    layers,
+    styles: {
+      ...styles,
+      [ids.style]: {
+        ...styles[ids.style],
+        value: { ...styles[ids.style].value, strokeWidth: 9 },
+        version: 2,
+      },
+    },
+  });
+  assert.equal(cache.resolveCount, 3_000);
 });
 
 test("active-canvas transient state and hit candidates include eligible instances as one target and fail closed", () => {

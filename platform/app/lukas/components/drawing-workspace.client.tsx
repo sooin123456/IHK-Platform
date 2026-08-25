@@ -30,11 +30,14 @@ import { Form, Link, useBlocker, useNavigation } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import {
-  blockInstanceBounds,
-  blockInstanceRenderModel,
-  copyDrawingBlockInstanceCommand,
-  deleteDrawingBlockInstanceCommand,
-  updateDrawingBlockInstanceCommand,
+  copyDrawingBlockInstancesClipboard,
+  createDrawingBlockRenderCache,
+  deleteDrawingBlockInstancesCommand,
+  drawingSelectionEntityKind,
+  duplicateDrawingBlockInstancesCommand,
+  moveDrawingBlockInstancesCommand,
+  pasteDrawingBlockInstancesClipboardCommand,
+  type DrawingBlockInstancesClipboard,
 } from "~/lukas/lib/drawing-blocks";
 import {
   applyDrawingCommand,
@@ -82,7 +85,6 @@ import {
   PdfCalibrationSchema,
 } from "~/lukas/lib/drawing-workspace.types";
 import type {
-  Bounds,
   DrawingObject,
   DrawingStyle,
 } from "~/lukas/lib/drawing-workspace.types";
@@ -103,6 +105,8 @@ import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
 import { DrawingStylesPanel } from "./drawing-styles-panel";
+
+const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
@@ -367,7 +371,8 @@ export default function DrawingWorkspaceClient({
     useState<DrawingPersistenceSnapshot>({ failed: false, volatileCount: 0 });
   const [legacyOperationCount, setLegacyOperationCount] = useState(0);
   const clipboardRef = useRef<DrawingClipboard>({ items: [] });
-  const blockClipboardRef = useRef<string | null>(null);
+  const blockClipboardRef = useRef<DrawingBlockInstancesClipboard | null>(null);
+  const [clipboardError, setClipboardError] = useState<string | null>(null);
   const legacyOutboxRef = useRef<DrawingOutbox | null>(null);
   const flushOutboxRef = useRef<(() => Promise<void>) | null>(null);
   const reviewFrozenRef = useRef(false);
@@ -497,41 +502,26 @@ export default function DrawingWorkspaceClient({
         }),
     [activeDrawingState.layers, resolvedObjects.objects],
   );
-  const resolvedBlockInstances = useMemo(() => {
-    const structure = activeDrawingState.structure;
-    if (!structure) return { instances: [], error: null as string | null };
-    const instances: Array<
-      ReturnType<typeof blockInstanceRenderModel> & { bounds: Bounds }
-    > = [];
-    let error: string | null = null;
-    for (const instance of Object.values(structure.blockInstances)) {
-      const layer = activeDrawingState.layers[instance.layerId];
-      if (!layer?.visible) continue;
-      const block = structure.blocks[instance.blockId];
-      if (!block) {
-        error = `Block instance ${instance.id} references a missing block.`;
-        continue;
-      }
-      try {
-        instances.push({
-          ...blockInstanceRenderModel(block, instance, structure.styles),
-          bounds: blockInstanceBounds(block, instance, structure.styles),
-        });
-      } catch (caught) {
-        error =
-          caught instanceof Error
-            ? caught.message
-            : "블록을 해석할 수 없습니다.";
-      }
-    }
-    instances.sort((left, right) => {
-      const layerOrder =
-        (activeDrawingState.layers[left.instance.layerId]?.sortOrder ?? 0) -
-        (activeDrawingState.layers[right.instance.layerId]?.sortOrder ?? 0);
-      return layerOrder || left.instance.id.localeCompare(right.instance.id);
-    });
-    return { instances, error };
-  }, [activeDrawingState.layers, activeDrawingState.structure]);
+  const blockStructure = drawingState.structure;
+  const resolvedBlockInstances = useMemo(
+    () =>
+      blockStructure && drawingState.activeCanvasId
+        ? drawingBlockRenderCache.select({
+            activeCanvasId: drawingState.activeCanvasId,
+            blocks: blockStructure.blocks,
+            instances: blockStructure.blockInstances,
+            layers: drawingState.layers,
+            styles: blockStructure.styles,
+          })
+        : { instances: [], error: null as string | null },
+    [
+      blockStructure?.blocks,
+      blockStructure?.blockInstances,
+      blockStructure?.styles,
+      drawingState.activeCanvasId,
+      drawingState.layers,
+    ],
+  );
   const resolvedActiveLayerId = transient.activeLayerId;
   const activeCanvas = drawingState.activeCanvasId
     ? (drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null)
@@ -861,38 +851,68 @@ export default function DrawingWorkspaceClient({
   ]);
 
   const copySelection = useCallback(() => {
-    if (transient.selectedIds.length === 1) {
-      const instance =
-        drawingState.structure?.blockInstances[transient.selectedIds[0]];
-      if (instance) {
-        blockClipboardRef.current = instance.id;
+    const kind = drawingSelectionEntityKind(
+      drawingState,
+      transient.selectedIds,
+    );
+    if (kind === "block_instance") {
+      try {
+        blockClipboardRef.current = copyDrawingBlockInstancesClipboard(
+          drawingState,
+          transient.selectedIds,
+        );
         clipboardRef.current = { items: [] };
+        setClipboardError(null);
         return true;
+      } catch (error) {
+        setClipboardError(
+          error instanceof Error
+            ? error.message
+            : "블록을 복사하지 못했습니다.",
+        );
+        return false;
       }
     }
+    if (kind !== "object") return false;
     blockClipboardRef.current = null;
     const clipboard = copyDrawingSelection(drawingState, transient.selectedIds);
     if (clipboard.items.length === 0) return false;
     clipboardRef.current = clipboard;
+    setClipboardError(null);
     return true;
   }, [drawingState, transient.selectedIds]);
 
   const pasteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
     if (blockClipboardRef.current) {
-      const source =
-        drawingState.structure?.blockInstances[blockClipboardRef.current];
-      if (!source) return false;
-      const command = copyDrawingBlockInstanceCommand(
-        drawingState,
-        currentUserId,
-        source.id,
-      );
-      applyCommand(command);
-      const entity = command.actions[0];
-      if (entity.kind === "put_block_instance")
-        setAuthorizedSelection([entity.entity.id]);
-      return true;
+      try {
+        if (!transient.activeLayerId || !drawingState.activeCanvasId)
+          throw new Error("현재 활성 편집 레이어를 선택하세요.");
+        const command = pasteDrawingBlockInstancesClipboardCommand(
+          drawingState,
+          currentUserId,
+          blockClipboardRef.current,
+          {
+            activeCanvasId: drawingState.activeCanvasId,
+            activeLayerId: transient.activeLayerId,
+          },
+        );
+        applyCommand(command);
+        setAuthorizedSelection(
+          command.actions.flatMap((action) =>
+            action.kind === "put_block_instance" ? [action.entity.id] : [],
+          ),
+        );
+        setClipboardError(null);
+        return true;
+      } catch (error) {
+        setClipboardError(
+          error instanceof Error
+            ? error.message
+            : "블록을 붙여넣지 못했습니다.",
+        );
+        return false;
+      }
     }
     if (
       clipboardRef.current.items.some((item) => {
@@ -905,32 +925,39 @@ export default function DrawingWorkspaceClient({
     if (!command) return false;
     applyCommand(command);
     setAuthorizedSelection(command.objects.map((object) => object.id));
+    setClipboardError(null);
     return true;
   }, [
     activeDrawingState.layers,
     applyCommand,
     currentUserId,
+    drawingState,
     editing.canEdit,
     setAuthorizedSelection,
+    transient.activeLayerId,
   ]);
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
-    if (
-      transient.selectedIds.length === 1 &&
-      drawingState.structure?.blockInstances[transient.selectedIds[0]]
-    ) {
-      const command = copyDrawingBlockInstanceCommand(
+    const kind = drawingSelectionEntityKind(
+      drawingState,
+      transient.selectedIds,
+    );
+    if (kind === "block_instance") {
+      const command = duplicateDrawingBlockInstancesCommand(
         drawingState,
         currentUserId,
-        transient.selectedIds[0],
+        transient.selectedIds,
       );
       applyCommand(command);
-      const entity = command.actions[0];
-      if (entity.kind === "put_block_instance")
-        setAuthorizedSelection([entity.entity.id]);
+      setAuthorizedSelection(
+        command.actions.flatMap((action) =>
+          action.kind === "put_block_instance" ? [action.entity.id] : [],
+        ),
+      );
       return true;
     }
+    if (kind !== "object") return false;
     const command = duplicateDrawingWorkspaceSelection(
       drawingState,
       transient.selectedIds,
@@ -951,20 +978,22 @@ export default function DrawingWorkspaceClient({
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
-    if (
-      transient.selectedIds.length === 1 &&
-      drawingState.structure?.blockInstances[transient.selectedIds[0]]
-    ) {
+    const kind = drawingSelectionEntityKind(
+      drawingState,
+      transient.selectedIds,
+    );
+    if (kind === "block_instance") {
       applyCommand(
-        deleteDrawingBlockInstanceCommand(
+        deleteDrawingBlockInstancesCommand(
           drawingState,
           currentUserId,
-          transient.selectedIds[0],
+          transient.selectedIds,
         ),
       );
       setSelectedIds([]);
       return true;
     }
+    if (kind !== "object") return false;
     const command = deleteDrawingSelection(
       drawingState,
       transient.selectedIds,
@@ -985,26 +1014,22 @@ export default function DrawingWorkspaceClient({
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
       if (!editing.canEdit) return false;
-      if (transient.selectedIds.length === 1) {
-        const instance =
-          drawingState.structure?.blockInstances[transient.selectedIds[0]];
-        if (instance) {
-          applyCommand(
-            updateDrawingBlockInstanceCommand(
-              drawingState,
-              currentUserId,
-              instance.id,
-              {
-                origin: {
-                  x: instance.origin.x + delta.x,
-                  y: instance.origin.y + delta.y,
-                },
-              },
-            ),
-          );
-          return true;
-        }
+      const kind = drawingSelectionEntityKind(
+        drawingState,
+        transient.selectedIds,
+      );
+      if (kind === "block_instance") {
+        applyCommand(
+          moveDrawingBlockInstancesCommand(
+            drawingState,
+            currentUserId,
+            transient.selectedIds,
+            delta,
+          ),
+        );
+        return true;
       }
+      if (kind !== "object") return false;
       const command = moveDrawingSelection(
         drawingState,
         transient.selectedIds,
@@ -1323,6 +1348,15 @@ export default function DrawingWorkspaceClient({
         </p>
       ) : null}
 
+      {clipboardError ? (
+        <p
+          className="border-b border-red-500/30 bg-red-950 px-4 py-2 text-sm text-red-100"
+          role="alert"
+        >
+          {clipboardError}
+        </p>
+      ) : null}
+
       {saveState.storageError ? (
         <div
           className="border-b border-red-500/30 bg-red-950 px-4 py-2 text-sm text-red-100"
@@ -1424,6 +1458,7 @@ export default function DrawingWorkspaceClient({
             actorId={currentUserId}
             canEdit={editing.canEdit}
             onCommand={applyCommand}
+            onSelectionChange={setAuthorizedSelection}
             selectedIds={transient.selectedIds.filter((id) =>
               Boolean(activeDrawingState.objects[id]),
             )}

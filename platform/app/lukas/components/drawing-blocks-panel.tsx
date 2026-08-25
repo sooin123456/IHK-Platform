@@ -7,6 +7,10 @@ import {
   updateDrawingBlockCommand,
 } from "~/lukas/lib/drawing-blocks";
 import type {
+  DrawingBlock,
+  DrawingBlockInstance,
+} from "~/lukas/lib/drawing-workspace.types";
+import type {
   DrawingCommand,
   DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
@@ -17,9 +21,45 @@ type Props = {
   actorId: string;
   canEdit: boolean;
   onCommand: (command: DrawingCommand) => void;
+  onSelectionChange: (selectedIds: string[]) => void;
   selectedIds: string[];
   state: DrawingDocumentState;
 };
+
+export function DrawingBlockInstancesList({
+  block,
+  canEdit,
+  instances,
+  onSelectionChange,
+}: {
+  block: DrawingBlock;
+  canEdit: boolean;
+  instances: DrawingBlockInstance[];
+  onSelectionChange: (selectedIds: string[]) => void;
+}) {
+  return (
+    <ul
+      aria-label={`${block.name} instances`}
+      className="mt-2 space-y-1 border-t border-white/10 pt-2"
+    >
+      {instances.map((instance) => (
+        <li className="flex items-center gap-2" key={instance.id}>
+          <button
+            aria-label={`${instance.name} instance 선택`}
+            className="min-h-9 flex-1 rounded border border-white/15 px-2 text-left text-sm"
+            onClick={() => onSelectionChange([instance.id])}
+            type="button"
+          >
+            {instance.name}
+          </button>
+          {!canEdit ? (
+            <span className="text-xs text-slate-400">읽기 전용</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function message(error: unknown) {
   return error instanceof Error ? error.message : "블록을 변경하지 못했습니다.";
@@ -31,10 +71,14 @@ export function DrawingBlocksPanel({
   actorId,
   canEdit,
   onCommand,
+  onSelectionChange,
   selectedIds,
   state,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
+  const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const structure = state.structure;
   if (!structure) return null;
   const canonical = structure;
@@ -42,11 +86,6 @@ export function DrawingBlocksPanel({
     (left, right) =>
       left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
   );
-  const instanceCount = (blockId: string) =>
-    Object.values(canonical.blockInstances).filter(
-      (instance) => instance.blockId === blockId,
-    ).length;
-
   function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -93,7 +132,16 @@ export function DrawingBlocksPanel({
   const list = (
     <ul aria-label="도면 블록" className="mt-4 space-y-3">
       {blocks.map((block) => {
-        const used = instanceCount(block.id);
+        const instances = Object.values(canonical.blockInstances)
+          .filter((instance) => instance.blockId === block.id)
+          .sort(
+            (left, right) =>
+              left.name.localeCompare(right.name) ||
+              left.id.localeCompare(right.id),
+          );
+        const used = instances.length;
+        const expanded = expandedBlockIds.has(block.id);
+        const instancesId = `block-instances-${block.id}`;
         const reasonId = `block-delete-reason-${block.id}`;
         return (
           <li
@@ -193,6 +241,33 @@ export function DrawingBlocksPanel({
                 >
                   정의 삭제
                 </button>
+              </div>
+            ) : null}
+            <button
+              aria-controls={instancesId}
+              aria-expanded={expanded}
+              aria-label={`${block.name} Instance ${used}개 ${expanded ? "접기" : "보기"}`}
+              className="mt-2 min-h-9 w-full rounded border border-white/15 px-2 text-left text-xs"
+              onClick={() =>
+                setExpandedBlockIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(block.id)) next.delete(block.id);
+                  else next.add(block.id);
+                  return next;
+                })
+              }
+              type="button"
+            >
+              Instance {used}개 {expanded ? "접기" : "보기"}
+            </button>
+            {expanded ? (
+              <div id={instancesId}>
+                <DrawingBlockInstancesList
+                  block={block}
+                  canEdit={canEdit}
+                  instances={instances}
+                  onSelectionChange={onSelectionChange}
+                />
               </div>
             ) : null}
             {used ? (

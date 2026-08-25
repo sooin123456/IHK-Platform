@@ -1091,7 +1091,7 @@ test("block conversion rejects objects from a layer other than its instance laye
   );
 });
 
-test("block conversion preserves the canonical transformed primitive through its inverse", () => {
+test("translation-only block conversion preserves the canonical primitive through its inverse", () => {
   const source = object({
     styleId: null,
     style: { stroke: "#111111", strokeWidth: 2, fill: null },
@@ -1122,9 +1122,9 @@ test("block conversion preserves the canonical transformed primitive through its
             name: source.name,
             geometry: {
               type: "rectangle",
-              origin: { x: 2, y: 3 },
-              width: 10,
-              height: 5,
+              origin: { x: 4, y: 6 },
+              width: 20,
+              height: 10,
               rotation: 0,
             },
             styleId: null,
@@ -1143,8 +1143,8 @@ test("block conversion preserves the canonical transformed primitive through its
         name: "Block",
         origin: { x: 10, y: 20 },
         rotation: 0,
-        scaleX: 2,
-        scaleY: 2,
+        scaleX: 1,
+        scaleY: 1,
         version: 1,
       },
       baseVersion: null,
@@ -1153,9 +1153,9 @@ test("block conversion preserves the canonical transformed primitive through its
   const converted = applyDrawingStructureActions(current, actions);
   assert.deepEqual(converted.state.blocks[ids.block].primitives[0].geometry, {
     type: "rectangle",
-    origin: { x: 2, y: 3 },
-    width: 10,
-    height: 5,
+    origin: { x: 4, y: 6 },
+    width: 20,
+    height: 10,
     rotation: 0,
   });
   const restored = applyDrawingStructureActions(
@@ -1181,7 +1181,7 @@ test("block conversion preserves the canonical transformed primitive through its
   );
 });
 
-test("rotated block conversion accepts its exact generated inverse without weakening geometry or style validation", () => {
+test("rotated and scaled block conversion is rejected before geometry or style mutation", () => {
   const source = object({
     styleId: null,
     style: { stroke: "#111111", strokeWidth: 2, fill: null },
@@ -1241,29 +1241,12 @@ test("rotated block conversion accepts its exact generated inverse without weake
     },
   ];
 
-  const converted = applyDrawingStructureActions(current, actions);
-  const restored = applyDrawingStructureActions(
-    converted.state,
-    converted.inverse,
-  );
-  assert.deepEqual(
-    { ...restored.state.objects[ids.object], version: source.version },
-    source,
-  );
-
-  const changedGeometry = structuredClone(converted.state);
-  changedGeometry.blocks[ids.block].primitives[0].geometry.origin.x += 0.000001;
   assert.throws(
-    () => applyDrawingStructureActions(changedGeometry, converted.inverse),
-    DrawingStructureError,
+    () => applyDrawingStructureActions(current, actions),
+    /translation-only/,
   );
-
-  const changedStyle = structuredClone(converted.state);
-  changedStyle.blocks[ids.block].primitives[0].style.strokeWidth = 3;
-  assert.throws(
-    () => applyDrawingStructureActions(changedStyle, converted.inverse),
-    DrawingStructureError,
-  );
+  assert.deepEqual(current.objects[ids.object], source);
+  assert.equal(current.blocks[ids.block], undefined);
 });
 
 test("fresh structure entities start at version one and documents cannot lose their final page", () => {

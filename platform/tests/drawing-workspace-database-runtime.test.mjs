@@ -110,6 +110,14 @@ const p2StyleGuardSqlstateMigration = () =>
     ),
     "utf8",
   );
+const p2BlockExactnessMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825120000_drawing_workspace_block_exactness.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -138,9 +146,8 @@ const { DrawingInspector } = await vite.ssrLoadModule(
 const { DrawingStylesPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-styles-panel.tsx",
 );
-const { DrawingBlocksPanel } = await vite.ssrLoadModule(
-  "/app/lukas/components/drawing-blocks-panel.tsx",
-);
+const { DrawingBlocksPanel, DrawingBlockInstancesList } =
+  await vite.ssrLoadModule("/app/lukas/components/drawing-blocks-panel.tsx");
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",
 );
@@ -329,6 +336,7 @@ before(async () => {
   await db.exec(await p2HistoryReconciliationMigration());
   await db.exec(await p2NavigationHardeningMigration());
   await db.exec(await p2StyleGuardSqlstateMigration());
+  await db.exec(await p2BlockExactnessMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -3247,6 +3255,7 @@ test("block library and instance inspector remain readable while approved viewer
       actorId: OWNER,
       canEdit: false,
       onCommand() {},
+      onSelectionChange() {},
       selectedIds: [],
       state,
     }),
@@ -3254,8 +3263,26 @@ test("block library and instance inspector remain readable while approved viewer
   assert.match(viewer, /읽기 전용 블록 목록/);
   assert.match(viewer, /Approved symbol/);
   assert.match(viewer, /Instance 1개/);
+  assert.match(viewer, /Approved symbol Instance 1개 보기/);
+  assert.match(viewer, /aria-expanded="false"/);
   assert.doesNotMatch(viewer, /<form/);
-  assert.doesNotMatch(viewer, /<button/);
+  assert.doesNotMatch(viewer, /Instance 삽입/);
+
+  const expandedInstances = renderToStaticMarkup(
+    createElement(DrawingBlockInstancesList, {
+      block,
+      canEdit: false,
+      instances: [instance],
+      onSelectionChange() {},
+    }),
+  );
+  assert.match(expandedInstances, /aria-label="Approved symbol instances"/);
+  assert.match(
+    expandedInstances,
+    /aria-label="Approved placement instance 선택"/,
+  );
+  assert.match(expandedInstances, /읽기 전용/);
+  assert.doesNotMatch(expandedInstances, /삭제|저장|삽입/);
 
   const inspector = renderToStaticMarkup(
     createElement(DrawingInspector, {
@@ -3282,6 +3309,7 @@ test("block library and instance inspector remain readable while approved viewer
       actorId: OWNER,
       canEdit: true,
       onCommand() {},
+      onSelectionChange() {},
       selectedIds: [],
       state,
     }),
@@ -4823,6 +4851,295 @@ test("P2 block compounds must exactly represent their editable source objects", 
     [object.id],
   );
   assert.deepEqual(restored.rows, [{ status: "active", version: 3 }]);
+});
+
+test("P2 authority rejects transformed create-block compounds for rectangle and text geometry", async () => {
+  for (const geometry of [
+    {
+      world: {
+        type: "rectangle",
+        origin: { x: 10, y: 20 },
+        width: 20,
+        height: 10,
+        rotation: 30,
+      },
+      local: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 10,
+        height: 20,
+        rotation: 0,
+      },
+    },
+    {
+      world: {
+        type: "text",
+        origin: { x: 10, y: 20 },
+        width: 20,
+        text: "Panel\nA",
+      },
+      local: {
+        type: "text",
+        origin: { x: 0, y: 0 },
+        width: 10,
+        text: "Panel\nA",
+      },
+    },
+  ]) {
+    const ids = await createDocument();
+    const objectId = randomUUID();
+    const source = {
+      id: objectId,
+      name: "Source",
+      layerId: ids.workLayerId,
+      geometry: geometry.world,
+      styleId: null,
+      style: STYLE,
+      version: 1,
+    };
+    await addObject(ids, source);
+    const blockId = randomUUID();
+    const instanceId = randomUUID();
+    const block = {
+      id: blockId,
+      revisionId: ids.revisionId,
+      name: "Transformed conversion",
+      primitives: [
+        {
+          localId: "local-a",
+          name: source.name,
+          geometry: geometry.local,
+          styleId: null,
+          style: STYLE,
+        },
+      ],
+      version: 1,
+    };
+    const instance = {
+      id: instanceId,
+      blockId,
+      layerId: ids.workLayerId,
+      name: block.name,
+      origin: { x: 10, y: 20 },
+      rotation: 30,
+      scaleX: 2,
+      scaleY: 0.5,
+      version: 1,
+    };
+    await assert.rejects(
+      applyOperation(
+        ids.revisionId,
+        "mutate_structure",
+        { [objectId]: 1 },
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "put_block", entity: block, baseVersion: null },
+            { kind: "put_block_instance", entity: instance, baseVersion: null },
+            { kind: "delete_object", id: objectId, baseVersion: 1 },
+          ],
+        },
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "put_object", entity: source, baseVersion: null },
+            { kind: "delete_block_instance", id: instanceId, baseVersion: 1 },
+            { kind: "delete_block", id: blockId, baseVersion: 1 },
+          ],
+        },
+      ),
+      (error) =>
+        error.code === "P1C01" && /translation-only/i.test(error.message),
+    );
+  }
+});
+
+test("P2 authority denies block instance delete and restore on an ineligible layer without an operation row", async () => {
+  const ids = await createDocument();
+  const fallbackLayerId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_drawing_layers(
+      id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,
+      system_kind,version,created_by
+    )
+    select $1,c.page_id,c.id,c.revision_id,c.project_id,'Fallback',99,true,false,
+      'custom',1,$2
+    from public.lukas_drawing_canvases c
+    where c.id=(select canvas_id from public.lukas_drawing_layers where id=$3)`,
+    [fallbackLayerId, OWNER, ids.workLayerId],
+  );
+  await asActor(OWNER);
+  const objectId = randomUUID();
+  const source = {
+    ...circleObject(objectId, ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, source);
+  const blockId = randomUUID();
+  const instanceId = randomUUID();
+  const block = {
+    id: blockId,
+    revisionId: ids.revisionId,
+    name: "Guarded block",
+    primitives: [
+      {
+        localId: "local-a",
+        name: source.name,
+        geometry: source.geometry,
+        styleId: null,
+        style: source.style,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: instanceId,
+    blockId,
+    layerId: ids.workLayerId,
+    name: block.name,
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [objectId]: 1 },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_block", entity: block, baseVersion: null },
+        { kind: "put_block_instance", entity: instance, baseVersion: null },
+        { kind: "delete_object", id: objectId, baseVersion: 1 },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_object", entity: source, baseVersion: null },
+        { kind: "delete_block_instance", id: instanceId, baseVersion: 1 },
+        { kind: "delete_block", id: blockId, baseVersion: 1 },
+      ],
+    },
+  );
+  await db.exec(
+    "reset role; alter table public.lukas_drawing_layers disable trigger user",
+  );
+  await db.query(
+    "update public.lukas_drawing_layers set locked=true where id=$1",
+    [ids.workLayerId],
+  );
+  await db.exec("alter table public.lukas_drawing_layers enable trigger user");
+  await asActor(OWNER);
+  const before = await db.query(
+    "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+    [ids.revisionId],
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      { [instanceId]: 1 },
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "delete_block_instance", id: instanceId, baseVersion: 1 },
+        ],
+      },
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "put_block_instance", entity: instance, baseVersion: null },
+        ],
+      },
+    ),
+    (error) =>
+      error.code === "P1C01" && /eligible editable layer/i.test(error.message),
+  );
+  const afterDelete = await db.query(
+    "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+    [ids.revisionId],
+  );
+  assert.deepEqual(afterDelete.rows, before.rows);
+  const stored = await db.query(
+    "select id from public.lukas_drawing_block_instances where id=$1",
+    [instanceId],
+  );
+  assert.equal(stored.rows.length, 1);
+
+  await db.exec(
+    "reset role; alter table public.lukas_drawing_layers disable trigger user",
+  );
+  await db.query(
+    "update public.lukas_drawing_layers set locked=false where id=$1",
+    [ids.workLayerId],
+  );
+  await db.exec("alter table public.lukas_drawing_layers enable trigger user");
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [instanceId]: 1 },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "delete_block_instance", id: instanceId, baseVersion: 1 },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_block_instance", entity: instance, baseVersion: null },
+      ],
+    },
+  );
+  await db.exec(
+    "reset role; alter table public.lukas_drawing_layers disable trigger user",
+  );
+  await db.query(
+    "update public.lukas_drawing_layers set visible=false where id=$1",
+    [ids.workLayerId],
+  );
+  await db.exec("alter table public.lukas_drawing_layers enable trigger user");
+  await asActor(OWNER);
+  const beforeRestore = await db.query(
+    "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+    [ids.revisionId],
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_structure",
+      {},
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "put_block_instance", entity: instance, baseVersion: null },
+        ],
+      },
+      {
+        type: "mutate_structure",
+        actions: [
+          { kind: "delete_block_instance", id: instanceId, baseVersion: 3 },
+        ],
+      },
+    ),
+    (error) =>
+      error.code === "P1C01" && /eligible editable layer/i.test(error.message),
+  );
+  const afterRestore = await db.query(
+    "select count(*)::int count from public.lukas_drawing_operations where revision_id=$1",
+    [ids.revisionId],
+  );
+  assert.deepEqual(afterRestore.rows, beforeRestore.rows);
+  const absent = await db.query(
+    "select id from public.lukas_drawing_block_instances where id=$1",
+    [instanceId],
+  );
+  assert.equal(absent.rows.length, 0);
 });
 
 test("P2 review writes a deterministic complete v2 snapshot and freezes every P2 child", async () => {

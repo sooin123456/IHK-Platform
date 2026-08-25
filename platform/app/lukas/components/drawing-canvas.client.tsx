@@ -39,7 +39,18 @@ import {
   type DrawingCommand,
   type DrawingMoveSnapshot,
 } from "~/lukas/lib/drawing-commands";
-import type { DrawingBlockRenderModel } from "~/lukas/lib/drawing-blocks";
+import {
+  drawingCanvasRenderAdapter,
+  drawingKindExclusiveSelection,
+  type DrawingBlockRenderModel,
+  type DrawingCanvasRenderItem,
+} from "~/lukas/lib/drawing-blocks";
+import {
+  drawingDimensionDisplayPoints,
+  drawingDimensionLabel,
+  drawingDimensionLayout,
+  drawingTextLayout,
+} from "~/lukas/lib/drawing-layout";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
   openPdfDocument,
@@ -1037,53 +1048,13 @@ export function dimensionLabel(
   calibration?: DimensionCalibrationEvidence | null,
 ) {
   if (geometry.calibrationId === null) return "미보정";
-  if (
-    !calibration ||
-    calibration.id !== geometry.calibrationId ||
-    !Number.isFinite(calibration.pageWidth) ||
-    !Number.isFinite(calibration.pageHeight) ||
-    calibration.pageWidth <= 0 ||
-    calibration.pageHeight <= 0 ||
-    !Number.isFinite(calibration.millimetersPerNormalizedUnit) ||
-    calibration.millimetersPerNormalizedUnit <= 0
-  )
-    return "보정 확인 불가";
-  const normalizedDistance = Math.hypot(
-    (geometry.end.x - geometry.start.x) / calibration.pageWidth,
-    (geometry.end.y - geometry.start.y) / calibration.pageHeight,
-  );
-  return `${(
-    normalizedDistance * calibration.millimetersPerNormalizedUnit
-  ).toFixed(1)} mm`;
+  return drawingDimensionLabel(geometry, calibration);
 }
 
 export function dimensionDisplayPoints(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
 ) {
-  const lineLength = Math.hypot(
-    geometry.end.x - geometry.start.x,
-    geometry.end.y - geometry.start.y,
-  );
-  const offsetX =
-    (-(geometry.end.y - geometry.start.y) / lineLength) * geometry.offset;
-  const offsetY =
-    ((geometry.end.x - geometry.start.x) / lineLength) * geometry.offset;
-  const displayStart = {
-    x: geometry.start.x + offsetX,
-    y: geometry.start.y + offsetY,
-  };
-  const displayEnd = {
-    x: geometry.end.x + offsetX,
-    y: geometry.end.y + offsetY,
-  };
-  return {
-    displayStart,
-    displayEnd,
-    label: {
-      x: (displayStart.x + displayEnd.x) / 2,
-      y: (displayStart.y + displayEnd.y) / 2,
-    },
-  };
+  return drawingDimensionDisplayPoints(geometry);
 }
 
 export type DrawingCanvasBackground =
@@ -1244,22 +1215,27 @@ function geometryShape(
           y={geometry.center.y}
         />
       );
-    case "text":
+    case "text": {
+      const textLayout = drawingTextLayout(geometry, style.fontSize ?? 14);
       return (
         <KonvaText
           fill={style.fill ?? style.stroke}
-          fontSize={style.fontSize ?? 14}
+          fontSize={textLayout.fontSize}
+          height={textLayout.height}
+          lineHeight={textLayout.lineHeight}
           listening={false}
           opacity={preview ? 0.75 : 1}
           text={geometry.text}
-          width={geometry.width}
+          width={textLayout.width}
+          wrap={textLayout.wrap}
           x={geometry.origin.x}
           y={geometry.origin.y}
         />
       );
+    }
     case "dimension": {
-      const { displayEnd, displayStart, label } =
-        dimensionDisplayPoints(geometry);
+      const layout = drawingDimensionLayout(geometry, calibration);
+      const { displayEnd, displayStart, label } = layout;
       return (
         <>
           <Line
@@ -1291,9 +1267,13 @@ function geometryShape(
           />
           <KonvaText
             fill={geometry.calibrationId === null ? "#dc2626" : style.stroke}
-            fontSize={12}
+            fontSize={layout.fontSize}
+            height={layout.height}
+            lineHeight={layout.lineHeight}
             listening={false}
-            text={dimensionLabel(geometry, calibration)}
+            text={layout.text}
+            width={layout.width}
+            wrap={layout.wrap}
             x={label.x}
             y={label.y}
           />
@@ -1304,10 +1284,8 @@ function geometryShape(
 }
 
 type CommittedDrawingLayerProps = {
-  blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
-  layers: DrawingLayer[];
-  objects: Array<DrawingObject & { style: DrawingStyle }>;
+  items: DrawingCanvasRenderItem[];
   viewportX: number;
   viewportY: number;
   viewportZoom: number;
@@ -1316,35 +1294,12 @@ type CommittedDrawingLayerProps = {
 // The workspace keeps `objects` and `calibration` identities stable. Passing
 // viewport primitives limits this memo boundary to actual committed-layer work.
 const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
-  blockInstances,
   calibration,
-  layers,
-  objects,
+  items,
   viewportX,
   viewportY,
   viewportZoom,
 }: CommittedDrawingLayerProps) {
-  const layerOrder = Object.fromEntries(
-    layers.map((layer) => [layer.id, layer.sortOrder ?? 0]),
-  );
-  const items = [
-    ...objects.map((object) => ({
-      kind: "object" as const,
-      id: object.id,
-      layerId: object.layerId,
-      object,
-    })),
-    ...blockInstances.map((model) => ({
-      kind: "block" as const,
-      id: model.instance.id,
-      layerId: model.instance.layerId,
-      model,
-    })),
-  ].sort(
-    (left, right) =>
-      (layerOrder[left.layerId] ?? 0) - (layerOrder[right.layerId] ?? 0) ||
-      left.id.localeCompare(right.id),
-  );
   return (
     <Layer
       listening={false}
@@ -1488,6 +1443,14 @@ export const DrawingCanvas = forwardRef<
         blockInstances.map((model) => [model.instance.id, model]),
       ),
     [blockInstances],
+  );
+  const objectIdSet = useMemo(
+    () => new Set(Object.keys(objectsById)),
+    [objectsById],
+  );
+  const blockInstanceIdSet = useMemo(
+    () => new Set(Object.keys(blockInstancesById)),
+    [blockInstancesById],
   );
   const objectCandidates = useMemo(
     () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
@@ -1846,28 +1809,20 @@ export const DrawingCanvas = forwardRef<
     controllerState.session.tool === "text"
       ? worldToScreen(controllerState.session.origin, viewport)
       : null;
-  const selectionCandidates = useMemo(
-    () => [
-      ...drawingSelectionCandidates(objects, layersById, viewport.zoom),
-      ...blockInstances.flatMap((model) => {
-        const layer = layersById[model.instance.layerId];
-        if (!layer?.visible || layer.locked) return [];
-        const tolerance = SELECTION_HIT_TOLERANCE_PIXELS / viewport.zoom;
-        return [
-          {
-            id: model.instance.id,
-            bounds: {
-              x: model.bounds.x - tolerance,
-              y: model.bounds.y - tolerance,
-              width: model.bounds.width + tolerance * 2,
-              height: model.bounds.height + tolerance * 2,
-            },
-          },
-        ];
+  const renderAdapter = useMemo(
+    () =>
+      drawingCanvasRenderAdapter({
+        blockInstances,
+        layers: layersById,
+        objects,
+        zoom: viewport.zoom,
       }),
-    ],
     [blockInstances, layersById, objects, viewport.zoom],
   );
+  const selectionCandidates = renderAdapter.hitItems.map((item) => ({
+    id: item.id,
+    bounds: item.hitBounds,
+  }));
   const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
     const object = objectsById[objectId];
     return object ? [object] : [];
@@ -1955,11 +1910,13 @@ export const DrawingCanvas = forwardRef<
           (event.evt.shiftKey && objectsById[candidateId]))
       ) {
         const current = selectionRef.current.selectedIds;
-        const selected = event.evt.shiftKey
-          ? current.includes(candidateId)
-            ? current.filter((id) => id !== candidateId)
-            : [...current, candidateId]
-          : [candidateId];
+        const selected = drawingKindExclusiveSelection(
+          current,
+          candidateId,
+          event.evt.shiftKey,
+          objectIdSet,
+          blockInstanceIdSet,
+        );
         const next: DrawingSelectionState = {
           ...selectionRef.current,
           selectedIds: selected,
@@ -2230,10 +2187,8 @@ export const DrawingCanvas = forwardRef<
             ))}
           </Layer>
           <CommittedDrawingLayer
-            blockInstances={blockInstances}
             calibration={calibration}
-            layers={layers}
-            objects={objects}
+            items={renderAdapter.items}
             viewportX={viewport.x}
             viewportY={viewport.y}
             viewportZoom={viewport.zoom}

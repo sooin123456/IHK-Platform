@@ -611,6 +611,15 @@ function validateObjectCompound(
     }
     const block = entityFor(blocks[0]) as DrawingBlock;
     const instance = entityFor(instances[0]) as DrawingBlockInstance;
+    if (
+      instance.rotation !== 0 ||
+      instance.scaleX !== 1 ||
+      instance.scaleY !== 1
+    ) {
+      throw new DrawingStructureError(
+        "Block conversion creation is translation-only: rotation must be zero and scale must be one.",
+      );
+    }
     for (const action of objectActions) {
       const object = state.objects[idFor(action)];
       const layer = object ? state.layers[object.layerId] : undefined;

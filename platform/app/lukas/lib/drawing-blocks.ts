@@ -1,4 +1,9 @@
 import { geometryBounds } from "./drawing-geometry.ts";
+import {
+  drawingDimensionBoundsPoints,
+  drawingLayoutCorners,
+  drawingTextLayout,
+} from "./drawing-layout.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
 import type {
   DrawingCommand,
@@ -183,23 +188,6 @@ function rectanglePoints(
   }));
 }
 
-function dimensionPoints(
-  geometry: Extract<DrawingGeometry, { type: "dimension" }>,
-): Point[] {
-  const length = Math.hypot(
-    geometry.end.x - geometry.start.x,
-    geometry.end.y - geometry.start.y,
-  );
-  const x = (-(geometry.end.y - geometry.start.y) / length) * geometry.offset;
-  const y = ((geometry.end.x - geometry.start.x) / length) * geometry.offset;
-  return [
-    geometry.start,
-    geometry.end,
-    { x: geometry.start.x + x, y: geometry.start.y + y },
-    { x: geometry.end.x + x, y: geometry.end.y + y },
-  ];
-}
-
 function pointsBounds(points: Point[]): Bounds {
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
@@ -253,15 +241,14 @@ function primitiveWorldBounds(
       );
       break;
     case "text":
-      points = rectanglePoints(
+      points = drawingLayoutCorners(
         geometry.origin,
         geometry.width,
-        style.fontSize ?? 14,
-        0,
+        drawingTextLayout(geometry, style.fontSize ?? 14).height,
       );
       break;
     case "dimension":
-      points = dimensionPoints(geometry);
+      points = drawingDimensionBoundsPoints(geometry);
       break;
   }
   return pointsBounds(
@@ -321,6 +308,11 @@ export function blockInstanceBounds(
     | Record<string, DrawingStyleDefinition>,
 ): Bounds {
   const model = blockInstanceRenderModel(block, instance, styles);
+  return blockRenderModelBounds(model);
+}
+
+/** Derives bounds from an already-resolved live model without resolving styles twice. */
+export function blockRenderModelBounds(model: DrawingBlockRenderModel): Bounds {
   const bounds = model.primitives.map((primitive) =>
     primitiveWorldBounds(primitive, model.instance, primitive.style),
   );
@@ -329,6 +321,196 @@ export function blockInstanceBounds(
   const right = Math.max(...bounds.map((value) => value.x + value.width));
   const bottom = Math.max(...bounds.map((value) => value.y + value.height));
   return { x, y, width: right - x, height: bottom - y };
+}
+
+export type DrawingCanvasRenderItem =
+  | {
+      bounds: Bounds;
+      id: string;
+      kind: "object";
+      layerId: string;
+      object: DrawingObject & { style: DrawingStyle };
+    }
+  | {
+      bounds: Bounds;
+      id: string;
+      kind: "block";
+      layerId: string;
+      model: DrawingBlockRenderModel & { bounds: Bounds };
+    };
+
+export function drawingCanvasRenderAdapter(input: {
+  blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
+  layers: Record<
+    string,
+    { visible: boolean; locked: boolean; sortOrder?: number }
+  >;
+  objects: Array<DrawingObject & { style: DrawingStyle }>;
+  zoom: number;
+}) {
+  if (!Number.isFinite(input.zoom) || input.zoom <= 0)
+    throw new DrawingBlockError("Drawing canvas zoom must be positive.");
+  const items: DrawingCanvasRenderItem[] = [
+    ...input.objects.flatMap((object) =>
+      input.layers[object.layerId]?.visible
+        ? [
+            {
+              bounds: geometryBounds(object.geometry),
+              id: object.id,
+              kind: "object" as const,
+              layerId: object.layerId,
+              object,
+            },
+          ]
+        : [],
+    ),
+    ...input.blockInstances.flatMap((model) =>
+      input.layers[model.instance.layerId]?.visible
+        ? [
+            {
+              bounds: model.bounds,
+              id: model.instance.id,
+              kind: "block" as const,
+              layerId: model.instance.layerId,
+              model,
+            },
+          ]
+        : [],
+    ),
+  ].sort(
+    (left, right) =>
+      (input.layers[left.layerId]?.sortOrder ?? 0) -
+        (input.layers[right.layerId]?.sortOrder ?? 0) ||
+      left.id.localeCompare(right.id),
+  );
+  const tolerance = 6 / input.zoom;
+  const hitItems = items.flatMap((item) => {
+    const layer = input.layers[item.layerId];
+    if (!layer?.visible || layer.locked) return [];
+    return [
+      {
+        ...item,
+        hitBounds: {
+          x: item.bounds.x - tolerance,
+          y: item.bounds.y - tolerance,
+          width: item.bounds.width + tolerance * 2,
+          height: item.bounds.height + tolerance * 2,
+        },
+      },
+    ];
+  });
+  return {
+    hitItems,
+    items,
+    topmostAt(point: Point) {
+      return [...hitItems].reverse().find((item) => {
+        const bounds = item.hitBounds;
+        return (
+          point.x >= bounds.x &&
+          point.x <= bounds.x + bounds.width &&
+          point.y >= bounds.y &&
+          point.y <= bounds.y + bounds.height
+        );
+      });
+    },
+  };
+}
+
+export type DrawingBlockRenderCache = {
+  readonly resolveCount: number;
+  select(input: {
+    activeCanvasId: string;
+    blocks: Record<string, DrawingBlock>;
+    instances: Record<string, DrawingBlockInstance>;
+    layers: Record<
+      string,
+      {
+        canvasId?: string | null;
+        locked: boolean;
+        sortOrder?: number;
+        visible: boolean;
+      }
+    >;
+    styles: Record<string, DrawingStyleDefinition>;
+  }): {
+    error: string | null;
+    instances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
+  };
+};
+
+/** Memoizes live block resolution only by stable canonical entity-map identity. */
+export function createDrawingBlockRenderCache(): DrawingBlockRenderCache {
+  let previous:
+    | {
+        activeCanvasId: string;
+        blocks: Record<string, DrawingBlock>;
+        instances: Record<string, DrawingBlockInstance>;
+        layers: Record<
+          string,
+          {
+            canvasId?: string | null;
+            locked: boolean;
+            sortOrder?: number;
+            visible: boolean;
+          }
+        >;
+        styles: Record<string, DrawingStyleDefinition>;
+      }
+    | undefined;
+  let result: {
+    error: string | null;
+    instances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
+  } = { error: null, instances: [] };
+  let resolveCount = 0;
+  return {
+    select(input) {
+      if (
+        previous?.activeCanvasId === input.activeCanvasId &&
+        previous.blocks === input.blocks &&
+        previous.instances === input.instances &&
+        previous.layers === input.layers &&
+        previous.styles === input.styles
+      )
+        return result;
+      previous = input;
+      const resolved: Array<DrawingBlockRenderModel & { bounds: Bounds }> = [];
+      let error: string | null = null;
+      const ordered = Object.values(input.instances).sort((left, right) => {
+        const layerOrder =
+          (input.layers[left.layerId]?.sortOrder ?? 0) -
+          (input.layers[right.layerId]?.sortOrder ?? 0);
+        return layerOrder || left.id.localeCompare(right.id);
+      });
+      for (const instance of ordered) {
+        const layer = input.layers[instance.layerId];
+        if (
+          !layer?.visible ||
+          (layer.canvasId != null && layer.canvasId !== input.activeCanvasId)
+        )
+          continue;
+        const block = input.blocks[instance.blockId];
+        if (!block) {
+          error = `Block instance ${instance.id} references a missing block.`;
+          continue;
+        }
+        try {
+          const model = blockInstanceRenderModel(block, instance, input.styles);
+          resolveCount += 1;
+          resolved.push({ ...model, bounds: blockRenderModelBounds(model) });
+        } catch (caught) {
+          error =
+            caught instanceof Error
+              ? caught.message
+              : "Drawing block cannot be resolved.";
+        }
+      }
+      result = { error, instances: resolved };
+      return result;
+    },
+    get resolveCount() {
+      return resolveCount;
+    },
+  };
 }
 
 /** Produces one aggregate hit target per visible unlocked instance. */
@@ -599,4 +781,225 @@ export function deleteDrawingBlockInstanceCommand(
       baseVersion: current.version,
     },
   ]);
+}
+
+export type DrawingSelectionEntityKind =
+  | "none"
+  | "object"
+  | "block_instance"
+  | "mixed"
+  | "invalid";
+
+export function drawingSelectionEntityKind(
+  inputState: DrawingDocumentState,
+  selectedIds: readonly string[],
+): DrawingSelectionEntityKind {
+  const state = canonicalState(inputState);
+  if (selectedIds.length === 0) return "none";
+  let kind: "object" | "block_instance" | null = null;
+  for (const id of selectedIds) {
+    const current = state.objects[id]
+      ? "object"
+      : state.structure.blockInstances[id]
+        ? "block_instance"
+        : null;
+    if (!current) return "invalid";
+    if (kind && current !== kind) return "mixed";
+    kind = current;
+  }
+  return kind ?? "none";
+}
+
+export function drawingKindExclusiveSelection(
+  currentIds: readonly string[],
+  candidateId: string,
+  shiftKey: boolean,
+  objectIds: ReadonlySet<string>,
+  blockInstanceIds: ReadonlySet<string>,
+): string[] {
+  const candidateKind = objectIds.has(candidateId)
+    ? "object"
+    : blockInstanceIds.has(candidateId)
+      ? "block_instance"
+      : null;
+  if (!candidateKind) return shiftKey ? [...currentIds] : [];
+  if (!shiftKey) return [candidateId];
+  const sameKind = currentIds.every((id) =>
+    candidateKind === "object" ? objectIds.has(id) : blockInstanceIds.has(id),
+  );
+  if (!sameKind) return [candidateId];
+  return currentIds.includes(candidateId)
+    ? currentIds.filter((id) => id !== candidateId)
+    : [...currentIds, candidateId];
+}
+
+function selectedBlockInstances(
+  inputState: DrawingDocumentState,
+  selectedIds: readonly string[],
+) {
+  const state = canonicalState(inputState);
+  if (
+    selectedIds.length === 0 ||
+    new Set(selectedIds).size !== selectedIds.length ||
+    drawingSelectionEntityKind(state, selectedIds) !== "block_instance"
+  )
+    throw new DrawingBlockError(
+      "A block shortcut requires one selection kind containing only block instances.",
+    );
+  const instances = selectedIds.map((id) => state.structure.blockInstances[id]);
+  for (const instance of instances) {
+    const layer = state.layers[instance.layerId];
+    if (
+      !layer?.visible ||
+      layer.locked ||
+      (layer.systemKind !== "work" && layer.systemKind !== "custom")
+    )
+      throw new DrawingBlockError(
+        "Block instance shortcuts require visible unlocked editable layers.",
+      );
+  }
+  return { instances, state };
+}
+
+export function deleteDrawingBlockInstancesCommand(
+  inputState: DrawingDocumentState,
+  actorId: string,
+  selectedIds: readonly string[],
+): StructureCommand {
+  const { instances } = selectedBlockInstances(inputState, selectedIds);
+  return structureCommand(
+    actorId,
+    instances.map((instance) => ({
+      kind: "delete_block_instance" as const,
+      id: instance.id,
+      baseVersion: instance.version,
+    })),
+  );
+}
+
+export function moveDrawingBlockInstancesCommand(
+  inputState: DrawingDocumentState,
+  actorId: string,
+  selectedIds: readonly string[],
+  delta: Point,
+): StructureCommand {
+  if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y))
+    throw new DrawingBlockError("Block move delta must be finite.");
+  const { instances } = selectedBlockInstances(inputState, selectedIds);
+  return structureCommand(
+    actorId,
+    instances.map((instance) => ({
+      kind: "put_block_instance" as const,
+      entity: DrawingBlockInstanceSchema.parse({
+        ...structuredClone(instance),
+        origin: {
+          x: instance.origin.x + delta.x,
+          y: instance.origin.y + delta.y,
+        },
+      }),
+      baseVersion: instance.version,
+    })),
+  );
+}
+
+export function duplicateDrawingBlockInstancesCommand(
+  inputState: DrawingDocumentState,
+  actorId: string,
+  selectedIds: readonly string[],
+  options: { createId?: () => string; offset?: Point } = {},
+): StructureCommand {
+  const { instances } = selectedBlockInstances(inputState, selectedIds);
+  const createId = options.createId ?? (() => crypto.randomUUID());
+  const offset = options.offset ?? { x: 10, y: 10 };
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y))
+    throw new DrawingBlockError("Block copy offset must be finite.");
+  return structureCommand(
+    actorId,
+    instances.map((instance) => ({
+      kind: "put_block_instance" as const,
+      entity: DrawingBlockInstanceSchema.parse({
+        ...structuredClone(instance),
+        id: createId(),
+        origin: {
+          x: instance.origin.x + offset.x,
+          y: instance.origin.y + offset.y,
+        },
+        version: 1,
+      }),
+      baseVersion: null,
+    })),
+  );
+}
+
+export type DrawingBlockInstancesClipboard = {
+  instances: DrawingBlockInstance[];
+};
+
+export function copyDrawingBlockInstancesClipboard(
+  inputState: DrawingDocumentState,
+  selectedIds: readonly string[],
+): DrawingBlockInstancesClipboard {
+  const { instances } = selectedBlockInstances(inputState, selectedIds);
+  return {
+    instances: instances.map((instance) =>
+      DrawingBlockInstanceSchema.parse(structuredClone(instance)),
+    ),
+  };
+}
+
+export function pasteDrawingBlockInstancesClipboardCommand(
+  inputState: DrawingDocumentState,
+  actorId: string,
+  clipboard: DrawingBlockInstancesClipboard,
+  options: {
+    activeCanvasId: string;
+    activeLayerId: string;
+    createId?: () => string;
+    offset?: Point;
+  },
+): StructureCommand {
+  const state = canonicalState(inputState);
+  const layer = state.layers[options.activeLayerId];
+  if (
+    !layer ||
+    layer.canvasId !== options.activeCanvasId ||
+    !layer.visible ||
+    layer.locked ||
+    (layer.systemKind !== "work" && layer.systemKind !== "custom")
+  )
+    throw new DrawingBlockError(
+      "Block paste requires the current active editable canvas layer.",
+    );
+  if (!clipboard.instances.length)
+    throw new DrawingBlockError("Block clipboard is empty.");
+  const snapshots = clipboard.instances.map((instance) =>
+    DrawingBlockInstanceSchema.parse(structuredClone(instance)),
+  );
+  for (const snapshot of snapshots) {
+    if (!state.structure.blocks[snapshot.blockId])
+      throw new DrawingBlockError(
+        `Block definition ${snapshot.blockId} no longer exists.`,
+      );
+  }
+  const createId = options.createId ?? (() => crypto.randomUUID());
+  const offset = options.offset ?? { x: 10, y: 10 };
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y))
+    throw new DrawingBlockError("Block paste offset must be finite.");
+  return structureCommand(
+    actorId,
+    snapshots.map((snapshot) => ({
+      kind: "put_block_instance" as const,
+      entity: DrawingBlockInstanceSchema.parse({
+        ...snapshot,
+        id: createId(),
+        layerId: layer.id,
+        origin: {
+          x: snapshot.origin.x + offset.x,
+          y: snapshot.origin.y + offset.y,
+        },
+        version: 1,
+      }),
+      baseVersion: null,
+    })),
+  );
 }
