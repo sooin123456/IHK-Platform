@@ -9,6 +9,7 @@ import {
   DrawingObjectNameSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
+  DrawingStructureActionSchema,
   DrawingStyleSchema,
 } from "./drawing-workspace.types.ts";
 import type { DrawingOperationInput } from "./drawing-workspace.types.ts";
@@ -284,6 +285,12 @@ const UpdateLayerPayloadSchema = z
     patch: LayerPatchSchema,
   })
   .strict();
+const MutateStructurePayloadSchema = z
+  .object({
+    type: z.literal("mutate_structure"),
+    actions: z.array(DrawingStructureActionSchema).min(1),
+  })
+  .strict();
 
 const OperationPayloadSchemas = {
   add_objects: AddObjectsPayloadSchema,
@@ -291,6 +298,7 @@ const OperationPayloadSchemas = {
   delete_objects: DeleteObjectsPayloadSchema,
   add_layer: AddLayerPayloadSchema,
   update_layer: UpdateLayerPayloadSchema,
+  mutate_structure: MutateStructurePayloadSchema,
 } as const;
 
 const exactOperationKeys = [
@@ -353,7 +361,9 @@ function parseOperation(value: unknown): DrawingOperationInput {
         ? AddObjectsPayloadSchema
         : operation.type === "add_layer"
           ? z.object({}).strict()
-          : OperationPayloadSchemas[operation.type];
+          : operation.type === "mutate_structure"
+            ? MutateStructurePayloadSchema
+            : OperationPayloadSchemas[operation.type];
   parseExactPayload(expectedInverse, operation.inverse);
   return operation;
 }

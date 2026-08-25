@@ -9,6 +9,7 @@ import type {
 } from "./drawing-workspace.types.ts";
 import {
   applyDrawingStructureActions,
+  resolveDrawingStyle,
   type DrawingStructureState,
 } from "./drawing-structure.ts";
 import {
@@ -24,8 +25,11 @@ import {
 } from "./drawing-workspace.types.ts";
 
 export type ObjectPatch = Partial<
-  Pick<DrawingObject, "name" | "layerId" | "geometry" | "style">
->;
+  Pick<DrawingObject, "name" | "layerId" | "geometry">
+> & {
+  styleId?: string | null;
+  style?: Partial<DrawingObject["style"]>;
+};
 
 export type ObjectUpdate = {
   objectId: string;
@@ -233,6 +237,7 @@ function objectPatchBefore(
   if (patch.name !== undefined) inverse.name = object.name;
   if (patch.layerId !== undefined) inverse.layerId = object.layerId;
   if (patch.geometry !== undefined) inverse.geometry = clone(object.geometry);
+  if (patch.styleId !== undefined) inverse.styleId = object.styleId ?? null;
   if (patch.style !== undefined) inverse.style = clone(object.style);
   return inverse;
 }
@@ -333,8 +338,19 @@ function reduceCommand(
         const updated = DrawingObjectSchema.parse({
           ...object,
           ...clone(update.patch),
+          ...(update.patch.style !== undefined
+            ? { style: { ...object.style, ...clone(update.patch.style) } }
+            : {}),
           version: object.version + 1,
         });
+        if (updated.styleId) {
+          if (!state.structure) {
+            throw new DrawingCommandError(
+              "Referenced drawing styles require canonical structure state.",
+            );
+          }
+          resolveDrawingStyle(updated, state.structure.styles);
+        }
         objects[object.id] = updated;
         resultVersions[object.id] = updated.version;
         realizedVersions[object.id] = updated.version;
@@ -479,12 +495,7 @@ function reduceCommand(
         forward,
         inverse: { type: "mutate_structure", actions: applied.inverse },
         resultVersions: applied.resultVersions,
-        realizedVersions: Object.fromEntries(
-          Object.entries(applied.resultVersions).map(([id, version]) => [
-            id,
-            version ?? (applied.baseVersions[id] ?? 0) + 1,
-          ]),
-        ),
+        realizedVersions: applied.realizedVersions,
         undoable: true,
         structure,
       };
@@ -552,8 +563,9 @@ function conflictFor(
 ): DrawingCommandConflict | undefined {
   const objectIds = Object.entries(operation.resultVersions)
     .filter(([objectId, expectedVersion]) => {
-      const current =
-        operation.type === "update_layer"
+      const current = operation.type === "mutate_structure"
+        ? structureTarget(state.structure, (operation.forward as Extract<DrawingCommandPayload, { type: "mutate_structure" }>).actions, objectId)
+        : operation.type === "update_layer"
           ? state.layers[objectId]
           : state.objects[objectId];
       return expectedVersion === null
@@ -562,6 +574,51 @@ function conflictFor(
     })
     .map(([objectId]) => objectId);
   return objectIds.length > 0 ? { kind: "conflict", objectIds } : undefined;
+}
+
+function structureCollectionFor(kind: DrawingStructureAction["kind"]): keyof Omit<DrawingStructureState, "revisionId" | "tombstones"> {
+  if (kind.includes("object")) return "objects";
+  if (kind.includes("page")) return "pages";
+  if (kind.includes("canvas")) return "canvases";
+  if (kind.includes("style")) return "styles";
+  if (kind.includes("block_instance")) return "blockInstances";
+  if (kind.includes("block")) return "blocks";
+  if (kind.includes("property_schema")) return "propertySchemas";
+  if (kind.includes("property_value")) return "propertyValues";
+  return "tables";
+}
+
+function structureTarget(
+  structure: DrawingDocumentState["structure"],
+  actions: DrawingStructureAction[],
+  id: string,
+): { version: number } | undefined {
+  if (!structure) return undefined;
+  const action = actions.find((candidate) =>
+    ("entity" in candidate ? candidate.entity.id : candidate.id) === id,
+  );
+  if (!action) return undefined;
+  const collection = structureCollectionFor(action.kind);
+  return (structure[collection] as Record<string, { version: number }>)[id];
+}
+
+function realizeStructurePayload(
+  payload: Extract<DrawingCommandPayload, { type: "mutate_structure" }>,
+  structure: DrawingDocumentState["structure"],
+): Extract<DrawingCommandPayload, { type: "mutate_structure" }> {
+  if (!structure) throw new DrawingCommandError("Drawing structure state is required for structure history.");
+  return {
+    type: "mutate_structure",
+    actions: payload.actions.map((action) => {
+      const id = "entity" in action ? action.entity.id : action.id;
+      const current = (structure[structureCollectionFor(action.kind)] as Record<string, { version: number }>)[id];
+      if ("entity" in action) {
+        return { ...clone(action), baseVersion: current?.version ?? null } as DrawingStructureAction;
+      }
+      if (!current) throw new DrawingCommandError(`Structure history target ${id} no longer exists.`);
+      return { ...clone(action), baseVersion: current.version } as DrawingStructureAction;
+    }),
+  };
 }
 
 function latestAppliedOperationFor(
@@ -631,8 +688,8 @@ function updateHistory(
 /** Creates an empty append-only document state from canonical drawing records. */
 export function createDrawingDocumentState({
   revisionId,
-  objects = [],
-  layers = [],
+  objects,
+  layers,
   structure,
 }: {
   revisionId: string;
@@ -640,16 +697,37 @@ export function createDrawingDocumentState({
   layers?: DrawingLayer[];
   structure?: Omit<DrawingStructureState, "revisionId">;
 }): DrawingDocumentState {
+  const canonicalObjects = structure
+    ? mapById(Object.values(structure.objects))
+    : mapById((objects ?? []).map((object) => DrawingObjectSchema.parse(object)));
+  const canonicalLayers = structure
+    ? mapById(Object.values(structure.layers))
+    : mapById((layers ?? []).map((layer) => DrawingLayerSchema.parse(layer)));
+  const suppliedObjects = objects
+    ? mapById(objects.map((object) => DrawingObjectSchema.parse(object)))
+    : undefined;
+  const suppliedLayers = layers
+    ? mapById(layers.map((layer) => DrawingLayerSchema.parse(layer)))
+    : undefined;
+  if (
+    structure &&
+    ((suppliedObjects && JSON.stringify(suppliedObjects) !== JSON.stringify(canonicalObjects)) ||
+      (suppliedLayers && JSON.stringify(suppliedLayers) !== JSON.stringify(canonicalLayers)))
+  ) {
+    throw new DrawingCommandError(
+      "Drawing structure objects and layers must match the canonical document state.",
+    );
+  }
   return {
     revisionId,
-    objects: mapById(
-      objects.map((object) => DrawingObjectSchema.parse(object)),
-    ),
-    layers: mapById(layers.map((layer) => DrawingLayerSchema.parse(layer))),
+    objects: canonicalObjects,
+    layers: canonicalLayers,
     operations: [],
     undoStackByActor: {},
     redoStackByActor: {},
-    structure: structure ? clone(structure) : undefined,
+    structure: structure
+      ? { ...clone(structure), objects: canonicalObjects, layers: canonicalLayers }
+      : undefined,
   };
 }
 
@@ -697,7 +775,9 @@ export function undoDrawingCommand(
   const payload =
     originalPayload.type === "add_objects"
       ? realizeAddPayload(originalPayload, latestApplied.realizedVersions)
-      : originalPayload;
+      : originalPayload.type === "mutate_structure"
+        ? realizeStructurePayload(originalPayload, state.structure)
+        : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
@@ -741,7 +821,9 @@ export function redoDrawingCommand(
   const payload: DrawingCommandPayload =
     originalPayload.type === "add_objects"
       ? realizeAddPayload(originalPayload, inverse.realizedVersions)
-      : originalPayload;
+      : originalPayload.type === "mutate_structure"
+        ? realizeStructurePayload(originalPayload, state.structure)
+        : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
@@ -869,17 +951,23 @@ export function deleteDrawingSelection(
 export function copyDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
   selectedIds: string[],
+  resolveStyle: ((object: DrawingObject) => DrawingObject["style"]) | undefined = undefined,
 ): DrawingClipboard {
   return {
     items: [...new Set(selectedIds)].flatMap((objectId) => {
       const object = mutableDrawingObject(state, objectId);
+      if (object?.styleId && !resolveStyle) {
+        throw new DrawingCommandError(
+          "Copying a referenced style requires an explicit style resolver.",
+        );
+      }
       return object
         ? [
             clone({
               name: object.name,
               layerId: object.layerId,
               geometry: object.geometry,
-              style: object.style,
+              style: object.styleId ? resolveStyle!(object) : object.style,
             }),
           ]
         : [];

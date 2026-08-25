@@ -17,6 +17,7 @@ import {
   applyDrawingCommand,
   createDrawingDocumentState,
 } from "../app/lukas/lib/drawing-commands.ts";
+import { DrawingOperationInputSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = {
   revisionA: "00000000-0000-4000-8000-000000000001",
@@ -211,6 +212,31 @@ test("enqueue is durable before send and stores only the canonical operation", a
   assert.equal(events[0], `put:${ids.operation1}`);
   assert.equal(events[1], `send:${ids.operation1}`);
   assert.deepEqual(await outbox.pending(), []);
+});
+
+test("a recorded mutate_structure operation parses and enqueues unchanged", async () => {
+  const pageId = "00000000-0000-4000-8000-000000000030";
+  const paperId = "00000000-0000-4000-8000-000000000031";
+  const modelId = "00000000-0000-4000-8000-000000000032";
+  const workLayer = {
+    id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1,
+  };
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "Page 1", sortOrder: 0, version: 1 } },
+      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
+      layers: { [ids.layer]: workLayer }, objects: { [ids.object]: rectangle({ layerId: ids.layer }) }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const applied = applyDrawingCommand(initial, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: [{ kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null }],
+  }, { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" });
+  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(applied.operation);
+  assert.equal((await outbox.pending())[0].type, "mutate_structure");
 });
 
 test("enqueue rejects a malformed nested operation before durable storage", async () => {

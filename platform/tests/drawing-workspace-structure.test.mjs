@@ -7,6 +7,7 @@ import {
 } from "../app/lukas/lib/drawing-structure.ts";
 import {
   DrawingObjectSchema,
+  DrawingPropertyValueSchema,
   DrawingStructureActionSchema,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
 
@@ -237,4 +238,40 @@ test("objects without a style reference retain complete inline styles", () => {
   const legacy = object({ styleId: null, style: { stroke: "#112233", strokeWidth: 2, fill: null } });
   assert.equal(DrawingObjectSchema.safeParse(legacy).success, true);
   assert.deepEqual(resolveDrawingStyle(legacy, []), legacy.style);
+});
+
+test("structure reduction is atomic, ordered, and keeps inverse versions monotonic", () => {
+  const original = canvas({ id: "00000000-0000-4000-8000-000000000090", name: "Model", spaceKind: "model", sortOrder: 1, version: 4 });
+  const current = state({ canvases: { [ids.canvas]: canvas(), [original.id]: original } });
+  const update = { kind: "put_canvas", entity: { ...original, name: "Updated" }, baseVersion: 4 };
+  const updated = applyDrawingStructureActions(current, [update]);
+  const restored = applyDrawingStructureActions(updated.state, updated.inverse);
+  assert.equal(restored.state.canvases[original.id].name, "Model");
+  assert.equal(restored.state.canvases[original.id].version, 6);
+  assert.deepEqual(current.canvases[original.id], original);
+  assert.throws(() => applyDrawingStructureActions(current, [
+    { kind: "put_canvas", entity: { ...canvas(), id: "00000000-0000-4000-8000-000000000091", pageId: "00000000-0000-4000-8000-000000000092" }, baseVersion: null },
+  ]), DrawingStructureError);
+  assert.equal(current.canvases["00000000-0000-4000-8000-000000000091"], undefined);
+});
+
+test("default canvases, cross-kind IDs, nested extras, and invalid calendar dates fail closed", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  assert.throws(() => applyDrawingStructureActions(current, [
+    { kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000093", name: "Replacement", sortOrder: 0 }), baseVersion: null },
+    { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+  ]), DrawingStructureError);
+  assert.throws(() => applyDrawingStructureActions(current, [
+    { kind: "put_style", entity: { id: ids.canvas, revisionId: ids.revision, name: "Collision", value: { stroke: "#111111", strokeWidth: 1, fill: null }, version: 1 }, baseVersion: null },
+  ]), DrawingStructureError);
+  assert.throws(() => DrawingStructureActionSchema.parse({ kind: "put_canvas", entity: { ...canvas(), background: { sourceFileId: ids.style, sourceSha256: "a".repeat(64), pdfPageNumber: 1, calibration: { normalizedStart: { x: 0, y: 0 }, normalizedEnd: { x: 1, y: 1 }, realLengthMillimeters: 1, millimetersPerNormalizedUnit: 1, extra: true } } }, baseVersion: null }));
+  assert.equal(DrawingPropertyValueSchema.safeParse({ id: ids.instance, schemaId: ids.style, objectId: ids.object, blockInstanceId: null, value: "2026-02-30", version: 1 }).success, true);
+  const dateState = state({
+    canvases: { [ids.canvas]: canvas() },
+    objects: { [ids.object]: object() },
+    propertySchemas: {
+      [ids.block]: { id: ids.block, revisionId: ids.revision, name: "Due date", valueType: "date", enumOptions: [], appliesTo: ["rectangle"], required: false, version: 1 },
+    },
+  });
+  assert.throws(() => applyDrawingStructureActions(dateState, [{ kind: "put_property_value", entity: { id: ids.instance, schemaId: ids.block, objectId: ids.object, blockInstanceId: null, value: "2026-02-30", version: 1 }, baseVersion: null }]), DrawingStructureError);
 });

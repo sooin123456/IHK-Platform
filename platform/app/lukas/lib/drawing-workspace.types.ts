@@ -177,7 +177,7 @@ export const PdfCalibrationSchema = z.object({
   normalizedEnd: PointSchema,
   realLengthMillimeters: PositiveFinite,
   millimetersPerNormalizedUnit: PositiveFinite,
-});
+}).strict();
 
 const DrawingObjectValidatedSchema = z
   .object({
@@ -524,6 +524,12 @@ const DrawingOperationPayloadSchemas = {
       patch: DrawingOperationLayerPatchSchema,
     })
     .strict(),
+  mutate_structure: z
+    .object({
+      type: z.literal("mutate_structure"),
+      actions: z.array(DrawingStructureActionSchema).min(1),
+    })
+    .strict(),
 } as const;
 
 export const DrawingOperationInputSchema = z
@@ -536,6 +542,7 @@ export const DrawingOperationInputSchema = z
       "delete_objects",
       "add_layer",
       "update_layer",
+      "mutate_structure",
     ]),
     baseVersions: z.record(Uuid, z.number().int().positive()),
     forward: z.record(z.string(), z.unknown()),
@@ -553,7 +560,9 @@ export const DrawingOperationInputSchema = z
           ? DrawingOperationPayloadSchemas.add_objects
           : operation.type === "add_layer"
             ? z.object({}).strict()
-            : DrawingOperationPayloadSchemas[operation.type];
+            : operation.type === "mutate_structure"
+              ? DrawingOperationPayloadSchemas.mutate_structure
+              : DrawingOperationPayloadSchemas[operation.type];
     const inverse = inverseSchema.safeParse(operation.inverse);
     if (!forward.success)
       context.addIssue({

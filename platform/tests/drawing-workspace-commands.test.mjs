@@ -168,6 +168,7 @@ test("mutate_structure records strict forward and inverse payloads", () => {
     version: 1,
   };
   const initial = emptyState({
+    layers: undefined,
     structure: {
       pages: {
         [ids.page]: {
@@ -179,7 +180,7 @@ test("mutate_structure records strict forward and inverse payloads", () => {
         },
       },
       canvases: { [ids.canvas]: paper },
-      layers: {},
+      layers: { [ids.layer]: layer() },
       objects: {},
       styles: {},
       blocks: {},
@@ -208,6 +209,12 @@ test("mutate_structure records strict forward and inverse payloads", () => {
     type: "mutate_structure",
     actions: [{ kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 }],
   });
+  const undone = undoDrawingCommand(applied.state, "actor-a", environment());
+  assert.equal(undone.kind, undefined);
+  assert.equal(undone.state.structure.canvases[ids.modelCanvas], undefined);
+  const redone = redoDrawingCommand(undone.state, "actor-a", environment());
+  assert.equal(redone.kind, undefined);
+  assert.equal(redone.state.structure.canvases[ids.modelCanvas].version, 3);
 });
 
 test("add appends an operation with an inverse and leaves its input state unchanged", () => {
@@ -1895,6 +1902,25 @@ test("copy strips identity and paste creates strict fresh objects at 20 mm", () 
     pasted.objects[0],
   );
   assert.deepEqual(source.geometry.origin, { x: 0, y: 0 });
+});
+
+test("referenced-style copy fails closed unless it explicitly resolves to portable inline style", () => {
+  const referenced = rectangle({
+    styleId: ids.circle,
+    style: { fill: "#ffffff" },
+  });
+  const state = emptyState({ objects: [referenced] });
+  assert.throws(() => drawingCommands.copyDrawingSelection(state, [ids.rectangle]));
+  const copied = drawingCommands.copyDrawingSelection(
+    state,
+    [ids.rectangle],
+    () => ({ stroke: "#111111", strokeWidth: 2, fill: "#ffffff" }),
+  );
+  const pasted = drawingCommands.pasteDrawingClipboard(copied, "actor-a", environment().createId);
+  assert.equal(pasted.objects[0].styleId, undefined);
+  assert.deepEqual(pasted.objects[0].style, {
+    stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
+  });
 });
 
 test("duplicate and Delete create add and delete commands without mutating originals", () => {
