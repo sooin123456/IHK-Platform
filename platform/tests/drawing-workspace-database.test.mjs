@@ -12,6 +12,8 @@ const upgradeMigration = () =>
   );
 const issueLinkMigration = () =>
   read("supabase/migrations/20260824135829_drawing_workspace_issue_links.sql");
+const p2Migration = () =>
+  read("supabase/migrations/20260825010814_drawing_workspace_p2_structure.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -614,4 +616,108 @@ test("every workspace foreign-key path has a covering index", async () => {
       ),
     );
   }
+});
+
+test("P2 migration adds the seven project-scoped structure tables and authoritative canvases", async () => {
+  const sql = await p2Migration();
+  for (const table of [
+    "lukas_drawing_canvases",
+    "lukas_drawing_styles",
+    "lukas_drawing_blocks",
+    "lukas_drawing_block_instances",
+    "lukas_drawing_property_schemas",
+    "lukas_drawing_property_values",
+    "lukas_drawing_tables",
+  ]) {
+    assert.match(sql, new RegExp(`create table public\\.${table}`, "i"));
+    assert.match(
+      sql,
+      new RegExp(`alter table public\\.${table} enable row level security`, "i"),
+    );
+    assert.match(
+      sql,
+      new RegExp(`on public\\.${table} for select to authenticated`, "i"),
+    );
+  }
+  assert.match(
+    sql,
+    /alter table public\.lukas_drawing_layers\s+add column canvas_id uuid/i,
+  );
+  assert.match(
+    sql,
+    /insert into public\.lukas_drawing_canvases[\s\S]+from public\.lukas_drawing_pages/i,
+  );
+  assert.match(
+    sql,
+    /update public\.lukas_drawing_layers[\s\S]+set canvas_id/i,
+  );
+  assert.match(
+    sql,
+    /alter table public\.lukas_drawing_layers\s+alter column canvas_id set not null/i,
+  );
+  assert.match(sql, /check \(operation_type[\s\S]*mutate_structure/i);
+});
+
+test("P2 migration hardens structure mutation, snapshot v2, and approved same-project cloning", async () => {
+  const sql = await p2Migration();
+  assert.match(
+    sql,
+    /alter function private\.lukas_drawing_apply_operation\(uuid, uuid, text, jsonb, jsonb, jsonb\)\s+rename to lukas_drawing_apply_operation_pre_p2/i,
+  );
+  assert.match(sql, /p_operation_type = 'mutate_structure'/i);
+  assert.match(sql, /Drawing operation idempotency key does not match the stored request/i);
+  assert.match(sql, /errcode\s*=\s*'P1C01'/i);
+  assert.match(sql, /errcode\s*=\s*'P1R01'/i);
+  assert.match(sql, /schema_version[^;]*2/i);
+  assert.match(sql, /'schemaVersion', 2/i);
+  for (const key of [
+    "canvases",
+    "styles",
+    "blocks",
+    "blockInstances",
+    "propertySchemas",
+    "propertyValues",
+    "tables",
+  ]) assert.match(sql, new RegExp(`'${key}'`, "i"));
+  assert.match(
+    sql,
+    /function public\.lukas_drawing_create_from_template\s*\(\s*p_source_revision_id uuid,\s*p_title text,\s*p_source_file_id uuid/i,
+  );
+  assert.match(sql, /v_source_revision\.status\s*<>\s*'approved'/i);
+  assert.match(sql, /v_source_revision\.project_id\s*<>\s*v_project_id/i);
+  assert.doesNotMatch(sql, /create table[^;]+template/i);
+});
+
+test("P2 migration uses locked guards, least privilege, and covering indexes", async () => {
+  const sql = await p2Migration();
+  for (const table of [
+    "canvases",
+    "styles",
+    "blocks",
+    "block_instances",
+    "property_schemas",
+    "property_values",
+    "tables",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(`revoke all on public\\.lukas_drawing_${table}[\\s\\S]+from public, anon, authenticated`, "i"),
+    );
+    assert.match(
+      sql,
+      new RegExp(`create (?:unique )?index[^;]+on public\\.lukas_drawing_${table}\\s*\\(\\s*project_id`, "is"),
+    );
+  }
+  for (const helper of [
+    "lukas_drawing_p2_child_guard",
+    "lukas_drawing_apply_operation",
+    "lukas_drawing_request_review",
+    "lukas_drawing_create_from_template",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    if (/security definer/i.test(definition))
+      assert.match(definition, /set search_path\s*=\s*''/i);
+  }
+  assert.match(sql, /from public\.lukas_drawing_revisions[\s\S]+for update/i);
+  assert.match(sql, /pg_trigger_depth\(\)\s*>\s*1/i);
 });
