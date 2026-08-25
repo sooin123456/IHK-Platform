@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
   applyAwarenessUpdate,
   Awareness,
@@ -15,6 +16,7 @@ import {
   MessageReceiver,
   OutgoingMessage,
 } from "@hocuspocus/server";
+import CrossWebSocket from "crossws/websocket";
 
 const configModule = await import("../collaboration/src/config.ts").catch(
   () => null,
@@ -35,8 +37,10 @@ const ids = {
   actor: "00000000-0000-4000-8000-000000000403",
   operation: "00000000-0000-4000-8000-000000000404",
   operation2: "00000000-0000-4000-8000-000000000407",
+  operation3: "00000000-0000-4000-8000-000000000409",
   layer: "00000000-0000-4000-8000-000000000405",
   layer2: "00000000-0000-4000-8000-000000000408",
+  layer3: "00000000-0000-4000-8000-000000000410",
 };
 const roomName = `drawing:${ids.project}:${ids.revision}`;
 const supabaseUrl = "https://example.supabase.co";
@@ -431,6 +435,47 @@ test("clone validation accepts concurrent Y.Array appends in either Yjs order", 
   );
 });
 
+test("clone validation rejects delete-reinsert reordering of existing operation entries", () => {
+  const { validateDrawingClientUpdate } = requireModules();
+  const current = initializedDocument();
+  Y.applyUpdate(current, appendUpdate(current));
+  const second = operation({
+    clientOperationId: ids.operation2,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer2, name: "Second" },
+    },
+  });
+  Y.applyUpdate(current, appendUpdate(current, second));
+  const attacker = new Y.Doc();
+  Y.applyUpdate(attacker, Y.encodeStateAsUpdate(current));
+  const vector = Y.encodeStateVector(current);
+  const third = operation({
+    clientOperationId: ids.operation3,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer3, name: "Third" },
+    },
+  });
+  attacker.transact(() => {
+    attacker.getArray("operationOrder").delete(0, 1);
+    attacker.getArray("operationOrder").push([ids.operation, ids.operation3]);
+    attacker.getMap("operations").set(ids.operation3, third);
+  });
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      current,
+      Y.encodeStateAsUpdate(attacker, vector),
+      {
+        userId: ids.actor,
+        projectId: ids.project,
+        revisionId: ids.revision,
+        canWrite: true,
+      },
+    ),
+  );
+});
+
 test("Awareness is bounded and identity is overwritten from verified context", () => {
   const { sanitizeDrawingAwarenessState } = requireModules();
   const value = sanitizeDrawingAwarenessState(
@@ -564,7 +609,7 @@ test("Awareness binds one clientId to its connection and bounds ten-second lease
     .toUint8Array();
   const removalMessage = new IncomingMessage(removalFrame);
   removalMessage.readVarString();
-  await assert.rejects(() =>
+  await assert.doesNotReject(() =>
     new MessageReceiver(removalMessage).apply(
       {
         name: roomName,
@@ -590,6 +635,86 @@ test("Awareness binds one clientId to its connection and bounds ten-second lease
   roomAwareness.destroy();
   roomDocument.destroy();
   await runtime.stop();
+});
+
+test("real HocuspocusProvider syncs and publishes one bounded cursor state", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  class OriginWebSocket extends CrossWebSocket {
+    constructor(url) {
+      super(url, [], { origin: "https://app.example.com" });
+    }
+  }
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: "editor@example.com",
+      expiresAtMs: Date.now() + 120_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      bootstrap: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+    },
+  });
+  const server = await runtime.start();
+  let provider;
+  try {
+    const synced = new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("provider sync timed out")),
+        2_000,
+      );
+      provider = new HocuspocusProvider({
+        url: server.webSocketURL,
+        name: roomName,
+        token: "test-token",
+        WebSocketPolyfill: OriginWebSocket,
+        onSynced: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        onAuthenticationFailed: ({ reason }) => {
+          clearTimeout(timeout);
+          reject(new Error(reason));
+        },
+      });
+    });
+    await synced;
+    provider.setAwarenessField("cursorWorld", { x: 12, y: 34 });
+    const deadline = Date.now() + 2_000;
+    let cursorState;
+    while (Date.now() < deadline) {
+      const document = runtime.hocuspocus.documents.get(roomName);
+      cursorState = [...(document?.awareness.getStates().values() ?? [])].find(
+        (state) => state.cursorWorld?.x === 12,
+      );
+      if (cursorState) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.deepEqual(cursorState?.cursorWorld, { x: 12, y: 34 });
+    assert.equal(cursorState?.user.id, ids.actor);
+  } finally {
+    provider?.destroy();
+    await runtime.stop();
+  }
 });
 
 test("storage retries transient reads and uses exact generation/SHA CAS without stale overwrite", async () => {

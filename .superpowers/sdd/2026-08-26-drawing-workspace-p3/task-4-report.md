@@ -60,10 +60,21 @@ RED:
 - A signed receipt with a failing durable store initially returned HTTP 401;
   the endpoint now reserves 401 for signature/schema authentication failures
   and returns retriable HTTP 503 for persistence failures.
+- Rereview RED: a real `HocuspocusProvider` connection was disconnected because
+  v4's scratch Awareness contributes its own empty client state, making one
+  provider appear as two states. The production provider could sync but its
+  cursor never reached the room. The hook now removes exactly that one seeded
+  scratch state before enforcing the unchanged one-client limit; the real
+  provider sync and stamped cursor update pass end to end.
+- Rereview RED: deleting and reinserting an existing `operationOrder` entry in
+  a new position while appending a valid operation was accepted. Existing IDs
+  must now appear in exactly their prior relative order after new concurrent
+  IDs are filtered out. The reorder attack is rejected while both legitimate
+  Yjs concurrent arrival orders remain accepted.
 
 GREEN:
 
-- `node --test tests/drawing-collaboration-service.test.mjs`: 22 passed,
+- `node --test tests/drawing-collaboration-service.test.mjs`: 24 passed,
   0 failed.
 - `npm run typecheck:collaboration`: exit 0.
 - `npm run build:collaboration`: exit 0; the emitted entrypoint imports

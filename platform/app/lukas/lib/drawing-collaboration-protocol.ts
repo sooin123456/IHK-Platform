@@ -304,6 +304,16 @@ export function validateDrawingCollaborationAppend(
     throw new Error("Client updates must append drawing operations.");
   const currentIds = new Set(current.operationOrder);
   const nextIds = new Set(next.operationOrder);
+  const preservedOrder = next.operationOrder.filter((operationId) =>
+    currentIds.has(operationId),
+  );
+  if (
+    preservedOrder.length !== current.operationOrder.length ||
+    preservedOrder.some(
+      (operationId, index) => operationId !== current.operationOrder[index],
+    )
+  )
+    throw new Error("Existing drawing operation order is immutable.");
   for (const operationId of current.operationOrder) {
     if (
       !nextIds.has(operationId) ||

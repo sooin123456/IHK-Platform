@@ -451,6 +451,11 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       };
     }) {
       await reauthorize(input.context, input.connection);
+      // Hocuspocus v4 seeds its scratch Awareness with one empty local state.
+      const scratchClientId = [...input.states].find(
+        ([, state]) => Object.keys(state).length === 0,
+      )?.[0];
+      if (scratchClientId !== undefined) input.states.delete(scratchClientId);
       if (input.states.size > 1)
         throw new Error("One Awareness client is allowed per connection.");
       if (input.connection && input.document) {
