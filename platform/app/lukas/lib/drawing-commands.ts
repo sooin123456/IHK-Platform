@@ -1,8 +1,10 @@
 import type {
   DrawingGeometry,
+  DrawingCanvas,
   DrawingLayer,
   DrawingLayerInput,
   DrawingObject,
+  DrawingPage,
   DrawingOperationInput,
   DrawingStyle,
   DrawingStructureAction,
@@ -24,6 +26,9 @@ import {
   DrawingStyleSchema,
   DrawingStrokeColorSchema,
   DrawingStrokeWidthSchema,
+  DrawingCanvasSchema,
+  DrawingPageSchema,
+  DrawingStructureLayerSchema,
 } from "./drawing-workspace.types.ts";
 
 export type ObjectPatch = Partial<
@@ -42,6 +47,416 @@ export type ObjectUpdate = {
 export type LayerPatch = Partial<
   Pick<DrawingLayer, "name" | "visible" | "locked" | "canvasId" | "sortOrder">
 >;
+
+type StructureCommandState = Pick<
+  DrawingDocumentState,
+  "revisionId" | "layers" | "structure"
+> & {
+  structure: NonNullable<DrawingDocumentState["structure"]>;
+};
+
+function requireStructureState(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+): StructureCommandState {
+  if (!state.structure) {
+    throw new DrawingCommandError(
+      "Drawing structure state is required for canvas actions.",
+    );
+  }
+  return state as StructureCommandState;
+}
+
+function ordered<T extends { id: string; sortOrder?: number }>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort(
+    (left, right) =>
+      (left.sortOrder ?? 0) - (right.sortOrder ?? 0) ||
+      left.id.localeCompare(right.id),
+  );
+}
+
+function nextSortOrder(items: ReadonlyArray<{ sortOrder?: number }>): number {
+  return (
+    items.reduce(
+      (largest, item) => Math.max(largest, item.sortOrder ?? 0),
+      -1,
+    ) + 1
+  );
+}
+
+function entityName(value: string): string {
+  const parsed = DrawingPageSchema.safeParse({
+    id: "00000000-0000-4000-8000-000000000000",
+    revisionId: "00000000-0000-4000-8000-000000000000",
+    name: value.trim(),
+    sortOrder: 0,
+    version: 1,
+  });
+  if (!parsed.success)
+    throw new DrawingCommandError(
+      "Drawing page and canvas names must not be empty.",
+    );
+  return parsed.data.name;
+}
+
+function structureCommand(
+  actorId: string,
+  actions: DrawingStructureAction[],
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  return { type: "mutate_structure", actorId, actions };
+}
+
+/** Creates one page, its required default paper canvas, and editable work layer atomically. */
+export function createDrawingPageCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  name: string,
+  createId: () => string = () => crypto.randomUUID(),
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStructureState(state);
+  const page: DrawingPage = DrawingPageSchema.parse({
+    id: createId(),
+    revisionId: canonical.revisionId,
+    name: entityName(name),
+    sortOrder: nextSortOrder(Object.values(canonical.structure.pages)),
+    version: 1,
+  });
+  const canvas: DrawingCanvas = DrawingCanvasSchema.parse({
+    id: createId(),
+    pageId: page.id,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 210,
+    heightMillimeters: 297,
+    background: null,
+    sortOrder: 0,
+    version: 1,
+  });
+  const layer = DrawingStructureLayerSchema.parse({
+    id: createId(),
+    name: "Work",
+    visible: true,
+    locked: false,
+    systemKind: "work",
+    canvasId: canvas.id,
+    sortOrder: 0,
+    version: 1,
+  });
+  return structureCommand(actorId, [
+    { kind: "put_page", entity: page, baseVersion: null },
+    { kind: "put_canvas", entity: canvas, baseVersion: null },
+    { kind: "put_layer", entity: layer, baseVersion: null },
+  ]);
+}
+
+/** Creates a non-default canvas and its editable layer in one strict action batch. */
+export function createDrawingCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  pageId: string,
+  spaceKind: DrawingCanvas["spaceKind"],
+  name: string,
+  createId: () => string = () => crypto.randomUUID(),
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStructureState(state);
+  if (!canonical.structure.pages[pageId])
+    throw new DrawingCommandError("Drawing page does not exist.");
+  const siblings = Object.values(canonical.structure.canvases).filter(
+    (canvas) => canvas.pageId === pageId,
+  );
+  const canvas: DrawingCanvas = DrawingCanvasSchema.parse({
+    id: createId(),
+    pageId,
+    name: entityName(name),
+    spaceKind,
+    widthMillimeters: 210,
+    heightMillimeters: 297,
+    background: null,
+    sortOrder: nextSortOrder(siblings),
+    version: 1,
+  });
+  const layer = DrawingStructureLayerSchema.parse({
+    id: createId(),
+    name: spaceKind === "model" ? "Model work" : "Paper work",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: canvas.id,
+    sortOrder: 0,
+    version: 1,
+  });
+  return structureCommand(actorId, [
+    { kind: "put_canvas", entity: canvas, baseVersion: null },
+    { kind: "put_layer", entity: layer, baseVersion: null },
+  ]);
+}
+
+export function renameDrawingPageCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  pageId: string,
+  name: string,
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const page = requireStructureState(state).structure.pages[pageId];
+  if (!page) throw new DrawingCommandError("Drawing page does not exist.");
+  return structureCommand(actorId, [
+    {
+      kind: "put_page",
+      entity: { ...page, name: entityName(name) },
+      baseVersion: page.version,
+    },
+  ]);
+}
+
+export function renameDrawingCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  canvasId: string,
+  name: string,
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canvas = requireStructureState(state).structure.canvases[canvasId];
+  if (!canvas) throw new DrawingCommandError("Drawing canvas does not exist.");
+  return structureCommand(actorId, [
+    {
+      kind: "put_canvas",
+      entity: { ...canvas, name: entityName(name) },
+      baseVersion: canvas.version,
+    },
+  ]);
+}
+
+function reorderStructureEntity<
+  T extends { id: string; sortOrder?: number; version: number },
+>(
+  actorId: string,
+  entity: T,
+  siblings: T[],
+  direction: "up" | "down",
+  kind: "put_page" | "put_canvas" | "put_layer",
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const items = ordered(siblings);
+  const index = items.findIndex((candidate) => candidate.id === entity.id);
+  const target = items[index + (direction === "up" ? -1 : 1)];
+  if (!target)
+    throw new DrawingCommandError(
+      "Drawing item cannot move farther in that direction.",
+    );
+  return structureCommand(actorId, [
+    {
+      kind,
+      entity: { ...entity, sortOrder: target.sortOrder ?? 0 },
+      baseVersion: entity.version,
+    },
+    {
+      kind,
+      entity: { ...target, sortOrder: entity.sortOrder ?? 0 },
+      baseVersion: target.version,
+    },
+  ] as unknown as DrawingStructureAction[]);
+}
+
+export function reorderDrawingPageCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  pageId: string,
+  direction: "up" | "down",
+) {
+  const canonical = requireStructureState(state);
+  const page = canonical.structure.pages[pageId];
+  if (!page) throw new DrawingCommandError("Drawing page does not exist.");
+  return reorderStructureEntity(
+    actorId,
+    page,
+    Object.values(canonical.structure.pages),
+    direction,
+    "put_page",
+  );
+}
+
+export function reorderDrawingCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  canvasId: string,
+  direction: "up" | "down",
+) {
+  const canonical = requireStructureState(state);
+  const canvas = canonical.structure.canvases[canvasId];
+  if (!canvas) throw new DrawingCommandError("Drawing canvas does not exist.");
+  return reorderStructureEntity(
+    actorId,
+    canvas,
+    Object.values(canonical.structure.canvases).filter(
+      (item) => item.pageId === canvas.pageId,
+    ),
+    direction,
+    "put_canvas",
+  );
+}
+
+export function reorderDrawingLayerCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  layerId: string,
+  direction: "up" | "down",
+) {
+  const canonical = requireStructureState(state);
+  const layer = canonical.structure.layers[layerId];
+  if (!layer) throw new DrawingCommandError("Drawing layer does not exist.");
+  if (layer.systemKind === "source")
+    throw new DrawingCommandError("Source drawing layer is immutable.");
+  const siblings = Object.values(canonical.structure.layers).filter(
+    (item) => item.canvasId === layer.canvasId && item.systemKind !== "source",
+  );
+  return reorderStructureEntity(
+    actorId,
+    layer,
+    siblings,
+    direction,
+    "put_layer",
+  );
+}
+
+export function moveDrawingLayerToCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  layerId: string,
+  canvasId: string,
+) {
+  const canonical = requireStructureState(state);
+  const layer = canonical.structure.layers[layerId];
+  const target = canonical.structure.canvases[canvasId];
+  if (!layer || !target)
+    throw new DrawingCommandError("Drawing layer or canvas does not exist.");
+  if (layer.systemKind === "source")
+    throw new DrawingCommandError("Source drawing layer is immutable.");
+  const origin = canonical.structure.canvases[layer.canvasId ?? ""];
+  if (!origin || origin.pageId !== target.pageId)
+    throw new DrawingCommandError(
+      "Layers may move only between canvases on the same page.",
+    );
+  return structureCommand(actorId, [
+    {
+      kind: "put_layer",
+      entity: {
+        ...layer,
+        canvasId,
+        sortOrder: nextSortOrder(
+          Object.values(canonical.structure.layers).filter(
+            (item) => item.canvasId === canvasId,
+          ),
+        ),
+      },
+      baseVersion: layer.version,
+    },
+  ]);
+}
+
+function canvasContentReason(
+  structure: NonNullable<DrawingDocumentState["structure"]>,
+  canvasId: string,
+): string | null {
+  const layerIds = new Set(
+    Object.values(structure.layers)
+      .filter((layer) => layer.canvasId === canvasId)
+      .map((layer) => layer.id),
+  );
+  return Object.values(structure.objects).some((object) =>
+    layerIds.has(object.layerId),
+  ) ||
+    Object.values(structure.blockInstances).some((instance) =>
+      layerIds.has(instance.layerId),
+    )
+    ? "Canvas with objects or blocks cannot be deleted."
+    : null;
+}
+
+export function drawingCanvasDeletionReason(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  canvasId: string,
+): string | null {
+  const canonical = requireStructureState(state);
+  const canvas = canonical.structure.canvases[canvasId];
+  if (!canvas) return "Drawing canvas does not exist.";
+  if (canvas.spaceKind === "paper" && canvas.sortOrder === 0)
+    return "The default paper canvas can only be deleted with its page.";
+  if (
+    Object.values(canonical.structure.canvases).filter(
+      (item) => item.pageId === canvas.pageId,
+    ).length <= 1
+  )
+    return "A page requires at least one canvas.";
+  return canvasContentReason(canonical.structure, canvasId);
+}
+
+export function deleteDrawingCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  canvasId: string,
+) {
+  const canonical = requireStructureState(state);
+  const reason = drawingCanvasDeletionReason(canonical, canvasId);
+  if (reason) throw new DrawingCommandError(reason);
+  const canvas = canonical.structure.canvases[canvasId];
+  const layers = Object.values(canonical.structure.layers).filter(
+    (layer) => layer.canvasId === canvasId,
+  );
+  return structureCommand(actorId, [
+    ...layers.map((layer) => ({
+      kind: "delete_layer" as const,
+      id: layer.id,
+      baseVersion: layer.version,
+    })),
+    { kind: "delete_canvas", id: canvas.id, baseVersion: canvas.version },
+  ]);
+}
+
+export function drawingPageDeletionReason(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  pageId: string,
+): string | null {
+  const canonical = requireStructureState(state);
+  const page = canonical.structure.pages[pageId];
+  if (!page) return "Drawing page does not exist.";
+  return (
+    Object.values(canonical.structure.canvases)
+      .filter((canvas) => canvas.pageId === pageId)
+      .map((canvas) => canvasContentReason(canonical.structure, canvas.id))
+      .find((reason): reason is string => Boolean(reason)) ?? null
+  );
+}
+
+export function deleteDrawingPageCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  pageId: string,
+) {
+  const canonical = requireStructureState(state);
+  const reason = drawingPageDeletionReason(canonical, pageId);
+  if (reason) throw new DrawingCommandError(reason);
+  const page = canonical.structure.pages[pageId];
+  const canvases = Object.values(canonical.structure.canvases).filter(
+    (canvas) => canvas.pageId === pageId,
+  );
+  const layerActions = canvases.flatMap((canvas) =>
+    Object.values(canonical.structure.layers)
+      .filter((layer) => layer.canvasId === canvas.id)
+      .map((layer) => ({
+        kind: "delete_layer" as const,
+        id: layer.id,
+        baseVersion: layer.version,
+      })),
+  );
+  return structureCommand(actorId, [
+    ...layerActions,
+    ...canvases.map((canvas) => ({
+      kind: "delete_canvas" as const,
+      id: canvas.id,
+      baseVersion: canvas.version,
+    })),
+    { kind: "delete_page", id: page.id, baseVersion: page.version },
+  ]);
+}
 
 export type DrawingCommand =
   | { type: "add_objects"; actorId: string; objects: DrawingObject[] }
@@ -449,6 +864,15 @@ function reduceCommand(
           );
         }
       }
+      if (command.patch.canvasId !== undefined && state.structure) {
+        const target = state.structure.canvases[command.patch.canvasId];
+        const origin = state.structure.canvases[layer.canvasId ?? ""];
+        if (!target || !origin || target.pageId !== origin.pageId) {
+          throw new DrawingCommandError(
+            "Layers may move only between canvases on the same page.",
+          );
+        }
+      }
       baseVersions[layer.id] = layer.version;
       const inverse = layerPatchBefore(layer, command.patch);
       const updated = DrawingLayerSchema.parse({
@@ -542,7 +966,11 @@ function appendOperation(
       structure:
         reduced.structure ??
         (state.structure
-          ? { ...state.structure, objects: reduced.objects, layers: reduced.layers }
+          ? {
+              ...state.structure,
+              objects: reduced.objects,
+              layers: reduced.layers,
+            }
           : undefined),
       operations: [...state.operations, operation],
     },
@@ -572,11 +1000,21 @@ function conflictFor(
 ): DrawingCommandConflict | undefined {
   const objectIds = Object.entries(operation.resultVersions)
     .filter(([objectId, expectedVersion]) => {
-      const current = operation.type === "mutate_structure"
-        ? structureTarget(state.structure, (operation.forward as Extract<DrawingCommandPayload, { type: "mutate_structure" }>).actions, objectId)
-        : operation.type === "update_layer"
-          ? state.layers[objectId]
-          : state.objects[objectId];
+      const current =
+        operation.type === "mutate_structure"
+          ? structureTarget(
+              state.structure,
+              (
+                operation.forward as Extract<
+                  DrawingCommandPayload,
+                  { type: "mutate_structure" }
+                >
+              ).actions,
+              objectId,
+            )
+          : operation.type === "update_layer"
+            ? state.layers[objectId]
+            : state.objects[objectId];
       return expectedVersion === null
         ? current !== undefined
         : current?.version !== expectedVersion;
@@ -585,7 +1023,9 @@ function conflictFor(
   return objectIds.length > 0 ? { kind: "conflict", objectIds } : undefined;
 }
 
-function structureCollectionFor(kind: DrawingStructureAction["kind"]): keyof Omit<DrawingStructureState, "revisionId" | "tombstones"> {
+function structureCollectionFor(
+  kind: DrawingStructureAction["kind"],
+): keyof Omit<DrawingStructureState, "revisionId" | "tombstones"> {
   if (kind.includes("object")) return "objects";
   if (kind.includes("page")) return "pages";
   if (kind.includes("canvas")) return "canvases";
@@ -604,8 +1044,9 @@ function structureTarget(
   id: string,
 ): { version: number } | undefined {
   if (!structure) return undefined;
-  const action = actions.find((candidate) =>
-    ("entity" in candidate ? candidate.entity.id : candidate.id) === id,
+  const action = actions.find(
+    (candidate) =>
+      ("entity" in candidate ? candidate.entity.id : candidate.id) === id,
   );
   if (!action) return undefined;
   const collection = structureCollectionFor(action.kind);
@@ -616,17 +1057,34 @@ function realizeStructurePayload(
   payload: Extract<DrawingCommandPayload, { type: "mutate_structure" }>,
   structure: DrawingDocumentState["structure"],
 ): Extract<DrawingCommandPayload, { type: "mutate_structure" }> {
-  if (!structure) throw new DrawingCommandError("Drawing structure state is required for structure history.");
+  if (!structure)
+    throw new DrawingCommandError(
+      "Drawing structure state is required for structure history.",
+    );
   return {
     type: "mutate_structure",
     actions: payload.actions.map((action) => {
       const id = "entity" in action ? action.entity.id : action.id;
-      const current = (structure[structureCollectionFor(action.kind)] as Record<string, { version: number }>)[id];
+      const current = (
+        structure[structureCollectionFor(action.kind)] as Record<
+          string,
+          { version: number }
+        >
+      )[id];
       if ("entity" in action) {
-        return { ...clone(action), baseVersion: current?.version ?? null } as DrawingStructureAction;
+        return {
+          ...clone(action),
+          baseVersion: current?.version ?? null,
+        } as DrawingStructureAction;
       }
-      if (!current) throw new DrawingCommandError(`Structure history target ${id} no longer exists.`);
-      return { ...clone(action), baseVersion: current.version } as DrawingStructureAction;
+      if (!current)
+        throw new DrawingCommandError(
+          `Structure history target ${id} no longer exists.`,
+        );
+      return {
+        ...clone(action),
+        baseVersion: current.version,
+      } as DrawingStructureAction;
     }),
   };
 }
@@ -709,7 +1167,9 @@ export function createDrawingDocumentState({
 }): DrawingDocumentState {
   const canonicalObjects = structure
     ? mapById(Object.values(structure.objects))
-    : mapById((objects ?? []).map((object) => DrawingObjectSchema.parse(object)));
+    : mapById(
+        (objects ?? []).map((object) => DrawingObjectSchema.parse(object)),
+      );
   const canonicalLayers = structure
     ? mapById(Object.values(structure.layers))
     : mapById((layers ?? []).map((layer) => DrawingLayerSchema.parse(layer)));
@@ -721,8 +1181,10 @@ export function createDrawingDocumentState({
     : undefined;
   if (
     structure &&
-    ((suppliedObjects && JSON.stringify(suppliedObjects) !== JSON.stringify(canonicalObjects)) ||
-      (suppliedLayers && JSON.stringify(suppliedLayers) !== JSON.stringify(canonicalLayers)))
+    ((suppliedObjects &&
+      JSON.stringify(suppliedObjects) !== JSON.stringify(canonicalObjects)) ||
+      (suppliedLayers &&
+        JSON.stringify(suppliedLayers) !== JSON.stringify(canonicalLayers)))
   ) {
     throw new DrawingCommandError(
       "Drawing structure objects and layers must match the canonical document state.",
@@ -736,7 +1198,11 @@ export function createDrawingDocumentState({
     undoStackByActor: {},
     redoStackByActor: {},
     structure: structure
-      ? { ...clone(structure), objects: canonicalObjects, layers: canonicalLayers }
+      ? {
+          ...clone(structure),
+          objects: canonicalObjects,
+          layers: canonicalLayers,
+        }
       : undefined,
   };
 }
@@ -855,7 +1321,11 @@ export function redoDrawingCommand(
 }
 
 export type DrawingClipboard = {
-  items: Array<Pick<DrawingObject, "name" | "layerId" | "geometry"> & { style: DrawingStyle }>;
+  items: Array<
+    Pick<DrawingObject, "name" | "layerId" | "geometry"> & {
+      style: DrawingStyle;
+    }
+  >;
 };
 
 export type DrawingMoveSnapshot = Pick<
@@ -961,7 +1431,9 @@ export function deleteDrawingSelection(
 export function copyDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
   selectedIds: string[],
-  resolveStyle: ((object: DrawingObject) => DrawingStyle) | undefined = undefined,
+  resolveStyle:
+    | ((object: DrawingObject) => DrawingStyle)
+    | undefined = undefined,
 ): DrawingClipboard {
   return {
     items: [...new Set(selectedIds)].flatMap((objectId) => {
@@ -1033,11 +1505,12 @@ export function resolveActiveDrawingLayerId(
 
 /** Creates a normalized local add-layer command without browser-supplied authority. */
 export function createDrawingLayerCommand(
-  state: Pick<DrawingDocumentState, "layers">,
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
   actorId: string,
   name: string,
   createId: () => string = () => crypto.randomUUID(),
-): Extract<DrawingCommand, { type: "add_layer" }> {
+  canvasId?: string,
+): Extract<DrawingCommand, { type: "add_layer" | "mutate_structure" }> {
   const normalizedName = DrawingLayerNameSchema.parse(name.trim());
   if (
     Object.values(state.layers).some((layer) => layer.name === normalizedName)
@@ -1045,6 +1518,33 @@ export function createDrawingLayerCommand(
     throw new DrawingCommandError(
       `Drawing layer name ${normalizedName} already exists.`,
     );
+  }
+  if (state.structure) {
+    if (!canvasId || !state.structure.canvases[canvasId]) {
+      throw new DrawingCommandError(
+        "Drawing canvas is required to create a layer.",
+      );
+    }
+    return structureCommand(actorId, [
+      {
+        kind: "put_layer",
+        entity: DrawingStructureLayerSchema.parse({
+          id: createId(),
+          name: normalizedName,
+          visible: true,
+          locked: false,
+          systemKind: "custom",
+          canvasId,
+          sortOrder: nextSortOrder(
+            Object.values(state.structure.layers).filter(
+              (layer) => layer.canvasId === canvasId,
+            ),
+          ),
+          version: 1,
+        }),
+        baseVersion: null,
+      },
+    ]);
   }
   return {
     type: "add_layer",
@@ -1061,7 +1561,7 @@ export function createDrawingLayerCommand(
 
 /** Creates a normalized layer update and enforces immutable/eligible layer rules. */
 export function updateDrawingLayerCommand(
-  state: Pick<DrawingDocumentState, "layers">,
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
   actorId: string,
   layerId: string,
   patch: LayerPatch,
@@ -1082,12 +1582,13 @@ export function updateDrawingLayerCommand(
   };
   reduceCommand(
     {
-      revisionId: "",
+      revisionId: state.revisionId,
       objects: {},
       layers: state.layers,
       operations: [],
       undoStackByActor: {},
       redoStackByActor: {},
+      structure: state.structure,
     },
     command,
   );
@@ -1202,12 +1703,17 @@ export function duplicateDrawingSelection(
   const objects = [...new Set(selectedIds)].flatMap((objectId) => {
     const object = mutableDrawingObject(state, objectId);
     return object
-      ? [{
-          ...clone(object),
-          id: nextId(),
-          geometry: translateDrawingGeometry(object.geometry, { x: 20, y: 20 }),
-          version: 1,
-        }]
+      ? [
+          {
+            ...clone(object),
+            id: nextId(),
+            geometry: translateDrawingGeometry(object.geometry, {
+              x: 20,
+              y: 20,
+            }),
+            version: 1,
+          },
+        ]
       : [];
   });
   return objects.length > 0 ? { type: "add_objects", actorId, objects } : null;

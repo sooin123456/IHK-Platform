@@ -133,7 +133,7 @@ test("workspace wires durable outbox recovery and the four visible save states",
   assert.match(shell, /\{saveStatus\}/);
   assert.match(
     shell,
-    /canPersistDrawingMutation\(capability, persistenceState\)/,
+    /canPersistDrawingMutation\(\s*capability,\s*persistenceState,?\s*\)/,
   );
   assert.match(shell, /로컬 저장 실패/);
   assert.match(shell, /다시 시도/);
@@ -198,6 +198,52 @@ test("layers and inspector expose native labeled controls", async () => {
   assert.match(inspector, /<input/);
   assert.match(inspector, /<select/);
   assert.match(inspector, /<button/);
+});
+
+test("page tree and canvas-scoped layer controls use native labeled interactions", async () => {
+  const [shell, pages, layers] = await Promise.all([
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-workspace.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-pages-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-layers-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(shell, /<DrawingPagesPanel/);
+  assert.match(shell, /documentStore\.selectCanvas/);
+  assert.match(shell, /activeCanvasId=\{drawingState\.activeCanvasId\}/);
+  assert.match(pages, /role="tree"/);
+  assert.match(pages, /role="treeitem"/);
+  for (const label of [
+    "새 페이지 이름",
+    "페이지 추가",
+    "Paper canvas 추가",
+    "Model canvas 추가",
+    "페이지 이름",
+    "canvas 이름",
+  ]) {
+    assert.match(pages, new RegExp(label));
+  }
+  assert.match(pages, /\{canEdit \? \(/);
+  assert.match(layers, /sortOrder/);
+  assert.match(layers, /레이어 위로 이동/);
+  assert.match(layers, /레이어 아래로 이동/);
+  assert.match(layers, /activeCanvasId/);
 });
 
 test("review controls require capability, requested status, separate maker, and exact evidence", () => {

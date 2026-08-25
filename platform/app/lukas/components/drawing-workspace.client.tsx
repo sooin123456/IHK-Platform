@@ -87,6 +87,7 @@ import {
 } from "./drawing-command-menu";
 import { DrawingInspector } from "./drawing-inspector";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
+import { DrawingPagesPanel } from "./drawing-pages-panel";
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
@@ -252,7 +253,10 @@ function drawingStateFromRevision(
   }
   const activeCanvasId = revision.activeCanvasId;
   const layers = revision.layers.filter(
-    (layer) => !activeCanvasId || !("canvasId" in layer) || layer.canvasId === activeCanvasId,
+    (layer) =>
+      !activeCanvasId ||
+      !("canvasId" in layer) ||
+      layer.canvasId === activeCanvasId,
   );
   const layerIds = new Set(layers.map((layer) => layer.id));
   return createDrawingDocumentState({
@@ -263,21 +267,26 @@ function drawingStateFromRevision(
         name: layer.name,
         visible: layer.visible,
         locked: layer.locked,
-        systemKind: "systemKind" in layer ? layer.systemKind : layer.system_kind,
+        systemKind:
+          "systemKind" in layer ? layer.systemKind : layer.system_kind,
         version: layer.version,
       }),
     ),
-    objects: revision.objects.filter((object) => layerIds.has("layerId" in object ? object.layerId : object.layer_id)).map((object) =>
-      DrawingObjectSchema.parse({
-        id: object.id,
-        name: object.name,
-        layerId: "layerId" in object ? object.layerId : object.layer_id,
-        geometry: object.geometry,
-        style: object.style,
-        ...( "styleId" in object ? { styleId: object.styleId } : {}),
-        version: object.version,
-      }),
-    ),
+    objects: revision.objects
+      .filter((object) =>
+        layerIds.has("layerId" in object ? object.layerId : object.layer_id),
+      )
+      .map((object) =>
+        DrawingObjectSchema.parse({
+          id: object.id,
+          name: object.name,
+          layerId: "layerId" in object ? object.layerId : object.layer_id,
+          geometry: object.geometry,
+          style: object.style,
+          ...("styleId" in object ? { styleId: object.styleId } : {}),
+          version: object.version,
+        }),
+      ),
   });
 }
 
@@ -387,19 +396,23 @@ export default function DrawingWorkspaceClient({
     setActiveLayerId(null);
     setSelectedIds([]);
   }, [drawingState]);
-  const capabilityCanPersist = canPersistDrawingMutation(capability, persistenceState);
+  const capabilityCanPersist = canPersistDrawingMutation(
+    capability,
+    persistenceState,
+  );
   const baseCanEdit =
     outboxReady &&
     !reviewPreparing &&
     capabilityCanPersist &&
     revision.status === "draft";
   const authorizationProbe = useMemo(
-    () => deriveDrawingTransientState(drawingState, {
-      canEdit: baseCanEdit,
-      activeLayerId,
-      activeTool: "select",
-      selectedIds: [],
-    }),
+    () =>
+      deriveDrawingTransientState(drawingState, {
+        canEdit: baseCanEdit,
+        activeLayerId,
+        activeTool: "select",
+        selectedIds: [],
+      }),
     [activeLayerId, baseCanEdit, drawingState],
   );
   const authorizationLayer = authorizationProbe.activeLayerId
@@ -419,23 +432,29 @@ export default function DrawingWorkspaceClient({
     transientInputInvalidatedRef.current,
   );
   const transient = useMemo(
-    () => deriveDrawingTransientState(drawingState, {
-      canEdit: baseCanEdit,
-      ...transientInput,
-    }),
+    () =>
+      deriveDrawingTransientState(drawingState, {
+        canEdit: baseCanEdit,
+        ...transientInput,
+      }),
     [baseCanEdit, drawingState, transientInput],
   );
   const activeDrawingState = transient.state;
   const visibleObjects = useMemo(
     () =>
-      Object.values(activeDrawingState.objects).filter(
-        (object) => activeDrawingState.layers[object.layerId]?.visible,
-      ),
+      Object.values(activeDrawingState.objects)
+        .filter((object) => activeDrawingState.layers[object.layerId]?.visible)
+        .sort((left, right) => {
+          const layerOrder =
+            (activeDrawingState.layers[left.layerId]?.sortOrder ?? 0) -
+            (activeDrawingState.layers[right.layerId]?.sortOrder ?? 0);
+          return layerOrder || left.id.localeCompare(right.id);
+        }),
     [activeDrawingState.layers, activeDrawingState.objects],
   );
   const resolvedActiveLayerId = transient.activeLayerId;
   const activeCanvas = drawingState.activeCanvasId
-    ? drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null
+    ? (drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null)
     : null;
   const page = activeCanvas
     ? {
@@ -454,9 +473,7 @@ export default function DrawingWorkspaceClient({
   const editing = {
     ...editingContext,
     canEdit:
-      baseCanEdit &&
-      editingContext.canEdit &&
-      revision.status === "draft",
+      baseCanEdit && editingContext.canEdit && revision.status === "draft",
   };
   const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
 
@@ -695,7 +712,11 @@ export default function DrawingWorkspaceClient({
       if (
         reviewFrozenRef.current ||
         !persistence ||
-        !canPersistDrawingMutation(capability, persistence.snapshot(), revision.status)
+        !canPersistDrawingMutation(
+          capability,
+          persistence.snapshot(),
+          revision.status,
+        )
       )
         return;
       void persistence.capture(applied.operation);
@@ -710,7 +731,11 @@ export default function DrawingWorkspaceClient({
       if (
         reviewFrozenRef.current ||
         !outboxReady ||
-        !canPersistDrawingMutation(capability, persistenceState, revision.status)
+        !canPersistDrawingMutation(
+          capability,
+          persistenceState,
+          revision.status,
+        )
       )
         return;
       commitApplied(applyDrawingCommand(drawingStateRef.current, command));
@@ -727,7 +752,14 @@ export default function DrawingWorkspaceClient({
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState, revision.status]);
+  }, [
+    capability,
+    commitApplied,
+    currentUserId,
+    outboxReady,
+    persistenceState,
+    revision.status,
+  ]);
 
   const redo = useCallback(() => {
     if (
@@ -738,7 +770,14 @@ export default function DrawingWorkspaceClient({
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState, revision.status]);
+  }, [
+    capability,
+    commitApplied,
+    currentUserId,
+    outboxReady,
+    persistenceState,
+    revision.status,
+  ]);
 
   const copySelection = useCallback(() => {
     const clipboard = copyDrawingSelection(drawingState, transient.selectedIds);
@@ -761,7 +800,13 @@ export default function DrawingWorkspaceClient({
     applyCommand(command);
     setAuthorizedSelection(command.objects.map((object) => object.id));
     return true;
-  }, [activeDrawingState.layers, applyCommand, currentUserId, editing.canEdit, setAuthorizedSelection]);
+  }, [
+    activeDrawingState.layers,
+    applyCommand,
+    currentUserId,
+    editing.canEdit,
+    setAuthorizedSelection,
+  ]);
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
@@ -774,7 +819,14 @@ export default function DrawingWorkspaceClient({
     applyCommand(command);
     setAuthorizedSelection(command.objects.map((object) => object.id));
     return true;
-  }, [applyCommand, currentUserId, drawingState, editing.canEdit, setAuthorizedSelection, transient.selectedIds]);
+  }, [
+    applyCommand,
+    currentUserId,
+    drawingState,
+    editing.canEdit,
+    setAuthorizedSelection,
+    transient.selectedIds,
+  ]);
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
@@ -787,7 +839,13 @@ export default function DrawingWorkspaceClient({
     applyCommand(command);
     setSelectedIds([]);
     return true;
-  }, [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds]);
+  }, [
+    applyCommand,
+    currentUserId,
+    drawingState,
+    editing.canEdit,
+    transient.selectedIds,
+  ]);
 
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
@@ -802,7 +860,13 @@ export default function DrawingWorkspaceClient({
       applyCommand(command);
       return true;
     },
-    [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds],
+    [
+      applyCommand,
+      currentUserId,
+      drawingState,
+      editing.canEdit,
+      transient.selectedIds,
+    ],
   );
 
   useEffect(() => {
@@ -869,7 +933,12 @@ export default function DrawingWorkspaceClient({
         return editing.canEdit && transient.selectedIds.length > 0;
       return editing.canEdit;
     },
-    [currentUserId, drawingState, editing.canEdit, transient.selectedIds.length],
+    [
+      currentUserId,
+      drawingState,
+      editing.canEdit,
+      transient.selectedIds.length,
+    ],
   );
 
   const runCommand = useCallback(
@@ -892,9 +961,30 @@ export default function DrawingWorkspaceClient({
       else if (commandId === "delete") deleteSelection();
       else if (commandId === "zoom_to_fit") canvasRef.current?.resetViewport();
     },
-    [commandEnabled, deleteSelection, duplicateSelection, redo, setAuthorizedTool, undo],
+    [
+      commandEnabled,
+      deleteSelection,
+      duplicateSelection,
+      redo,
+      setAuthorizedTool,
+      undo,
+    ],
   );
-  const background: DrawingCanvasBackground = surface.background;
+  const background: DrawingCanvasBackground = activeCanvas
+    ? activeCanvas.background && sourceUrl
+      ? {
+          kind: "pdf",
+          width: activeCanvas.widthMillimeters,
+          height: activeCanvas.heightMillimeters,
+          pageNumber: activeCanvas.background.pdfPageNumber ?? 1,
+          signedUrl: sourceUrl,
+        }
+      : {
+          kind: "blank",
+          width: activeCanvas.widthMillimeters,
+          height: activeCanvas.heightMillimeters,
+        }
+    : surface.background;
   const saveStatus = drawingSaveStatus({
     ...saveState,
     volatileCount: persistenceState.volatileCount,
@@ -1009,11 +1099,7 @@ export default function DrawingWorkspaceClient({
             <Form method="post" onSubmit={prepareReviewSubmission}>
               <input name="intent" type="hidden" value="request_review" />
               <input name="revision_id" type="hidden" value={revision.id} />
-              <Button
-                disabled={!outboxReady}
-                type="submit"
-                variant="secondary"
-              >
+              <Button disabled={!outboxReady} type="submit" variant="secondary">
                 <Check className="size-4" /> 검토 요청
               </Button>
             </Form>
@@ -1111,7 +1197,11 @@ export default function DrawingWorkspaceClient({
         >
           이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다.
           복구하면 현재 로그인 사용자가 복구 책임자로 기록됩니다.{" "}
-          {canPersistDrawingMutation(capability, persistenceState, revision.status) ? (
+          {canPersistDrawingMutation(
+            capability,
+            persistenceState,
+            revision.status,
+          ) ? (
             <Button
               onClick={async () => {
                 const confirmed = window.confirm(
@@ -1149,14 +1239,25 @@ export default function DrawingWorkspaceClient({
           aria-label="레이어 패널"
           className="border-b border-white/10 bg-slate-900 p-4 lg:border-b-0 lg:border-r"
         >
-          <DrawingLayersPanel
-            activeLayerId={resolvedActiveLayerId}
+          <DrawingPagesPanel
+            activeCanvasId={drawingState.activeCanvasId}
             actorId={currentUserId}
-            canEdit={editing.canEdit}
-            onActiveLayerChange={setAuthorizedActiveLayer}
+            canEdit={baseCanEdit}
+            onCanvasSelect={(canvasId) => documentStore.selectCanvas(canvasId)}
             onCommand={applyCommand}
-            state={activeDrawingState}
+            state={drawingState}
           />
+          <div className="mt-6 border-t border-white/10 pt-6">
+            <DrawingLayersPanel
+              activeCanvasId={drawingState.activeCanvasId}
+              activeLayerId={resolvedActiveLayerId}
+              actorId={currentUserId}
+              canEdit={editing.canEdit}
+              onActiveLayerChange={setAuthorizedActiveLayer}
+              onCommand={applyCommand}
+              state={drawingState}
+            />
+          </div>
         </aside>
 
         <section
@@ -1193,13 +1294,17 @@ export default function DrawingWorkspaceClient({
                   objects={visibleObjects}
                   onCommand={applyCommand}
                   onSelectionChange={(ids) =>
-                    setAuthorizedSelection(ids.filter((id) =>
-                      transient.selectedIds.includes(id) || Boolean(activeDrawingState.objects[id]),
-                    ))
+                    setAuthorizedSelection(
+                      ids.filter(
+                        (id) =>
+                          transient.selectedIds.includes(id) ||
+                          Boolean(activeDrawingState.objects[id]),
+                      ),
+                    )
                   }
-                  onToolComplete={(tool) => setAuthorizedTool(
-                    transient.activeLayerId ? tool : "select",
-                  )}
+                  onToolComplete={(tool) =>
+                    setAuthorizedTool(transient.activeLayerId ? tool : "select")
+                  }
                   ref={canvasRef}
                   repeatMode={repeatMode}
                   selectedIds={transient.selectedIds}
@@ -1262,7 +1367,9 @@ export default function DrawingWorkspaceClient({
               aria-pressed={transient.activeTool === "select"}
               onClick={() => setAuthorizedTool("select")}
               size="icon"
-              variant={transient.activeTool === "select" ? "secondary" : "ghost"}
+              variant={
+                transient.activeTool === "select" ? "secondary" : "ghost"
+              }
             >
               <MousePointer2 className="size-4" />
             </Button>
@@ -1273,7 +1380,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "line"}
                   onClick={() => setAuthorizedTool("line")}
                   size="icon"
-                  variant={transient.activeTool === "line" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "line" ? "secondary" : "ghost"
+                  }
                 >
                   <Minus className="size-4" />
                 </Button>
@@ -1282,7 +1391,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "polyline"}
                   onClick={() => setAuthorizedTool("polyline")}
                   size="icon"
-                  variant={transient.activeTool === "polyline" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "polyline" ? "secondary" : "ghost"
+                  }
                 >
                   <Waypoints className="size-4" />
                 </Button>
@@ -1291,7 +1402,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "rectangle"}
                   onClick={() => setAuthorizedTool("rectangle")}
                   size="icon"
-                  variant={transient.activeTool === "rectangle" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "rectangle" ? "secondary" : "ghost"
+                  }
                 >
                   <Square className="size-4" />
                 </Button>
@@ -1300,7 +1413,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "circle"}
                   onClick={() => setAuthorizedTool("circle")}
                   size="icon"
-                  variant={transient.activeTool === "circle" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "circle" ? "secondary" : "ghost"
+                  }
                 >
                   <CircleIcon className="size-4" />
                 </Button>
@@ -1309,7 +1424,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "text"}
                   onClick={() => setAuthorizedTool("text")}
                   size="icon"
-                  variant={transient.activeTool === "text" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "text" ? "secondary" : "ghost"
+                  }
                 >
                   <Type className="size-4" />
                 </Button>
@@ -1318,7 +1435,9 @@ export default function DrawingWorkspaceClient({
                   aria-pressed={transient.activeTool === "dimension"}
                   onClick={() => setAuthorizedTool("dimension")}
                   size="icon"
-                  variant={transient.activeTool === "dimension" ? "secondary" : "ghost"}
+                  variant={
+                    transient.activeTool === "dimension" ? "secondary" : "ghost"
+                  }
                 >
                   <Ruler className="size-4" />
                 </Button>

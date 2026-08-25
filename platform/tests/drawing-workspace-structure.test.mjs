@@ -6,6 +6,14 @@ import {
   resolveDrawingStyle,
 } from "../app/lukas/lib/drawing-structure.ts";
 import {
+  createDrawingCanvasCommand,
+  createDrawingPageCommand,
+  deleteDrawingCanvasCommand,
+  reorderDrawingLayerCommand,
+  applyDrawingCommand,
+  undoDrawingCommand,
+} from "../app/lukas/lib/drawing-commands.ts";
+import {
   DrawingObjectSchema,
   DrawingPropertyValueSchema,
   DrawingStructureActionSchema,
@@ -110,7 +118,10 @@ test("structure actions reject unknown fields and restore exact prior entities",
     entity: state().layers[ids.layer],
     baseVersion: null,
   };
-  const applied = applyDrawingStructureActions(state({ layers: {} }), [action, layerAction]);
+  const applied = applyDrawingStructureActions(state({ layers: {} }), [
+    action,
+    layerAction,
+  ]);
 
   assert.deepEqual(applied.inverse, [
     { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
@@ -119,7 +130,6 @@ test("structure actions reject unknown fields and restore exact prior entities",
   assert.throws(() =>
     DrawingStructureActionSchema.parse({ ...action, authority: "admin" }),
   );
-
 });
 
 test("canvas creation and deletion require exact recorded layer actions", () => {
@@ -142,9 +152,10 @@ test("canvas creation and deletion require exact recorded layer actions", () => 
   };
 
   assert.throws(
-    () => applyDrawingStructureActions(current, [
-      { kind: "put_canvas", entity: model, baseVersion: null },
-    ]),
+    () =>
+      applyDrawingStructureActions(current, [
+        { kind: "put_canvas", entity: model, baseVersion: null },
+      ]),
     DrawingStructureError,
   );
   const created = applyDrawingStructureActions(current, [
@@ -157,9 +168,10 @@ test("canvas creation and deletion require exact recorded layer actions", () => 
     { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
   ]);
   assert.throws(
-    () => applyDrawingStructureActions(created.state, [
-      { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
-    ]),
+    () =>
+      applyDrawingStructureActions(created.state, [
+        { kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 },
+      ]),
     DrawingStructureError,
   );
   const deleted = applyDrawingStructureActions(created.state, created.inverse);
@@ -170,38 +182,139 @@ test("canvas creation and deletion require exact recorded layer actions", () => 
   assert.equal(restored.state.layers[ids.modelLayer].sortOrder, 7);
 });
 
+test("page and canvas factories record atomic structural creation and deterministic layer reorder", () => {
+  const extraLayer = {
+    ...state().layers[ids.layer],
+    id: ids.modelLayer,
+    name: "Detail",
+    systemKind: "custom",
+    sortOrder: 1,
+  };
+  const current = state({
+    canvases: { [ids.canvas]: canvas() },
+    layers: { ...state().layers, [extraLayer.id]: extraLayer },
+  });
+  const documentState = {
+    revisionId: ids.revision,
+    layers: current.layers,
+    structure: current,
+  };
+  const nextIds = [
+    "00000000-0000-4000-8000-000000000111",
+    "00000000-0000-4000-8000-000000000112",
+    "00000000-0000-4000-8000-000000000113",
+    "00000000-0000-4000-8000-000000000114",
+    "00000000-0000-4000-8000-000000000115",
+  ];
+  const createId = () => nextIds.shift();
+  const page = createDrawingPageCommand(
+    documentState,
+    "actor-a",
+    "Page 2",
+    createId,
+  );
+  assert.deepEqual(
+    page.actions.map((action) => action.kind),
+    ["put_page", "put_canvas", "put_layer"],
+  );
+  const createdPage = applyDrawingStructureActions(current, page.actions);
+  const pageCanvasId = page.actions[1].entity.id;
+  assert.equal(createdPage.state.canvases[pageCanvasId].spaceKind, "paper");
+  assert.equal(createdPage.state.canvases[pageCanvasId].sortOrder, 0);
+
+  const model = createDrawingCanvasCommand(
+    documentState,
+    "actor-a",
+    ids.page,
+    "model",
+    "Model",
+    createId,
+  );
+  assert.deepEqual(
+    model.actions.map((action) => action.kind),
+    ["put_canvas", "put_layer"],
+  );
+  const withModel = applyDrawingStructureActions(current, model.actions).state;
+  const reorder = reorderDrawingLayerCommand(
+    {
+      revisionId: ids.revision,
+      structure: withModel,
+      layers: withModel.layers,
+    },
+    "actor-a",
+    ids.layer,
+    "down",
+  );
+  assert.deepEqual(
+    reorder.actions.map((action) => action.kind),
+    ["put_layer", "put_layer"],
+  );
+  const recorded = applyDrawingCommand(
+    {
+      revisionId: ids.revision,
+      objects: withModel.objects,
+      layers: withModel.layers,
+      operations: [],
+      undoStackByActor: {},
+      redoStackByActor: {},
+      structure: withModel,
+    },
+    reorder,
+  );
+  assert.equal(recorded.state.layers[ids.layer].sortOrder, 1);
+  const undone = undoDrawingCommand(recorded.state, "actor-a");
+  assert.equal(undone.state.layers[ids.layer].sortOrder, 0);
+
+  assert.throws(
+    () => deleteDrawingCanvasCommand(documentState, "actor-a", ids.canvas),
+    /default paper canvas/,
+  );
+});
+
 test("table rows require exactly one object or block instance target", () => {
   const table = {
     id: ids.block,
     revisionId: ids.revision,
     name: "Schedule",
-    columns: [{
-      id: ids.style,
-      name: "Note",
-      kind: "text",
-      propertySchemaId: null,
-    }],
-    rows: [{ id: ids.instance, objectId: null, blockInstanceId: null, cells: {} }],
+    columns: [
+      {
+        id: ids.style,
+        name: "Note",
+        kind: "text",
+        propertySchemaId: null,
+      },
+    ],
+    rows: [
+      { id: ids.instance, objectId: null, blockInstanceId: null, cells: {} },
+    ],
     version: 1,
   };
   assert.equal(DrawingTableSchema.safeParse(table).success, false);
-  assert.equal(DrawingTableSchema.safeParse({
-    ...table,
-    rows: [{
-      ...table.rows[0],
-      objectId: ids.object,
-      blockInstanceId: ids.instance,
-    }],
-  }).success, false);
+  assert.equal(
+    DrawingTableSchema.safeParse({
+      ...table,
+      rows: [
+        {
+          ...table.rows[0],
+          objectId: ids.object,
+          blockInstanceId: ids.instance,
+        },
+      ],
+    }).success,
+    false,
+  );
 });
 
 test("resolved style merges a referenced definition with finite validated overrides", () => {
-  assert.deepEqual(resolveDrawingStyle(object(), Object.values(state().styles)), {
-    stroke: "#111111",
-    strokeWidth: 2,
-    fill: "#ffffff",
-    fontSize: 12,
-  });
+  assert.deepEqual(
+    resolveDrawingStyle(object(), Object.values(state().styles)),
+    {
+      stroke: "#111111",
+      strokeWidth: 2,
+      fill: "#ffffff",
+      fontSize: 12,
+    },
+  );
   assert.throws(() =>
     resolveDrawingStyle(
       object({ style: { strokeWidth: Number.POSITIVE_INFINITY } }),
@@ -213,7 +326,14 @@ test("resolved style merges a referenced definition with finite validated overri
 test("structure object actions require the matching block conversion batch", () => {
   const existingCanvas = canvas();
   const current = state({ canvases: { [existingCanvas.id]: existingCanvas } });
-  const putObject = { kind: "put_object", entity: object({ styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }), baseVersion: null };
+  const putObject = {
+    kind: "put_object",
+    entity: object({
+      styleId: null,
+      style: { stroke: "#111111", strokeWidth: 2, fill: null },
+    }),
+    baseVersion: null,
+  };
 
   assert.throws(
     () => applyDrawingStructureActions(current, [putObject]),
@@ -224,13 +344,15 @@ test("structure object actions require the matching block conversion batch", () 
     id: ids.block,
     revisionId: ids.revision,
     name: "Block",
-    primitives: [{
-      localId: "primitive-1",
-      name: "Rectangle",
-      geometry: object().geometry,
-      styleId: null,
-      style: { stroke: "#111111", strokeWidth: 2, fill: null },
-    }],
+    primitives: [
+      {
+        localId: "primitive-1",
+        name: "Rectangle",
+        geometry: object().geometry,
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      },
+    ],
     version: 1,
   };
   const instance = {
@@ -248,9 +370,9 @@ test("structure object actions require the matching block conversion batch", () 
   const applied = applyDrawingStructureActions(
     { ...current, objects: { [ids.object]: putObject.entity } },
     [
-    { kind: "delete_object", id: ids.object, baseVersion: 1 },
-    { kind: "put_block", entity: block, baseVersion: null },
-    { kind: "put_block_instance", entity: instance, baseVersion: null },
+      { kind: "delete_object", id: ids.object, baseVersion: 1 },
+      { kind: "put_block", entity: block, baseVersion: null },
+      { kind: "put_block_instance", entity: instance, baseVersion: null },
     ],
   );
   assert.equal(applied.state.blockInstances[ids.instance].blockId, ids.block);
@@ -260,19 +382,26 @@ test("block conversion batches pair a new instance with their new definition", (
   const existingCanvas = canvas();
   const current = state({
     canvases: { [existingCanvas.id]: existingCanvas },
-    objects: { [ids.object]: object({ styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }) },
+    objects: {
+      [ids.object]: object({
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      }),
+    },
     blocks: {
       [ids.style]: {
         id: ids.style,
         revisionId: ids.revision,
         name: "Existing block",
-        primitives: [{
-          localId: "existing-primitive",
-          name: "Rectangle",
-          geometry: object().geometry,
-          styleId: null,
-          style: { stroke: "#111111", strokeWidth: 2, fill: null },
-        }],
+        primitives: [
+          {
+            localId: "existing-primitive",
+            name: "Rectangle",
+            geometry: object().geometry,
+            styleId: null,
+            style: { stroke: "#111111", strokeWidth: 2, fill: null },
+          },
+        ],
         version: 1,
       },
     },
@@ -281,13 +410,15 @@ test("block conversion batches pair a new instance with their new definition", (
     id: ids.block,
     revisionId: ids.revision,
     name: "Unrelated block",
-    primitives: [{
-      localId: "unrelated-primitive",
-      name: "Rectangle",
-      geometry: object().geometry,
-      styleId: null,
-      style: { stroke: "#111111", strokeWidth: 2, fill: null },
-    }],
+    primitives: [
+      {
+        localId: "unrelated-primitive",
+        name: "Rectangle",
+        geometry: object().geometry,
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      },
+    ],
     version: 1,
   };
 
@@ -317,61 +448,217 @@ test("block conversion batches pair a new instance with their new definition", (
 });
 
 test("objects without a style reference retain complete inline styles", () => {
-  const legacy = object({ styleId: null, style: { stroke: "#112233", strokeWidth: 2, fill: null } });
+  const legacy = object({
+    styleId: null,
+    style: { stroke: "#112233", strokeWidth: 2, fill: null },
+  });
   assert.equal(DrawingObjectSchema.safeParse(legacy).success, true);
   assert.deepEqual(resolveDrawingStyle(legacy, []), legacy.style);
 });
 
 test("structure reduction is atomic, ordered, and keeps inverse versions monotonic", () => {
-  const original = canvas({ id: "00000000-0000-4000-8000-000000000090", name: "Model", spaceKind: "model", sortOrder: 1, version: 4 });
-  const modelLayer = { ...state().layers[ids.layer], id: ids.modelLayer, canvasId: original.id, name: "Model work" };
+  const original = canvas({
+    id: "00000000-0000-4000-8000-000000000090",
+    name: "Model",
+    spaceKind: "model",
+    sortOrder: 1,
+    version: 4,
+  });
+  const modelLayer = {
+    ...state().layers[ids.layer],
+    id: ids.modelLayer,
+    canvasId: original.id,
+    name: "Model work",
+  };
   const current = state({
     canvases: { [ids.canvas]: canvas(), [original.id]: original },
     layers: { ...state().layers, [modelLayer.id]: modelLayer },
   });
-  const update = { kind: "put_canvas", entity: { ...original, name: "Updated" }, baseVersion: 4 };
+  const update = {
+    kind: "put_canvas",
+    entity: { ...original, name: "Updated" },
+    baseVersion: 4,
+  };
   const updated = applyDrawingStructureActions(current, [update]);
   const restored = applyDrawingStructureActions(updated.state, updated.inverse);
   assert.equal(restored.state.canvases[original.id].name, "Model");
   assert.equal(restored.state.canvases[original.id].version, 6);
   assert.deepEqual(current.canvases[original.id], original);
-  assert.throws(() => applyDrawingStructureActions(current, [
-    { kind: "put_canvas", entity: { ...canvas(), id: "00000000-0000-4000-8000-000000000091", pageId: "00000000-0000-4000-8000-000000000092" }, baseVersion: null },
-  ]), DrawingStructureError);
-  assert.equal(current.canvases["00000000-0000-4000-8000-000000000091"], undefined);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_canvas",
+          entity: {
+            ...canvas(),
+            id: "00000000-0000-4000-8000-000000000091",
+            pageId: "00000000-0000-4000-8000-000000000092",
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
+  assert.equal(
+    current.canvases["00000000-0000-4000-8000-000000000091"],
+    undefined,
+  );
 });
 
 test("default canvases, cross-kind IDs, nested extras, and invalid calendar dates fail closed", () => {
   const current = state({ canvases: { [ids.canvas]: canvas() } });
-  assert.throws(() => applyDrawingStructureActions(current, [
-    { kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000093", name: "Replacement", sortOrder: 0 }), baseVersion: null },
-    { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
-  ]), DrawingStructureError);
-  assert.throws(() => applyDrawingStructureActions(current, [
-    { kind: "put_style", entity: { id: ids.canvas, revisionId: ids.revision, name: "Collision", value: { stroke: "#111111", strokeWidth: 1, fill: null }, version: 1 }, baseVersion: null },
-  ]), DrawingStructureError);
-  assert.throws(() => DrawingStructureActionSchema.parse({ kind: "put_canvas", entity: { ...canvas(), background: { sourceFileId: ids.style, sourceSha256: "a".repeat(64), pdfPageNumber: 1, calibration: { normalizedStart: { x: 0, y: 0 }, normalizedEnd: { x: 1, y: 1 }, realLengthMillimeters: 1, millimetersPerNormalizedUnit: 1, extra: true } } }, baseVersion: null }));
-  assert.equal(DrawingPropertyValueSchema.safeParse({ id: ids.instance, schemaId: ids.style, objectId: ids.object, blockInstanceId: null, value: "2026-02-30", version: 1 }).success, true);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_canvas",
+          entity: canvas({
+            id: "00000000-0000-4000-8000-000000000093",
+            name: "Replacement",
+            sortOrder: 0,
+          }),
+          baseVersion: null,
+        },
+        { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+      ]),
+    DrawingStructureError,
+  );
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_style",
+          entity: {
+            id: ids.canvas,
+            revisionId: ids.revision,
+            name: "Collision",
+            value: { stroke: "#111111", strokeWidth: 1, fill: null },
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
+  assert.throws(() =>
+    DrawingStructureActionSchema.parse({
+      kind: "put_canvas",
+      entity: {
+        ...canvas(),
+        background: {
+          sourceFileId: ids.style,
+          sourceSha256: "a".repeat(64),
+          pdfPageNumber: 1,
+          calibration: {
+            normalizedStart: { x: 0, y: 0 },
+            normalizedEnd: { x: 1, y: 1 },
+            realLengthMillimeters: 1,
+            millimetersPerNormalizedUnit: 1,
+            extra: true,
+          },
+        },
+      },
+      baseVersion: null,
+    }),
+  );
+  assert.equal(
+    DrawingPropertyValueSchema.safeParse({
+      id: ids.instance,
+      schemaId: ids.style,
+      objectId: ids.object,
+      blockInstanceId: null,
+      value: "2026-02-30",
+      version: 1,
+    }).success,
+    true,
+  );
   const dateState = state({
     canvases: { [ids.canvas]: canvas() },
     objects: { [ids.object]: object() },
     propertySchemas: {
-      [ids.block]: { id: ids.block, revisionId: ids.revision, name: "Due date", valueType: "date", enumOptions: [], appliesTo: ["rectangle"], required: false, version: 1 },
+      [ids.block]: {
+        id: ids.block,
+        revisionId: ids.revision,
+        name: "Due date",
+        valueType: "date",
+        enumOptions: [],
+        appliesTo: ["rectangle"],
+        required: false,
+        version: 1,
+      },
     },
   });
-  assert.throws(() => applyDrawingStructureActions(dateState, [{ kind: "put_property_value", entity: { id: ids.instance, schemaId: ids.block, objectId: ids.object, blockInstanceId: null, value: "2026-02-30", version: 1 }, baseVersion: null }]), DrawingStructureError);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(dateState, [
+        {
+          kind: "put_property_value",
+          entity: {
+            id: ids.instance,
+            schemaId: ids.block,
+            objectId: ids.object,
+            blockInstanceId: null,
+            value: "2026-02-30",
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
 });
 
 test("block conversion primitives must exactly represent the deleted objects", () => {
   const current = state({
     canvases: { [ids.canvas]: canvas() },
-    objects: { [ids.object]: object({ styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }) },
+    objects: {
+      [ids.object]: object({
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      }),
+    },
   });
-  assert.throws(() => applyDrawingStructureActions(current, [
-    { kind: "delete_object", id: ids.object, baseVersion: 1 },
-    { kind: "put_block", entity: { id: ids.block, revisionId: ids.revision, name: "Block", primitives: [{ localId: "p", name: "Wrong", geometry: { ...object().geometry, width: 99 }, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }], version: 1 }, baseVersion: null },
-    { kind: "put_block_instance", entity: { id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 0, y: 0 }, rotation: 0, scaleX: 1, scaleY: 1, version: 1 }, baseVersion: null },
-  ]), DrawingStructureError);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        { kind: "delete_object", id: ids.object, baseVersion: 1 },
+        {
+          kind: "put_block",
+          entity: {
+            id: ids.block,
+            revisionId: ids.revision,
+            name: "Block",
+            primitives: [
+              {
+                localId: "p",
+                name: "Wrong",
+                geometry: { ...object().geometry, width: 99 },
+                styleId: null,
+                style: { stroke: "#111111", strokeWidth: 2, fill: null },
+              },
+            ],
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_block_instance",
+          entity: {
+            id: ids.instance,
+            blockId: ids.block,
+            layerId: ids.layer,
+            name: "Block",
+            origin: { x: 0, y: 0 },
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
 });
 
 test("block conversion rejects objects from a layer other than its instance layer", () => {
@@ -380,22 +667,74 @@ test("block conversion rejects objects from a layer other than its instance laye
     canvases: { [ids.canvas]: canvas() },
     layers: {
       [ids.layer]: state().layers[ids.layer],
-      [otherLayer]: { ...state().layers[ids.layer], id: otherLayer, name: "Details" },
+      [otherLayer]: {
+        ...state().layers[ids.layer],
+        id: otherLayer,
+        name: "Details",
+      },
     },
-    objects: { [ids.object]: object({ layerId: otherLayer, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }) },
+    objects: {
+      [ids.object]: object({
+        layerId: otherLayer,
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      }),
+    },
   });
-  assert.throws(() => applyDrawingStructureActions(current, [
-    { kind: "delete_object", id: ids.object, baseVersion: 1 },
-    { kind: "put_block", entity: { id: ids.block, revisionId: ids.revision, name: "Block", primitives: [{ localId: "p", name: "Rectangle", geometry: object().geometry, styleId: null, style: { stroke: "#111111", strokeWidth: 2, fill: null } }], version: 1 }, baseVersion: null },
-    { kind: "put_block_instance", entity: { id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 0, y: 0 }, rotation: 0, scaleX: 1, scaleY: 1, version: 1 }, baseVersion: null },
-  ]), DrawingStructureError);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        { kind: "delete_object", id: ids.object, baseVersion: 1 },
+        {
+          kind: "put_block",
+          entity: {
+            id: ids.block,
+            revisionId: ids.revision,
+            name: "Block",
+            primitives: [
+              {
+                localId: "p",
+                name: "Rectangle",
+                geometry: object().geometry,
+                styleId: null,
+                style: { stroke: "#111111", strokeWidth: 2, fill: null },
+              },
+            ],
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_block_instance",
+          entity: {
+            id: ids.instance,
+            blockId: ids.block,
+            layerId: ids.layer,
+            name: "Block",
+            origin: { x: 0, y: 0 },
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
 });
 
 test("block conversion preserves the canonical transformed primitive through its inverse", () => {
   const source = object({
     styleId: null,
     style: { stroke: "#111111", strokeWidth: 2, fill: null },
-    geometry: { type: "rectangle", origin: { x: 14, y: 26 }, width: 20, height: 10, rotation: 0 },
+    geometry: {
+      type: "rectangle",
+      origin: { x: 14, y: 26 },
+      width: 20,
+      height: 10,
+      rotation: 0,
+    },
   });
   const current = state({
     canvases: { [ids.canvas]: canvas() },
@@ -403,19 +742,59 @@ test("block conversion preserves the canonical transformed primitive through its
   });
   const actions = [
     { kind: "delete_object", id: ids.object, baseVersion: 1 },
-    { kind: "put_block", entity: {
-      id: ids.block, revisionId: ids.revision, name: "Block", version: 1,
-      primitives: [{ localId: "p", name: source.name, geometry: { type: "rectangle", origin: { x: 2, y: 3 }, width: 10, height: 5, rotation: 0 }, styleId: null, style: source.style }],
-    }, baseVersion: null },
-    { kind: "put_block_instance", entity: {
-      id: ids.instance, blockId: ids.block, layerId: ids.layer, name: "Block", origin: { x: 10, y: 20 }, rotation: 0, scaleX: 2, scaleY: 2, version: 1,
-    }, baseVersion: null },
+    {
+      kind: "put_block",
+      entity: {
+        id: ids.block,
+        revisionId: ids.revision,
+        name: "Block",
+        version: 1,
+        primitives: [
+          {
+            localId: "p",
+            name: source.name,
+            geometry: {
+              type: "rectangle",
+              origin: { x: 2, y: 3 },
+              width: 10,
+              height: 5,
+              rotation: 0,
+            },
+            styleId: null,
+            style: source.style,
+          },
+        ],
+      },
+      baseVersion: null,
+    },
+    {
+      kind: "put_block_instance",
+      entity: {
+        id: ids.instance,
+        blockId: ids.block,
+        layerId: ids.layer,
+        name: "Block",
+        origin: { x: 10, y: 20 },
+        rotation: 0,
+        scaleX: 2,
+        scaleY: 2,
+        version: 1,
+      },
+      baseVersion: null,
+    },
   ];
   const converted = applyDrawingStructureActions(current, actions);
   assert.deepEqual(converted.state.blocks[ids.block].primitives[0].geometry, {
-    type: "rectangle", origin: { x: 2, y: 3 }, width: 10, height: 5, rotation: 0,
+    type: "rectangle",
+    origin: { x: 2, y: 3 },
+    width: 10,
+    height: 5,
+    rotation: 0,
   });
-  const restored = applyDrawingStructureActions(converted.state, converted.inverse);
+  const restored = applyDrawingStructureActions(
+    converted.state,
+    converted.inverse,
+  );
   assert.deepEqual(
     { ...restored.state.objects[ids.object], version: source.version },
     source,
@@ -429,7 +808,8 @@ test("block conversion preserves the canonical transformed primitive through its
   const withoutCapturedObjects = structuredClone(converted.state);
   withoutCapturedObjects.tombstones = {};
   assert.throws(
-    () => applyDrawingStructureActions(withoutCapturedObjects, converted.inverse),
+    () =>
+      applyDrawingStructureActions(withoutCapturedObjects, converted.inverse),
     DrawingStructureError,
   );
 });
@@ -458,19 +838,21 @@ test("rotated block conversion accepts its exact generated inverse without weake
         id: ids.block,
         revisionId: ids.revision,
         name: "Rotated block",
-        primitives: [{
-          localId: "rotated-primitive",
-          name: source.name,
-          geometry: {
-            type: "rectangle",
-            origin: { x: 10.653845264191645, y: 10.953001293556998 },
-            width: 10.25,
-            height: 5.125,
-            rotation: 17,
+        primitives: [
+          {
+            localId: "rotated-primitive",
+            name: source.name,
+            geometry: {
+              type: "rectangle",
+              origin: { x: 10.653845264191645, y: 10.953001293556998 },
+              width: 10.25,
+              height: 5.125,
+              rotation: 17,
+            },
+            styleId: null,
+            style: source.style,
           },
-          styleId: null,
-          style: source.style,
-        }],
+        ],
         version: 1,
       },
       baseVersion: null,
@@ -493,7 +875,10 @@ test("rotated block conversion accepts its exact generated inverse without weake
   ];
 
   const converted = applyDrawingStructureActions(current, actions);
-  const restored = applyDrawingStructureActions(converted.state, converted.inverse);
+  const restored = applyDrawingStructureActions(
+    converted.state,
+    converted.inverse,
+  );
   assert.deepEqual(
     { ...restored.state.objects[ids.object], version: source.version },
     source,
@@ -516,8 +901,40 @@ test("rotated block conversion accepts its exact generated inverse without weake
 
 test("fresh structure entities start at version one and pages may remove their default canvas before themselves", () => {
   const current = state({ canvases: { [ids.canvas]: canvas() } });
-  assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000095", name: "Model", spaceKind: "model", sortOrder: 1, version: 99 }), baseVersion: null }]), DrawingStructureError);
-  assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_style", entity: { id: "00000000-0000-4000-8000-000000000096", revisionId: ids.revision, name: "Fresh", value: { stroke: "#111111", strokeWidth: 1, fill: null }, version: 2 }, baseVersion: null }]), DrawingStructureError);
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_canvas",
+          entity: canvas({
+            id: "00000000-0000-4000-8000-000000000095",
+            name: "Model",
+            spaceKind: "model",
+            sortOrder: 1,
+            version: 99,
+          }),
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_style",
+          entity: {
+            id: "00000000-0000-4000-8000-000000000096",
+            revisionId: ids.revision,
+            name: "Fresh",
+            value: { stroke: "#111111", strokeWidth: 1, fill: null },
+            version: 2,
+          },
+          baseVersion: null,
+        },
+      ]),
+    DrawingStructureError,
+  );
   const deleted = applyDrawingStructureActions(current, [
     { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
     { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },

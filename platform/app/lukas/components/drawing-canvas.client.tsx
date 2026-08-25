@@ -1423,6 +1423,16 @@ export const DrawingCanvas = forwardRef<
     () => Object.fromEntries(objects.map((object) => [object.id, object])),
     [objects],
   );
+  const committedObjects = useMemo(
+    () =>
+      [...objects].sort((left, right) => {
+        const layerOrder =
+          (layersById[left.layerId]?.sortOrder ?? 0) -
+          (layersById[right.layerId]?.sortOrder ?? 0);
+        return layerOrder || left.id.localeCompare(right.id);
+      }),
+    [layersById, objects],
+  );
   const objectCandidates = useMemo(
     () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
     [objects],
@@ -2104,7 +2114,7 @@ export const DrawingCanvas = forwardRef<
           </Layer>
           <CommittedDrawingLayer
             calibration={calibration}
-            objects={objects}
+            objects={committedObjects}
             viewportX={viewport.x}
             viewportY={viewport.y}
             viewportZoom={viewport.zoom}
