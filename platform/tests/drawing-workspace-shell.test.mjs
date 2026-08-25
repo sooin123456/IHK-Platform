@@ -18,6 +18,9 @@ const vite = await createServer({
 const workspaceModule = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-workspace.tsx",
 );
+const exportDialogModule = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-export-dialog.tsx",
+);
 const previewModule = await vite.ssrLoadModule(
   "/app/lukas/screens/local-drawing-workspace-preview.tsx",
 );
@@ -108,4 +111,108 @@ test("workspace offers the native export dialog to editors and viewers", () => {
   assert.match(editor, /<button[^>]*>[^<]*내보내기/);
   assert.match(viewer, /<button[^>]*>[^<]*내보내기/);
   assert.doesNotMatch(viewer, /name="intent"[^>]*value="export"/);
+});
+
+test("one export deadline times out at 30 seconds and disposes its timer once", () => {
+  const createOperation = exportDialogModule.createDrawingExportOperation;
+  assert.equal(
+    typeof createOperation,
+    "function",
+    "the export dialog must expose its real operation deadline",
+  );
+  let scheduled;
+  let scheduledMilliseconds;
+  let timerCleanupCount = 0;
+  const operation = createOperation({
+    cancelScheduled: () => {
+      timerCleanupCount += 1;
+    },
+    schedule: (callback, milliseconds) => {
+      scheduled = callback;
+      scheduledMilliseconds = milliseconds;
+      return 17;
+    },
+  });
+
+  assert.equal(scheduledMilliseconds, 30_000);
+  assert.equal(operation.signal.aborted, false);
+  scheduled();
+  assert.equal(operation.signal.aborted, true);
+  assert.match(operation.abortError().message, /30초.*시간을 초과/i);
+  operation.finish();
+  operation.finish();
+  assert.equal(timerCleanupCount, 1);
+});
+
+test("user cancellation is idempotent and distinct from timeout", () => {
+  const createOperation = exportDialogModule.createDrawingExportOperation;
+  assert.equal(typeof createOperation, "function");
+  let timerCleanupCount = 0;
+  const operation = createOperation({
+    cancelScheduled: () => {
+      timerCleanupCount += 1;
+    },
+    schedule: () => 23,
+  });
+
+  operation.cancel();
+  operation.cancel();
+  assert.equal(operation.signal.aborted, true);
+  assert.match(operation.abortError().message, /취소/);
+  assert.doesNotMatch(operation.abortError().message, /시간을 초과/);
+  operation.finish();
+  assert.equal(timerCleanupCount, 1);
+});
+
+test("native download revokes its Blob URL exactly once even when click fails", () => {
+  const originalDocument = globalThis.document;
+  const originalCreateObjectUrl = URL.createObjectURL;
+  const originalRevokeObjectUrl = URL.revokeObjectURL;
+  let clickCount = 0;
+  let createCount = 0;
+  let revokeCount = 0;
+  globalThis.document = {
+    createElement(tagName) {
+      assert.equal(tagName, "a");
+      return {
+        click() {
+          clickCount += 1;
+          throw new Error("native click failed");
+        },
+        download: "",
+        href: "",
+      };
+    },
+  };
+  URL.createObjectURL = () => {
+    createCount += 1;
+    return "blob:drawing-export-test";
+  };
+  URL.revokeObjectURL = (href) => {
+    assert.equal(href, "blob:drawing-export-test");
+    revokeCount += 1;
+  };
+
+  try {
+    assert.throws(
+      () =>
+        exportDialogModule.downloadDrawingExport(
+          new Blob(["svg"]),
+          "drawing.svg",
+        ),
+      /native click failed/,
+    );
+  } finally {
+    globalThis.document = originalDocument;
+    URL.createObjectURL = originalCreateObjectUrl;
+    URL.revokeObjectURL = originalRevokeObjectUrl;
+  }
+  assert.deepEqual(
+    { clickCount, createCount, revokeCount },
+    {
+      clickCount: 1,
+      createCount: 1,
+      revokeCount: 1,
+    },
+  );
 });

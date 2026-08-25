@@ -1,4 +1,8 @@
-import { blockInstanceRenderModel } from "./drawing-blocks.ts";
+import {
+  blockInstanceRenderModel,
+  blockRenderModelBounds,
+  drawingCanvasRenderAdapter,
+} from "./drawing-blocks.ts";
 import type { DrawingDocumentState } from "./drawing-commands.ts";
 import { drawingDimensionLayout, drawingTextLayout } from "./drawing-layout.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
@@ -43,7 +47,9 @@ export type DrawingExportBackground = {
 export type DrawingExportPngOptions = {
   background?: DrawingExportBackground;
   canvasFactory?: () => HTMLCanvasElement;
+  includeBackground?: boolean;
   scale: 1 | 2 | 4;
+  signal?: AbortSignal;
 };
 
 export type DrawingExportPdfOptions = {
@@ -53,8 +59,10 @@ export type DrawingExportPdfOptions = {
   createdAt: string;
   getBackground?: (
     canvas: DrawingCanvas,
+    signal?: AbortSignal,
   ) => Promise<DrawingExportBackground | undefined>;
   scale: 1 | 2 | 4;
+  signal?: AbortSignal;
   subject?: string;
   title: string;
 };
@@ -66,17 +74,35 @@ export class DrawingExportError extends Error {
   }
 }
 
-const identityTransform: DrawingExportTransform = [1, 0, 0, 1, 0, 0];
-
-function canonicalOrder(
-  left: { id: string; sortOrder?: number },
-  right: { id: string; sortOrder?: number },
-) {
-  return (
-    (left.sortOrder ?? 0) - (right.sortOrder ?? 0) ||
-    left.id.localeCompare(right.id)
-  );
+function exportAbortError() {
+  return new DrawingExportError("Drawing export was cancelled.");
 }
+
+function throwIfExportAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw exportAbortError();
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(exportAbortError());
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(exportAbortError()));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
+const identityTransform: DrawingExportTransform = [1, 0, 0, 1, 0, 0];
 
 function stableNumber(value: number) {
   return Math.abs(value) < 1e-12 ? 0 : value;
@@ -122,58 +148,55 @@ export function collectExportPrimitives(
       `Drawing page ${canvas.pageId} does not exist.`,
     );
 
-  const primitives: DrawingExportPrimitive[] = [];
-  const layers = Object.values(structure.layers)
-    .filter((layer) => layer.canvasId === canvasId && layer.visible)
-    .sort(canonicalOrder);
-
-  for (const layer of layers) {
-    const objects = Object.values(structure.objects)
-      .filter((object) => object.layerId === layer.id)
-      .map((object) => ({ id: object.id, kind: "object" as const, object }));
-    const instances = Object.values(structure.blockInstances)
-      .filter((instance) => instance.layerId === layer.id)
-      .map((instance) => ({
-        id: instance.id,
-        instance,
-        kind: "block" as const,
-      }));
-
-    for (const item of [...objects, ...instances].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    )) {
-      if (item.kind === "object") {
-        primitives.push({
-          geometry: structuredClone(item.object.geometry),
-          id: item.object.id,
-          layerId: layer.id,
-          style: resolveDrawingStyle(item.object, structure.styles),
-          transform: [...identityTransform],
-        });
-        continue;
-      }
-      const block = structure.blocks[item.instance.blockId];
+  const layers = Object.fromEntries(
+    Object.values(structure.layers)
+      .filter((layer) => layer.canvasId === canvasId)
+      .map((layer) => [layer.id, layer]),
+  );
+  const objects = Object.values(structure.objects)
+    .filter((object) => layers[object.layerId])
+    .map((object) => ({
+      ...object,
+      style: resolveDrawingStyle(object, structure.styles),
+    }));
+  const blockInstances = Object.values(structure.blockInstances)
+    .filter((instance) => layers[instance.layerId])
+    .map((instance) => {
+      const block = structure.blocks[instance.blockId];
       if (!block)
         throw new DrawingExportError(
-          `Drawing block ${item.instance.blockId} does not exist.`,
+          `Drawing block ${instance.blockId} does not exist.`,
         );
-      const model = blockInstanceRenderModel(
-        block,
-        item.instance,
-        structure.styles,
-      );
-      const transform = instanceTransform(item.instance);
-      for (const primitive of [...model.primitives].sort((left, right) =>
-        left.localId.localeCompare(right.localId),
-      )) {
-        primitives.push({
-          geometry: structuredClone(primitive.geometry),
-          id: `${item.instance.id}/${primitive.localId}`,
-          layerId: layer.id,
-          style: structuredClone(primitive.style),
-          transform: [...transform],
-        });
-      }
+      const model = blockInstanceRenderModel(block, instance, structure.styles);
+      return { ...model, bounds: blockRenderModelBounds(model) };
+    });
+  const items = drawingCanvasRenderAdapter({
+    blockInstances,
+    layers,
+    objects,
+    zoom: 1,
+  }).items;
+  const primitives: DrawingExportPrimitive[] = [];
+  for (const item of items) {
+    if (item.kind === "object") {
+      primitives.push({
+        geometry: structuredClone(item.object.geometry),
+        id: item.object.id,
+        layerId: item.layerId,
+        style: structuredClone(item.object.style),
+        transform: [...identityTransform],
+      });
+      continue;
+    }
+    const transform = instanceTransform(item.model.instance);
+    for (const primitive of item.model.primitives) {
+      primitives.push({
+        geometry: structuredClone(primitive.geometry),
+        id: `${item.model.instance.id}/${primitive.localId}`,
+        layerId: item.layerId,
+        style: structuredClone(primitive.style),
+        transform: [...transform],
+      });
     }
   }
 
@@ -193,6 +216,10 @@ function exportNumber(value: number) {
 }
 
 function escapeXml(value: string) {
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value))
+    throw new DrawingExportError(
+      "Drawing export text contains an XML 1.0-invalid control character.",
+    );
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -212,7 +239,7 @@ function dimensionCalibration(
   const calibration = canvas.background?.calibration;
   return geometry.calibrationId && calibration
     ? {
-        id: geometry.calibrationId,
+        id: canvas.pageId,
         millimetersPerNormalizedUnit: calibration.millimetersPerNormalizedUnit,
         pageHeight: canvas.heightMillimeters,
         pageWidth: canvas.widthMillimeters,
@@ -220,9 +247,49 @@ function dimensionCalibration(
     : null;
 }
 
+type FixedExportTextLayout = {
+  fontSize: number;
+  height: number;
+  lineHeight: number;
+  lines: string[];
+  width: number;
+  x: number;
+  y: number;
+};
+
+function fixedExportTextLayout(input: {
+  fontSize: number;
+  height: number;
+  lineHeight: number;
+  text: string;
+  width: number;
+  x: number;
+  y: number;
+}): FixedExportTextLayout {
+  return { ...input, lines: input.text.split("\n") };
+}
+
+function svgClippedText(
+  layout: FixedExportTextLayout,
+  fill: string,
+  clipId: string,
+) {
+  const content = layout.lines
+    .map(
+      (line, index) =>
+        `<tspan x="${exportNumber(layout.x)}" y="${exportNumber(layout.y + index * layout.fontSize * layout.lineHeight)}">${escapeXml(line)}</tspan>`,
+    )
+    .join("");
+  return [
+    `<clipPath id="${clipId}"><rect x="${exportNumber(layout.x)}" y="${exportNumber(layout.y)}" width="${exportNumber(layout.width)}" height="${exportNumber(layout.height)}"/></clipPath>`,
+    `<text x="${exportNumber(layout.x)}" y="${exportNumber(layout.y)}" clip-path="url(#${clipId})" fill="${fill}" font-family="sans-serif" font-size="${exportNumber(layout.fontSize)}" dominant-baseline="text-before-edge" xml:space="preserve">${content}</text>`,
+  ];
+}
+
 function svgGeometry(
   primitive: DrawingExportPrimitive,
   canvas: DrawingCanvas,
+  clipId: string,
 ): string[] {
   const { geometry, style } = primitive;
   switch (geometry.type) {
@@ -251,19 +318,16 @@ function svgGeometry(
       ];
     case "text": {
       const layout = drawingTextLayout(geometry, style.fontSize ?? 14);
-      const lines = geometry.text.split("\n");
-      const content =
-        lines.length === 1
-          ? escapeXml(geometry.text)
-          : lines
-              .map(
-                (line, index) =>
-                  `<tspan x="${exportNumber(geometry.origin.x)}" y="${exportNumber(geometry.origin.y + index * layout.fontSize * layout.lineHeight)}">${escapeXml(line)}</tspan>`,
-              )
-              .join("");
-      return [
-        `<text x="${exportNumber(geometry.origin.x)}" y="${exportNumber(geometry.origin.y)}" width="${exportNumber(layout.width)}" fill="${style.fill ?? style.stroke}" font-family="sans-serif" font-size="${exportNumber(layout.fontSize)}" dominant-baseline="text-before-edge" xml:space="preserve">${content}</text>`,
-      ];
+      return svgClippedText(
+        fixedExportTextLayout({
+          ...layout,
+          text: geometry.text,
+          x: geometry.origin.x,
+          y: geometry.origin.y,
+        }),
+        style.fill ?? style.stroke,
+        clipId,
+      );
     }
     case "dimension": {
       const layout = drawingDimensionLayout(
@@ -279,7 +343,19 @@ function svgGeometry(
         line(layout.displayStart, layout.displayEnd),
         line(geometry.start, layout.displayStart),
         line(geometry.end, layout.displayEnd),
-        `<text x="${exportNumber(layout.label.x)}" y="${exportNumber(layout.label.y)}" width="${exportNumber(layout.width)}" fill="${geometry.calibrationId === null ? "#dc2626" : style.stroke}" font-family="sans-serif" font-size="${exportNumber(layout.fontSize)}" dominant-baseline="text-before-edge" xml:space="preserve">${escapeXml(layout.text)}</text>`,
+        ...svgClippedText(
+          fixedExportTextLayout({
+            fontSize: layout.fontSize,
+            height: layout.height,
+            lineHeight: layout.lineHeight,
+            text: layout.text,
+            width: layout.width,
+            x: layout.label.x,
+            y: layout.label.y,
+          }),
+          geometry.calibrationId === null ? "#dc2626" : style.stroke,
+          clipId,
+        ),
       ];
     }
   }
@@ -299,13 +375,13 @@ export function exportDrawingSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">`,
     `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`,
   ];
-  for (const primitive of traversal.primitives) {
+  traversal.primitives.forEach((primitive, index) => {
     lines.push(
       `<g data-export-id="${escapeXml(primitive.id)}" transform="matrix(${primitive.transform.map(exportNumber).join(" ")})">`,
-      ...svgGeometry(primitive, canvas),
+      ...svgGeometry(primitive, canvas, `drawing-export-clip-${index}`),
       "</g>",
     );
-  }
+  });
   lines.push("</svg>", "");
   return lines.join("\n");
 }
@@ -313,7 +389,9 @@ export function exportDrawingSvg(
 function requireExportBackground(
   canvas: DrawingCanvas,
   background: DrawingExportBackground | undefined,
+  includeBackground: boolean,
 ) {
+  if (!includeBackground) return null;
   const canonical = canvas.background;
   if (!canonical) return null;
   if (!background)
@@ -353,6 +431,24 @@ function canvasLine(
   context.moveTo(start.x, start.y);
   context.lineTo(end.x, end.y);
   context.stroke();
+}
+
+function paintClippedText(
+  context: CanvasRenderingContext2D,
+  layout: FixedExportTextLayout,
+) {
+  context.save();
+  context.beginPath();
+  context.rect(layout.x, layout.y, layout.width, layout.height);
+  context.clip();
+  layout.lines.forEach((line, index) =>
+    context.fillText(
+      line,
+      layout.x,
+      layout.y + index * layout.fontSize * layout.lineHeight,
+    ),
+  );
+  context.restore();
 }
 
 function paintGeometry(
@@ -402,16 +498,15 @@ function paintGeometry(
       const layout = drawingTextLayout(geometry, style.fontSize ?? 14);
       context.font = `${exportNumber(layout.fontSize)}px sans-serif`;
       context.textBaseline = "top";
-      geometry.text
-        .split("\n")
-        .forEach((line, index) =>
-          context.fillText(
-            line,
-            geometry.origin.x,
-            geometry.origin.y + index * layout.fontSize * layout.lineHeight,
-            layout.width,
-          ),
-        );
+      paintClippedText(
+        context,
+        fixedExportTextLayout({
+          ...layout,
+          text: geometry.text,
+          x: geometry.origin.x,
+          y: geometry.origin.y,
+        }),
+      );
       break;
     }
     case "dimension": {
@@ -426,11 +521,17 @@ function paintGeometry(
         geometry.calibrationId === null ? "#dc2626" : style.stroke;
       context.font = `${exportNumber(layout.fontSize)}px sans-serif`;
       context.textBaseline = "top";
-      context.fillText(
-        layout.text,
-        layout.label.x,
-        layout.label.y,
-        layout.width,
+      paintClippedText(
+        context,
+        fixedExportTextLayout({
+          fontSize: layout.fontSize,
+          height: layout.height,
+          lineHeight: layout.lineHeight,
+          text: layout.text,
+          width: layout.width,
+          x: layout.label.x,
+          y: layout.label.y,
+        }),
       );
       break;
     }
@@ -438,22 +539,38 @@ function paintGeometry(
   context.restore();
 }
 
-function encodePng(canvas: HTMLCanvasElement): Promise<Blob> {
+function encodePng(
+  canvas: HTMLCanvasElement,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  throwIfExportAborted(signal);
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(exportAbortError()));
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
       canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new DrawingExportError("PNG encoding failed."));
+        if (blob) finish(() => resolve(blob));
+        else
+          finish(() => reject(new DrawingExportError("PNG encoding failed.")));
       }, "image/png");
     } catch (error) {
-      reject(
-        error instanceof DOMException && error.name === "SecurityError"
-          ? new DrawingExportError(
-              "PNG export failed because the background canvas is tainted.",
-            )
-          : new DrawingExportError(
-              `PNG encoding failed: ${error instanceof Error ? error.message : "unknown error"}`,
-            ),
+      finish(() =>
+        reject(
+          error instanceof DOMException && error.name === "SecurityError"
+            ? new DrawingExportError(
+                "PNG export failed because the background canvas is tainted.",
+              )
+            : new DrawingExportError(
+                `PNG encoding failed: ${error instanceof Error ? error.message : "unknown error"}`,
+              ),
+        ),
       );
     }
   });
@@ -465,12 +582,14 @@ export async function exportDrawingPng(
   canvasId: string,
   options: DrawingExportPngOptions,
 ): Promise<Blob> {
+  throwIfExportAborted(options.signal);
   if (options.scale !== 1 && options.scale !== 2 && options.scale !== 4)
     throw new DrawingExportError("PNG scale must be 1x, 2x, or 4x.");
   const traversal = collectExportPrimitives(documentState, canvasId);
   const background = requireExportBackground(
     traversal.canvas,
     options.background,
+    options.includeBackground ?? true,
   );
   const canvas = (options.canvasFactory ?? nativeCanvas)();
   canvas.width = Math.max(
@@ -518,7 +637,7 @@ export async function exportDrawingPng(
   }
   for (const primitive of traversal.primitives)
     paintGeometry(context, primitive, traversal.canvas);
-  return encodePng(canvas);
+  return encodePng(canvas, options.signal);
 }
 
 function exportCanvases(
@@ -563,12 +682,14 @@ export async function exportDrawingPdf(
   documentState: DrawingDocumentState,
   options: DrawingExportPdfOptions,
 ): Promise<Uint8Array> {
+  throwIfExportAborted(options.signal);
   const createdAt = new Date(options.createdAt);
   if (!Number.isFinite(createdAt.getTime()))
     throw new DrawingExportError("PDF metadata date is invalid.");
   const title = options.title.trim();
   if (!title) throw new DrawingExportError("PDF title is required.");
   const { PDFDocument } = await import("pdf-lib");
+  throwIfExportAborted(options.signal);
   const pdf = await PDFDocument.create({ updateMetadata: false });
   pdf.setTitle(title);
   if (options.author?.trim()) pdf.setAuthor(options.author.trim());
@@ -579,17 +700,30 @@ export async function exportDrawingPdf(
   pdf.setModificationDate(createdAt);
 
   for (const canvas of exportCanvases(documentState, options.canvasIds)) {
-    const background = await options.getBackground?.(structuredClone(canvas));
+    throwIfExportAborted(options.signal);
+    const background = await abortable(
+      options.getBackground?.(structuredClone(canvas), options.signal) ??
+        Promise.resolve(undefined),
+      options.signal,
+    );
+    throwIfExportAborted(options.signal);
     const png = await exportDrawingPng(documentState, canvas.id, {
       background,
       canvasFactory: options.canvasFactory,
+      includeBackground: true,
       scale: options.scale,
+      signal: options.signal,
     });
-    const image = await pdf.embedPng(await png.arrayBuffer());
+    throwIfExportAborted(options.signal);
+    const pngBytes = await abortable(png.arrayBuffer(), options.signal);
+    const image = await abortable(pdf.embedPng(pngBytes), options.signal);
     const width = (canvas.widthMillimeters * 72) / 25.4;
     const height = (canvas.heightMillimeters * 72) / 25.4;
     const page = pdf.addPage([width, height]);
     page.drawImage(image, { x: 0, y: 0, width, height });
   }
-  return pdf.save({ addDefaultPage: false, useObjectStreams: false });
+  return abortable(
+    pdf.save({ addDefaultPage: false, useObjectStreams: false }),
+    options.signal,
+  );
 }

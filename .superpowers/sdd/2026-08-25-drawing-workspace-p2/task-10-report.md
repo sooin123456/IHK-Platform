@@ -83,3 +83,41 @@ Inspection results:
 
 - PNG/PDF background export deliberately requires callable browser Canvas and PDF.js rendering paths; missing, mismatched, tainted, or undecodable source pixels fail explicitly rather than silently changing the export.
 - The blank middle representative PDF page is expected fixture content, not an export omission.
+
+## Fix round — seven Important review findings
+
+All findings in `task-10-review.md` were addressed in one focused follow-up.
+
+- **I1 authoritative order:** RED showed tied layers grouped by layer ID and reverse-local-ID block primitives reordered. GREEN reuses `drawingCanvasRenderAdapter()` and `blockRenderModelBounds()` from the authoritative renderer, sorts render items globally by `(layer.sortOrder, item.id)`, and preserves `model.primitives` definition-array order. Unit IDs and overlapping browser pixels protect both mutations.
+- **I2 text/XML:** RED showed SVG without clipping, Canvas `fillText(maxWidth)` compression, and accepted `U+0001`. GREEN uses one fixed no-wrap layout for SVG `<clipPath>` and Canvas `rect()/clip()` with uncompressed `fillText`, including multiline text and dimension labels. XML 1.0-invalid C0 controls are rejected without stripping semantic text. DOMParser and real SVG/PNG raster evidence verify clipping and both line bands.
+- **I3 calibration:** RED rendered a stale cross-page calibration as numeric. GREEN uses `canvas.pageId` as calibration identity and never geometry evidence as the selected calibration ID. Calibrated, missing, stale, and transformed block dimensions are covered in SVG/Canvas calls; the browser PNG and rendered PDF require calibrated dimension ink.
+- **I4 background choice:** RED proved canonical metadata forced a background even when exclusion was requested. GREEN adds explicit `includeBackground`, preserving white plus vectors on exclusion and exact source-file/SHA/page evidence on inclusion. The hydrated dialog exposes an accessible checkbox, disables and describes it when unavailable, and real browser pixels distinguish yellow included background from white excluded background while retaining vectors.
+- **I5 deadline/cancel:** RED deadline, cancellation, PNG encoding, PDF background, and stalled image-read tests all failed. GREEN owns one 30-second timer and `AbortController` per ref-gated export, propagates the signal through PDF.js load/render and PNG/PDF work, races non-cancellable array-buffer/embed/save promises, cancels on Close/unmount, avoids post-unmount state, and settles timers/disposers once. Native download revokes its Blob URL exactly once even when click throws. Hydrated Playwright verifies the background UI, double-click gate, cancel/close, and clean reopen.
+- **I6 license closure:** The guard now resolves the package-lock closure rooted at exact `pdf-lib@1.17.1`: `pdf-lib`, both `@pdf-lib` packages, all three nested `pako` entries, and nested `tslib`. Every closure license must be one of the observed permissive expressions; runtime and dev direct dependency keys must equal explicit approved baselines. Mutation runs rejected an injected direct export framework and an `UNKNOWN` nested license, after which exact package/lock bytes were restored.
+- **I7 executable evidence:** The unrelated local byte invariant was removed. The real browser gate serves actual fixture PDF bytes, renders them through PDF.js, freezes and compares file/SHA/storage evidence, hashes bytes before/after, and asserts every observed server request is GET. It parses/renders SVG, renders include/exclude PNG, and parses/renders the exported two-page PDF with distinct page dimensions, ordered page-specific pixels, block/tied-layer pixels, multiline clip bounds, and dimension ink. Its validation boundary explicitly rejects blank vectors, swapped pages, duplicate pages, and blank pages.
+
+### Fix verification
+
+```text
+node --test tests/drawing-workspace-export.test.mjs tests/drawing-workspace-license.test.mjs tests/drawing-workspace-shell.test.mjs
+# 33 tests, 33 pass, 0 fail (final focused behavior; included cold-cache browser render)
+
+npm run test:drawing-workspace
+# 409 tests, 409 pass, 0 fail
+
+SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=preview \
+VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_ANON_KEY=preview \
+npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --workers=1
+# existing hydrated tab tests passed; the new export test was rerun focused after adding the established hydration retry and passed 1/1
+
+npm run typecheck
+# pass
+
+npm run build
+# pass: client 2,582 modules; SSR 139 modules
+
+npx prettier --check <six affected code/test files>
+# all matched; git diff --check clean
+```
+
+Representative SVG, 2x PNG, and three-page PDF artifacts were regenerated under the ignored Task 10 artifact directory without rerunning the PDF artifact marker. `file`, `pdfinfo`, and Poppler confirmed SVG, `2378 × 1682` RGBA PNG, PDF 1.7, three pages, A0 first page, and fixed metadata. Fresh Poppler rasters were visually inspected: pages 1 and 3 retain their distinct vector content, page 2 remains intentionally blank, clipped text/dimensions are visible, and no rendering defect or unintended source background appeared. Temporary render/cache/test output was removed.

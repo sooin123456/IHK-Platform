@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/core/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -34,6 +35,54 @@ type DrawingExportDialogProps = {
   title: string;
 };
 
+const DRAWING_EXPORT_TIMEOUT_MILLISECONDS = 30_000;
+
+type DrawingExportOperationOptions = {
+  cancelScheduled?: (handle: unknown) => void;
+  schedule?: (callback: () => void, milliseconds: number) => unknown;
+};
+
+export function createDrawingExportOperation({
+  cancelScheduled = (handle) =>
+    clearTimeout(handle as ReturnType<typeof setTimeout>),
+  schedule = (callback, milliseconds) => setTimeout(callback, milliseconds),
+}: DrawingExportOperationOptions = {}) {
+  const controller = new AbortController();
+  let cancelled = false;
+  let finished = false;
+  let timedOut = false;
+  const timer = schedule(() => {
+    if (finished || controller.signal.aborted) return;
+    timedOut = true;
+    controller.abort();
+  }, DRAWING_EXPORT_TIMEOUT_MILLISECONDS);
+  return {
+    abortError() {
+      return new Error(
+        timedOut
+          ? "도면 내보내기가 30초 제한 시간을 초과했습니다."
+          : cancelled
+            ? "도면 내보내기가 취소되었습니다."
+            : "도면 내보내기가 중단되었습니다.",
+      );
+    },
+    cancel() {
+      if (finished || controller.signal.aborted) return;
+      cancelled = true;
+      controller.abort();
+    },
+    finish() {
+      if (finished) return;
+      finished = true;
+      cancelScheduled(timer);
+    },
+    get timedOut() {
+      return timedOut;
+    },
+    signal: controller.signal,
+  };
+}
+
 function safeFilename(value: string) {
   const normalized = value
     .normalize("NFKC")
@@ -54,13 +103,22 @@ export function downloadDrawingExport(blob: Blob, filename: string) {
   const anchor = document.createElement("a");
   anchor.download = filename;
   anchor.href = href;
-  anchor.click();
-  URL.revokeObjectURL(href);
+  try {
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(href);
+  }
 }
 
-async function pdfBackground(
+function onceAsync(dispose: () => Promise<void>) {
+  let pending: Promise<void> | null = null;
+  return () => (pending ??= dispose());
+}
+
+export async function pdfBackground(
   canvas: DrawingCanvas,
   sourceUrl: string | null,
+  signal?: AbortSignal,
 ): Promise<{
   background: DrawingExportBackground | undefined;
   dispose: () => Promise<void>;
@@ -71,7 +129,7 @@ async function pdfBackground(
   const { openPdfDocument, renderPdfPageToCanvas } = await import(
     "~/lukas/lib/pdf-page-renderer.client"
   );
-  const opened = await openPdfDocument(sourceUrl);
+  const opened = await openPdfDocument(sourceUrl, signal);
   const pixels = document.createElement("canvas");
   try {
     const rendered = await renderPdfPageToCanvas({
@@ -79,6 +137,7 @@ async function pdfBackground(
       document: opened.document,
       hostWidth: 1600,
       pageNumber: canvas.background.pdfPageNumber ?? 1,
+      signal,
       zoom: 1,
     });
     return {
@@ -117,17 +176,33 @@ export function DrawingExportDialog({
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [scale, setScale] = useState<1 | 2 | 4>(2);
   const [currentModelOnly, setCurrentModelOnly] = useState(false);
+  const [includeBackground, setIncludeBackground] = useState(false);
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
+  const activeOperationRef = useRef<ReturnType<
+    typeof createDrawingExportOperation
+  > | null>(null);
+  const mountedRef = useRef(true);
   const activeCanvas = documentState.activeCanvasId
     ? documentState.structure?.canvases[documentState.activeCanvasId]
     : undefined;
   const exporting = status.kind === "working";
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeOperationRef.current?.cancel();
+    };
+  }, []);
+
   async function runExport() {
+    if (activeOperationRef.current) return;
     if (!activeCanvas) {
       setStatus({ kind: "error", message: "내보낼 canvas가 없습니다." });
       return;
     }
+    const operation = createDrawingExportOperation();
+    activeOperationRef.current = operation;
     setStatus({ kind: "working", message: "내보내기를 준비하는 중입니다." });
     const disposers: Array<() => Promise<void>> = [];
     try {
@@ -139,11 +214,15 @@ export function DrawingExportDialog({
           `${baseName}.svg`,
         );
       } else if (format === "png") {
-        const rendered = await pdfBackground(activeCanvas, sourceUrl);
-        disposers.push(rendered.dispose);
+        const rendered = includeBackground
+          ? await pdfBackground(activeCanvas, sourceUrl, operation.signal)
+          : { background: undefined, dispose: async () => {} };
+        disposers.push(onceAsync(rendered.dispose));
         const png = await exportDrawingPng(documentState, activeCanvas.id, {
           background: rendered.background,
+          includeBackground,
           scale,
+          signal: operation.signal,
         });
         downloadDrawingExport(png, `${baseName}@${scale}x.png`);
       } else {
@@ -154,11 +233,16 @@ export function DrawingExportDialog({
               : undefined,
           createdAt,
           getBackground: async (canvas) => {
-            const rendered = await pdfBackground(canvas, sourceUrl);
-            disposers.push(rendered.dispose);
+            const rendered = await pdfBackground(
+              canvas,
+              sourceUrl,
+              operation.signal,
+            );
+            disposers.push(onceAsync(rendered.dispose));
             return rendered.background;
           },
           scale,
+          signal: operation.signal,
           subject: "Canonical drawing workspace export",
           title,
         });
@@ -169,25 +253,38 @@ export function DrawingExportDialog({
           `${baseName}.pdf`,
         );
       }
-      setStatus({ kind: "success", message: "내보내기를 완료했습니다." });
+      if (mountedRef.current)
+        setStatus({ kind: "success", message: "내보내기를 완료했습니다." });
     } catch (error) {
-      setStatus({
-        kind: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "도면을 내보내지 못했습니다.",
-      });
+      if (
+        mountedRef.current &&
+        (!operation.signal.aborted || operation.timedOut)
+      )
+        setStatus({
+          kind: "error",
+          message: operation.signal.aborted
+            ? operation.abortError().message
+            : error instanceof Error
+              ? error.message
+              : "도면을 내보내지 못했습니다.",
+        });
     } finally {
       await Promise.allSettled(disposers.map((dispose) => dispose()));
+      operation.finish();
+      if (activeOperationRef.current === operation)
+        activeOperationRef.current = null;
     }
   }
 
   return (
     <Dialog
       onOpenChange={(nextOpen) => {
+        if (!nextOpen) activeOperationRef.current?.cancel();
         setOpen(nextOpen);
-        if (nextOpen) setStatus({ kind: "idle" });
+        if (nextOpen) {
+          setIncludeBackground(Boolean(activeCanvas?.background));
+          setStatus({ kind: "idle" });
+        }
       }}
       open={open}
     >
@@ -236,6 +333,28 @@ export function DrawingExportDialog({
             </select>
           </label>
         ) : null}
+        {format === "png" ? (
+          <div className="grid gap-1">
+            <label className="flex min-h-10 items-center gap-2 text-sm">
+              <input
+                aria-describedby="drawing-export-background-description"
+                checked={includeBackground && Boolean(activeCanvas?.background)}
+                disabled={exporting || !activeCanvas?.background}
+                onChange={(event) => setIncludeBackground(event.target.checked)}
+                type="checkbox"
+              />
+              PDF 배경 포함
+            </label>
+            <p
+              className="text-xs text-muted-foreground"
+              id="drawing-export-background-description"
+            >
+              {activeCanvas?.background
+                ? "선택 해제하면 흰색 배경과 벡터만 내보냅니다."
+                : "현재 canvas에는 포함할 PDF 배경이 없습니다."}
+            </p>
+          </div>
+        ) : null}
         {format === "pdf" && activeCanvas?.spaceKind === "model" ? (
           <label className="flex min-h-10 items-center gap-2 text-sm">
             <input
@@ -259,6 +378,15 @@ export function DrawingExportDialog({
           </p>
         ) : null}
         <DialogFooter>
+          <DialogClose asChild>
+            <Button
+              onClick={() => activeOperationRef.current?.cancel()}
+              type="button"
+              variant="secondary"
+            >
+              {exporting ? "취소" : "닫기"}
+            </Button>
+          </DialogClose>
           <Button
             disabled={exporting || !activeCanvas}
             onClick={runExport}

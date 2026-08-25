@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { chromium } from "@playwright/test";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { createServer } from "vite";
 
 import {
@@ -324,6 +325,68 @@ test("canonical export traversal resolves live object and block styles", () => {
   assert.deepEqual(object.transform, [1, 0, 0, 1, 0, 0]);
 });
 
+test("canonical export traversal interleaves tied layers by item id and preserves block definition order", () => {
+  const document = exportFixture();
+  document.structure.layers[ids.layerLocked].sortOrder = 1;
+  delete document.structure.objects[ids.objectLocked];
+  const tiedLayerObjectId = "00000000-0000-4000-8000-000000001059";
+  document.structure.objects[tiedLayerObjectId] = {
+    id: tiedLayerObjectId,
+    name: "Tied layer top",
+    layerId: ids.layerLocked,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 10,
+      height: 10,
+      rotation: 0,
+    },
+    styleId: null,
+    style: { stroke: "#00ff00", strokeWidth: 1, fill: "#00ff00" },
+    version: 1,
+  };
+  document.structure.blocks[ids.block].primitives = [
+    {
+      localId: "z-definition-first",
+      name: "Definition first",
+      geometry: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 10,
+        height: 10,
+        rotation: 0,
+      },
+      styleId: null,
+      style: { stroke: "#ff0000", strokeWidth: 1, fill: "#ff0000" },
+    },
+    {
+      localId: "a-definition-second",
+      name: "Definition second",
+      geometry: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 10,
+        height: 10,
+        rotation: 0,
+      },
+      styleId: null,
+      style: { stroke: "#0000ff", strokeWidth: 1, fill: "#0000ff" },
+    },
+  ];
+
+  assert.deepEqual(
+    collectExportPrimitives(document, ids.canvasFirst).primitives.map(
+      (primitive) => primitive.id,
+    ),
+    [
+      `${ids.blockInstance}/z-definition-first`,
+      `${ids.blockInstance}/a-definition-second`,
+      ids.objectStyled,
+      tiedLayerObjectId,
+    ],
+  );
+});
+
 test("SVG export is byte-stable with escaped XML and stable canvas bounds", () => {
   const document = exportFixture();
   const first = exportDrawingSvg(document, ids.canvasSecond);
@@ -337,7 +400,8 @@ test("SVG export is byte-stable with escaped XML and stable canvas bounds", () =
       '<svg xmlns="http://www.w3.org/2000/svg" width="297mm" height="210mm" viewBox="0 0 297 210">',
       '<rect x="0" y="0" width="297" height="210" fill="#ffffff"/>',
       `<g data-export-id="${ids.objectSecond}" transform="matrix(1 0 0 1 0 0)">`,
-      '<text x="1" y="2" width="40" fill="#112233" font-family="sans-serif" font-size="13" dominant-baseline="text-before-edge" xml:space="preserve">A&lt;&amp;&quot;&apos;&gt;</text>',
+      '<clipPath id="drawing-export-clip-0"><rect x="1" y="2" width="40" height="15.6"/></clipPath>',
+      '<text x="1" y="2" clip-path="url(#drawing-export-clip-0)" fill="#112233" font-family="sans-serif" font-size="13" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1" y="2">A&lt;&amp;&quot;&apos;&gt;</tspan></text>',
       "</g>",
       "</svg>",
       "",
@@ -352,7 +416,37 @@ test("SVG export preserves canonical multiline text layout", () => {
 
   assert.match(
     svg,
-    /<text x="1" y="2" width="40" fill="#112233" font-family="sans-serif" font-size="13" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1" y="2">A&amp;B<\/tspan><tspan x="1" y="17\.6">C&lt;D<\/tspan><\/text>/,
+    /<text x="1" y="2" clip-path="url\(#drawing-export-clip-0\)" fill="#112233" font-family="sans-serif" font-size="13" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1" y="2">A&amp;B<\/tspan><tspan x="1" y="17\.6">C&lt;D<\/tspan><\/text>/,
+  );
+});
+
+test("SVG text uses deterministic fixed-width clipping for long multiline content", () => {
+  const document = exportFixture();
+  document.structure.objects[ids.objectSecond].geometry.text =
+    "A very long first line that must not be condensed\nsecond line";
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+
+  assert.match(
+    svg,
+    /<clipPath id="drawing-export-clip-0"><rect x="1" y="2" width="40" height="31\.2"\/><\/clipPath>/,
+  );
+  assert.match(svg, /<text [^>]*clip-path="url\(#drawing-export-clip-0\)"/);
+  assert.doesNotMatch(svg, /<text[^>]*\swidth=/);
+  assert.match(
+    svg,
+    />A very long first line that must not be condensed<\/tspan>/,
+  );
+  assert.match(svg, />second line<\/tspan>/);
+});
+
+test("SVG export rejects XML 1.0-invalid C0 controls without stripping text", () => {
+  const document = exportFixture();
+  document.structure.objects[ids.objectSecond].geometry.text =
+    "semantic\u0001text";
+
+  assert.throws(
+    () => exportDrawingSvg(document, ids.canvasSecond),
+    /XML 1\.0-invalid control character/i,
   );
 });
 
@@ -426,6 +520,115 @@ test("PNG export has deterministic 1x, 2x, and 4x dimensions", async () => {
   }
 });
 
+test("PNG text clips to the fixed layout and draws uncompressed multiline text", async () => {
+  const document = exportFixture();
+  document.structure.objects[ids.objectSecond].geometry.text =
+    "A very long first line that must not be condensed\nsecond line";
+  const canvas = fakeCanvas();
+
+  await exportDrawingPng(document, ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    scale: 1,
+  });
+
+  assert.deepEqual(
+    canvas.calls.filter(([name]) => name === "rect"),
+    [["rect", 1, 2, 40, 31.2]],
+  );
+  assert.equal(canvas.calls.filter(([name]) => name === "clip").length, 1);
+  assert.deepEqual(
+    canvas.calls.filter(([name]) => name === "fillText"),
+    [
+      ["fillText", "A very long first line that must not be condensed", 1, 2],
+      ["fillText", "second line", 1, 17.6],
+    ],
+  );
+});
+
+test("dimension export uses page calibration identity for direct and transformed block geometry", async () => {
+  const document = exportFixture();
+  document.structure.canvases[ids.canvasFirst].background.calibration = {
+    millimetersPerNormalizedUnit: 1000,
+  };
+  document.structure.objects[ids.objectStyled].geometry = {
+    type: "dimension",
+    start: { x: 0, y: 0 },
+    end: { x: 21, y: 0 },
+    offset: 5,
+    calibrationId: ids.pageFirst,
+  };
+  document.structure.objects[ids.objectLocked].geometry = {
+    type: "dimension",
+    start: { x: 0, y: 20 },
+    end: { x: 21, y: 20 },
+    offset: 5,
+    calibrationId: ids.pageSecond,
+  };
+  document.structure.blocks[ids.block].primitives = [
+    {
+      localId: "dimension",
+      name: "Block dimension",
+      geometry: {
+        type: "dimension",
+        start: { x: 0, y: 0 },
+        end: { x: 21, y: 0 },
+        offset: 5,
+        calibrationId: ids.pageFirst,
+      },
+      styleId: ids.style,
+      style: {},
+    },
+  ];
+
+  const svg = exportDrawingSvg(document, ids.canvasFirst);
+  assert.equal(svg.match(/>100\.0 mm<\/tspan>/g)?.length, 2);
+  assert.match(svg, />보정 확인 불가<\/tspan>/);
+  assert.match(
+    svg,
+    new RegExp(
+      `data-export-id="${ids.blockInstance}/dimension" transform="matrix\\(0 2 -1 0 100 120\\)"`,
+    ),
+  );
+
+  const canvas = fakeCanvas();
+  await exportDrawingPng(document, ids.canvasFirst, {
+    background: {
+      bounds: { x: 0, y: 0, width: 210, height: 297 },
+      canvas: fakeCanvas(),
+      sourceFileId: ids.source,
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 2,
+    },
+    canvasFactory: () => canvas,
+    scale: 1,
+  });
+  assert.equal(
+    canvas.calls.filter(
+      ([name, text]) => name === "fillText" && text === "100.0 mm",
+    ).length,
+    2,
+  );
+  assert.equal(
+    canvas.calls.some(
+      ([name, text]) => name === "fillText" && text === "보정 확인 불가",
+    ),
+    true,
+  );
+  assert.equal(
+    canvas.calls.some(
+      ([name, a, b, c, d, e, f]) =>
+        name === "transform" &&
+        a === 0 &&
+        b === 2 &&
+        c === -1 &&
+        d === 0 &&
+        e === 100 &&
+        f === 120,
+    ),
+    true,
+  );
+});
+
 test("PNG export requires the matching PDF.js background canvas", async () => {
   const document = exportFixture();
   await assert.rejects(
@@ -448,6 +651,25 @@ test("PNG export requires the matching PDF.js background canvas", async () => {
       scale: 1,
     }),
     /does not match the canonical source/i,
+  );
+});
+
+test("PNG export intentionally excludes canonical background metadata when requested", async () => {
+  const canvas = fakeCanvas();
+  const blob = await exportDrawingPng(exportFixture(), ids.canvasFirst, {
+    canvasFactory: () => canvas,
+    includeBackground: false,
+    scale: 1,
+  });
+
+  assert.equal(blob.type, "image/png");
+  assert.equal(
+    canvas.calls.some(([name]) => name === "drawImage"),
+    false,
+  );
+  assert.deepEqual(
+    canvas.calls.find(([name]) => name === "fillRect")?.slice(1),
+    [0, 0, 210, 297],
   );
 });
 
@@ -483,6 +705,22 @@ test("PNG export reports tainted and failed background encoding explicitly", asy
     }),
     /PDF background encoding failed/i,
   );
+});
+
+test("PNG encoding rejects promptly when the export signal is cancelled", async () => {
+  const controller = new AbortController();
+  const canvas = fakeCanvas();
+  canvas.toBlob = (callback) => {
+    setTimeout(() => callback(new Blob(["late"], { type: "image/png" })), 25);
+  };
+  const pending = exportDrawingPng(exportFixture(), ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    scale: 1,
+    signal: controller.signal,
+  });
+
+  controller.abort();
+  await assert.rejects(pending, /cancel/i);
 });
 
 const onePixelPng = Buffer.from(
@@ -575,41 +813,242 @@ test("PDF export excludes model canvases unless they are explicitly selected", a
   );
 });
 
-test("real browser PNG bytes contain the expected signature, dimensions, and pixels", async () => {
+test("PDF export propagates one cancellation signal through background work", async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  const pending = exportDrawingPdf(exportFixture(), {
+    canvasFactory: () => fakeCanvas({ pngBytes: onePixelPng }),
+    createdAt: "2026-08-25T09:00:00.000Z",
+    getBackground: async (_canvas, signal) => {
+      receivedSignal = signal;
+      controller.abort();
+      return undefined;
+    },
+    scale: 1,
+    signal: controller.signal,
+    title: "Cancelled",
+  });
+
+  await assert.rejects(pending, /cancel/i);
+  assert.equal(receivedSignal, controller.signal);
+});
+
+test("PDF export races non-cancellable image embedding work against cancellation", async () => {
+  const controller = new AbortController();
+  let imageReadStarted;
+  const started = new Promise((resolve) => {
+    imageReadStarted = resolve;
+  });
+  const canvas = fakeCanvas();
+  canvas.toBlob = (callback) =>
+    callback({
+      arrayBuffer() {
+        imageReadStarted();
+        return new Promise(() => {});
+      },
+      type: "image/png",
+    });
+  const pending = exportDrawingPdf(exportFixture(), {
+    canvasFactory: () => canvas,
+    canvasIds: [ids.canvasSecond],
+    createdAt: "2026-08-25T09:00:00.000Z",
+    scale: 1,
+    signal: controller.signal,
+    title: "Cancelled image embedding",
+  });
+  await started;
+  controller.abort();
+
+  assert.equal(
+    await Promise.race([
+      pending.then(
+        () => "resolved",
+        (error) => (error instanceof Error ? error.message : String(error)),
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("stalled"), 25)),
+    ]),
+    "Drawing export was cancelled.",
+  );
+});
+
+test("real browser export preserves source evidence and renders ordered SVG, PNG, and PDF pixels", async () => {
   const document = exportFixture();
-  const canvas = document.structure.canvases[ids.canvasSecond];
-  canvas.widthMillimeters = 10;
-  canvas.heightMillimeters = 10;
-  const object = document.structure.objects[ids.objectSecond];
-  object.geometry = {
+  const firstCanvas = document.structure.canvases[ids.canvasFirst];
+  firstCanvas.widthMillimeters = 100;
+  firstCanvas.heightMillimeters = 60;
+  firstCanvas.background.pdfPageNumber = 1;
+  firstCanvas.background.calibration = {
+    millimetersPerNormalizedUnit: 500,
+  };
+  const secondCanvas = document.structure.canvases[ids.canvasSecond];
+  secondCanvas.widthMillimeters = 80;
+  secondCanvas.heightMillimeters = 40;
+  document.structure.layers[ids.layerLocked].sortOrder = 1;
+  document.structure.objects[ids.objectLocked].geometry = {
+    type: "dimension",
+    start: { x: 5, y: 35 },
+    end: { x: 25, y: 35 },
+    offset: 5,
+    calibrationId: ids.pageFirst,
+  };
+  document.structure.objects[ids.objectLocked].style = {
+    stroke: "#111111",
+    strokeWidth: 1,
+    fill: null,
+  };
+  document.structure.blockInstances[ids.blockInstance] = {
+    ...document.structure.blockInstances[ids.blockInstance],
+    origin: { x: 5, y: 5 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+  };
+  document.structure.blocks[ids.block].primitives = [
+    {
+      localId: "z-definition-first",
+      name: "Red definition first",
+      geometry: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 15,
+        height: 15,
+        rotation: 0,
+      },
+      styleId: null,
+      style: { stroke: "#ff0000", strokeWidth: 1, fill: "#ff0000" },
+    },
+    {
+      localId: "a-definition-second",
+      name: "Blue definition second",
+      geometry: {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 15,
+        height: 15,
+        rotation: 0,
+      },
+      styleId: null,
+      style: { stroke: "#0000ff", strokeWidth: 1, fill: "#0000ff" },
+    },
+  ];
+  document.structure.objects[ids.objectStyled].geometry = {
     type: "rectangle",
-    origin: { x: 2, y: 2 },
-    width: 6,
-    height: 6,
+    origin: { x: 30, y: 5 },
+    width: 15,
+    height: 15,
     rotation: 0,
   };
-  object.style = {
+  document.structure.objects[ids.objectStyled].styleId = null;
+  document.structure.objects[ids.objectStyled].style = {
     stroke: "#ff0000",
     strokeWidth: 1,
     fill: "#ff0000",
   };
+  const tiedLayerObjectId = "00000000-0000-4000-8000-000000001059";
+  document.structure.objects[tiedLayerObjectId] = {
+    id: tiedLayerObjectId,
+    name: "Green tied-layer top",
+    layerId: ids.layerLocked,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 30, y: 5 },
+      width: 15,
+      height: 15,
+      rotation: 0,
+    },
+    styleId: null,
+    style: { stroke: "#00ff00", strokeWidth: 1, fill: "#00ff00" },
+    version: 1,
+  };
+  document.structure.objects[ids.objectSecond].geometry = {
+    type: "text",
+    origin: { x: 2, y: 2 },
+    width: 20,
+    text: "WWWWWWWWWWWWWWWW\nSECOND LINE",
+  };
+  document.structure.objects[ids.objectSecond].style = {
+    stroke: "#111111",
+    strokeWidth: 1,
+    fill: "#111111",
+    fontSize: 10,
+  };
+  const secondMarkerId = "00000000-0000-4000-8000-000000001060";
+  document.structure.objects[secondMarkerId] = {
+    id: secondMarkerId,
+    name: "Second page marker",
+    layerId: ids.layerSecond,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 50, y: 20 },
+      width: 20,
+      height: 15,
+      rotation: 0,
+    },
+    styleId: null,
+    style: { stroke: "#ff00ff", strokeWidth: 1, fill: "#ff00ff" },
+    version: 1,
+  };
+
+  const sourcePdf = await PDFDocument.create();
+  sourcePdf
+    .addPage([100, 60])
+    .drawRectangle({ x: 0, y: 0, width: 100, height: 60, color: rgb(1, 1, 0) });
+  const sourceBytes = Buffer.from(await sourcePdf.save());
+  const sourceSha256 = createHash("sha256").update(sourceBytes).digest("hex");
+  firstCanvas.background.sourceSha256 = sourceSha256;
+  const sourceEvidence = {
+    documentSourceSha256: sourceSha256,
+    file: {
+      byteSize: sourceBytes.length,
+      id: ids.source,
+      immutable: true,
+      sha256: sourceSha256,
+      storagePath: "drawing-fixtures/source.pdf",
+    },
+  };
+  const serverRequests = [];
 
   const vite = await createServer({
     appType: "custom",
+    cacheDir: new URL(
+      "../node_modules/.vite-drawing-export-test",
+      import.meta.url,
+    ).pathname,
     clearScreen: false,
     configFile: false,
     logLevel: "silent",
+    optimizeDeps: {
+      include: [
+        "@pdf-lib/standard-fonts",
+        "@pdf-lib/upng",
+        "pdf-lib",
+        "pdfjs-dist",
+        "zod",
+      ],
+    },
+    resolve: {
+      alias: { "~": new URL("../app", import.meta.url).pathname },
+    },
     plugins: [
       {
         configureServer(server) {
-          server.middlewares.use(
-            "/drawing-export-test.html",
-            (_request, response) => {
+          server.middlewares.use((request, response, next) => {
+            serverRequests.push({ method: request.method, url: request.url });
+            if (request.url === "/drawing-export-source.pdf") {
+              response.statusCode = 200;
+              response.setHeader("Content-Type", "application/pdf");
+              response.setHeader("Content-Length", String(sourceBytes.length));
+              response.end(sourceBytes);
+              return;
+            }
+            if (request.url === "/drawing-export-test.html") {
               response.statusCode = 200;
               response.setHeader("Content-Type", "text/html");
               response.end("<!doctype html><title>Drawing export test</title>");
-            },
-          );
+              return;
+            }
+            next();
+          });
         },
         name: "drawing-export-test-page",
       },
@@ -620,6 +1059,7 @@ test("real browser PNG bytes contain the expected signature, dimensions, and pix
   let browser;
   try {
     await vite.listen();
+    await vite.waitForRequestsIdle();
     const address = vite.httpServer.address();
     assert.equal(typeof address, "object");
     const origin = `http://127.0.0.1:${address.port}`;
@@ -627,36 +1067,341 @@ test("real browser PNG bytes contain the expected signature, dimensions, and pix
     const page = await browser.newPage();
     await page.goto(`${origin}/drawing-export-test.html`);
     const result = await page.evaluate(
-      async ({ canvasId, documentState, moduleUrl }) => {
-        const { exportDrawingPng } = await import(moduleUrl);
-        const blob = await exportDrawingPng(documentState, canvasId, {
-          scale: 2,
+      async ({ documentState, evidence, origin }) => {
+        const exportModule = await import(
+          `${origin}/app/lukas/lib/drawing-export.ts`
+        );
+        const renderer = await import(
+          `${origin}/app/lukas/lib/pdf-page-renderer.client.ts`
+        );
+        const sourceUrl = `${origin}/drawing-export-source.pdf`;
+        const sha256 = async (bytes) =>
+          [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+            .map((value) => value.toString(16).padStart(2, "0"))
+            .join("");
+        const sourceBefore = await (await fetch(sourceUrl)).arrayBuffer();
+        const evidenceBefore = JSON.stringify(evidence);
+        const storageBefore = JSON.stringify({
+          local: { ...localStorage },
+          session: { ...sessionStorage },
         });
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const bitmap = await createImageBitmap(blob);
-        const decoded = document.createElement("canvas");
-        decoded.width = bitmap.width;
-        decoded.height = bitmap.height;
-        const context = decoded.getContext("2d", { willReadFrequently: true });
-        context.drawImage(bitmap, 0, 0);
+        Object.freeze(evidence.file);
+        Object.freeze(evidence);
+
+        const openedSource = await renderer.openPdfDocument(sourceUrl);
+        const sourceCanvas = document.createElement("canvas");
+        const sourceRender = await renderer.renderPdfPageToCanvas({
+          canvas: sourceCanvas,
+          document: openedSource.document,
+          hostWidth: 100,
+          pageNumber: 1,
+          zoom: 1,
+        });
+        const background = {
+          bounds: { x: 0, y: 0, width: 100, height: 60 },
+          canvas: sourceCanvas,
+          pdfPageNumber: 1,
+          sourceFileId: evidence.file.id,
+          sourceSha256: evidence.file.sha256,
+        };
+        const includedPng = await exportModule.exportDrawingPng(
+          documentState,
+          documentState.structure.canvases[
+            "00000000-0000-4000-8000-000000001020"
+          ].id,
+          { background, includeBackground: true, scale: 2 },
+        );
+        const excludedPng = await exportModule.exportDrawingPng(
+          documentState,
+          "00000000-0000-4000-8000-000000001020",
+          { includeBackground: false, scale: 2 },
+        );
+        const secondPng = await exportModule.exportDrawingPng(
+          documentState,
+          "00000000-0000-4000-8000-000000001021",
+          { includeBackground: false, scale: 2 },
+        );
+        const decode = async (blob) => {
+          const bitmap = await createImageBitmap(blob);
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          context.drawImage(bitmap, 0, 0);
+          bitmap.close();
+          return { canvas, context };
+        };
+        const sample = (decoded, x, y, logicalWidth, logicalHeight) => [
+          ...decoded.context.getImageData(
+            Math.floor((x / logicalWidth) * decoded.canvas.width),
+            Math.floor((y / logicalHeight) * decoded.canvas.height),
+            1,
+            1,
+          ).data,
+        ];
+        const inkCount = (
+          decoded,
+          bounds,
+          logicalWidth,
+          logicalHeight,
+          backgroundColor,
+        ) => {
+          const left = Math.floor(
+            (bounds.x / logicalWidth) * decoded.canvas.width,
+          );
+          const top = Math.floor(
+            (bounds.y / logicalHeight) * decoded.canvas.height,
+          );
+          const right = Math.ceil(
+            ((bounds.x + bounds.width) / logicalWidth) * decoded.canvas.width,
+          );
+          const bottom = Math.ceil(
+            ((bounds.y + bounds.height) / logicalHeight) *
+              decoded.canvas.height,
+          );
+          const pixels = decoded.context.getImageData(
+            left,
+            top,
+            Math.max(1, right - left),
+            Math.max(1, bottom - top),
+          ).data;
+          let count = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            if (
+              pixels[index] !== backgroundColor[0] ||
+              pixels[index + 1] !== backgroundColor[1] ||
+              pixels[index + 2] !== backgroundColor[2]
+            )
+              count += 1;
+          }
+          return count;
+        };
+        const included = await decode(includedPng);
+        const excluded = await decode(excludedPng);
+        const second = await decode(secondPng);
+
+        const secondSvg = exportModule.exportDrawingSvg(
+          documentState,
+          "00000000-0000-4000-8000-000000001021",
+        );
+        const parsedSvg = new DOMParser().parseFromString(
+          secondSvg,
+          "image/svg+xml",
+        );
+        const svgBlob = new Blob([secondSvg], { type: "image/svg+xml" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const svgImage = new Image();
+        svgImage.src = svgUrl;
+        await svgImage.decode();
+        const svgCanvas = document.createElement("canvas");
+        svgCanvas.width = 160;
+        svgCanvas.height = 80;
+        const svgContext = svgCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        svgContext.drawImage(svgImage, 0, 0, 160, 80);
+        URL.revokeObjectURL(svgUrl);
+        const svgDecoded = { canvas: svgCanvas, context: svgContext };
+
+        const pdfBytes = await exportModule.exportDrawingPdf(documentState, {
+          createdAt: "2026-08-25T09:00:00.000Z",
+          getBackground: async (canvas) =>
+            canvas.id === "00000000-0000-4000-8000-000000001020"
+              ? background
+              : undefined,
+          scale: 2,
+          title: "Browser evidence",
+        });
+        const pdfUrl = URL.createObjectURL(
+          new Blob([pdfBytes], { type: "application/pdf" }),
+        );
+        const openedPdf = await renderer.openPdfDocument(pdfUrl);
+        const pdfPages = [];
+        for (
+          let pageNumber = 1;
+          pageNumber <= openedPdf.document.numPages;
+          pageNumber += 1
+        ) {
+          const canvas = document.createElement("canvas");
+          const rendered = await renderer.renderPdfPageToCanvas({
+            canvas,
+            document: openedPdf.document,
+            hostWidth: 400,
+            pageNumber,
+            zoom: 1,
+          });
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          pdfPages.push({
+            canvasSize: rendered.canvasSize,
+            dimensionInk:
+              pageNumber === 1
+                ? inkCount(
+                    { canvas, context },
+                    { x: 15, y: 40, width: 58, height: 15 },
+                    100,
+                    60,
+                    [255, 255, 0],
+                  )
+                : 0,
+            marker:
+              pageNumber === 1
+                ? sample({ canvas, context }, 35, 10, 100, 60)
+                : sample({ canvas, context }, 60, 27, 80, 40),
+          });
+          rendered.cleanup();
+        }
+        await openedPdf.destroy();
+        URL.revokeObjectURL(pdfUrl);
+
+        sourceRender.cleanup();
+        await openedSource.destroy();
+        const sourceAfter = await (await fetch(sourceUrl)).arrayBuffer();
         return {
-          center: [...context.getImageData(10, 10, 1, 1).data],
-          corner: [...context.getImageData(0, 0, 1, 1).data],
-          height: bitmap.height,
-          signature: [...bytes.slice(0, 8)],
-          width: bitmap.width,
+          backgroundPixels: {
+            excludedCorner: sample(excluded, 1, 1, 100, 60),
+            includedCorner: sample(included, 1, 1, 100, 60),
+          },
+          orderPixels: {
+            blockDefinition: sample(included, 10, 10, 100, 60),
+            tiedLayer: sample(included, 35, 10, 100, 60),
+          },
+          dimensionInk: inkCount(
+            included,
+            { x: 15, y: 40, width: 58, height: 15 },
+            100,
+            60,
+            [255, 255, 0],
+          ),
+          pdfPages,
+          source: {
+            bytesEqual:
+              sourceBefore.byteLength === sourceAfter.byteLength &&
+              new Uint8Array(sourceBefore).every(
+                (value, index) => value === new Uint8Array(sourceAfter)[index],
+              ),
+            evidenceAfter: JSON.stringify(evidence),
+            evidenceBefore,
+            shaAfter: await sha256(sourceAfter),
+            shaBefore: await sha256(sourceBefore),
+            storageAfter: JSON.stringify({
+              local: { ...localStorage },
+              session: { ...sessionStorage },
+            }),
+            storageBefore,
+          },
+          svg: {
+            clipHeight: parsedSvg
+              .querySelector("clipPath rect")
+              ?.getAttribute("height"),
+            clipWidth: parsedSvg
+              .querySelector("clipPath rect")
+              ?.getAttribute("width"),
+            marker: sample(svgDecoded, 60, 27, 80, 40),
+            parserErrors: parsedSvg.querySelectorAll("parsererror").length,
+            rightOfTextClip: sample(svgDecoded, 30, 8, 80, 40),
+          },
+          textPixels: {
+            pngFirstLineInk: inkCount(
+              second,
+              { x: 2, y: 2, width: 20, height: 11 },
+              80,
+              40,
+              [255, 255, 255],
+            ),
+            pngRightOfClip: sample(second, 30, 8, 80, 40),
+            pngSecondLineInk: inkCount(
+              second,
+              { x: 2, y: 13, width: 20, height: 12 },
+              80,
+              40,
+              [255, 255, 255],
+            ),
+            svgFirstLineInk: inkCount(
+              svgDecoded,
+              { x: 2, y: 2, width: 20, height: 11 },
+              80,
+              40,
+              [255, 255, 255],
+            ),
+            svgSecondLineInk: inkCount(
+              svgDecoded,
+              { x: 2, y: 13, width: 20, height: 12 },
+              80,
+              40,
+              [255, 255, 255],
+            ),
+          },
         };
       },
       {
-        canvasId: ids.canvasSecond,
         documentState: document,
-        moduleUrl: `${origin}/app/lukas/lib/drawing-export.ts`,
+        evidence: sourceEvidence,
+        origin,
       },
     );
-    assert.deepEqual(result.signature, [137, 80, 78, 71, 13, 10, 26, 10]);
-    assert.deepEqual([result.width, result.height], [20, 20]);
-    assert.deepEqual(result.corner, [255, 255, 255, 255]);
-    assert.deepEqual(result.center, [255, 0, 0, 255]);
+    assert.deepEqual(
+      result.backgroundPixels.includedCorner,
+      [255, 255, 0, 255],
+    );
+    assert.deepEqual(
+      result.backgroundPixels.excludedCorner,
+      [255, 255, 255, 255],
+    );
+    const assertVectorEvidence = (pixels) => {
+      assert.deepEqual(pixels.blockDefinition, [0, 0, 255, 255]);
+      assert.deepEqual(pixels.tiedLayer, [0, 255, 0, 255]);
+    };
+    assertVectorEvidence(result.orderPixels);
+    assert.throws(() =>
+      assertVectorEvidence({
+        blockDefinition: [255, 255, 255, 255],
+        tiedLayer: result.orderPixels.tiedLayer,
+      }),
+    );
+    assert.ok(result.dimensionInk > 10);
+    assert.equal(result.svg.parserErrors, 0);
+    assert.equal(result.svg.clipWidth, "20");
+    assert.equal(result.svg.clipHeight, "24");
+    assert.deepEqual(result.svg.rightOfTextClip, [255, 255, 255, 255]);
+    assert.deepEqual(result.textPixels.pngRightOfClip, [255, 255, 255, 255]);
+    assert.ok(result.textPixels.pngFirstLineInk > 5);
+    assert.ok(result.textPixels.pngSecondLineInk > 5);
+    assert.ok(result.textPixels.svgFirstLineInk > 5);
+    assert.ok(result.textPixels.svgSecondLineInk > 5);
+    assert.deepEqual(result.svg.marker, [255, 0, 255, 255]);
+    const assertPageEvidence = (pages) => {
+      assert.equal(pages.length, 2);
+      assert.ok(Math.abs(pages[0].canvasSize.width - 400) < 0.01);
+      assert.ok(Math.abs(pages[0].canvasSize.height - 240) < 0.01);
+      assert.ok(Math.abs(pages[1].canvasSize.width - 400) < 0.01);
+      assert.ok(Math.abs(pages[1].canvasSize.height - 200) < 0.01);
+      assert.deepEqual(pages[0].marker, [0, 255, 0, 255]);
+      assert.deepEqual(pages[1].marker, [255, 0, 255, 255]);
+      assert.ok(pages[0].dimensionInk > 10);
+    };
+    assertPageEvidence(result.pdfPages);
+    assert.throws(() =>
+      assertPageEvidence([result.pdfPages[1], result.pdfPages[0]]),
+    );
+    assert.throws(() =>
+      assertPageEvidence([result.pdfPages[0], result.pdfPages[0]]),
+    );
+    assert.throws(() =>
+      assertPageEvidence([
+        { ...result.pdfPages[0], marker: [255, 255, 255, 255] },
+        { ...result.pdfPages[1], marker: [255, 255, 255, 255] },
+      ]),
+    );
+    assert.equal(result.source.bytesEqual, true);
+    assert.equal(result.source.shaBefore, sourceSha256);
+    assert.equal(result.source.shaAfter, sourceSha256);
+    assert.equal(result.source.evidenceBefore, result.source.evidenceAfter);
+    assert.equal(result.source.storageBefore, result.source.storageAfter);
+    assert.equal(
+      serverRequests.some(({ method }) => method !== "GET"),
+      false,
+      JSON.stringify(serverRequests),
+    );
   } finally {
     await browser?.close();
     await vite.close();

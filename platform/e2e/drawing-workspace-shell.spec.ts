@@ -67,3 +67,39 @@ test("local preview Arrow, Home, and End keys select and focus their target tabs
   await expect(structureTab).toBeFocused();
   await expect(page.locator("#drawing-panel-structure")).toBeVisible();
 });
+
+test("hydrated export dialog explains background availability and cancels one gated run", async ({
+  page,
+}) => {
+  await openPreview(page);
+  const dialog = page.getByRole("dialog", { name: "도면 내보내기" });
+  await expect(async () => {
+    await page.getByRole("button", { name: "내보내기" }).click();
+    await expect(dialog).toBeVisible({ timeout: 250 });
+  }).toPass({ timeout: 10_000 });
+
+  await dialog.getByRole("radio", { name: "PNG" }).check();
+  const includeBackground = dialog.getByRole("checkbox", {
+    name: "PDF 배경 포함",
+  });
+  await expect(includeBackground).toBeDisabled();
+  await expect(dialog).toContainText(
+    "현재 canvas에는 포함할 PDF 배경이 없습니다.",
+  );
+
+  await dialog.getByRole("radio", { name: "PDF" }).check();
+  const download = dialog.getByRole("button", { name: "다운로드" });
+  await download.evaluate((button) => {
+    (button as HTMLElement).click();
+    (button as HTMLElement).click();
+  });
+  await expect(dialog.getByRole("button", { name: "취소" })).toBeVisible();
+  await dialog.getByRole("button", { name: "취소" }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "내보내기" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "도면 내보내기" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "다운로드" })).toBeEnabled();
+});
