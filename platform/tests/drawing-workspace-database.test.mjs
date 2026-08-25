@@ -20,6 +20,8 @@ const p2LegacyLayerBackfillMigration = () =>
   read("supabase/migrations/20260825030000_drawing_workspace_p2_legacy_layer_backfill.sql");
 const p2CompatibilityMigration = () =>
   read("supabase/migrations/20260825040000_drawing_workspace_p2_compatibility_gaps.sql");
+const p2HistoryReconciliationMigration = () =>
+  read("supabase/migrations/20260825050000_drawing_workspace_p2_history_reconciliation.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -776,4 +778,26 @@ test("P2 compatibility migrations backfill stable editable layers and close RPC 
     assert.match(definition, /security definer/i);
     assert.match(definition, /set search_path=''/i);
   }
+});
+
+test("P2 forward history reconciliation repairs skipped data and preserves P0/P1 layer eligibility", async () => {
+  const sql = await p2HistoryReconciliationMigration();
+  assert.match(sql, /update public\.lukas_drawing_layers set sort_order=0 where sort_order<0/i);
+  assert.match(sql, /add constraint lukas_drawing_layers_sort_order_nonnegative[\s\S]+not valid/i);
+  assert.match(sql, /validate constraint lukas_drawing_layers_sort_order_nonnegative/i);
+  const tombstones = functionDefinition(
+    sql,
+    "lukas_drawing_apply_p2_object_tombstone_operation",
+  );
+  assert.match(tombstones, /and not l\.locked/i);
+  assert.doesNotMatch(tombstones, /and l\.visible and not l\.locked/i);
+  for (const helper of [
+    "lukas_drawing_apply_p2_object_tombstone_operation",
+    "lukas_drawing_apply_operation",
+  ]) {
+    const definition = functionDefinition(sql, helper);
+    assert.match(definition, /security definer/i);
+    assert.match(definition, /set search_path=''/i);
+  }
+  assert.match(sql, /from public,anon,authenticated,service_role/i);
 });

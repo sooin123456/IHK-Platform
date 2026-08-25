@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -82,6 +82,14 @@ const p2CompatibilityMigration = () =>
   readFile(
     new URL(
       "../supabase/migrations/20260825040000_drawing_workspace_p2_compatibility_gaps.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p2HistoryReconciliationMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825050000_drawing_workspace_p2_history_reconciliation.sql",
       import.meta.url,
     ),
     "utf8",
@@ -259,6 +267,7 @@ before(async () => {
   await db.exec(await p2LegacyLayerBackfillMigration());
   await db.exec(await p2HardeningMigration());
   await db.exec(await p2CompatibilityMigration());
+  await db.exec(await p2HistoryReconciliationMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1265,8 +1274,9 @@ test("generated undo and redo operations parse on the server and replay through 
   assert.deepEqual(stored.rows[0], { status: "active", version: 7 });
 });
 
-test("command-produced style-aware delete and restore replay exactly through the RPC", async () => {
+test("style-aware delete and restore stay exact and monotonic on a hidden unlocked layer", async () => {
   const ids = await createDocument();
+  await addCustomLayer(ids, "Visible fallback");
   const styleId = randomUUID();
   const objectId = randomUUID();
   const style = {
@@ -1325,6 +1335,31 @@ test("command-produced style-aware delete and restore replay exactly through the
   );
   await workspaceServer.applyDrawingOperation(client, operationInput(added.operation));
   local = added.state;
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 1 },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { visible: false } },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { visible: true } },
+  );
+  local = {
+    ...local,
+    layers: {
+      ...local.layers,
+      [ids.workLayerId]: { ...local.layers[ids.workLayerId], visible: false, version: 2 },
+    },
+    structure: {
+      ...local.structure,
+      layers: {
+        ...local.structure.layers,
+        [ids.workLayerId]: {
+          ...local.structure.layers[ids.workLayerId],
+          visible: false,
+          version: 2,
+        },
+      },
+    },
+  };
   const deleted = drawingCommands.applyDrawingCommand(
     local,
     { type: "delete_objects", actorId: OWNER, objectIds: [objectId] },
@@ -1347,6 +1382,30 @@ test("command-produced style-aware delete and restore replay exactly through the
     styleId,
     style: { fill: "#abcdef" },
   });
+
+  const lockedDelete = drawingCommands.applyDrawingCommand(
+    restored.state,
+    { type: "delete_objects", actorId: OWNER, objectIds: [objectId] },
+    env,
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 2 },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { locked: true } },
+    { type: "update_layer", layerId: ids.workLayerId, patch: { locked: false } },
+  );
+  await assert.rejects(
+    workspaceServer.applyDrawingOperation(client, operationInput(lockedDelete.operation)),
+    (error) => error.kind === "rpc" && /layer target is unavailable/i.test(error.message),
+  );
+  await db.exec("reset role");
+  const lockedUnchanged = await db.query(
+    "select status,version from public.lukas_drawing_objects where id=$1",
+    [objectId],
+  );
+  assert.deepEqual(lockedUnchanged.rows, [{ status: "active", version: 3 }]);
 });
 
 test("command-produced explicit add_layer uses its canonical creation base version", async () => {
@@ -3729,6 +3788,7 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
     await upgradeDb.exec(await p2LegacyLayerBackfillMigration());
     await upgradeDb.exec(await p2HardeningMigration());
     await upgradeDb.exec(await p2CompatibilityMigration());
+    await upgradeDb.exec(await p2HistoryReconciliationMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
@@ -3822,8 +3882,97 @@ test("P2 upgrade deterministically repairs legacy canvases without editable laye
     })));
     await legacyDb.exec(await p2HardeningMigration());
     await legacyDb.exec(await p2CompatibilityMigration());
+    const beforeReconciliation = await legacyDb.query(
+      `select id,canvas_id,name,sort_order,visible,locked,version
+       from public.lukas_drawing_layers order by id`,
+    );
+    await legacyDb.exec(await p2HistoryReconciliationMigration());
+    const afterReconciliation = await legacyDb.query(
+      `select id,canvas_id,name,sort_order,visible,locked,version
+       from public.lukas_drawing_layers order by id`,
+    );
+    assert.deepEqual(afterReconciliation.rows, beforeReconciliation.rows);
   } finally {
     await legacyDb.close();
+  }
+});
+
+test("forward P2 reconciliation repairs a recorded hardening history that skipped the ordered repair", async () => {
+  const historyDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await historyDb.exec(foundationSql);
+    await historyDb.exec(await migration());
+    await historyDb.exec(await upgradeMigration());
+    await historyDb.exec(await issueLinkMigration());
+    await historyDb.exec(await releaseHardeningMigration());
+    await historyDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await historyDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await historyDb.exec("set role authenticated");
+    await historyDb.query("select set_config('request.jwt.claim.sub',$1,false)", [OWNER]);
+    const created = await historyDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Skipped ordered repair',true) result",
+      [PROJECT],
+    );
+    const ids = created.rows[0].result;
+    await historyDb.exec("reset role");
+    await historyDb.exec(await p2Migration());
+    await historyDb.exec(await p2HardeningMigration());
+    await historyDb.exec(await p2CompatibilityMigration());
+    const canvas = await historyDb.query(
+      "select id from public.lukas_drawing_canvases where revision_id=$1",
+      [ids.revisionId],
+    );
+    const canvasId = canvas.rows[0].id;
+
+    await historyDb.exec("alter table public.lukas_drawing_layers disable trigger user");
+    await historyDb.query(
+      "delete from public.lukas_drawing_layers where revision_id=$1 and system_kind<>'source'",
+      [ids.revisionId],
+    );
+    await historyDb.query(
+      "update public.lukas_drawing_layers set sort_order=-7 where revision_id=$1",
+      [ids.revisionId],
+    );
+    await historyDb.exec("alter table public.lukas_drawing_layers enable trigger user");
+
+    await historyDb.exec(await p2HistoryReconciliationMigration());
+    const repaired = await historyDb.query(
+      `select id,name,sort_order "sortOrder",visible,locked,system_kind "systemKind",version
+       from public.lukas_drawing_layers where revision_id=$1 order by system_kind,id`,
+      [ids.revisionId],
+    );
+    assert.equal(repaired.rows.length, 2);
+    assert.deepEqual(repaired.rows.map((row) => row.sortOrder), [0, 0]);
+    const custom = repaired.rows.find((row) => row.systemKind === "custom");
+    const digest = createHash("md5")
+      .update(`lukas-drawing-p2-editable-layer:${canvasId}`)
+      .digest("hex");
+    const stableLayerId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+    assert.equal(custom.id, stableLayerId);
+    assert.deepEqual({ ...custom, id: undefined }, {
+      id: undefined,
+      name: `P2 Work ${canvasId}`,
+      sortOrder: 0,
+      visible: true,
+      locked: false,
+      systemKind: "custom",
+      version: 1,
+    });
+    const constraint = await historyDb.query(
+      `select convalidated,pg_catalog.pg_get_constraintdef(oid) definition
+       from pg_catalog.pg_constraint
+       where conrelid='public.lukas_drawing_layers'::regclass
+         and conname='lukas_drawing_layers_sort_order_nonnegative'`,
+    );
+    assert.deepEqual(constraint.rows, [{
+      convalidated: true,
+      definition: "CHECK ((sort_order >= 0))",
+    }]);
+  } finally {
+    await historyDb.close();
   }
 });
 
