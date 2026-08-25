@@ -5,6 +5,7 @@ import {
   drawingTextLayout,
 } from "./drawing-layout.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
+import { drawingTargetReferenceCleanupActions } from "./drawing-properties.ts";
 import type {
   DrawingCommand,
   DrawingDocumentState,
@@ -780,6 +781,7 @@ export function deleteDrawingBlockInstanceCommand(
       "Block instance deletion requires a visible unlocked layer.",
     );
   return structureCommand(actorId, [
+    ...drawingTargetReferenceCleanupActions(state, [instanceId]),
     {
       kind: "delete_block_instance",
       id: instanceId,
@@ -872,14 +874,17 @@ export function deleteDrawingBlockInstancesCommand(
   selectedIds: readonly string[],
 ): StructureCommand {
   const { instances } = selectedBlockInstances(inputState, selectedIds);
-  return structureCommand(
-    actorId,
-    instances.map((instance) => ({
+  return structureCommand(actorId, [
+    ...drawingTargetReferenceCleanupActions(
+      inputState,
+      instances.map((instance) => instance.id),
+    ),
+    ...instances.map((instance) => ({
       kind: "delete_block_instance" as const,
       id: instance.id,
       baseVersion: instance.version,
     })),
-  );
+  ]);
 }
 
 export function moveDrawingBlockInstancesCommand(

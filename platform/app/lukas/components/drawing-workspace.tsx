@@ -65,6 +65,11 @@ import {
 } from "~/lukas/lib/drawing-document-store";
 import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
 import {
+  cleanupDrawingTargetReferencesCommand,
+  drawingTargetReferenceCleanupActions,
+  missingRequiredDrawingProperties,
+} from "~/lukas/lib/drawing-properties";
+import {
   canPersistDrawingMutation,
   claimLegacyDrawingOperations,
   createDrawingOutbox,
@@ -105,7 +110,9 @@ import { DrawingInspector } from "./drawing-inspector";
 import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
+import { DrawingPropertiesPanel } from "./drawing-properties-panel";
 import { DrawingStylesPanel } from "./drawing-styles-panel";
+import { DrawingTablesPanel } from "./drawing-tables-panel";
 
 const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
@@ -1106,6 +1113,18 @@ export default function DrawingWorkspaceClient({
       currentUserId,
     );
     if (!command) return false;
+    if (
+      drawingState.structure &&
+      drawingTargetReferenceCleanupActions(drawingState, transient.selectedIds)
+        .length
+    )
+      applyCommand(
+        cleanupDrawingTargetReferencesCommand(
+          drawingState,
+          currentUserId,
+          transient.selectedIds,
+        ),
+      );
     applyCommand(command);
     setSelectedIds([]);
     return true;
@@ -1287,6 +1306,13 @@ export default function DrawingWorkspaceClient({
       if (!persistence || !outbox || !flush) return;
       setReviewPreparationError(null);
       try {
+        const missingProperties = missingRequiredDrawingProperties(
+          drawingStateRef.current,
+        );
+        if (missingProperties.length)
+          throw new Error(
+            `필수 사용자 속성 ${missingProperties.length}개를 입력한 뒤 검토를 요청하세요.`,
+          );
         await prepareDrawingReview({
           freeze() {
             reviewFrozenRef.current = true;
@@ -1542,6 +1568,19 @@ export default function DrawingWorkspaceClient({
             actorId={currentUserId}
             canEdit={editing.canEdit}
             onCommand={applyCommand}
+            state={drawingState}
+          />
+          <DrawingPropertiesPanel
+            actorId={currentUserId}
+            canEdit={baseCanEdit}
+            onCommand={applyCommand}
+            state={drawingState}
+          />
+          <DrawingTablesPanel
+            actorId={currentUserId}
+            canEdit={baseCanEdit}
+            onCommand={applyCommand}
+            selectedIds={transient.selectedIds}
             state={drawingState}
           />
           <DrawingBlocksPanel

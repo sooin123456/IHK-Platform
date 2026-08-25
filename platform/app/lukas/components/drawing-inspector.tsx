@@ -6,6 +6,7 @@ import {
   deleteDrawingBlockInstanceCommand,
   updateDrawingBlockInstanceCommand,
 } from "~/lukas/lib/drawing-blocks";
+import { DrawingPropertyFields } from "~/lukas/components/drawing-properties-panel";
 
 import {
   applyDrawingStyleSelection,
@@ -39,7 +40,7 @@ type Props = {
   issues: DrawingWorkspaceIssue[];
   onCommand: (command: DrawingCommand) => void;
   selectedIds: string[];
-  state: Pick<DrawingDocumentState, "layers" | "objects" | "structure">;
+  state: DrawingDocumentState;
 };
 
 function sharedValue(
@@ -313,6 +314,13 @@ export function DrawingInspector({
               </dd>
             </div>
           </dl>
+          <DrawingPropertyFields
+            actorId={actorId}
+            canEdit={false}
+            onCommand={onCommand}
+            selectedIds={selectedIds}
+            state={state}
+          />
         </section>
       );
     }
@@ -469,6 +477,13 @@ export function DrawingInspector({
             {error}
           </p>
         ) : null}
+        <DrawingPropertyFields
+          actorId={actorId}
+          canEdit
+          onCommand={onCommand}
+          selectedIds={selectedIds}
+          state={state}
+        />
       </section>
     );
   }
@@ -508,6 +523,13 @@ export function DrawingInspector({
         <p className="mt-4 text-sm text-amber-300" role="status">
           숨김 또는 잠긴 레이어의 선택은 편집할 수 없습니다.
         </p>
+        <DrawingPropertyFields
+          actorId={actorId}
+          canEdit={false}
+          onCommand={onCommand}
+          selectedIds={selectedIds}
+          state={state}
+        />
         {issueSection}
       </section>
     );
@@ -573,6 +595,13 @@ export function DrawingInspector({
             </div>
           ) : null}
         </dl>
+        <DrawingPropertyFields
+          actorId={actorId}
+          canEdit={false}
+          onCommand={onCommand}
+          selectedIds={selectedIds}
+          state={state}
+        />
         {issueSection}
       </section>
     );
@@ -770,6 +799,13 @@ export function DrawingInspector({
           속성 적용
         </button>
       </form>
+      <DrawingPropertyFields
+        actorId={actorId}
+        canEdit
+        onCommand={onCommand}
+        selectedIds={selectedIds}
+        state={state}
+      />
       {error ? (
         <p className="mt-3 text-xs text-red-300" role="alert">
           {error}
