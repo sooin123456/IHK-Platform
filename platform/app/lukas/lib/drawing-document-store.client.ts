@@ -184,6 +184,37 @@ export type DrawingTransientState = {
 };
 
 /**
+ * Names the boundary at which transient canvas interaction must be discarded.
+ * It intentionally includes permission as well as the active document slice.
+ */
+export function drawingTransientAuthorizationKey(
+  snapshot: Pick<DrawingDocumentSnapshot, "activePageId" | "activeCanvasId">,
+  input: { draft: boolean; canEdit: boolean },
+) {
+  return [
+    snapshot.activePageId ?? "",
+    snapshot.activeCanvasId ?? "",
+    input.draft ? "draft" : "immutable",
+    input.canEdit ? "edit" : "read",
+  ].join(":");
+}
+
+/** Clears raw interaction input synchronously while its authorization key is stale. */
+export function sanitizeDrawingTransientInput<T extends {
+  activeLayerId: string | null;
+  activeTool: string;
+  selectedIds: string[];
+}>(input: T, invalidated: boolean): T | {
+  activeLayerId: null;
+  activeTool: "select";
+  selectedIds: string[];
+} {
+  return invalidated
+    ? { activeLayerId: null, activeTool: "select", selectedIds: [] }
+    : input;
+}
+
+/**
  * Produces the render-time canvas slice. This is deliberately synchronous so
  * an identity/capability change cannot leak stale selections for one render.
  */

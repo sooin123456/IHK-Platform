@@ -620,6 +620,82 @@ function valuesMatch(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+type AcknowledgedStructureEffect = {
+  collection: ReturnType<typeof structureCollectionForRecovery>;
+  id: string;
+  entity?: Record<string, unknown>;
+  tombstoneVersion?: number;
+  version: number;
+};
+
+/**
+ * An acknowledged P2 prefix must describe the loader's final state as one
+ * causal unit. Comparing each operation independently mistakes a valid final
+ * create→update or delete→restore result for a conflict (and vice versa).
+ */
+function acknowledgedStructureChainIsRepresented(
+  state: DrawingDocumentState,
+  entries: DrawingOutboxEntry[],
+) {
+  if (!state.structure || entries.length === 0) return false;
+  const effects = new Map<string, AcknowledgedStructureEffect>();
+  try {
+    for (const entry of entries) {
+      const operation = entry.operation;
+      if (operation.type !== "mutate_structure") return false;
+      const forward = operation.forward as { actions: DrawingStructureAction[] };
+      const inverse = operation.inverse as { actions: DrawingStructureAction[] };
+      if (forward.actions.length !== inverse.actions.length) return false;
+      for (const [index, action] of forward.actions.entries()) {
+        const paired = pairedInverse(inverse.actions, index);
+        requireExactStructureInverse(action, paired);
+        const id = structureActionId(action);
+        const collection = structureCollectionForRecovery(action.kind);
+        const prior = effects.get(id);
+        if (prior && prior.collection !== collection) return false;
+        if ("entity" in action) {
+          if (paired.baseVersion === null) return false;
+          if (prior?.entity) {
+            if (action.baseVersion !== prior.version) return false;
+          } else if (prior) {
+            if (
+              action.baseVersion !== null ||
+              paired.baseVersion !== (prior.tombstoneVersion ?? -1) + 1
+            )
+              return false;
+          }
+          effects.set(id, {
+            collection,
+            id,
+            entity: { ...action.entity, version: paired.baseVersion },
+            version: paired.baseVersion,
+          });
+          continue;
+        }
+        if (prior?.entity && action.baseVersion !== prior.version) return false;
+        if (prior && !prior.entity) return false;
+        effects.set(id, {
+          collection,
+          id,
+          tombstoneVersion: action.baseVersion + 1,
+          version: action.baseVersion + 1,
+        });
+      }
+    }
+  } catch {
+    return false;
+  }
+  return [...effects.values()].every((effect) => {
+    const current = state.structure![effect.collection][effect.id] as
+      | Record<string, unknown>
+      | undefined;
+    if (effect.entity) return valuesMatch(current, effect.entity);
+    if (current) return false;
+    const tombstone = state.structure!.tombstones?.[effect.id];
+    return !tombstone || tombstone.version === effect.tombstoneVersion;
+  });
+}
+
 function acknowledgedOperationIsRepresented(
   state: DrawingDocumentState,
   operation: DrawingOperationInput,
@@ -913,16 +989,10 @@ export async function restoreDrawingWorkspaceState({
   );
   let withAcknowledged = structuredClone(serverState);
   const conflictedOperationIds: string[] = [];
-  for (let index = 0; index < acknowledged.length; index += 1) {
-    const entry = acknowledged[index];
-    const replayed = recoverPendingDrawingState(withAcknowledged, [entry]);
-    if (replayed.ambiguousOperationIds.length === 0) {
-      withAcknowledged = replayed.state;
-      continue;
-    }
-    if (acknowledgedOperationIsRepresented(withAcknowledged, entry.operation))
-      continue;
-    const evidence = acknowledged.slice(index);
+  const acknowledgedStructurePrefix =
+    acknowledged.length > 0 &&
+    acknowledged.every((entry) => entry.operation.type === "mutate_structure");
+  const retainAcknowledgedEvidence = async (evidence: DrawingOutboxEntry[]) => {
     for (const ambiguous of evidence)
       await outbox.retainRecoveryEvidence(
         ambiguous,
@@ -931,17 +1001,44 @@ export async function restoreDrawingWorkspaceState({
     conflictedOperationIds.push(
       ...evidence.map((item) => item.operation.clientOperationId),
     );
-    break;
+  };
+  if (acknowledgedStructurePrefix) {
+    // P2 mutations can span related entities. Never accept a prefix merely
+    // because the loader matches one of its intermediate states.
+    if (!acknowledgedStructureChainIsRepresented(withAcknowledged, acknowledged))
+      await retainAcknowledgedEvidence(acknowledged);
+  } else {
+    for (let index = 0; index < acknowledged.length; index += 1) {
+      const entry = acknowledged[index];
+      const replayed = recoverPendingDrawingState(withAcknowledged, [entry]);
+      if (replayed.ambiguousOperationIds.length === 0) {
+        withAcknowledged = replayed.state;
+        continue;
+      }
+      if (acknowledgedOperationIsRepresented(withAcknowledged, entry.operation))
+        continue;
+      await retainAcknowledgedEvidence(acknowledged.slice(index));
+      break;
+    }
   }
+  const entriesForRecovery = await outbox.entries();
   const recovered = recoverPendingDrawingState(
     withAcknowledged,
-    await outbox.entries(),
+    // A conflicted acknowledged structural prefix is durable evidence, not a
+    // reason to discard later independently exact pending work.
+    acknowledgedStructurePrefix
+      ? entriesForRecovery.filter((entry) => entry.status === "pending")
+      : entriesForRecovery,
   );
   return {
     ...recovered,
     conflictedOperationIds: [
       ...conflictedOperationIds,
       ...recovered.conflictedOperationIds,
+    ],
+    ambiguousOperationIds: [
+      ...conflictedOperationIds,
+      ...recovered.ambiguousOperationIds,
     ],
   };
 }

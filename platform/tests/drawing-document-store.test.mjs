@@ -4,6 +4,8 @@ import test from "node:test";
 import { createDrawingDocumentState } from "../app/lukas/lib/drawing-commands.ts";
 import {
   deriveDrawingTransientState,
+  drawingTransientAuthorizationKey,
+  sanitizeDrawingTransientInput,
   createDrawingDocumentStore,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.client.ts";
@@ -194,4 +196,32 @@ test("transient state synchronously removes inactive, locked, and non-draft edit
   assert.deepEqual(transient.selectedIds, []);
   assert.equal(transient.activeLayerId, null);
   assert.equal(transient.activeTool, "select");
+});
+
+test("transient authorization identity changes for canvas, draft, and capability boundaries", () => {
+  const snapshot = createDrawingDocumentStore(
+    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    { activePageId: ids.page, activeCanvasId: ids.paper },
+  ).getSnapshot();
+  const draftEditor = drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: true });
+  const model = { ...snapshot, activeCanvasId: ids.model };
+
+  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(model, { draft: true, canEdit: true }));
+  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(snapshot, { draft: false, canEdit: true }));
+  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: false }));
+});
+
+test("authorization-boundary adapter never reuses rectangle or polyline selection input", () => {
+  const staleRectangle = {
+    activeLayerId: ids.work,
+    activeTool: "rectangle",
+    selectedIds: [ids.object],
+  };
+  const stalePolyline = { ...staleRectangle, activeTool: "polyline" };
+  const cleared = { activeLayerId: null, activeTool: "select", selectedIds: [] };
+  assert.deepEqual(sanitizeDrawingTransientInput(staleRectangle, true), cleared);
+  assert.deepEqual(sanitizeDrawingTransientInput(stalePolyline, true), cleared);
+  // Re-upgrading edit capability keeps the identity-owned invalidation until
+  // an actual new authorized interaction replaces it.
+  assert.deepEqual(sanitizeDrawingTransientInput(staleRectangle, true), cleared);
 });

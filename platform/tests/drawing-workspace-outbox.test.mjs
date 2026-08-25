@@ -197,6 +197,74 @@ function state() {
   });
 }
 
+const p2 = {
+  page: "00000000-0000-4000-8000-000000000301",
+  paper: "00000000-0000-4000-8000-000000000302",
+  model: "00000000-0000-4000-8000-000000000303",
+  modelLayer: "00000000-0000-4000-8000-000000000304",
+  create: "00000000-0000-4000-8000-000000000305",
+  updateOne: "00000000-0000-4000-8000-000000000306",
+  updateTwo: "00000000-0000-4000-8000-000000000307",
+  delete: "00000000-0000-4000-8000-000000000308",
+  restore: "00000000-0000-4000-8000-000000000309",
+};
+
+function p2State() {
+  return createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [p2.page]: { id: p2.page, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
+      canvases: { [p2.paper]: { id: p2.paper, pageId: p2.page, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
+      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: p2.paper, sortOrder: 0, version: 1 } },
+      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+}
+
+function structureOperation(snapshot, clientOperationId, actions) {
+  return applyDrawingCommand(snapshot, {
+    type: "mutate_structure",
+    actorId: ids.ownerA,
+    actions,
+  }, { createId: () => clientOperationId, now: () => "2026-08-25T00:00:00.000Z" });
+}
+
+function createModel(snapshot = p2State()) {
+  return structureOperation(snapshot, p2.create, [
+    { kind: "put_canvas", entity: { id: p2.model, pageId: p2.page, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
+    { kind: "put_layer", entity: { id: p2.modelLayer, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: p2.model, sortOrder: 0, version: 1 }, baseVersion: null },
+  ]);
+}
+
+function renameModel(snapshot, clientOperationId, name) {
+  const model = snapshot.structure.canvases[p2.model];
+  return structureOperation(snapshot, clientOperationId, [
+    { kind: "put_canvas", entity: { ...model, name }, baseVersion: model.version },
+  ]);
+}
+
+function deleteModel(snapshot) {
+  return structureOperation(snapshot, p2.delete, [
+    { kind: "delete_layer", id: p2.modelLayer, baseVersion: snapshot.structure.layers[p2.modelLayer].version },
+    { kind: "delete_canvas", id: p2.model, baseVersion: snapshot.structure.canvases[p2.model].version },
+  ]);
+}
+
+async function restoreAcknowledgedP2(serverState, operations, pendingId = null) {
+  const outbox = scopedOutbox(memoryAdapter());
+  for (const candidate of operations) await outbox.enqueue(candidate.operation);
+  const recovered = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (operation) => {
+      if (operation.clientOperationId === pendingId) throw new Error("offline");
+      return { clientOperationId: operation.clientOperationId, status: "acked" };
+    },
+    serverState,
+  });
+  return { outbox, recovered };
+}
+
 test("enqueue is durable before send and stores only the canonical operation", async () => {
   const events = [];
   const outbox = scopedOutbox(memoryAdapter(events));
@@ -884,6 +952,93 @@ test("an acknowledged P2 create already present in the loader does not become co
 
   assert.deepEqual(restored.conflictedOperationIds, []);
   assert.equal((await outbox.entries()).length, 0);
+});
+
+test("recovery consumes an acknowledged P2 create then update as one final-state chain", async () => {
+  const created = createModel();
+  const updated = renameModel(created.state, p2.updateOne, "Model v2");
+  const { recovered } = await restoreAcknowledgedP2(updated.state, [created, updated]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v2");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 2);
+});
+
+test("recovery consumes successive acknowledged P2 updates from their final authoritative version", async () => {
+  const created = createModel();
+  const first = renameModel(created.state, p2.updateOne, "Model v2");
+  const second = renameModel(first.state, p2.updateTwo, "Model v3");
+  const { recovered } = await restoreAcknowledgedP2(second.state, [first, second]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
+});
+
+test("recovery consumes acknowledged P2 delete then restore against a final restored loader", async () => {
+  const created = createModel();
+  const deleted = deleteModel(created.state);
+  const restored = structureOperation(deleted.state, p2.restore, deleted.operation.inverse.actions);
+  const { recovered } = await restoreAcknowledgedP2(restored.state, [deleted, restored]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
+  assert.equal(recovered.state.structure.layers[p2.modelLayer].version, 3);
+});
+
+test("recovery consumes acknowledged P2 create then delete when the final loader is absent", async () => {
+  const initial = p2State();
+  const created = createModel(initial);
+  const deleted = deleteModel(created.state);
+  const { recovered } = await restoreAcknowledgedP2(initial, [created, deleted]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model], undefined);
+  assert.equal(recovered.state.structure.layers[p2.modelLayer], undefined);
+});
+
+test("a partially reflected acknowledged P2 chain remains exact conflict evidence atomically", async () => {
+  const created = createModel();
+  const updated = renameModel(created.state, p2.updateOne, "Model v2");
+  const { recovered } = await restoreAcknowledgedP2(created.state, [created, updated]);
+
+  assert.deepEqual(recovered.conflictedOperationIds, [p2.create, p2.updateOne]);
+  assert.deepEqual(recovered.ambiguousOperationIds, [p2.create, p2.updateOne]);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 1);
+});
+
+test("a conflicted acknowledged P2 prefix does not suppress its later pending replay", async () => {
+  const created = createModel();
+  const first = renameModel(created.state, p2.updateOne, "Model v2");
+  const pending = renameModel(first.state, p2.updateTwo, "Model v3");
+  const divergent = structuredClone(first.state);
+  divergent.structure.canvases[p2.model].name = "Server divergence";
+  const { recovered } = await restoreAcknowledgedP2(
+    divergent,
+    [created, first, pending],
+    p2.updateTwo,
+  );
+
+  assert.deepEqual(recovered.conflictedOperationIds, [p2.create, p2.updateOne]);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
+});
+
+test("a final acknowledged P2 prefix is consumed before the remaining pending operation replays", async () => {
+  const created = createModel();
+  const first = renameModel(created.state, p2.updateOne, "Model v2");
+  const pending = renameModel(first.state, p2.updateTwo, "Model v3");
+  const { outbox, recovered } = await restoreAcknowledgedP2(
+    first.state,
+    [created, first, pending],
+    p2.updateTwo,
+  );
+
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
+  assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
+  assert.deepEqual((await outbox.pending()).map((entry) => entry.clientOperationId), [p2.updateTwo]);
 });
 
 test("reload recovery does not apply later work from a blocked revision", () => {

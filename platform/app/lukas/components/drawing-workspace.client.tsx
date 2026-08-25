@@ -47,7 +47,9 @@ import {
 import {
   createDrawingDocumentStore,
   deriveDrawingTransientState,
+  drawingTransientAuthorizationKey,
   hydrateDrawingDocumentState,
+  sanitizeDrawingTransientInput,
   type DrawingDocumentStore,
 } from "~/lukas/lib/drawing-document-store.client";
 import {
@@ -310,6 +312,20 @@ export default function DrawingWorkspaceClient({
   const [repeatMode, setRepeatMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
+  const transientAuthorizationRef = useRef<string | null>(null);
+  const transientInputInvalidatedRef = useRef(true);
+  const setAuthorizedTool = useCallback((tool: DrawingTool) => {
+    transientInputInvalidatedRef.current = false;
+    setActiveTool(tool);
+  }, []);
+  const setAuthorizedSelection = useCallback((ids: string[]) => {
+    transientInputInvalidatedRef.current = false;
+    setSelectedIds(ids);
+  }, []);
+  const setAuthorizedActiveLayer = useCallback((layerId: string | null) => {
+    transientInputInvalidatedRef.current = false;
+    setActiveLayerId(layerId);
+  }, []);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewPreparing, setReviewPreparing] = useState(false);
   const [reviewPreparationError, setReviewPreparationError] = useState<
@@ -377,14 +393,24 @@ export default function DrawingWorkspaceClient({
     !reviewPreparing &&
     capabilityCanPersist &&
     revision.status === "draft";
+  const authorizationKey = drawingTransientAuthorizationKey(drawingState, {
+    draft: revision.status === "draft",
+    canEdit: baseCanEdit,
+  });
+  if (transientAuthorizationRef.current !== authorizationKey) {
+    transientAuthorizationRef.current = authorizationKey;
+    transientInputInvalidatedRef.current = true;
+  }
+  const transientInput = sanitizeDrawingTransientInput(
+    { activeLayerId, activeTool, selectedIds },
+    transientInputInvalidatedRef.current,
+  );
   const transient = useMemo(
     () => deriveDrawingTransientState(drawingState, {
       canEdit: baseCanEdit,
-      activeLayerId,
-      activeTool,
-      selectedIds,
+      ...transientInput,
     }),
-    [activeLayerId, activeTool, baseCanEdit, drawingState, selectedIds],
+    [baseCanEdit, drawingState, transientInput],
   );
   const activeDrawingState = transient.state;
   const visibleObjects = useMemo(
@@ -720,9 +746,9 @@ export default function DrawingWorkspaceClient({
     const command = pasteDrawingClipboard(clipboardRef.current, currentUserId);
     if (!command) return false;
     applyCommand(command);
-    setSelectedIds(command.objects.map((object) => object.id));
+    setAuthorizedSelection(command.objects.map((object) => object.id));
     return true;
-  }, [activeDrawingState.layers, applyCommand, currentUserId, editing.canEdit]);
+  }, [activeDrawingState.layers, applyCommand, currentUserId, editing.canEdit, setAuthorizedSelection]);
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
@@ -733,9 +759,9 @@ export default function DrawingWorkspaceClient({
     );
     if (!command) return false;
     applyCommand(command);
-    setSelectedIds(command.objects.map((object) => object.id));
+    setAuthorizedSelection(command.objects.map((object) => object.id));
     return true;
-  }, [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds]);
+  }, [applyCommand, currentUserId, drawingState, editing.canEdit, setAuthorizedSelection, transient.selectedIds]);
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
@@ -846,14 +872,14 @@ export default function DrawingWorkspaceClient({
         commandId === "text" ||
         commandId === "dimension"
       ) {
-        setActiveTool(commandId);
+        setAuthorizedTool(commandId);
       } else if (commandId === "undo") undo();
       else if (commandId === "redo") redo();
       else if (commandId === "duplicate") duplicateSelection();
       else if (commandId === "delete") deleteSelection();
       else if (commandId === "zoom_to_fit") canvasRef.current?.resetViewport();
     },
-    [commandEnabled, deleteSelection, duplicateSelection, redo, undo],
+    [commandEnabled, deleteSelection, duplicateSelection, redo, setAuthorizedTool, undo],
   );
   const background: DrawingCanvasBackground = surface.background;
   const saveStatus = drawingSaveStatus({
@@ -1114,7 +1140,7 @@ export default function DrawingWorkspaceClient({
             activeLayerId={resolvedActiveLayerId}
             actorId={currentUserId}
             canEdit={editing.canEdit}
-            onActiveLayerChange={setActiveLayerId}
+            onActiveLayerChange={setAuthorizedActiveLayer}
             onCommand={applyCommand}
             state={activeDrawingState}
           />
@@ -1142,6 +1168,7 @@ export default function DrawingWorkspaceClient({
               ) : null}
               {Canvas ? (
                 <Canvas
+                  key={authorizationKey}
                   activeTool={transient.activeTool as DrawingTool}
                   actorId={currentUserId}
                   background={background}
@@ -1153,11 +1180,11 @@ export default function DrawingWorkspaceClient({
                   objects={visibleObjects}
                   onCommand={applyCommand}
                   onSelectionChange={(ids) =>
-                    setSelectedIds(ids.filter((id) =>
+                    setAuthorizedSelection(ids.filter((id) =>
                       transient.selectedIds.includes(id) || Boolean(activeDrawingState.objects[id]),
                     ))
                   }
-                  onToolComplete={(tool) => setActiveTool(
+                  onToolComplete={(tool) => setAuthorizedTool(
                     transient.activeLayerId ? tool : "select",
                   )}
                   ref={canvasRef}
@@ -1219,10 +1246,10 @@ export default function DrawingWorkspaceClient({
           >
             <Button
               aria-label="선택 도구"
-              aria-pressed={activeTool === "select"}
-              onClick={() => setActiveTool("select")}
+              aria-pressed={transient.activeTool === "select"}
+              onClick={() => setAuthorizedTool("select")}
               size="icon"
-              variant={activeTool === "select" ? "secondary" : "ghost"}
+              variant={transient.activeTool === "select" ? "secondary" : "ghost"}
             >
               <MousePointer2 className="size-4" />
             </Button>
@@ -1230,55 +1257,55 @@ export default function DrawingWorkspaceClient({
               <>
                 <Button
                   aria-label="선 도구"
-                  aria-pressed={activeTool === "line"}
-                  onClick={() => setActiveTool("line")}
+                  aria-pressed={transient.activeTool === "line"}
+                  onClick={() => setAuthorizedTool("line")}
                   size="icon"
-                  variant={activeTool === "line" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "line" ? "secondary" : "ghost"}
                 >
                   <Minus className="size-4" />
                 </Button>
                 <Button
                   aria-label="폴리라인 도구"
-                  aria-pressed={activeTool === "polyline"}
-                  onClick={() => setActiveTool("polyline")}
+                  aria-pressed={transient.activeTool === "polyline"}
+                  onClick={() => setAuthorizedTool("polyline")}
                   size="icon"
-                  variant={activeTool === "polyline" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "polyline" ? "secondary" : "ghost"}
                 >
                   <Waypoints className="size-4" />
                 </Button>
                 <Button
                   aria-label="사각형 도구"
-                  aria-pressed={activeTool === "rectangle"}
-                  onClick={() => setActiveTool("rectangle")}
+                  aria-pressed={transient.activeTool === "rectangle"}
+                  onClick={() => setAuthorizedTool("rectangle")}
                   size="icon"
-                  variant={activeTool === "rectangle" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "rectangle" ? "secondary" : "ghost"}
                 >
                   <Square className="size-4" />
                 </Button>
                 <Button
                   aria-label="원 도구"
-                  aria-pressed={activeTool === "circle"}
-                  onClick={() => setActiveTool("circle")}
+                  aria-pressed={transient.activeTool === "circle"}
+                  onClick={() => setAuthorizedTool("circle")}
                   size="icon"
-                  variant={activeTool === "circle" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "circle" ? "secondary" : "ghost"}
                 >
                   <CircleIcon className="size-4" />
                 </Button>
                 <Button
                   aria-label="텍스트 도구"
-                  aria-pressed={activeTool === "text"}
-                  onClick={() => setActiveTool("text")}
+                  aria-pressed={transient.activeTool === "text"}
+                  onClick={() => setAuthorizedTool("text")}
                   size="icon"
-                  variant={activeTool === "text" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "text" ? "secondary" : "ghost"}
                 >
                   <Type className="size-4" />
                 </Button>
                 <Button
                   aria-label="치수 도구"
-                  aria-pressed={activeTool === "dimension"}
-                  onClick={() => setActiveTool("dimension")}
+                  aria-pressed={transient.activeTool === "dimension"}
+                  onClick={() => setAuthorizedTool("dimension")}
                   size="icon"
-                  variant={activeTool === "dimension" ? "secondary" : "ghost"}
+                  variant={transient.activeTool === "dimension" ? "secondary" : "ghost"}
                 >
                   <Ruler className="size-4" />
                 </Button>
@@ -1295,10 +1322,10 @@ export default function DrawingWorkspaceClient({
             ) : null}
             <Button
               aria-label="이동 도구"
-              aria-pressed={activeTool === "pan"}
-              onClick={() => setActiveTool("pan")}
+              aria-pressed={transient.activeTool === "pan"}
+              onClick={() => setAuthorizedTool("pan")}
               size="icon"
-              variant={activeTool === "pan" ? "secondary" : "ghost"}
+              variant={transient.activeTool === "pan" ? "secondary" : "ghost"}
             >
               <Hand className="size-4" />
             </Button>

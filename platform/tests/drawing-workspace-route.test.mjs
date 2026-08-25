@@ -535,3 +535,18 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.doesNotMatch(menu, /role="listbox"/);
   assert.doesNotMatch(menu, /role="option"/);
 });
+
+test("workspace remounts Canvas with sanitized transient props at each authorization boundary", async () => {
+  const shell = await readFile(
+    new URL(
+      "../app/lukas/components/drawing-workspace.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(shell, /drawingTransientAuthorizationKey\(drawingState/);
+  assert.match(shell, /transientInputInvalidatedRef\.current = true/);
+  assert.match(shell, /key=\{authorizationKey\}/);
+  assert.match(shell, /activeTool=\{transient\.activeTool as DrawingTool\}/);
+  assert.match(shell, /selectedIds=\{transient\.selectedIds\}/);
+});
