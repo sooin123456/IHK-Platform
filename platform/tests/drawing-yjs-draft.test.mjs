@@ -14,6 +14,9 @@ const draftModule = await import("../app/lukas/lib/drawing-yjs-draft.ts").catch(
 const persistenceModule = await import(
   "../app/lukas/lib/drawing-yjs-persistence.client.ts"
 ).catch(() => null);
+const yjsModule = await import(
+  "../app/lukas/lib/drawing-collaboration-yjs.ts"
+).catch(() => null);
 
 const ids = {
   project: "00000000-0000-4000-8000-000000000501",
@@ -31,6 +34,11 @@ const ids = {
 function requireModule() {
   assert.ok(draftModule, "drawing Yjs draft adapter must exist");
   return draftModule;
+}
+
+function requireYjsModule() {
+  assert.ok(yjsModule, "drawing Yjs ledger reader must exist");
+  return yjsModule;
 }
 
 function object(id, x = 0, name = id === ids.objectA ? "A" : "B") {
@@ -591,6 +599,29 @@ test("same durable operation ID from two offline docs converges once in both arr
     assert.deepEqual(snapshot.pendingOperationIds, [ids.operationA]);
     assert.equal(snapshot.state.objects[ids.objectA].name, "recovered");
     assert.equal(snapshot.state.operations.length, 1);
+  }
+});
+
+test("raw operation and order multiplicities must match before canonical dedupe", () => {
+  const { readDrawingCollaborationLedger } = requireYjsModule();
+  const operation = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "paired" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  for (const mutate of [
+    (document) => document.getArray("operations").push([operation]),
+    (document) => document.getArray("operationOrder").push([ids.operationA]),
+  ]) {
+    const document = initializedDoc();
+    append(document, operation);
+    mutate(document);
+    assert.throws(() => readDrawingCollaborationLedger(document));
+    assert.ok(create(document).getSnapshot().quarantine);
   }
 });
 

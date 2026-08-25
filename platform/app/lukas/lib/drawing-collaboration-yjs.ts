@@ -38,11 +38,16 @@ export function readDrawingCollaborationLedger(
   document: Y.Doc,
 ): DrawingCollaborationLedger {
   const rawOperations = document.getArray<unknown>("operations").toArray();
+  const rawOrder = document.getArray<unknown>("operationOrder").toArray();
   if (rawOperations.length > DRAWING_COLLABORATION_LIMITS.maxOperations)
     throw new Error("Too many drawing operation contributions.");
+  const operationOrder =
+    DrawingCollaborationOperationOrderSchema.parse(rawOrder);
   const operations: Record<string, DrawingCollaborationOperation> = {};
+  const contributionIds: string[] = [];
   for (const rawOperation of rawOperations) {
     const operation = DrawingCollaborationOperationSchema.parse(rawOperation);
+    contributionIds.push(operation.clientOperationId);
     const existing = operations[operation.clientOperationId];
     if (existing && !same(existing, operation))
       throw new Error(
@@ -50,10 +55,12 @@ export function readDrawingCollaborationLedger(
       );
     operations[operation.clientOperationId] = operation;
   }
+  if (!same(contributionIds.sort(), (rawOrder as string[]).slice().sort()))
+    throw new Error(
+      "Drawing operation envelopes and order multiplicities must match.",
+    );
   return DrawingCollaborationClientAppendSchema.parse({
-    operationOrder: DrawingCollaborationOperationOrderSchema.parse(
-      document.getArray<unknown>("operationOrder").toArray(),
-    ),
+    operationOrder,
     operations,
   });
 }

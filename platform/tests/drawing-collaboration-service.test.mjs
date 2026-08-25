@@ -475,6 +475,37 @@ test("clone validation accepts concurrent recovery of the same immutable operati
   }
 });
 
+test("all boundaries reject one-sided duplicate contribution multiplicities", () => {
+  const { validateDrawingClientUpdate, validatePersistedDrawingState } =
+    requireModules();
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  for (const mutate of [
+    (document) => document.getArray("operations").push([operation()]),
+    (document) => document.getArray("operationOrder").push([ids.operation]),
+  ]) {
+    const current = initializedDocument();
+    Y.applyUpdate(current, appendUpdate(current));
+    const candidate = new Y.Doc();
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+    const vector = Y.encodeStateVector(current);
+    mutate(candidate);
+    const update = Y.encodeStateAsUpdate(candidate, vector);
+    assert.throws(() => validateDrawingClientUpdate(current, update, context));
+    Y.applyUpdate(current, update);
+    assert.throws(() =>
+      validatePersistedDrawingState(Y.encodeStateAsUpdate(current), {
+        projectId: ids.project,
+        revisionId: ids.revision,
+      }),
+    );
+  }
+});
+
 test("clone validation rejects every hidden mismatched envelope across 100 CRDT orders", () => {
   const { validateDrawingClientUpdate, validatePersistedDrawingState } =
     requireModules();
