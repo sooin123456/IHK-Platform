@@ -1233,3 +1233,79 @@ test("active-canvas transient state and hit candidates include eligible instance
     /does not exist/i,
   );
 });
+
+test("semantic active-canvas block selection remains inspectable when its layer is hidden and locked", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Semantic",
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 10 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Hidden placement",
+    origin: { x: 20, y: 30 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const current = state({
+    objects: {},
+    layers: {
+      ...structure().layers,
+      [ids.layer]: {
+        ...structure().layers[ids.layer],
+        visible: false,
+        locked: true,
+      },
+    },
+    blocks: { [ids.block]: block },
+    blockInstances: { [ids.instance]: instance },
+  });
+  const snapshot = {
+    ...current,
+    activePageId: ids.page,
+    activeCanvasId: ids.canvas,
+  };
+  const hitSelection = deriveDrawingTransientState(snapshot, {
+    canEdit: false,
+    canSelect: true,
+    activeLayerId: null,
+    activeTool: "select",
+    selectedIds: [ids.instance],
+  });
+  assert.deepEqual(hitSelection.selectedIds, []);
+
+  const semanticSelection = deriveDrawingTransientState(snapshot, {
+    canEdit: false,
+    canSelect: true,
+    activeLayerId: null,
+    activeTool: "select",
+    selectedIds: [ids.instance],
+    semanticBlockInstanceIds: [ids.instance],
+  });
+  assert.deepEqual(semanticSelection.selectedIds, [ids.instance]);
+  assert.throws(() =>
+    deleteDrawingBlockInstanceCommand(
+      semanticSelection.state,
+      ids.actor,
+      ids.instance,
+    ),
+  );
+});

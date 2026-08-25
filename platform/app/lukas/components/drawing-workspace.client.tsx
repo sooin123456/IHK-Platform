@@ -340,6 +340,7 @@ export default function DrawingWorkspaceClient({
   const [repeatMode, setRepeatMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
+  const semanticBlockSelectionRef = useRef<Set<string>>(new Set());
   const transientAuthorizationRef = useRef<string | null>(null);
   const transientInputInvalidatedRef = useRef(true);
   const setAuthorizedTool = useCallback((tool: DrawingTool) => {
@@ -348,6 +349,12 @@ export default function DrawingWorkspaceClient({
   }, []);
   const setAuthorizedSelection = useCallback((ids: string[]) => {
     transientInputInvalidatedRef.current = false;
+    semanticBlockSelectionRef.current.clear();
+    setSelectedIds(ids);
+  }, []);
+  const setAuthorizedSemanticBlockSelection = useCallback((ids: string[]) => {
+    transientInputInvalidatedRef.current = false;
+    semanticBlockSelectionRef.current = new Set(ids);
     setSelectedIds(ids);
   }, []);
   const setAuthorizedActiveLayer = useCallback((layerId: string | null) => {
@@ -415,6 +422,7 @@ export default function DrawingWorkspaceClient({
     // A different/deleted canvas cannot retain a gesture or selection safely.
     setActiveTool("select");
     setActiveLayerId(null);
+    semanticBlockSelectionRef.current.clear();
     setSelectedIds([]);
   }, [drawingState]);
   const capabilityCanPersist = canPersistDrawingMutation(
@@ -462,6 +470,7 @@ export default function DrawingWorkspaceClient({
         activeLayerId: transientInput.activeLayerId,
         activeTool: transientInput.activeTool,
         selectedIds: selectedIdsKey ? selectedIdsKey.split("\u0000") : [],
+        semanticBlockInstanceIds: [...semanticBlockSelectionRef.current],
       }),
     [
       baseCanEdit,
@@ -1454,11 +1463,13 @@ export default function DrawingWorkspaceClient({
             state={drawingState}
           />
           <DrawingBlocksPanel
+            activeCanvasId={drawingState.activeCanvasId}
             activeLayerId={resolvedActiveLayerId}
             actorId={currentUserId}
             canEdit={editing.canEdit}
+            layers={drawingState.layers}
             onCommand={applyCommand}
-            onSelectionChange={setAuthorizedSelection}
+            onSelectionChange={setAuthorizedSemanticBlockSelection}
             selectedIds={transient.selectedIds.filter((id) =>
               Boolean(activeDrawingState.objects[id]),
             )}

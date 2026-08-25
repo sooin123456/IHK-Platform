@@ -146,8 +146,16 @@ const { DrawingInspector } = await vite.ssrLoadModule(
 const { DrawingStylesPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-styles-panel.tsx",
 );
-const { DrawingBlocksPanel, DrawingBlockInstancesList } =
-  await vite.ssrLoadModule("/app/lukas/components/drawing-blocks-panel.tsx");
+const {
+  DrawingBlocksPanel,
+  DrawingBlockInstancesList,
+  drawingBlockInstancesForCanvas,
+} = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-blocks-panel.tsx",
+);
+const { deriveDrawingTransientState } = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-document-store.client.ts",
+);
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",
 );
@@ -244,6 +252,28 @@ async function applyOperation(
   return result.rows[0].result;
 }
 
+async function applyOperationWithId(
+  revisionId,
+  clientOperationId,
+  operationType,
+  baseVersions,
+  forward,
+  inverse,
+) {
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation($1,$2,$3,$4,$5,$6) result`,
+    [
+      revisionId,
+      clientOperationId,
+      operationType,
+      baseVersions,
+      forward,
+      inverse,
+    ],
+  );
+  return result.rows[0].result;
+}
+
 const circleObject = (id, layerId, overrides = {}) => ({
   id,
   name: "Circle",
@@ -262,6 +292,62 @@ async function addObject(ids, object) {
     { type: "add_objects", objects: [object] },
     { type: "delete_objects", objectIds: [object.id] },
   );
+}
+
+async function createPersistedBlockInstance(ids, label) {
+  const source = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, source);
+  const block = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: label,
+    primitives: [
+      {
+        localId: "local-a",
+        name: source.name,
+        geometry: source.geometry,
+        styleId: null,
+        style: source.style,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: randomUUID(),
+    blockId: block.id,
+    layerId: ids.workLayerId,
+    name: label,
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [source.id]: 1 },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_block", entity: block, baseVersion: null },
+        { kind: "put_block_instance", entity: instance, baseVersion: null },
+        { kind: "delete_object", id: source.id, baseVersion: 1 },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_object", entity: source, baseVersion: null },
+        { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+        { kind: "delete_block", id: block.id, baseVersion: 1 },
+      ],
+    },
+  );
+  return { block, instance };
 }
 
 async function localP2State(ids) {
@@ -3320,6 +3406,193 @@ test("block library and instance inspector remain readable while approved viewer
   assert.match(editor, /사용 중인 정의는 삭제할 수 없습니다/);
 });
 
+test("semantic block navigation exposes hidden active-canvas instances but no off-canvas buttons or edits", () => {
+  const revisionId = randomUUID();
+  const pageId = randomUUID();
+  const activeCanvasId = randomUUID();
+  const otherCanvasId = randomUUID();
+  const lockedLayerId = randomUUID();
+  const otherLayerId = randomUUID();
+  const blockId = randomUUID();
+  const activeInstanceId = randomUUID();
+  const offCanvasInstanceId = randomUUID();
+  const block = {
+    id: blockId,
+    revisionId,
+    name: "Navigation symbol",
+    version: 1,
+    primitives: [
+      {
+        localId: "line",
+        name: "Line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+        },
+        styleId: null,
+        style: STYLE,
+      },
+    ],
+  };
+  const activeInstance = {
+    id: activeInstanceId,
+    blockId,
+    layerId: lockedLayerId,
+    name: "Hidden active placement",
+    origin: { x: 7, y: 8 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const offCanvasInstance = {
+    ...activeInstance,
+    id: offCanvasInstanceId,
+    layerId: otherLayerId,
+    name: "Off canvas placement",
+  };
+  const layers = {
+    [lockedLayerId]: {
+      id: lockedLayerId,
+      name: "Hidden locked",
+      visible: false,
+      locked: true,
+      systemKind: "work",
+      canvasId: activeCanvasId,
+      sortOrder: 0,
+      version: 1,
+    },
+    [otherLayerId]: {
+      id: otherLayerId,
+      name: "Other canvas",
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      canvasId: otherCanvasId,
+      sortOrder: 0,
+      version: 1,
+    },
+  };
+  const state = drawingCommands.createDrawingDocumentState({
+    revisionId,
+    structure: {
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [activeCanvasId]: {
+          id: activeCanvasId,
+          pageId,
+          name: "Active",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+        [otherCanvasId]: {
+          id: otherCanvasId,
+          pageId,
+          name: "Other",
+          spaceKind: "model",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 1,
+          version: 1,
+        },
+      },
+      layers,
+      objects: {},
+      styles: {},
+      blocks: { [blockId]: block },
+      blockInstances: {
+        [activeInstanceId]: activeInstance,
+        [offCanvasInstanceId]: offCanvasInstance,
+      },
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  assert.equal(typeof drawingBlockInstancesForCanvas, "function");
+  const activeRows = drawingBlockInstancesForCanvas(
+    blockId,
+    activeCanvasId,
+    state.structure.blockInstances,
+    layers,
+  );
+  assert.deepEqual(
+    activeRows.map((instance) => instance.id),
+    [activeInstanceId],
+  );
+  const list = renderToStaticMarkup(
+    createElement(DrawingBlockInstancesList, {
+      block,
+      canEdit: false,
+      instances: activeRows,
+      onSelectionChange() {},
+    }),
+  );
+  assert.match(list, /Hidden active placement instance 선택/);
+  assert.doesNotMatch(list, /Off canvas placement instance 선택/);
+
+  const transient = deriveDrawingTransientState(
+    { ...state, activePageId: pageId, activeCanvasId },
+    {
+      canEdit: false,
+      canSelect: true,
+      activeLayerId: null,
+      activeTool: "select",
+      selectedIds: [activeInstanceId],
+      semanticBlockInstanceIds: [activeInstanceId],
+    },
+  );
+  assert.deepEqual(transient.selectedIds, [activeInstanceId]);
+  for (const canEdit of [false, true]) {
+    const inspector = renderToStaticMarkup(
+      createElement(DrawingInspector, {
+        actorId: OWNER,
+        canEdit,
+        canLinkIssues: false,
+        issueLinks: [],
+        issues: [],
+        onCommand() {},
+        selectedIds: transient.selectedIds,
+        state: transient.state,
+      }),
+    );
+    assert.match(inspector, /Hidden active placement/);
+    assert.match(inspector, /읽기 전용/);
+    assert.doesNotMatch(inspector, /Instance 저장|Instance 삭제|Instance 복사/);
+  }
+
+  const panel = renderToStaticMarkup(
+    createElement(DrawingBlocksPanel, {
+      activeCanvasId,
+      activeLayerId: null,
+      actorId: OWNER,
+      canEdit: false,
+      layers,
+      onCommand() {},
+      onSelectionChange() {},
+      selectedIds: [],
+      state,
+    }),
+  );
+  assert.match(panel, /현재 Canvas 1개/);
+  assert.match(panel, /다른 Canvas 1개/);
+  assert.doesNotMatch(panel, /Off canvas placement instance 선택/);
+});
+
 test("viewer layer panel keeps read surfaces but omits every mutation control", () => {
   const layerId = randomUUID();
   const readOnly = renderToStaticMarkup(
@@ -5140,6 +5413,135 @@ test("P2 authority denies block instance delete and restore on an ineligible lay
     [instanceId],
   );
   assert.equal(absent.rows.length, 0);
+});
+
+test("P2 block instance deletion returns the exact stored result when retried after the row is absent", async () => {
+  const ids = await createDocument();
+  const { instance } = await createPersistedBlockInstance(
+    ids,
+    "Idempotent placement",
+  );
+  const clientOperationId = randomUUID();
+  const baseVersions = { [instance.id]: 1 };
+  const forward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+    ],
+  };
+  const inverse = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_block_instance", entity: instance, baseVersion: null },
+    ],
+  };
+  const first = await applyOperationWithId(
+    ids.revisionId,
+    clientOperationId,
+    "mutate_structure",
+    baseVersions,
+    forward,
+    inverse,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "select count(*)::int count from public.lukas_drawing_block_instances where id=$1",
+        [instance.id],
+      )
+    ).rows[0].count,
+    0,
+  );
+
+  const retried = await applyOperationWithId(
+    ids.revisionId,
+    clientOperationId,
+    "mutate_structure",
+    baseVersions,
+    forward,
+    inverse,
+  );
+  assert.deepEqual(retried, first);
+  assert.equal(
+    (
+      await db.query(
+        `select count(*)::int count from public.lukas_drawing_operations
+         where revision_id=$1 and client_operation_id=$2`,
+        [ids.revisionId, clientOperationId],
+      )
+    ).rows[0].count,
+    1,
+  );
+});
+
+test("P2 block idempotency key reuse reports binding conflict before missing target state", async () => {
+  const ids = await createDocument();
+  const { instance } = await createPersistedBlockInstance(
+    ids,
+    "Bound placement",
+  );
+  const clientOperationId = randomUUID();
+  const forward = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+    ],
+  };
+  const inverse = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_block_instance", entity: instance, baseVersion: null },
+    ],
+  };
+  await applyOperationWithId(
+    ids.revisionId,
+    clientOperationId,
+    "mutate_structure",
+    { [instance.id]: 1 },
+    forward,
+    inverse,
+  );
+
+  await assert.rejects(
+    applyOperationWithId(
+      ids.revisionId,
+      clientOperationId,
+      "mutate_structure",
+      { [instance.id]: 2 },
+      forward,
+      inverse,
+    ),
+    (error) =>
+      error.code === "P1C01" &&
+      /idempotency key does not match the stored request/i.test(error.message),
+  );
+});
+
+test("P2 block wrapper declares the authoritative revision-first concurrent lock order", async () => {
+  const sql = await p2BlockExactnessMigration();
+  const wrapper = sql.slice(
+    sql.indexOf(
+      "create or replace function private.lukas_drawing_apply_operation(",
+    ),
+  );
+  const revisionQuery = wrapper.indexOf(
+    "from public.lukas_drawing_revisions r",
+  );
+  const revisionLock = wrapper.indexOf("for update", revisionQuery);
+  const idempotencyQuery = wrapper.indexOf(
+    "from public.lukas_drawing_operations o",
+  );
+  const instancePreflight = wrapper.indexOf(
+    "from public.lukas_drawing_block_instances i",
+  );
+  assert.ok(revisionQuery >= 0);
+  assert.ok(revisionLock > revisionQuery);
+  assert.ok(idempotencyQuery > revisionLock);
+  assert.ok(instancePreflight > idempotencyQuery);
+  assert.match(
+    wrapper,
+    /jsonb_array_elements\(p_forward->'actions'\)[\s\S]*order by value->>'id'[\s\S]*from public\.lukas_drawing_block_instances i[\s\S]*for update/,
+  );
 });
 
 test("P2 review writes a deterministic complete v2 snapshot and freezes every P2 child", async () => {

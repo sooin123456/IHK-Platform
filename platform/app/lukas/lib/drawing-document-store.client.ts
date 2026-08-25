@@ -386,6 +386,7 @@ export function deriveDrawingTransientState(
     activeLayerId: string | null;
     activeTool: string;
     selectedIds: string[];
+    semanticBlockInstanceIds?: readonly string[];
   },
 ): DrawingTransientState {
   const { layers, objects, blockInstances } =
@@ -407,6 +408,9 @@ export function deriveDrawingTransientState(
           Object.values(layers).find(eligible)?.id ??
           null)
         : null;
+  const semanticBlockInstanceIds = new Set(
+    input.semanticBlockInstanceIds ?? [],
+  );
   const selectedIds =
     (input.canSelect ?? input.canEdit)
       ? input.selectedIds.filter((id) => {
@@ -414,7 +418,12 @@ export function deriveDrawingTransientState(
           const instance = blockInstances[id];
           return Boolean(
             (object && eligible(layers[object.layerId])) ||
-              (instance && eligible(layers[instance.layerId])),
+              (instance &&
+                (eligible(layers[instance.layerId]) ||
+                  (semanticBlockInstanceIds.has(instance.id) &&
+                    ["work", "custom"].includes(
+                      layers[instance.layerId]?.systemKind ?? "",
+                    )))),
           );
         })
       : [];

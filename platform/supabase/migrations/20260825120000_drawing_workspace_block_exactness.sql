@@ -9,27 +9,55 @@ create or replace function private.lukas_drawing_apply_operation(
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   v_actor uuid:=(select auth.uid());
+  v_revision public.lukas_drawing_revisions%rowtype;
+  v_existing public.lukas_drawing_operations%rowtype;
   v_project_id uuid;
   v_action jsonb;
   v_entity jsonb;
   v_instance public.lukas_drawing_block_instances%rowtype;
   v_layer public.lukas_drawing_layers%rowtype;
 begin
+  select r.* into v_revision
+  from public.lukas_drawing_revisions r
+  where r.id=p_revision_id and v_actor is not null
+    and private.lukas_drawing_workspace_capability(r.project_id) in ('admin','editor')
+  for update;
+  if not found then
+    raise exception using errcode='P1R01',
+      message='Drawing revision target is unavailable';
+  end if;
+  v_project_id:=v_revision.project_id;
+
+  select o.* into v_existing
+  from public.lukas_drawing_operations o
+  where o.revision_id=p_revision_id
+    and o.client_operation_id=p_client_operation_id;
+  if found then
+    if v_existing.actor_id is distinct from v_actor
+      or v_existing.operation_type is distinct from p_operation_type
+      or v_existing.base_versions is distinct from p_base_versions
+      or v_existing.forward is distinct from p_forward
+      or v_existing.inverse is distinct from p_inverse then
+      raise exception using errcode='P1C01',
+        message='Drawing operation idempotency key does not match the stored request';
+    end if;
+    return pg_catalog.jsonb_build_object(
+      'operationId',v_existing.id,
+      'sequence',v_existing.sequence,
+      'resultVersions',v_existing.result_versions);
+  end if;
+
+  if v_revision.status<>'draft' then
+    raise exception using errcode='P1C01',
+      message='Drawing operation requires a draft revision';
+  end if;
+
   if p_operation_type<>'mutate_structure'
     or p_forward->>'type'<>'mutate_structure'
     or pg_catalog.jsonb_typeof(p_forward->'actions')<>'array' then
     return private.lukas_drawing_apply_operation_pre_block_exactness(
       p_revision_id,p_client_operation_id,p_operation_type,
       p_base_versions,p_forward,p_inverse);
-  end if;
-
-  select r.project_id into v_project_id
-  from public.lukas_drawing_revisions r
-  where r.id=p_revision_id and v_actor is not null
-    and private.lukas_drawing_workspace_capability(r.project_id) in ('admin','editor');
-  if not found then
-    raise exception using errcode='P1R01',
-      message='Drawing revision target is unavailable';
   end if;
 
   if exists(

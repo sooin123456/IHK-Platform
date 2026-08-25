@@ -9,6 +9,7 @@ import {
 import type {
   DrawingBlock,
   DrawingBlockInstance,
+  DrawingLayer,
 } from "~/lukas/lib/drawing-workspace.types";
 import type {
   DrawingCommand,
@@ -17,14 +18,35 @@ import type {
 import { DrawingBlockSchema } from "~/lukas/lib/drawing-workspace.types";
 
 type Props = {
+  activeCanvasId: string | null;
   activeLayerId: string | null;
   actorId: string;
   canEdit: boolean;
+  layers: Record<string, DrawingLayer>;
   onCommand: (command: DrawingCommand) => void;
   onSelectionChange: (selectedIds: string[]) => void;
   selectedIds: string[];
   state: DrawingDocumentState;
 };
+
+export function drawingBlockInstancesForCanvas(
+  blockId: string,
+  activeCanvasId: string | null,
+  instances: Record<string, DrawingBlockInstance>,
+  layers: Record<string, DrawingLayer>,
+) {
+  if (!activeCanvasId) return [];
+  return Object.values(instances)
+    .filter(
+      (instance) =>
+        instance.blockId === blockId &&
+        layers[instance.layerId]?.canvasId === activeCanvasId,
+    )
+    .sort(
+      (left, right) =>
+        left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+    );
+}
 
 export function DrawingBlockInstancesList({
   block,
@@ -67,9 +89,11 @@ function message(error: unknown) {
 
 /** Reusable definitions remain readable to every workspace member. */
 export function DrawingBlocksPanel({
+  activeCanvasId,
   activeLayerId,
   actorId,
   canEdit,
+  layers,
   onCommand,
   onSelectionChange,
   selectedIds,
@@ -132,14 +156,22 @@ export function DrawingBlocksPanel({
   const list = (
     <ul aria-label="도면 블록" className="mt-4 space-y-3">
       {blocks.map((block) => {
-        const instances = Object.values(canonical.blockInstances)
+        const allInstances = Object.values(canonical.blockInstances)
           .filter((instance) => instance.blockId === block.id)
           .sort(
             (left, right) =>
               left.name.localeCompare(right.name) ||
               left.id.localeCompare(right.id),
           );
-        const used = instances.length;
+        const instances = drawingBlockInstancesForCanvas(
+          block.id,
+          activeCanvasId,
+          canonical.blockInstances,
+          layers,
+        );
+        const used = allInstances.length;
+        const activeUsed = instances.length;
+        const offCanvasUsed = used - activeUsed;
         const expanded = expandedBlockIds.has(block.id);
         const instancesId = `block-instances-${block.id}`;
         const reasonId = `block-delete-reason-${block.id}`;
@@ -246,7 +278,7 @@ export function DrawingBlocksPanel({
             <button
               aria-controls={instancesId}
               aria-expanded={expanded}
-              aria-label={`${block.name} Instance ${used}개 ${expanded ? "접기" : "보기"}`}
+              aria-label={`${block.name} Instance ${used}개 ${expanded ? "접기" : "보기"} · 현재 Canvas ${activeUsed}개 · 다른 Canvas ${offCanvasUsed}개`}
               className="mt-2 min-h-9 w-full rounded border border-white/15 px-2 text-left text-xs"
               onClick={() =>
                 setExpandedBlockIds((current) => {
@@ -258,16 +290,23 @@ export function DrawingBlocksPanel({
               }
               type="button"
             >
-              Instance {used}개 {expanded ? "접기" : "보기"}
+              Instance {used}개 {expanded ? "접기" : "보기"} · 현재 Canvas{" "}
+              {activeUsed}개 · 다른 Canvas {offCanvasUsed}개
             </button>
             {expanded ? (
               <div id={instancesId}>
-                <DrawingBlockInstancesList
-                  block={block}
-                  canEdit={canEdit}
-                  instances={instances}
-                  onSelectionChange={onSelectionChange}
-                />
+                {instances.length ? (
+                  <DrawingBlockInstancesList
+                    block={block}
+                    canEdit={canEdit}
+                    instances={instances}
+                    onSelectionChange={onSelectionChange}
+                  />
+                ) : (
+                  <p className="mt-2 text-xs text-slate-400">
+                    현재 Canvas에 Instance가 없습니다.
+                  </p>
+                )}
               </div>
             ) : null}
             {used ? (
