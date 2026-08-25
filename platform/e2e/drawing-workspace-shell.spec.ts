@@ -103,3 +103,46 @@ test("hydrated export dialog explains background availability and cancels one ga
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "다운로드" })).toBeEnabled();
 });
+
+test("1280px structure panel keeps disabled explanations readable below controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openPreview(page);
+
+  const panel = page.locator("#drawing-panel-structure");
+  const explanations = panel.locator(
+    'p[id^="page-delete-reason-"], p[id^="canvas-delete-reason-"], p[id^="canvas-order-reason-"]',
+  );
+  await expect(explanations).not.toHaveCount(0);
+
+  const layout = await panel.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+
+  const rectangles = await explanations.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const explanation = node.getBoundingClientRect();
+      const input = node.closest("div.rounded-md")?.querySelector("input");
+      const controls = input?.getBoundingClientRect();
+      return {
+        explanation: {
+          width: explanation.width,
+          y: explanation.y,
+        },
+        controls: controls
+          ? { height: controls.height, y: controls.y }
+          : null,
+      };
+    }),
+  );
+  for (const rectangle of rectangles) {
+    expect(rectangle.controls).not.toBeNull();
+    expect(rectangle.explanation.width).toBeGreaterThanOrEqual(120);
+    expect(rectangle.explanation.y).toBeGreaterThanOrEqual(
+      rectangle.controls!.y + rectangle.controls!.height,
+    );
+  }
+});

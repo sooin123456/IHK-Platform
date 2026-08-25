@@ -200,7 +200,7 @@ export function DrawingPagesPanel({
             <li key={page.id}>
               <div className="rounded-md border border-white/10 bg-white/5 p-2">
                 {canEdit ? (
-                  <div className="flex items-center gap-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1 [&>button]:shrink-0">
                     <label className="sr-only" htmlFor={`page-name-${page.id}`}>
                       페이지 이름: {page.name}
                     </label>
@@ -276,7 +276,7 @@ export function DrawingPagesPanel({
                     </button>
                     {pageDeleteReason ? (
                       <p
-                        className="text-xs text-slate-400"
+                        className="mt-2 w-full shrink-0 basis-full text-xs leading-5 text-slate-400"
                         id={`page-delete-reason-${page.id}`}
                       >
                         {pageDeleteReason}
@@ -345,7 +345,7 @@ export function DrawingPagesPanel({
                           </span>
                         </button>
                         {canEdit ? (
-                          <div className="mt-2 flex items-center gap-1">
+                          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1 [&>button]:shrink-0">
                             <label
                               className="sr-only"
                               htmlFor={`canvas-name-${canvas.id}`}
@@ -438,21 +438,25 @@ export function DrawingPagesPanel({
                             >
                               삭제
                             </button>
-                            {reason ? (
-                              <p
-                                className="text-xs text-slate-400"
-                                id={`canvas-delete-reason-${canvas.id}`}
-                              >
-                                {reason}
-                              </p>
-                            ) : null}
-                            {orderReason ? (
-                              <p
-                                className="text-xs text-slate-400"
-                                id={`canvas-order-reason-${canvas.id}`}
-                              >
-                                {orderReason}
-                              </p>
+                            {reason || orderReason ? (
+                              <div className="mt-2 w-full shrink-0 basis-full space-y-1">
+                                {reason ? (
+                                  <p
+                                    className="w-full text-xs leading-5 text-slate-400"
+                                    id={`canvas-delete-reason-${canvas.id}`}
+                                  >
+                                    {reason}
+                                  </p>
+                                ) : null}
+                                {orderReason ? (
+                                  <p
+                                    className="w-full text-xs leading-5 text-slate-400"
+                                    id={`canvas-order-reason-${canvas.id}`}
+                                  >
+                                    {orderReason}
+                                  </p>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
                         ) : null}
