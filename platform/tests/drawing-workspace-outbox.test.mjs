@@ -12,7 +12,7 @@ import {
   restoreDrawingWorkspaceState,
   sendDrawingOperation,
   prepareDrawingReview,
-} from "../app/lukas/lib/drawing-outbox.client.ts";
+} from "../app/lukas/lib/drawing-outbox.ts";
 import {
   applyDrawingCommand,
   createDrawingDocumentState,

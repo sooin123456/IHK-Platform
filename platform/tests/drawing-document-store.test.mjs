@@ -8,7 +8,7 @@ import {
   sanitizeDrawingTransientInput,
   createDrawingDocumentStore,
   hydrateDrawingDocumentState,
-} from "../app/lukas/lib/drawing-document-store.client.ts";
+} from "../app/lukas/lib/drawing-document-store.ts";
 import { createDrawingStyleResolutionCache } from "../app/lukas/lib/drawing-style-resolution.ts";
 
 const ids = {

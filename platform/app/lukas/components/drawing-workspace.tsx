@@ -62,7 +62,7 @@ import {
   hydrateDrawingDocumentState,
   sanitizeDrawingTransientInput,
   type DrawingDocumentStore,
-} from "~/lukas/lib/drawing-document-store.client";
+} from "~/lukas/lib/drawing-document-store";
 import { createDrawingStyleResolutionCache } from "~/lukas/lib/drawing-style-resolution";
 import {
   canPersistDrawingMutation,
@@ -75,7 +75,7 @@ import {
   sendDrawingOperation,
   type DrawingOutbox,
   type DrawingPersistenceSnapshot,
-} from "~/lukas/lib/drawing-outbox.client";
+} from "~/lukas/lib/drawing-outbox";
 import type {
   DrawingWorkspace,
   DrawingWorkspaceCapability,
@@ -412,6 +412,7 @@ type Props = {
   actionError?: string | null;
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
+  previewMode?: boolean;
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -423,6 +424,7 @@ export default function DrawingWorkspaceClient({
   actionError,
   capability,
   currentUserId,
+  previewMode = false,
   roomUrl,
   sourceUrl,
   workspace,
@@ -465,7 +467,7 @@ export default function DrawingWorkspaceClient({
   const [reviewPreparationError, setReviewPreparationError] = useState<
     string | null
   >(null);
-  const [outboxReady, setOutboxReady] = useState(false);
+  const [outboxReady, setOutboxReady] = useState(previewMode);
   const [saveState, setSaveState] = useState({
     pending: 0,
     conflicted: false,
@@ -1632,6 +1634,62 @@ export default function DrawingWorkspaceClient({
                   role="alert"
                 >
                   {canvasLoadError}
+                </div>
+              ) : previewMode ? (
+                <div
+                  aria-label="P2 도면 객체 미리보기"
+                  className="grid h-full min-h-[34rem] place-items-center overflow-hidden bg-slate-800 p-6"
+                >
+                  <div className="relative aspect-[1.414/1] w-full max-w-5xl overflow-hidden rounded-sm bg-white shadow-2xl ring-1 ring-black/20">
+                    <svg
+                      aria-label="A-101 평면 도면"
+                      className="size-full"
+                      role="img"
+                      viewBox="0 0 1000 707"
+                    >
+                      <defs>
+                        <pattern height="20" id="preview-grid-small" patternUnits="userSpaceOnUse" width="20">
+                          <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.7" />
+                        </pattern>
+                        <pattern height="100" id="preview-grid" patternUnits="userSpaceOnUse" width="100">
+                          <rect fill="url(#preview-grid-small)" height="100" width="100" />
+                          <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#cbd5e1" strokeWidth="1" />
+                        </pattern>
+                      </defs>
+                      <rect fill="url(#preview-grid)" height="707" width="1000" />
+                      <g fill="none" stroke="#0f172a" strokeWidth="7">
+                        <path d="M120 105 H880 V585 H120 Z" />
+                        <path d="M430 105 V345 H120 M430 345 H880 M650 345 V585" />
+                      </g>
+                      <g fill="#f8fafc" stroke="#334155" strokeWidth="2">
+                        <rect height="145" width="190" x="470" y="145" />
+                        <rect height="120" width="150" x="705" y="405" />
+                      </g>
+                      <g fill="none" stroke="#2563eb" strokeWidth="4">
+                        <path d="M180 505 L350 430 L520 485 L760 410" />
+                        <path d="M742 400 L760 410 L748 426" />
+                      </g>
+                      <g fill="none" stroke="#ef4444" strokeWidth="3">
+                        <circle cx="730" cy="220" r="58" />
+                        <path d="M690 180 L770 260 M770 180 L690 260" />
+                      </g>
+                      <g fill="none" stroke="#64748b" strokeWidth="2">
+                        <path d="M170 620 H820 M170 610 V630 M820 610 V630" />
+                      </g>
+                      <g fill="#0f172a" fontFamily="sans-serif">
+                        <text fontSize="18" fontWeight="700" x="145" y="85">A-101 1층 평면도 · P2 VECTOR OVERLAY</text>
+                        <text fontSize="16" x="500" y="220">CORE</text>
+                        <text fill="#ef4444" fontSize="14" fontWeight="700" x="680" y="300">창호 간섭 확인</text>
+                        <text fill="#475569" fontSize="14" textAnchor="middle" x="495" y="650">6,500 mm</text>
+                      </g>
+                    </svg>
+                    <div className="absolute left-4 top-4 rounded-md bg-slate-950/85 px-3 py-2 text-xs font-semibold text-white shadow-lg">
+                      8 객체 · 3 레이어 · 2 블록 · 1 이슈 연결
+                    </div>
+                    <div className="absolute bottom-4 right-4 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900 shadow-lg">
+                      PDF 원본은 잠금 · 벡터 오버레이 편집
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div

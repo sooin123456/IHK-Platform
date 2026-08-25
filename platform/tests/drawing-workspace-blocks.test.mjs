@@ -21,7 +21,7 @@ import {
   redoDrawingCommand,
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
-import { deriveDrawingTransientState } from "../app/lukas/lib/drawing-document-store.client.ts";
+import { deriveDrawingTransientState } from "../app/lukas/lib/drawing-document-store.ts";
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000000701",

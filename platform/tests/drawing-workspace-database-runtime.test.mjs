@@ -188,7 +188,7 @@ const workspaceServer = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-workspace.server.ts",
 );
 const drawingOutbox = await vite.ssrLoadModule(
-  "/app/lukas/lib/drawing-outbox.client.ts",
+  "/app/lukas/lib/drawing-outbox.ts",
 );
 const { DrawingInspector } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-inspector.tsx",
@@ -202,7 +202,7 @@ const {
   drawingBlockInstancesForCanvas,
 } = await vite.ssrLoadModule("/app/lukas/components/drawing-blocks-panel.tsx");
 const { deriveDrawingTransientState } = await vite.ssrLoadModule(
-  "/app/lukas/lib/drawing-document-store.client.ts",
+  "/app/lukas/lib/drawing-document-store.ts",
 );
 const { DrawingLayersPanel } = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-layers-panel.tsx",

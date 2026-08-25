@@ -1,8 +1,8 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
-import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace.client";
+import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
-import { hydrateDrawingDocumentState } from "~/lukas/lib/drawing-document-store.client";
+import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
   parseWorkspaceMutation,
   type DrawingWorkspace,
@@ -19,6 +19,18 @@ import type {
   DrawingStyleDefinition,
   DrawingStructureLayer,
   DrawingTable,
+} from "~/lukas/lib/drawing-workspace.types";
+import {
+  DrawingBlockInstanceSchema,
+  DrawingBlockSchema,
+  DrawingCanvasSchema,
+  DrawingObjectSchema,
+  DrawingPageSchema,
+  DrawingPropertySchemaSchema,
+  DrawingPropertyValueSchema,
+  DrawingStructureLayerSchema,
+  DrawingStyleDefinitionSchema,
+  DrawingTableSchema,
 } from "~/lukas/lib/drawing-workspace.types";
 
 const ids = {
@@ -539,7 +551,20 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
   } as unknown as PreviewFixture;
 }
 
-/** Hydrates the production P2 client graph and verifies source binding before render. */
+function validatedRecord<T extends { id: string }>(
+  values: unknown[],
+  parse: (value: unknown) => T,
+) {
+  const entries = values.map((value) => {
+    const parsed = parse(value);
+    return [parsed.id, parsed] as const;
+  });
+  if (new Set(entries.map(([id]) => id)).size !== entries.length)
+    throw new Error("Local preview drawing entities must have unique IDs.");
+  return Object.fromEntries(entries) as Record<string, T>;
+}
+
+/** Validates the P2 graph on the server before the client hydrates it. */
 export function validateLocalDrawingWorkspacePreviewFixture(
   fixture: PreviewFixture,
 ) {
@@ -553,25 +578,38 @@ export function validateLocalDrawingWorkspacePreviewFixture(
     );
   if (!revision.activePageId || !revision.activeCanvasId)
     throw new Error("Local preview requires an active page and canvas.");
-  return hydrateDrawingDocumentState({
+  return validateDrawingStructureState({
     revisionId: revision.id,
-    pages: revision.pages as unknown as DrawingPage[],
-    canvases: revision.canvases ?? [],
-    layers: (revision.layers as DrawingLayer[]).map(
-      (layer) =>
-        ({
-          ...layer,
-          canvasId: layer.canvasId!,
-          sortOrder: layer.sortOrder!,
-        }) as DrawingStructureLayer,
+    pages: validatedRecord(revision.pages, (value) =>
+      DrawingPageSchema.parse(value),
     ),
-    objects: revision.objects as DrawingObject[],
-    styles: revision.styles ?? [],
-    blocks: revision.blocks ?? [],
-    blockInstances: revision.blockInstances ?? [],
-    propertySchemas: revision.propertySchemas ?? [],
-    propertyValues: revision.propertyValues ?? [],
-    tables: revision.tables ?? [],
+    canvases: validatedRecord(revision.canvases ?? [], (value) =>
+      DrawingCanvasSchema.parse(value),
+    ),
+    layers: validatedRecord(revision.layers, (value) =>
+      DrawingStructureLayerSchema.parse(value),
+    ),
+    objects: validatedRecord(revision.objects, (value) =>
+      DrawingObjectSchema.parse(value),
+    ),
+    styles: validatedRecord(revision.styles ?? [], (value) =>
+      DrawingStyleDefinitionSchema.parse(value),
+    ),
+    blocks: validatedRecord(revision.blocks ?? [], (value) =>
+      DrawingBlockSchema.parse(value),
+    ),
+    blockInstances: validatedRecord(revision.blockInstances ?? [], (value) =>
+      DrawingBlockInstanceSchema.parse(value),
+    ),
+    propertySchemas: validatedRecord(revision.propertySchemas ?? [], (value) =>
+      DrawingPropertySchemaSchema.parse(value),
+    ),
+    propertyValues: validatedRecord(revision.propertyValues ?? [], (value) =>
+      DrawingPropertyValueSchema.parse(value),
+    ),
+    tables: validatedRecord(revision.tables ?? [], (value) =>
+      DrawingTableSchema.parse(value),
+    ),
   });
 }
 
@@ -632,7 +670,7 @@ export default function LocalDrawingWorkspacePreview({
 }: Route.ComponentProps) {
   return (
     <>
-      <DrawingWorkspaceClient {...loaderData} />
+      <DrawingWorkspaceClient {...loaderData} previewMode />
       <aside
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"

@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { Form, Link, data, redirect } from "react-router";
 
 import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialog";
-import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace.client";
+import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
 import {

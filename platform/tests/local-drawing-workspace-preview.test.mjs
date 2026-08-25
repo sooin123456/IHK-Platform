@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createServer } from "vite";
@@ -51,6 +52,17 @@ function validOperation() {
 test("P2 local drawing preview is registered outside the authenticated workspace", () => {
   const paths = JSON.stringify(routes);
   assert.match(paths, /workspace-preview\/drawing-workspace/);
+});
+
+test("P2 preview server module does not import browser-only state modules", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/screens/local-drawing-workspace-preview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /drawing-document-store\.client/);
 });
 
 test("P2 local drawing preview loader allows only development loopback", async () => {

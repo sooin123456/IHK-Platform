@@ -18,7 +18,7 @@ import {
   undoDrawingCommand,
   redoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
-import { createDrawingActiveCanvasSliceCache } from "../app/lukas/lib/drawing-document-store.client.ts";
+import { createDrawingActiveCanvasSliceCache } from "../app/lukas/lib/drawing-document-store.ts";
 import { nextDrawingCanvasFocusIntent } from "../app/lukas/lib/drawing-pages-focus.ts";
 import {
   DrawingObjectSchema,

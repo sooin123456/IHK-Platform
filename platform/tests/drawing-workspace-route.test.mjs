@@ -65,7 +65,7 @@ test("workspace document renders the accessible editor shell", async () => {
     ),
     readFile(
       new URL(
-        "../app/lukas/components/drawing-workspace.client.tsx",
+        "../app/lukas/components/drawing-workspace.tsx",
         import.meta.url,
       ),
       "utf8",
@@ -119,7 +119,7 @@ test("same-session saved drawing objects become linkable without a loader reload
 test("workspace wires durable outbox recovery and the four visible save states", async () => {
   const shell = await readFile(
     new URL(
-      "../app/lukas/components/drawing-workspace.client.tsx",
+      "../app/lukas/components/drawing-workspace.tsx",
       import.meta.url,
     ),
     "utf8",
@@ -147,7 +147,7 @@ test("layers and inspector expose native labeled controls", async () => {
   const [shell, layers, inspector] = await Promise.all([
     readFile(
       new URL(
-        "../app/lukas/components/drawing-workspace.client.tsx",
+        "../app/lukas/components/drawing-workspace.tsx",
         import.meta.url,
       ),
       "utf8",
@@ -204,7 +204,7 @@ test("page tree and canvas-scoped layer controls use native labeled interactions
   const [shell, pages, layers] = await Promise.all([
     readFile(
       new URL(
-        "../app/lukas/components/drawing-workspace.client.tsx",
+        "../app/lukas/components/drawing-workspace.tsx",
         import.meta.url,
       ),
       "utf8",
@@ -502,7 +502,7 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
     ),
     readFile(
       new URL(
-        "../app/lukas/components/drawing-workspace.client.tsx",
+        "../app/lukas/components/drawing-workspace.tsx",
         import.meta.url,
       ),
       "utf8",
@@ -538,7 +538,7 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   const [shell, canvas, menu] = await Promise.all([
     readFile(
       new URL(
-        "../app/lukas/components/drawing-workspace.client.tsx",
+        "../app/lukas/components/drawing-workspace.tsx",
         import.meta.url,
       ),
       "utf8",
@@ -590,7 +590,7 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
 test("workspace remounts Canvas with sanitized transient props at each authorization boundary", async () => {
   const shell = await readFile(
     new URL(
-      "../app/lukas/components/drawing-workspace.client.tsx",
+      "../app/lukas/components/drawing-workspace.tsx",
       import.meta.url,
     ),
     "utf8",

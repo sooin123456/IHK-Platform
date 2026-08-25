@@ -1987,7 +1987,7 @@ test("referenced-style copy fails closed unless it explicitly resolves to portab
 
 test("workspace duplicate preserves a referenced style within its document", async () => {
   const shell = await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-workspace.client.tsx",
+    "/app/lukas/components/drawing-workspace.tsx",
   );
   const source = rectangle({
     styleId: ids.circle,
@@ -2011,7 +2011,7 @@ test("workspace duplicate preserves a referenced style within its document", asy
 
 test("workspace block mutation adapter no-ops hidden, locked, and mixed selections until every owning layer is editable", async () => {
   const shell = await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-workspace.client.tsx",
+    "/app/lukas/components/drawing-workspace.tsx",
   );
   assert.equal(
     typeof shell.createDrawingWorkspaceBlockMutationAdapter,
@@ -2239,7 +2239,7 @@ test("duplicate and Delete create add and delete commands without mutating origi
 
 test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", async () => {
   const shell = await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-workspace.client.tsx",
+    "/app/lukas/components/drawing-workspace.tsx",
   );
   assert.equal(typeof shell.resolveDrawingWorkspaceShortcut, "function");
   const shortcut = (overrides = {}) =>
@@ -2319,7 +2319,7 @@ test("workspace shortcuts support Cmd and Ctrl variants with guarded focus", asy
 
 test("native dialog descendants own Backspace, Delete, and Cmd shortcuts", async () => {
   const shell = await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-workspace.client.tsx",
+    "/app/lukas/components/drawing-workspace.tsx",
   );
   const nativeDialogButton = {
     tagName: "BUTTON",
@@ -2422,7 +2422,7 @@ test("command menu Enter only runs the selected enabled command and Escape close
 
 test("editing context fails closed unless capability and an active layer both allow edits", async () => {
   const shell = await vite.ssrLoadModule(
-    "/app/lukas/components/drawing-workspace.client.tsx",
+    "/app/lukas/components/drawing-workspace.tsx",
   );
   const layers = [
     layer({ id: ids.lockedLayer, locked: true }),
