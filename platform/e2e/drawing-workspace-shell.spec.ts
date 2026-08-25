@@ -24,9 +24,18 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   page,
 }) => {
   const supabaseRequests: string[] = [];
+  const collaborationSockets: string[] = [];
   page.on("request", (request) => {
     if (new URL(request.url()).port === "54321")
       supabaseRequests.push(request.url());
+  });
+  page.on("websocket", (socket) => {
+    const url = new URL(socket.url());
+    if (
+      url.pathname.includes("drawing:") ||
+      url.hostname.includes("collaboration")
+    )
+      collaborationSockets.push(socket.url());
   });
   await openPreview(page, realtimeTestPreviewPath);
   await waitForPreviewRealtimeEffect(page);
@@ -34,7 +43,11 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   await expect(
     page.getByRole("status", { name: "실시간 상태: 실시간 연결됨" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toHaveText("공동 편집 연결됨");
   expect(supabaseRequests).toEqual([]);
+  expect(collaborationSockets).toEqual([]);
 });
 
 test("preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes", async ({

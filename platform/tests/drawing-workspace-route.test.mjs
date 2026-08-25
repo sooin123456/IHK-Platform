@@ -116,7 +116,7 @@ test("same-session saved drawing objects become linkable without a loader reload
     );
 });
 
-test("workspace wires durable outbox recovery and the four visible save states", async () => {
+test("workspace wires durable collaborative recovery and the four visible save states", async () => {
   const shell = await readFile(
     new URL(
       "../app/lukas/components/drawing-workspace.tsx",
@@ -126,9 +126,9 @@ test("workspace wires durable outbox recovery and the four visible save states",
   );
   assert.match(shell, /createDrawingOutbox/);
   assert.match(shell, /createDrawingPersistenceQueue/);
-  assert.match(shell, /restoreDrawingWorkspaceState/);
+  assert.match(shell, /reconcileDrawingCollaborationDraft/);
   assert.match(shell, /sendDrawingOperation/);
-  assert.match(shell, /persistence\.capture/);
+  assert.match(shell, /createDrawingCollaborationCommandBridge/);
   assert.match(shell, /const saveStatus = drawingSaveStatus/);
   assert.match(shell, /\{saveStatus\}/);
   assert.match(

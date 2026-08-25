@@ -1250,6 +1250,22 @@ test("accepted polling and signed outcome receipts are authoritative and idempot
   const signature = createHmac("sha256", secret).update(body).digest("hex");
   const verifier = createOutcomeReceiptVerifier(secret);
   assert.deepEqual(verifier(body, signature).outcome, "rejected");
+  const acceptedBody = JSON.stringify({
+    receiptId: ids.operation,
+    roomName,
+    operationId: ids.operation,
+    operation: operation(),
+    outcome: "acked",
+    authoritativeSequence: 9,
+    resultVersions: { [ids.layer]: 1 },
+  });
+  const acceptedSignature = createHmac("sha256", secret)
+    .update(acceptedBody)
+    .digest("hex");
+  assert.equal(
+    verifier(acceptedBody, acceptedSignature).authoritativeSequence,
+    9,
+  );
   assert.throws(() => verifier(body, `${signature.slice(0, -1)}0`));
   assert.equal(
     timingSafeEqual(Buffer.from(signature), Buffer.from(signature)),

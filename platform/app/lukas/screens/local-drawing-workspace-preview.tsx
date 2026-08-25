@@ -70,6 +70,20 @@ const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
+const previewCollaborationPersistenceFactory = async () => null;
+const previewCollaborationConnectionFactory = async ({
+  onPhase,
+}: {
+  onPhase?: (phase: "connected" | "connecting" | "degraded") => void;
+}) => {
+  onPhase?.("connected");
+  return {
+    phase: "connected" as const,
+    flush() {},
+    async refreshToken() {},
+    dispose() {},
+  };
+};
 
 type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
   emit(): void;
@@ -661,7 +675,8 @@ export function loader({ request }: Route.LoaderArgs) {
     throw new Response("Not Found", { status: 404 });
   const fixture = localDrawingWorkspacePreviewFixture();
   validateLocalDrawingWorkspacePreviewFixture(fixture);
-  const realtimeTest = new URL(request.url).searchParams.get("realtimeTest") === "1";
+  const realtimeTest =
+    new URL(request.url).searchParams.get("realtimeTest") === "1";
   return {
     ...fixture,
     previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
@@ -713,7 +728,8 @@ export default function LocalDrawingWorkspacePreview({
   const [alternateUser, setAlternateUser] = useState(false);
   const [viewer, setViewer] = useState(false);
   const realtimeAdapter = useMemo(
-    () => createPreviewRealtimeAdapter({ onReady: () => setRealtimeReady(true) }),
+    () =>
+      createPreviewRealtimeAdapter({ onReady: () => setRealtimeReady(true) }),
     [],
   );
   const onInvalidate = useCallback(
@@ -734,18 +750,18 @@ export default function LocalDrawingWorkspacePreview({
             : loaderData.currentUserId
         }
         previewMode
+        collaborationConnectionFactory={previewCollaborationConnectionFactory}
+        collaborationPersistenceFactory={previewCollaborationPersistenceFactory}
         realtimeAdapter={
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
         }
-        previewHarness={
-          loaderData.realtimeTest ? previewHarness : undefined
-        }
+        previewHarness={loaderData.realtimeTest ? previewHarness : undefined}
       />
       <aside
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"
       >
-        P2 로컬 기능 미리보기 · 서버 저장 안 됨
+        P3 공동 편집 미리보기 · 로컬 복구 사용
       </aside>
       {loaderData.realtimeTest ? (
         <aside className="fixed bottom-3 left-3 z-50 flex items-center gap-2 rounded-md bg-slate-950 p-2 text-xs text-white">
@@ -761,9 +777,7 @@ export default function LocalDrawingWorkspacePreview({
               ? "실시간 미리보기 준비됨"
               : "실시간 미리보기 준비 중"}
           </p>
-          <output aria-label="실시간 갱신 횟수">
-            {realtimeInvalidations}
-          </output>
+          <output aria-label="실시간 갱신 횟수">{realtimeInvalidations}</output>
           <output aria-label="미리보기 loader nonce">
             {loaderData.previewLoaderNonce}
           </output>

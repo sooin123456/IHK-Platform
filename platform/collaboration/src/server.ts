@@ -74,7 +74,8 @@ const ReceiptSchema = z
     }),
     operationId: z.string().uuid(),
     operation: DrawingCollaborationOperationSchema,
-    outcome: z.enum(["rejected", "conflicted"]),
+    outcome: z.enum(["acked", "rejected", "conflicted"]),
+    authoritativeSequence: z.number().int().positive().nullable().optional(),
     resultVersions: z
       .record(z.string().uuid(), z.number().int().positive())
       .refine((value) => Object.keys(value).length <= 256),
@@ -93,6 +94,16 @@ const ReceiptSchema = z
         code: z.ZodIssueCode.custom,
         path: ["operation", "revisionId"],
         message: "Receipt operation revision must match its room.",
+      });
+    if (
+      (receipt.outcome === "acked") !==
+      (typeof receipt.authoritativeSequence === "number")
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["authoritativeSequence"],
+        message:
+          "Only acknowledged receipts require an authoritative sequence.",
       });
   });
 
@@ -808,15 +819,20 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     const statuses = document.getMap("operationStatus");
     const existing = operations[receipt.operationId];
     const current = statuses.get(receipt.operationId) as
-      | { status?: string; resultVersions?: unknown }
+      | {
+          status?: string;
+          authoritativeSequence?: number | null;
+          resultVersions?: unknown;
+        }
       | undefined;
     if (existing && !same(existing, receipt.operation))
       throw new Error("Outcome receipt operation is immutable.");
     if (
-      current?.status === "acked" ||
-      (current &&
-        (current.status !== receipt.outcome ||
-          !same(current.resultVersions, receipt.resultVersions)))
+      current &&
+      (current.status !== receipt.outcome ||
+        !same(current.resultVersions, receipt.resultVersions) ||
+        (receipt.outcome === "acked" &&
+          current.authoritativeSequence !== receipt.authoritativeSequence))
     )
       throw new Error("Outcome receipt conflicts with authoritative status.");
     document.transact(
@@ -828,7 +844,10 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           statuses.set(receipt.operationId, {
             operationId: receipt.operationId,
             status: receipt.outcome,
-            authoritativeSequence: null,
+            authoritativeSequence:
+              receipt.outcome === "acked"
+                ? receipt.authoritativeSequence!
+                : null,
             resultVersions: receipt.resultVersions,
           });
       },

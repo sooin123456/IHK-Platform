@@ -51,8 +51,12 @@ export type PreparedDrawingDraft = {
 
 export type DrawingDraftAdapter = {
   getSnapshot(): DrawingDraftSnapshot;
+  operations(): DrawingCollaborationOperation[];
   subscribe(listener: () => void): () => void;
   prepareLocal(command: DrawingCommand): PreparedDrawingDraft;
+  preparePersistedLocal(
+    operation: DrawingCollaborationOperation,
+  ): PreparedDrawingDraft;
   appendDurableLocal(prepared: PreparedDrawingDraft): boolean;
   applyServerProjection(update: Uint8Array): boolean;
   replaceAuthoritative(
@@ -204,9 +208,20 @@ function hasVersionConflict(
   state: DrawingDocumentState,
   operation: DrawingCollaborationOperation,
 ) {
-  return Object.entries(operation.baseVersions).some(
-    ([entityId, version]) => entityVersion(state, entityId) !== version,
-  );
+  return Object.entries(operation.baseVersions).some(([entityId, version]) => {
+    const current = entityVersion(state, entityId);
+    if (
+      operation.type === "add_layer" &&
+      current === undefined &&
+      (operation.forward as { layer?: { id?: string; version?: number } }).layer
+        ?.id === entityId
+    )
+      return (
+        (operation.forward as { layer: { version: number } }).layer.version !==
+        version
+      );
+    return current !== version;
+  });
 }
 
 export function createDrawingDraftAdapter(
@@ -384,6 +399,13 @@ export function createDrawingDraftAdapter(
 
   return {
     getSnapshot: () => snapshot,
+    operations: () => {
+      if (disposed) return [];
+      const ledger = readDrawingCollaborationLedger(document);
+      return ledger.operationOrder.map((id) =>
+        structuredClone(ledger.operations[id]),
+      );
+    },
     subscribe(listener) {
       if (disposed) return () => undefined;
       listeners.add(listener);
@@ -394,6 +416,11 @@ export function createDrawingDraftAdapter(
       const applied = applyDrawingCommand(snapshot.state, command, options);
       const operation = envelopeFor(applied.operation);
       return { operation, state: applied.state };
+    },
+    preparePersistedLocal(input) {
+      const operation = DrawingCollaborationOperationSchema.parse(input);
+      assertWritable(operation.actorId);
+      return { operation, state: replay(snapshot.state, operation) };
     },
     appendDurableLocal(prepared) {
       const operation = DrawingCollaborationOperationSchema.parse(

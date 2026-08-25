@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
 import type { Database, Json } from "database.types";
 import { z } from "zod";
+import {
+  DRAWING_COLLABORATION_SCHEMA_VERSION,
+  drawingRoomName,
+} from "./drawing-collaboration-protocol.ts";
 
 import {
   DrawingGeometrySchema,
@@ -229,6 +234,9 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_link_object_issue: DrawingRpc<{
         p_object_id: string;
         p_issue_id: string;
+      }>;
+      lukas_drawing_collaboration_bootstrap: DrawingRpc<{
+        p_revision_id: string;
       }>;
     };
   };
@@ -521,7 +529,7 @@ function parseOperation(value: unknown): DrawingOperationInput {
             ? MutateStructurePayloadSchema
             : operation.type === "mutate_objects_with_references"
               ? MutateObjectsWithReferencesPayloadSchema
-            : OperationPayloadSchemas[operation.type];
+              : OperationPayloadSchemas[operation.type];
   parseExactPayload(expectedInverse, operation.inverse);
   return operation;
 }
@@ -692,6 +700,172 @@ export type DrawingWorkspace = {
       })
     | null;
 };
+
+const CollaborationCanonicalJsonSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    revision: z
+      .object({
+        id: Uuid,
+        documentId: Uuid,
+        projectId: Uuid,
+        sequence: z.number().int().positive(),
+        version: z.number().int().positive(),
+      })
+      .strict(),
+    sources: z.array(z.unknown()),
+    pages: z.array(z.unknown()),
+    canvases: z.array(z.unknown()),
+    layers: z.array(z.unknown()),
+    objects: z.array(z.unknown()),
+    styles: z.array(z.unknown()),
+    blocks: z.array(z.unknown()),
+    blockInstances: z.array(z.unknown()),
+    propertySchemas: z.array(z.unknown()),
+    propertyValues: z.array(z.unknown()),
+    tables: z.array(z.unknown()),
+    issues: z.array(z.unknown()),
+    operationSequence: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const CollaborationRecentOutcomeSchema = z
+  .object({
+    revisionId: Uuid,
+    clientOperationId: Uuid,
+    actorId: Uuid,
+    operationType: z.enum([
+      "add_objects",
+      "update_objects",
+      "delete_objects",
+      "add_layer",
+      "update_layer",
+      "mutate_structure",
+      "mutate_objects_with_references",
+    ]),
+    baseVersions: z.record(Uuid, z.number().int().positive()),
+    forward: z.record(z.string(), z.unknown()),
+    inverse: z.record(z.string(), z.unknown()),
+    sequence: z.number().int().positive(),
+    resultVersions: z.record(Uuid, z.number().int().positive()),
+  })
+  .strict();
+
+const DrawingWorkspaceCollaborationBootstrapSchema = z
+  .object({
+    canonicalJson: CollaborationCanonicalJsonSchema,
+    operationSequence: z.number().int().nonnegative(),
+    schemaVersion: z.literal(2),
+    sha256: Sha256,
+    revisionStatus: z.enum([
+      "draft",
+      "review_requested",
+      "approved",
+      "superseded",
+    ]),
+    capability: z.enum(["admin", "editor", "reviewer", "commenter", "viewer"]),
+    canWrite: z.boolean(),
+    recentOutcomes: z.array(CollaborationRecentOutcomeSchema).max(256),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.canonicalJson.operationSequence !== value.operationSequence)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operationSequence"],
+        message: "Drawing collaboration checkpoint is inconsistent.",
+      });
+    if (
+      value.canWrite !==
+      (value.revisionStatus === "draft" &&
+        (value.capability === "admin" || value.capability === "editor"))
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["canWrite"],
+        message: "Drawing collaboration capability is inconsistent.",
+      });
+  });
+
+export type DrawingWorkspaceCollaborationBootstrap = z.infer<
+  typeof DrawingWorkspaceCollaborationBootstrapSchema
+>;
+
+/** Loads graph, checkpoint, capability, and outcomes from one database snapshot. */
+export async function loadDrawingWorkspaceCollaborationBootstrap(
+  client: Pick<DrawingWorkspaceClient, "rpc">,
+  revisionId: string,
+): Promise<DrawingWorkspaceCollaborationBootstrap> {
+  const parsedRevisionId = Uuid.parse(revisionId);
+  const { data, error } = await client.rpc(
+    "lukas_drawing_collaboration_bootstrap",
+    { p_revision_id: parsedRevisionId },
+  );
+  const parsed = DrawingWorkspaceCollaborationBootstrapSchema.parse(
+    rpcResult(data, error),
+  );
+  if (parsed.canonicalJson.revision.id !== parsedRevisionId)
+    throw new Error("Drawing collaboration revision is inconsistent.");
+  return parsed;
+}
+
+export async function deliverDrawingCollaborationOutcome({
+  actorId,
+  projectId,
+  operation: input,
+  outcome,
+  authoritativeSequence = null,
+  resultVersions = {},
+  environment = process.env,
+  fetcher = fetch,
+}: {
+  actorId: string;
+  projectId: string;
+  operation: unknown;
+  outcome: "acked" | "conflicted" | "rejected";
+  authoritativeSequence?: number | null;
+  resultVersions?: Record<string, number>;
+  environment?: Record<string, string | undefined>;
+  fetcher?: (
+    input: string,
+    init: {
+      method: "POST";
+      body: string;
+      headers: Record<string, string>;
+    },
+  ) => Promise<{ ok: boolean; status: number }>;
+}) {
+  const operation = DrawingOperationInputSchema.parse(input);
+  const url = environment.COLLABORATION_INTERNAL_URL;
+  const secret = environment.COLLABORATION_INTERNAL_SECRET;
+  if (!url || !secret || secret.length < 32) return false;
+  const endpoint = new URL("/internal/outcomes", url);
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:")
+    throw new Error("Drawing collaboration internal URL is invalid.");
+  const body = JSON.stringify({
+    receiptId: operation.clientOperationId,
+    roomName: drawingRoomName(projectId, operation.revisionId),
+    operationId: operation.clientOperationId,
+    operation: {
+      ...operation,
+      actorId: Uuid.parse(actorId),
+      schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+    },
+    outcome,
+    authoritativeSequence,
+    resultVersions,
+  });
+  const signature = createHmac("sha256", secret).update(body).digest("hex");
+  const response = await fetcher(endpoint.toString(), {
+    method: "POST",
+    body,
+    headers: {
+      "content-type": "application/json",
+      "x-1hk-signature": signature,
+    },
+  });
+  return response.ok;
+}
 
 type DrawingWorkspaceP2Page = DrawingPage & {
   canvases: DrawingCanvas[];
@@ -2295,6 +2469,8 @@ export async function handleWorkspaceMutation({
   capability,
   workspace,
   form,
+  actorId,
+  deliverOutcome = deliverDrawingCollaborationOutcome,
   environment = {
     createId: () => crypto.randomUUID(),
     now: () => new Date().toISOString(),
@@ -2305,8 +2481,11 @@ export async function handleWorkspaceMutation({
   capability: DrawingWorkspaceCapability;
   workspace: DrawingWorkspace;
   form: FormData;
+  actorId?: string;
+  deliverOutcome?: typeof deliverDrawingCollaborationOutcome;
   environment?: WorkspaceMutationEnvironment;
 }): Promise<{ status: number; body: DrawingWorkspaceActionBody }> {
+  let receiptOperation: DrawingOperationInput | null = null;
   try {
     const mutation = parseWorkspaceMutation(form);
     let result: unknown;
@@ -2370,8 +2549,37 @@ export async function handleWorkspaceMutation({
           workspace,
           mutation.operation.revisionId,
         );
+        receiptOperation = mutation.operation;
         result = await applyDrawingOperation(client, mutation.operation);
         clientOperationId = mutation.operation.clientOperationId;
+        if (actorId) {
+          const accepted = result as {
+            sequence: number;
+            resultVersions: Record<string, number | null>;
+          };
+          let delivered = false;
+          try {
+            delivered = await deliverOutcome({
+              actorId,
+              projectId,
+              operation: mutation.operation,
+              outcome: "acked",
+              authoritativeSequence: accepted.sequence,
+              resultVersions: Object.fromEntries(
+                Object.entries(accepted.resultVersions).filter(
+                  (entry): entry is [string, number] =>
+                    typeof entry[1] === "number",
+                ),
+              ),
+            });
+          } catch {
+            // The same idempotent RPC/outbox operation will retry the receipt.
+          }
+          if (!delivered)
+            throw new DrawingWorkspaceRetryableError(
+              "공동 편집 결과 전달을 다시 시도합니다.",
+            );
+        }
       } else if (mutation.intent === "create_layer") {
         assertDraftWorkspace(workspace);
         const revisionId = currentWorkspaceRevisionId(workspace);
@@ -2440,6 +2648,38 @@ export async function handleWorkspaceMutation({
             : error instanceof DrawingWorkspaceRpcError
               ? "rpc"
               : "validation";
+    if (
+      actorId &&
+      receiptOperation &&
+      (kind === "conflict" || kind === "rejected")
+    ) {
+      try {
+        const delivered = await deliverOutcome({
+          actorId,
+          projectId,
+          operation: receiptOperation,
+          outcome: kind === "conflict" ? "conflicted" : "rejected",
+        });
+        if (!delivered)
+          return {
+            status: 503,
+            body: {
+              ok: false,
+              kind: "retryable",
+              error: "공동 편집 결과 전달을 다시 시도합니다.",
+            },
+          };
+      } catch {
+        return {
+          status: 503,
+          body: {
+            ok: false,
+            kind: "retryable",
+            error: "공동 편집 결과 전달을 다시 시도합니다.",
+          },
+        };
+      }
+    }
     return {
       status:
         kind === "conflict"

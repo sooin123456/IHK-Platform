@@ -11,6 +11,7 @@ import {
   handleWorkspaceMutation,
   drawingTemplateCloneLocation,
   loadDrawingWorkspace,
+  loadDrawingWorkspaceCollaborationBootstrap,
   loadDrawingWorkspaceCapability,
   loadDrawingWorkspaceSourceUrl,
 } from "~/lukas/lib/drawing-workspace.server";
@@ -58,14 +59,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("document") ?? undefined,
   );
   const sourceUrl = await loadDrawingWorkspaceSourceUrl(client, workspace);
+  const collaborationBootstrap = workspace.document
+    ? await loadDrawingWorkspaceCollaborationBootstrap(
+        client,
+        workspace.document.revision.id,
+      )
+    : null;
   return data(
-    { project, currentUserId: user.id, capability, workspace, sourceUrl },
+    {
+      project,
+      currentUserId: user.id,
+      capability: collaborationBootstrap?.capability ?? capability,
+      collaborationBootstrap,
+      workspace,
+      sourceUrl,
+    },
     { headers },
   );
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const { client, headers, project, capability } = await workspaceContext(
+  const { client, headers, project, capability, user } = await workspaceContext(
     request,
     params.projectId!,
   );
@@ -82,6 +96,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     capability,
     workspace,
     form,
+    actorId: user.id,
   });
   if (
     form.get("intent") === "create_from_template" &&
@@ -111,6 +126,7 @@ export default function DrawingWorkspaceScreen({
       <DrawingWorkspaceClient
         actionError={actionData?.error}
         capability={capability}
+        collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
         currentUserId={loaderData.currentUserId}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceUrl={loaderData.sourceUrl}

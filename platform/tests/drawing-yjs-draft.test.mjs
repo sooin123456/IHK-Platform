@@ -336,6 +336,29 @@ test("prepareLocal is side-effect free and durable append is idempotent", () => 
   assert.equal(doc.getArray("operationOrder").length, 1);
 });
 
+test("a durable new layer projects instead of becoming a provisional conflict", () => {
+  const doc = initializedDoc();
+  const adapter = create(doc);
+  const layerId = "00000000-0000-4000-8000-000000000511";
+  const prepared = adapter.prepareLocal({
+    type: "add_layer",
+    actorId: ids.actorA,
+    layer: {
+      id: layerId,
+      name: "Realtime local edit",
+      visible: true,
+      locked: false,
+      version: 1,
+    },
+  });
+  adapter.appendDurableLocal(prepared);
+  assert.equal(
+    adapter.getSnapshot().state.layers[layerId].name,
+    "Realtime local edit",
+  );
+  assert.deepEqual(adapter.getSnapshot().provisionalConflictOperationIds, []);
+});
+
 test("authorization, freeze, and disposal stop mutation without authoring server status", () => {
   const doc = initializedDoc();
   const adapter = create(doc, { createId: () => ids.operationA });
