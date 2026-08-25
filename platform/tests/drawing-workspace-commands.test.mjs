@@ -2009,6 +2009,207 @@ test("workspace duplicate preserves a referenced style within its document", asy
   });
 });
 
+test("workspace block mutation adapter no-ops hidden, locked, and mixed selections until every owning layer is editable", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.client.tsx",
+  );
+  assert.equal(
+    typeof shell.createDrawingWorkspaceBlockMutationAdapter,
+    "function",
+  );
+  assert.equal(typeof shell.drawingWorkspaceCommandEnabled, "function");
+  const blockId = "00000000-0000-4000-8000-000000000050";
+  const instanceId = "00000000-0000-4000-8000-000000000051";
+  const otherLayerId = "00000000-0000-4000-8000-000000000052";
+  const activeCanvasId = ids.canvas;
+  const makeState = (instanceLayer) =>
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: {
+        pages: {
+          [ids.page]: {
+            id: ids.page,
+            revisionId: ids.revision,
+            name: "A1",
+            sortOrder: 0,
+            version: 1,
+          },
+        },
+        canvases: {
+          [activeCanvasId]: {
+            id: activeCanvasId,
+            pageId: ids.page,
+            name: "Paper",
+            spaceKind: "paper",
+            widthMillimeters: 210,
+            heightMillimeters: 297,
+            background: null,
+            sortOrder: 0,
+            version: 1,
+          },
+        },
+        layers: {
+          [ids.layer]: {
+            ...layer(),
+            canvasId: activeCanvasId,
+            sortOrder: 0,
+          },
+          [otherLayerId]: {
+            ...instanceLayer,
+            id: otherLayerId,
+            name: "Selected instance layer",
+            canvasId: activeCanvasId,
+            sortOrder: 1,
+          },
+        },
+        objects: { [ids.rectangle]: rectangle() },
+        styles: {},
+        blocks: {
+          [blockId]: {
+            id: blockId,
+            revisionId: ids.revision,
+            name: "Adapter block",
+            primitives: [
+              {
+                localId: "line",
+                name: "Line",
+                geometry: {
+                  type: "line",
+                  start: { x: 0, y: 0 },
+                  end: { x: 1, y: 1 },
+                },
+                styleId: null,
+                style: { stroke: "#112233", strokeWidth: 1, fill: null },
+              },
+            ],
+            version: 1,
+          },
+        },
+        blockInstances: {
+          [instanceId]: {
+            id: instanceId,
+            blockId,
+            layerId: otherLayerId,
+            name: "Selected placement",
+            origin: { x: 0, y: 0 },
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            version: 1,
+          },
+        },
+        propertySchemas: {},
+        propertyValues: {},
+        tables: {},
+      },
+    });
+  const dispatched = [];
+  const selected = [];
+  let outboxWrites = 0;
+  const createAdapter = (state, selectedIds) =>
+    shell.createDrawingWorkspaceBlockMutationAdapter({
+      activeCanvasId,
+      actorId: "actor-a",
+      canEdit: true,
+      createId: () => "00000000-0000-4000-8000-000000000053",
+      onCommand(command) {
+        dispatched.push(command);
+        outboxWrites += 1;
+      },
+      onSelectionChange(ids) {
+        selected.push(ids);
+      },
+      selectedIds,
+      state,
+    });
+
+  const hiddenLocked = createAdapter(
+    makeState({
+      visible: false,
+      locked: true,
+      systemKind: "work",
+      version: 1,
+    }),
+    [instanceId],
+  );
+  assert.equal(hiddenLocked.canMutate, false);
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("delete", {
+      blockSelectionCanMutate: hiddenLocked.canMutate,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionKind: hiddenLocked.selectionKind,
+    }),
+    false,
+  );
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("duplicate", {
+      blockSelectionCanMutate: hiddenLocked.canMutate,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionKind: hiddenLocked.selectionKind,
+    }),
+    false,
+  );
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("delete", {
+      blockSelectionCanMutate: false,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionKind: "object",
+    }),
+    true,
+  );
+  assert.equal(hiddenLocked.deleteSelection(), false);
+  assert.equal(hiddenLocked.duplicateSelection(), false);
+  assert.equal(hiddenLocked.moveSelection({ x: 1, y: 0 }), false);
+
+  const mixed = createAdapter(
+    makeState({
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      version: 1,
+    }),
+    [instanceId, ids.rectangle],
+  );
+  assert.equal(mixed.canMutate, false);
+  assert.equal(mixed.deleteSelection(), false);
+  assert.equal(dispatched.length, 0);
+  assert.equal(outboxWrites, 0);
+  assert.equal(selected.length, 0);
+
+  const editable = createAdapter(
+    makeState({
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      version: 2,
+    }),
+    [instanceId],
+  );
+  assert.equal(editable.canMutate, true);
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("delete", {
+      blockSelectionCanMutate: editable.canMutate,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionKind: editable.selectionKind,
+    }),
+    true,
+  );
+  assert.equal(editable.moveSelection({ x: 1, y: 0 }), true);
+  assert.equal(editable.duplicateSelection(), true);
+  assert.equal(editable.deleteSelection(), true);
+  assert.equal(dispatched.length, 3);
+  assert.equal(outboxWrites, 3);
+  assert.deepEqual(selected.at(-1), []);
+});
+
 test("duplicate and Delete create add and delete commands without mutating originals", () => {
   assert.equal(typeof drawingCommands.duplicateDrawingSelection, "function");
   assert.equal(typeof drawingCommands.deleteDrawingSelection, "function");

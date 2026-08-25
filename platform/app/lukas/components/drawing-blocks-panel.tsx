@@ -11,9 +11,10 @@ import type {
   DrawingBlockInstance,
   DrawingLayer,
 } from "~/lukas/lib/drawing-workspace.types";
-import type {
-  DrawingCommand,
-  DrawingDocumentState,
+import {
+  isEditableDrawingLayer,
+  type DrawingCommand,
+  type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import { DrawingBlockSchema } from "~/lukas/lib/drawing-workspace.types";
 
@@ -52,11 +53,13 @@ export function DrawingBlockInstancesList({
   block,
   canEdit,
   instances,
+  layers,
   onSelectionChange,
 }: {
   block: DrawingBlock;
   canEdit: boolean;
   instances: DrawingBlockInstance[];
+  layers: Record<string, DrawingLayer>;
   onSelectionChange: (selectedIds: string[]) => void;
 }) {
   return (
@@ -64,21 +67,29 @@ export function DrawingBlockInstancesList({
       aria-label={`${block.name} instances`}
       className="mt-2 space-y-1 border-t border-white/10 pt-2"
     >
-      {instances.map((instance) => (
-        <li className="flex items-center gap-2" key={instance.id}>
-          <button
-            aria-label={`${instance.name} instance 선택`}
-            className="min-h-9 flex-1 rounded border border-white/15 px-2 text-left text-sm"
-            onClick={() => onSelectionChange([instance.id])}
-            type="button"
-          >
-            {instance.name}
-          </button>
-          {!canEdit ? (
-            <span className="text-xs text-slate-400">읽기 전용</span>
-          ) : null}
-        </li>
-      ))}
+      {instances.map((instance) => {
+        const readOnly =
+          !canEdit || !isEditableDrawingLayer(layers[instance.layerId]);
+        const reasonId = `block-instance-readonly-${instance.id}`;
+        return (
+          <li className="flex items-center gap-2" key={instance.id}>
+            <button
+              aria-describedby={readOnly ? reasonId : undefined}
+              aria-label={`${instance.name} instance 선택`}
+              className="min-h-9 flex-1 rounded border border-white/15 px-2 text-left text-sm"
+              onClick={() => onSelectionChange([instance.id])}
+              type="button"
+            >
+              {instance.name}
+            </button>
+            {readOnly ? (
+              <span className="text-xs text-slate-400" id={reasonId}>
+                읽기 전용
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -300,6 +311,7 @@ export function DrawingBlocksPanel({
                     block={block}
                     canEdit={canEdit}
                     instances={instances}
+                    layers={layers}
                     onSelectionChange={onSelectionChange}
                   />
                 ) : (

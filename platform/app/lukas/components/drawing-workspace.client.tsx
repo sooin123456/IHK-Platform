@@ -45,6 +45,7 @@ import {
   createDrawingDocumentState,
   deleteDrawingSelection,
   duplicateDrawingSelection,
+  isEditableDrawingLayer,
   moveDrawingSelection,
   pasteDrawingClipboard,
   redoDrawingCommand,
@@ -187,6 +188,104 @@ export function duplicateDrawingWorkspaceSelection(
   createId?: () => string,
 ) {
   return duplicateDrawingSelection(state, selectedIds, actorId, createId);
+}
+
+export function createDrawingWorkspaceBlockMutationAdapter({
+  activeCanvasId,
+  actorId,
+  canEdit,
+  createId,
+  onCommand,
+  onSelectionChange,
+  selectedIds,
+  state,
+}: {
+  activeCanvasId: string | null;
+  actorId: string;
+  canEdit: boolean;
+  createId?: () => string;
+  onCommand: (command: DrawingCommand) => void;
+  onSelectionChange: (selectedIds: string[]) => void;
+  selectedIds: readonly string[];
+  state: DrawingDocumentState;
+}) {
+  const selectionKind = drawingSelectionEntityKind(state, selectedIds);
+  const canMutate = Boolean(
+    canEdit &&
+      activeCanvasId &&
+      selectionKind === "block_instance" &&
+      selectedIds.length > 0 &&
+      selectedIds.every((id) => {
+        const instance = state.structure?.blockInstances[id];
+        const layer = instance ? state.layers[instance.layerId] : undefined;
+        return (
+          instance &&
+          layer?.canvasId === activeCanvasId &&
+          isEditableDrawingLayer(layer)
+        );
+      }),
+  );
+  return {
+    canMutate,
+    selectionKind,
+    deleteSelection() {
+      if (!canMutate) return false;
+      onCommand(
+        deleteDrawingBlockInstancesCommand(state, actorId, selectedIds),
+      );
+      onSelectionChange([]);
+      return true;
+    },
+    duplicateSelection() {
+      if (!canMutate) return false;
+      const command = duplicateDrawingBlockInstancesCommand(
+        state,
+        actorId,
+        selectedIds,
+        { createId },
+      );
+      onCommand(command);
+      onSelectionChange(
+        command.actions.flatMap((action) =>
+          action.kind === "put_block_instance" ? [action.entity.id] : [],
+        ),
+      );
+      return true;
+    },
+    moveSelection(delta: { x: number; y: number }) {
+      if (!canMutate) return false;
+      onCommand(
+        moveDrawingBlockInstancesCommand(
+          state,
+          actorId,
+          selectedIds,
+          delta,
+        ),
+      );
+      return true;
+    },
+  };
+}
+
+export function drawingWorkspaceCommandEnabled(
+  commandId: DrawingCommandId,
+  input: {
+    blockSelectionCanMutate: boolean;
+    canEdit: boolean;
+    canRedo: boolean;
+    canUndo: boolean;
+    selectionKind: ReturnType<typeof drawingSelectionEntityKind>;
+  },
+) {
+  if (commandId === "select" || commandId === "pan") return true;
+  if (commandId === "zoom_to_fit") return true;
+  if (commandId === "undo") return input.canEdit && input.canUndo;
+  if (commandId === "redo") return input.canEdit && input.canRedo;
+  if (commandId === "duplicate" || commandId === "delete")
+    return input.selectionKind === "block_instance"
+      ? input.blockSelectionCanMutate
+      : input.canEdit && input.selectionKind === "object";
+  return input.canEdit;
 }
 
 export function drawingEditingContext(
@@ -822,6 +921,26 @@ export default function DrawingWorkspaceClient({
     },
     [capability, commitApplied, outboxReady, persistenceState, revision.status],
   );
+  const blockMutationAdapter = useMemo(
+    () =>
+      createDrawingWorkspaceBlockMutationAdapter({
+        activeCanvasId: drawingState.activeCanvasId,
+        actorId: currentUserId,
+        canEdit: editing.canEdit,
+        onCommand: applyCommand,
+        onSelectionChange: setAuthorizedSelection,
+        selectedIds: transient.selectedIds,
+        state: drawingState,
+      }),
+    [
+      applyCommand,
+      currentUserId,
+      drawingState,
+      editing.canEdit,
+      setAuthorizedSelection,
+      transient.selectedIds,
+    ],
+  );
 
   const undo = useCallback(() => {
     if (
@@ -948,23 +1067,9 @@ export default function DrawingWorkspaceClient({
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
-    const kind = drawingSelectionEntityKind(
-      drawingState,
-      transient.selectedIds,
-    );
+    const kind = blockMutationAdapter.selectionKind;
     if (kind === "block_instance") {
-      const command = duplicateDrawingBlockInstancesCommand(
-        drawingState,
-        currentUserId,
-        transient.selectedIds,
-      );
-      applyCommand(command);
-      setAuthorizedSelection(
-        command.actions.flatMap((action) =>
-          action.kind === "put_block_instance" ? [action.entity.id] : [],
-        ),
-      );
-      return true;
+      return blockMutationAdapter.duplicateSelection();
     }
     if (kind !== "object") return false;
     const command = duplicateDrawingWorkspaceSelection(
@@ -978,6 +1083,7 @@ export default function DrawingWorkspaceClient({
     return true;
   }, [
     applyCommand,
+    blockMutationAdapter,
     currentUserId,
     drawingState,
     editing.canEdit,
@@ -987,20 +1093,9 @@ export default function DrawingWorkspaceClient({
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
-    const kind = drawingSelectionEntityKind(
-      drawingState,
-      transient.selectedIds,
-    );
+    const kind = blockMutationAdapter.selectionKind;
     if (kind === "block_instance") {
-      applyCommand(
-        deleteDrawingBlockInstancesCommand(
-          drawingState,
-          currentUserId,
-          transient.selectedIds,
-        ),
-      );
-      setSelectedIds([]);
-      return true;
+      return blockMutationAdapter.deleteSelection();
     }
     if (kind !== "object") return false;
     const command = deleteDrawingSelection(
@@ -1014,6 +1109,7 @@ export default function DrawingWorkspaceClient({
     return true;
   }, [
     applyCommand,
+    blockMutationAdapter,
     currentUserId,
     drawingState,
     editing.canEdit,
@@ -1023,20 +1119,9 @@ export default function DrawingWorkspaceClient({
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
       if (!editing.canEdit) return false;
-      const kind = drawingSelectionEntityKind(
-        drawingState,
-        transient.selectedIds,
-      );
+      const kind = blockMutationAdapter.selectionKind;
       if (kind === "block_instance") {
-        applyCommand(
-          moveDrawingBlockInstancesCommand(
-            drawingState,
-            currentUserId,
-            transient.selectedIds,
-            delta,
-          ),
-        );
-        return true;
+        return blockMutationAdapter.moveSelection(delta);
       }
       if (kind !== "object") return false;
       const command = moveDrawingSelection(
@@ -1051,6 +1136,7 @@ export default function DrawingWorkspaceClient({
     },
     [
       applyCommand,
+      blockMutationAdapter,
       currentUserId,
       drawingState,
       editing.canEdit,
@@ -1105,28 +1191,22 @@ export default function DrawingWorkspaceClient({
   ]);
 
   const commandEnabled = useCallback(
-    (commandId: DrawingCommandId) => {
-      if (commandId === "select" || commandId === "pan") return true;
-      if (commandId === "zoom_to_fit") return true;
-      if (commandId === "undo")
-        return (
-          editing.canEdit &&
-          (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0
-        );
-      if (commandId === "redo")
-        return (
-          editing.canEdit &&
-          (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0
-        );
-      if (commandId === "duplicate" || commandId === "delete")
-        return editing.canEdit && transient.selectedIds.length > 0;
-      return editing.canEdit;
-    },
+    (commandId: DrawingCommandId) =>
+      drawingWorkspaceCommandEnabled(commandId, {
+        blockSelectionCanMutate: blockMutationAdapter.canMutate,
+        canEdit: editing.canEdit,
+        canRedo:
+          (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0,
+        canUndo:
+          (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0,
+        selectionKind: blockMutationAdapter.selectionKind,
+      }),
     [
       currentUserId,
       drawingState,
+      blockMutationAdapter.canMutate,
+      blockMutationAdapter.selectionKind,
       editing.canEdit,
-      transient.selectedIds.length,
     ],
   );
 
@@ -1715,7 +1795,11 @@ export default function DrawingWorkspaceClient({
         >
           <DrawingInspector
             actorId={currentUserId}
-            canEdit={editing.canEdit}
+            canEdit={
+              editing.canEdit &&
+              (blockMutationAdapter.selectionKind !== "block_instance" ||
+                blockMutationAdapter.canMutate)
+            }
             canLinkIssues={drawingIssueLinkReady({
               capability,
               objectIds: Object.keys(activeDrawingState.objects),

@@ -3359,6 +3359,7 @@ test("block library and instance inspector remain readable while approved viewer
       block,
       canEdit: false,
       instances: [instance],
+      layers: state.layers,
       onSelectionChange() {},
     }),
   );
@@ -3539,11 +3540,43 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
       block,
       canEdit: false,
       instances: activeRows,
+      layers,
       onSelectionChange() {},
     }),
   );
   assert.match(list, /Hidden active placement instance 선택/);
   assert.doesNotMatch(list, /Off canvas placement instance 선택/);
+  const editorLockedList = renderToStaticMarkup(
+    createElement(DrawingBlockInstancesList, {
+      block,
+      canEdit: true,
+      instances: activeRows,
+      layers,
+      onSelectionChange() {},
+    }),
+  );
+  assert.match(editorLockedList, /Hidden active placement instance 선택/);
+  assert.match(editorLockedList, /aria-describedby="block-instance-readonly-/);
+  assert.match(editorLockedList, /읽기 전용/);
+
+  const editableLayers = {
+    ...layers,
+    [lockedLayerId]: {
+      ...layers[lockedLayerId],
+      visible: true,
+      locked: false,
+    },
+  };
+  const editorEditableList = renderToStaticMarkup(
+    createElement(DrawingBlockInstancesList, {
+      block,
+      canEdit: true,
+      instances: activeRows,
+      layers: editableLayers,
+      onSelectionChange() {},
+    }),
+  );
+  assert.doesNotMatch(editorEditableList, /읽기 전용/);
 
   const transient = deriveDrawingTransientState(
     { ...state, activePageId: pageId, activeCanvasId },
