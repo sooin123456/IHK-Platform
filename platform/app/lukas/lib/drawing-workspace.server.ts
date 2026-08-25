@@ -1369,20 +1369,44 @@ function expectedOperationResultVersions(operation: DrawingOperationInput): Reco
       add(layerId, { kind: "exact", version: operation.baseVersions[layerId] + 1 });
       break;
     }
-    case "mutate_structure":
-      for (const action of MutateStructurePayloadSchema.parse(operation.forward).actions) {
-        if ("id" in action) add(action.id, { kind: "deleted" });
-        else if (action.baseVersion === null)
-          // A restore retains its raw ID and can advance beyond the entity's
-          // tombstoned payload version; fresh entities still begin at one.
-          add(action.entity.id, { kind: "at_least", version: action.entity.version });
-        else
-          // Task2's structural RPC advances an existing entity exactly once.
-          add(action.entity.id, { kind: "exact", version: action.baseVersion + 1 });
+    case "mutate_structure": {
+      const forward = MutateStructurePayloadSchema.parse(operation.forward).actions;
+      const inverse = MutateStructurePayloadSchema.parse(operation.inverse).actions;
+      if (forward.length !== inverse.length)
+        throw new DrawingWorkspaceRpcError("도면 작업 확인 응답의 역작업 길이가 일치하지 않습니다.");
+      for (const [index, action] of forward.entries()) {
+        const inverseAction = inverse[forward.length - index - 1];
+        const targetId = structureActionTargetId(action);
+        const inverseTargetId = structureActionTargetId(inverseAction);
+        const entityKind = action.kind.replace(/^(put|delete)_/, "");
+        const expectedInverseKind = action.kind.startsWith("delete_")
+          ? `put_${entityKind}`
+          : action.baseVersion === null
+            ? `delete_${entityKind}`
+            : `put_${entityKind}`;
+        const inverseBaseIsExact = action.kind.startsWith("delete_")
+          ? inverseAction.baseVersion === null
+          : action.baseVersion === null
+            ? inverseAction.baseVersion !== null
+            : inverseAction.baseVersion === action.baseVersion + 1;
+        if (
+          inverseAction.kind !== expectedInverseKind ||
+          inverseTargetId !== targetId ||
+          !inverseBaseIsExact
+        )
+          throw new DrawingWorkspaceRpcError("도면 작업 확인 응답의 역작업이 요청과 일치하지 않습니다.");
+        add(targetId, action.kind.startsWith("delete_")
+          ? { kind: "deleted" }
+          : { kind: "exact", version: inverseAction.baseVersion as number });
       }
       break;
+    }
   }
   return expected;
+}
+
+function structureActionTargetId(action: { id: string } | { entity: { id: string } }): string {
+  return "id" in action ? action.id : action.entity.id;
 }
 
 const DrawingObjectIssueLinkResultSchema = z

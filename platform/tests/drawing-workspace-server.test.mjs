@@ -1221,21 +1221,64 @@ test("operation RPC receives exact client operation fields and exposes conflicts
   );
 });
 
-test("structure acknowledgements require exact targets and authoritative monotonic versions", async () => {
-  const style = (id, version) => ({ id, revisionId: ids.revision, name: "Dimension", value: { stroke: "#112233", strokeWidth: 1, fill: null }, version });
-  const structure = (action, baseVersions = {}) => ({
+test("structure acknowledgements bind each SQL-valid forward action to its exact reverse-indexed inverse", async () => {
+  const secondStyleId = "00000000-0000-4000-8000-000000000021";
+  const style = (id, version, name = "Dimension") => ({ id, revisionId: ids.revision, name, value: { stroke: "#112233", strokeWidth: 1, fill: null }, version });
+  const structure = (actions, inverseActions, baseVersions = {}) => ({
     clientOperationId: ids.operation, revisionId: ids.revision, type: "mutate_structure", baseVersions,
-    forward: { type: "mutate_structure", actions: [action] }, inverse: { type: "mutate_structure", actions: [action] }, createdAt: "2026-08-24T02:00:00.000Z",
+    forward: { type: "mutate_structure", actions }, inverse: { type: "mutate_structure", actions: inverseActions }, createdAt: "2026-08-24T02:00:00.000Z",
   });
   const acknowledge = (resultVersions) => ({ async rpc() { return { data: { operationId: ids.operation, sequence: 1, resultVersions }, error: null }; } });
-  const updated = structure({ kind: "put_style", entity: style(p2Ids.style, 2), baseVersion: 1 }, { [p2Ids.style]: 1 });
-  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 2 }), updated);
-  const fresh = structure({ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null });
+  const fresh = structure(
+    [{ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null }],
+    [{ kind: "delete_style", id: p2Ids.style, baseVersion: 1 }],
+  );
   await applyDrawingOperation(acknowledge({ [p2Ids.style]: 1 }), fresh);
-  const restored = structure({ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null });
+  const updated = structure(
+    [{ kind: "put_style", entity: style(p2Ids.style, 1, "Updated dimension"), baseVersion: 1 }],
+    [{ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: 2 }],
+    { [p2Ids.style]: 1 },
+  );
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 2 }), updated);
+  const restored = structure(
+    [{ kind: "put_style", entity: style(p2Ids.style, 5), baseVersion: null }],
+    [{ kind: "delete_style", id: p2Ids.style, baseVersion: 7 }],
+  );
   await applyDrawingOperation(acknowledge({ [p2Ids.style]: 7 }), restored);
-  const deleted = structure({ kind: "delete_style", id: p2Ids.style, baseVersion: 7 }, { [p2Ids.style]: 7 });
+  const deleted = structure(
+    [{ kind: "delete_style", id: p2Ids.style, baseVersion: 7 }],
+    [{ kind: "put_style", entity: style(p2Ids.style, 7), baseVersion: null }],
+    { [p2Ids.style]: 7 },
+  );
   await applyDrawingOperation(acknowledge({ [p2Ids.style]: null }), deleted);
+
+  const ordered = structure(
+    [
+      { kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null },
+      { kind: "put_style", entity: style(secondStyleId, 3, "Existing style"), baseVersion: 3 },
+    ],
+    [
+      { kind: "put_style", entity: style(secondStyleId, 3, "Previous style"), baseVersion: 4 },
+      { kind: "delete_style", id: p2Ids.style, baseVersion: 1 },
+    ],
+    { [secondStyleId]: 3 },
+  );
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 1, [secondStyleId]: 4 }), ordered);
+
+  const rejects = [
+    [fresh, { [p2Ids.style]: 7 }],
+    [restored, { [p2Ids.style]: 8 }],
+    [structure(fresh.forward.actions, fresh.forward.actions), { [p2Ids.style]: 1 }],
+    [structure(fresh.forward.actions, [...fresh.inverse.actions, ...fresh.inverse.actions]), { [p2Ids.style]: 1 }],
+    [structure(fresh.forward.actions, [{ kind: "delete_block", id: p2Ids.style, baseVersion: 1 }]), { [p2Ids.style]: 1 }],
+    [structure(fresh.forward.actions, [{ kind: "delete_style", id: secondStyleId, baseVersion: 1 }]), { [p2Ids.style]: 1 }],
+    [structure(updated.forward.actions, [{ ...updated.inverse.actions[0], baseVersion: 3 }], { [p2Ids.style]: 1 }), { [p2Ids.style]: 3 }],
+    [structure(deleted.forward.actions, [{ ...deleted.inverse.actions[0], baseVersion: 1 }], { [p2Ids.style]: 7 }), { [p2Ids.style]: null }],
+    [structure(ordered.forward.actions, [...ordered.inverse.actions].reverse(), { [secondStyleId]: 3 }), { [p2Ids.style]: 1, [secondStyleId]: 4 }],
+  ];
+  for (const [operation, resultVersions] of rejects)
+    await assert.rejects(() => applyDrawingOperation(acknowledge(resultVersions), operation), /확인 응답/);
+
   for (const resultVersions of [
     { [p2Ids.style]: 1 },
     {},
