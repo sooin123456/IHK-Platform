@@ -56,9 +56,19 @@ test("template entry is an editor-only native dialog with an explicit source cho
   assert.match(dialog, /템플릿에서 시작/);
   assert.match(dialog, /name="source_revision_id"/);
   assert.match(dialog, /name="source_file_id"/);
+  assert.match(dialog, /name="client_request_id"/);
   assert.match(dialog, /name="title"/);
   assert.match(dialog, /useNavigation/);
   assert.match(dialog, /disabled=\{saving/);
   assert.match(dialog, /role="alert"/);
   assert.doesNotMatch(dialog, /company|organization|global/i);
+});
+
+test("template follow-up actions preserve the clone document scope", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const scope = /new URL\(request\.url\)\.searchParams\.get\("document"\) \?\? undefined/g;
+  assert.equal([...screen.matchAll(scope)].length, 2);
 });

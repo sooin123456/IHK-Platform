@@ -37,6 +37,7 @@ export function DrawingTemplateDialog({
   sourceFile,
 }: DrawingTemplateDialogProps) {
   const [open, setOpen] = useState(Boolean(actionError));
+  const [clientRequestId] = useState(() => crypto.randomUUID());
   const navigation = useNavigation();
   const saving =
     navigation.state !== "idle" &&
@@ -67,6 +68,11 @@ export function DrawingTemplateDialog({
           }}
         >
           <input name="intent" type="hidden" value="create_from_template" />
+          <input
+            name="client_request_id"
+            type="hidden"
+            value={clientRequestId}
+          />
           <fieldset className="grid gap-2">
             <legend className="text-sm font-semibold">템플릿 선택</legend>
             {candidates.map((candidate, index) => (

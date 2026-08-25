@@ -678,6 +678,7 @@ test("template clone accepts only project-bound source IDs and parses its author
     p2Ids.template,
     " Template draft ",
     ids.file,
+    ids.operation,
   );
   assert.deepEqual(result, {
     documentId: ids.document,
@@ -691,6 +692,7 @@ test("template clone accepts only project-bound source IDs and parses its author
         p_source_revision_id: p2Ids.template,
         p_title: "Template draft",
         p_source_file_id: ids.file,
+        p_client_request_id: ids.operation,
       },
     ],
   ]);
@@ -723,6 +725,7 @@ test("template clone rejects browser authority fields, foreign candidates, and n
     intent: "create_from_template",
     source_revision_id: p2Ids.template,
     title: "Draft",
+    client_request_id: ids.operation,
   });
   const accepted = await handleWorkspaceMutation({
     client: {
@@ -775,6 +778,7 @@ test("template clone rejects browser authority fields, foreign candidates, and n
       intent: "create_from_template",
       source_revision_id: ids.actor,
       title: "Draft",
+      client_request_id: ids.operation,
     }),
   });
   assert.equal(foreign.status, 404);

@@ -126,6 +126,30 @@ const p2TemplateSnapshotGuardMigration = () =>
     ),
     "utf8",
   );
+const p2TemplateCloneIdempotencyMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825140000_drawing_workspace_template_clone_idempotency.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p2BlockInstanceLineageMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825150000_drawing_workspace_block_instance_lineage.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p2TemplateSnapshotAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825160000_drawing_workspace_template_snapshot_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -323,6 +347,7 @@ async function createPersistedBlockInstance(ids, label) {
   };
   const instance = {
     id: randomUUID(),
+    lineageId: null,
     blockId: block.id,
     layerId: ids.workLayerId,
     name: label,
@@ -332,6 +357,7 @@ async function createPersistedBlockInstance(ids, label) {
     scaleY: 1,
     version: 1,
   };
+  instance.lineageId = instance.id;
   await applyOperation(
     ids.revisionId,
     "mutate_structure",
@@ -430,6 +456,9 @@ before(async () => {
   await db.exec(await p2StyleGuardSqlstateMigration());
   await db.exec(await p2BlockExactnessMigration());
   await db.exec(await p2TemplateSnapshotGuardMigration());
+  await db.exec(await p2TemplateCloneIdempotencyMigration());
+  await db.exec(await p2BlockInstanceLineageMigration());
+  await db.exec(await p2TemplateSnapshotAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -5010,6 +5039,7 @@ test("P2 block compounds must exactly represent their editable source objects", 
             kind: "put_block_instance",
             entity: {
               id: instanceId,
+              lineageId: instanceId,
               blockId,
               layerId: ids.workLayerId,
               name: "Mismatched instance",
@@ -5069,6 +5099,7 @@ test("P2 block compounds must exactly represent their editable source objects", 
         kind: "put_block_instance",
         entity: {
           id: validInstanceId,
+          lineageId: validInstanceId,
           blockId: validBlockId,
           layerId: ids.workLayerId,
           name: "Exact instance",
@@ -5230,6 +5261,7 @@ test("P2 authority rejects transformed create-block compounds for rectangle and 
     };
     const instance = {
       id: instanceId,
+      lineageId: instanceId,
       blockId,
       layerId: ids.workLayerId,
       name: block.name,
@@ -5308,6 +5340,7 @@ test("P2 authority denies block instance delete and restore on an ineligible lay
   };
   const instance = {
     id: instanceId,
+    lineageId: instanceId,
     blockId,
     layerId: ids.workLayerId,
     name: block.name,
@@ -5716,18 +5749,19 @@ test("P2 approved template clone generates fresh identities inside the source pr
   );
   await asActor(OWNER);
   await assert.rejects(
-    db.query("select public.lukas_drawing_create_from_template($1,$2,$3)", [
+    db.query("select public.lukas_drawing_create_from_template($1,$2,$3,$4)", [
       ids.revisionId,
       "Unrelated source probe",
       unrelatedSourceId,
+      randomUUID(),
     ]),
     (error) =>
       error.code === "P1R01" &&
       error.message === "Drawing template target is unavailable",
   );
   const cloned = await db.query(
-    "select public.lukas_drawing_create_from_template($1,$2,null) result",
-    [ids.revisionId, "Approved clone"],
+    "select public.lukas_drawing_create_from_template($1,$2,null,$3) result",
+    [ids.revisionId, "Approved clone", randomUUID()],
   );
   const clone = cloned.rows[0].result;
   assert.notEqual(clone.documentId, ids.documentId);
@@ -5788,12 +5822,12 @@ test("P2 explicit-source template clones keep documents source-free and preserve
   );
   await asActor(OWNER);
   const first = await db.query(
-    "select public.lukas_drawing_create_from_template($1,'Explicit clone 1',$2) result",
-    [source.revisionId, sourceFileId],
+    "select public.lukas_drawing_create_from_template($1,'Explicit clone 1',$2,$3) result",
+    [source.revisionId, sourceFileId, randomUUID()],
   );
   const second = await db.query(
-    "select public.lukas_drawing_create_from_template($1,'Explicit clone 2',$2) result",
-    [source.revisionId, sourceFileId],
+    "select public.lukas_drawing_create_from_template($1,'Explicit clone 2',$2,$3) result",
+    [source.revisionId, sourceFileId, randomUUID()],
   );
   await db.exec("reset role");
   const documents = await db.query(
@@ -5822,6 +5856,36 @@ test("P2 explicit-source template clones keep documents source-free and preserve
         anchor.sourceSha256 === sourceSha,
     ),
   );
+});
+
+test("template clone request IDs return one destination and bind their payload", async () => {
+  const source = await createDocument("Idempotent template");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [source.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','template')",
+    [source.revisionId, review.rows[0].result.subjectVersion, review.rows[0].result.snapshotSha256],
+  );
+  await asActor(OWNER);
+  const requestId = randomUUID();
+  const results = await Promise.all([
+    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3) result", [source.revisionId, "Retry clone", requestId]),
+    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3) result", [source.revisionId, "Retry clone", requestId]),
+  ]);
+  assert.equal(results[0].rows[0].result.documentId, results[1].rows[0].result.documentId);
+  await assert.rejects(
+    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3)", [source.revisionId, "Different title", requestId]),
+    (error) => error.code === "P1C01",
+  );
+  await db.exec("reset role");
+  const created = await db.query(
+    "select count(*)::int count from public.lukas_drawing_documents where clone_requested_by=$1 and clone_request_id=$2",
+    [OWNER, requestId],
+  );
+  assert.equal(created.rows[0].count, 1);
 });
 
 test("template clone rejects corrupt snapshots atomically and makes viewer denial non-enumerating", async () => {
@@ -5863,8 +5927,8 @@ test("template clone rejects corrupt snapshots atomically and makes viewer denia
   await asActor(OWNER);
   await assert.rejects(
     db.query(
-      "select public.lukas_drawing_create_from_template($1,'must not clone',null)",
-      [source.revisionId],
+      "select public.lukas_drawing_create_from_template($1,'must not clone',null,$2)",
+      [source.revisionId, randomUUID()],
     ),
     (error) =>
       error.code === "P1R01" &&
@@ -5890,8 +5954,8 @@ test("template clone rejects corrupt snapshots atomically and makes viewer denia
   for (const revisionId of [source.revisionId, randomUUID()]) {
     try {
       await db.query(
-        "select public.lukas_drawing_create_from_template($1,'viewer probe',null)",
-        [revisionId],
+        "select public.lukas_drawing_create_from_template($1,'viewer probe',null,$2)",
+        [revisionId, randomUUID()],
       );
       assert.fail("expected unavailable template");
     } catch (error) {
@@ -6004,8 +6068,8 @@ test("P2 template lookup makes foreign approved and random revisions uniformly u
   for (const candidate of [revisionId, randomUUID()]) {
     try {
       await db.query(
-        "select public.lukas_drawing_create_from_template($1,'probe',null)",
-        [candidate],
+        "select public.lukas_drawing_create_from_template($1,'probe',null,$2)",
+        [candidate, randomUUID()],
       );
       assert.fail("expected unavailable template");
     } catch (error) {
@@ -6075,6 +6139,9 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
     await upgradeDb.exec(await p2CompatibilityMigration());
     await upgradeDb.exec(await p2HistoryReconciliationMigration());
     await upgradeDb.exec(await p2TemplateSnapshotGuardMigration());
+    await upgradeDb.exec(await p2TemplateCloneIdempotencyMigration());
+    await upgradeDb.exec(await p2BlockInstanceLineageMigration());
+    await upgradeDb.exec(await p2TemplateSnapshotAuthorityMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
@@ -6089,8 +6156,8 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
       [OWNER],
     );
     const clone = await upgradeDb.query(
-      "select public.lukas_drawing_create_from_template($1,'v1 promoted',null) result",
-      [source.revisionId],
+      "select public.lukas_drawing_create_from_template($1,'v1 promoted',null,$2) result",
+      [source.revisionId, randomUUID()],
     );
     await upgradeDb.exec("reset role");
     const promoted = await upgradeDb.query(

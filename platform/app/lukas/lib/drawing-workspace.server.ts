@@ -216,6 +216,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_source_revision_id: string;
         p_title: string;
         p_source_file_id: string | null;
+        p_client_request_id: string;
       }>;
       lukas_drawing_request_review: DrawingRpc<{ p_revision_id: string }>;
       lukas_drawing_record_revision_decision: DrawingRpc<{
@@ -524,6 +525,7 @@ const CreateFromTemplateMutationSchema = z
     sourceRevisionId: Uuid,
     title: Title,
     sourceFileId: Uuid.nullable(),
+    clientRequestId: Uuid,
   })
   .strict();
 const ApplyOperationMutationSchema = z.object({
@@ -568,6 +570,7 @@ const allowedFormFields = {
     "source_revision_id",
     "title",
     "source_file_id",
+    "client_request_id",
   ]),
   apply_operation: new Set(["intent", "operation_json"]),
   create_layer: new Set(["intent", "name"]),
@@ -620,6 +623,7 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
       sourceRevisionId: form.get("source_revision_id"),
       title: form.get("title"),
       sourceFileId: form.get("source_file_id") || null,
+      clientRequestId: form.get("client_request_id"),
     });
   if (knownIntent === "apply_operation")
     return ApplyOperationMutationSchema.parse({
@@ -788,6 +792,7 @@ const P2BlockRowSchema = z
 const P2BlockInstanceRowSchema = z
   .object({
     id: Uuid,
+    lineage_id: Uuid,
     block_id: Uuid,
     layer_id: Uuid,
     revision_id: Uuid,
@@ -954,6 +959,7 @@ function parseP2Workspace(
     if (!value.success) return p2RowError("block instance");
     return DrawingBlockInstanceSchema.parse({
       id: value.data.id,
+      lineageId: value.data.lineage_id,
       blockId: value.data.block_id,
       layerId: value.data.layer_id,
       name: value.data.name,
@@ -1519,7 +1525,7 @@ export async function loadDrawingWorkspace(
         revisionId: revision.id,
         order: [{ column: "id", direction: "asc" }],
         select:
-          "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version",
+          "id,lineage_id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version",
       }),
       loadAllDrawingRows(client, {
         table: "lukas_drawing_property_schemas",
@@ -1926,13 +1932,15 @@ export async function createDrawingDocumentFromTemplate(
   client: DrawingWorkspaceClient,
   sourceRevisionId: string,
   title: string,
-  sourceFileId: string | null = null,
+  sourceFileId: string | null,
+  clientRequestId: string,
 ) {
   const parsed = CreateFromTemplateMutationSchema.parse({
     intent: "create_from_template",
     sourceRevisionId,
     title,
     sourceFileId,
+    clientRequestId,
   });
   const { data, error } = await client.rpc(
     "lukas_drawing_create_from_template",
@@ -1940,6 +1948,7 @@ export async function createDrawingDocumentFromTemplate(
       p_source_revision_id: parsed.sourceRevisionId,
       p_title: parsed.title,
       p_source_file_id: parsed.sourceFileId,
+      p_client_request_id: parsed.clientRequestId,
     },
   );
   return CreateFromTemplateResultSchema.parse(rpcResult(data, error));
@@ -2294,6 +2303,7 @@ export async function handleWorkspaceMutation({
           mutation.sourceRevisionId,
           mutation.title,
           mutation.sourceFileId,
+          mutation.clientRequestId,
         );
       } else if (mutation.intent === "apply_operation") {
         assertDraftWorkspace(workspace);

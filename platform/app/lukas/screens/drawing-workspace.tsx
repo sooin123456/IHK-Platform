@@ -74,6 +74,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     client,
     project.id,
     params.fileId!,
+    new URL(request.url).searchParams.get("document") ?? undefined,
   );
   const result = await handleWorkspaceMutation({
     client,

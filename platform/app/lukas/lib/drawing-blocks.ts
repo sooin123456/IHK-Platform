@@ -596,6 +596,7 @@ export function createBlockFromSelection(
   });
   const instance = DrawingBlockInstanceSchema.parse({
     id: instanceId,
+    lineageId: instanceId,
     blockId: block.id,
     layerId: layer.id,
     name: block.name,
@@ -677,8 +678,10 @@ export function insertDrawingBlockInstanceCommand(
     throw new DrawingBlockError(
       "The active block layer must be visible and unlocked.",
     );
+  const instanceId = (options.createId ?? (() => crypto.randomUUID()))();
   const entity = DrawingBlockInstanceSchema.parse({
-    id: (options.createId ?? (() => crypto.randomUUID()))(),
+    id: instanceId,
+    lineageId: instanceId,
     blockId,
     layerId: layer.id,
     name: options.name ?? block.name,
@@ -748,9 +751,11 @@ export function copyDrawingBlockInstanceCommand(
       "Block instance copy requires a visible unlocked layer.",
     );
   const offset = options.offset ?? { x: 10, y: 10 };
+  const copiedId = (options.createId ?? (() => crypto.randomUUID()))();
   const entity = DrawingBlockInstanceSchema.parse({
     ...structuredClone(current),
-    id: (options.createId ?? (() => crypto.randomUUID()))(),
+    id: copiedId,
+    lineageId: copiedId,
     name: `${current.name} copy`.slice(0, 255),
     origin: { x: current.origin.x + offset.x, y: current.origin.y + offset.y },
     version: 1,
@@ -915,19 +920,23 @@ export function duplicateDrawingBlockInstancesCommand(
     throw new DrawingBlockError("Block copy offset must be finite.");
   return structureCommand(
     actorId,
-    instances.map((instance) => ({
-      kind: "put_block_instance" as const,
-      entity: DrawingBlockInstanceSchema.parse({
-        ...structuredClone(instance),
-        id: createId(),
-        origin: {
-          x: instance.origin.x + offset.x,
-          y: instance.origin.y + offset.y,
-        },
-        version: 1,
-      }),
-      baseVersion: null,
-    })),
+    instances.map((instance) => {
+      const id = createId();
+      return {
+        kind: "put_block_instance" as const,
+        entity: DrawingBlockInstanceSchema.parse({
+          ...structuredClone(instance),
+          id,
+          lineageId: id,
+          origin: {
+            x: instance.origin.x + offset.x,
+            y: instance.origin.y + offset.y,
+          },
+          version: 1,
+        }),
+        baseVersion: null,
+      };
+    }),
   );
 }
 
@@ -987,19 +996,23 @@ export function pasteDrawingBlockInstancesClipboardCommand(
     throw new DrawingBlockError("Block paste offset must be finite.");
   return structureCommand(
     actorId,
-    snapshots.map((snapshot) => ({
-      kind: "put_block_instance" as const,
-      entity: DrawingBlockInstanceSchema.parse({
-        ...snapshot,
-        id: createId(),
-        layerId: layer.id,
-        origin: {
-          x: snapshot.origin.x + offset.x,
-          y: snapshot.origin.y + offset.y,
-        },
-        version: 1,
-      }),
-      baseVersion: null,
-    })),
+    snapshots.map((snapshot) => {
+      const id = createId();
+      return {
+        kind: "put_block_instance" as const,
+        entity: DrawingBlockInstanceSchema.parse({
+          ...snapshot,
+          id,
+          lineageId: id,
+          layerId: layer.id,
+          origin: {
+            x: snapshot.origin.x + offset.x,
+            y: snapshot.origin.y + offset.y,
+          },
+          version: 1,
+        }),
+        baseVersion: null,
+      };
+    }),
   );
 }
