@@ -150,6 +150,22 @@ const p2TemplateSnapshotAuthorityMigration = () =>
     ),
     "utf8",
   );
+const p2LegacyTemplateSnapshotCloneMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825170000_drawing_workspace_legacy_template_snapshot_clone.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p2LineageSnapshotWriterMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825180000_drawing_workspace_lineage_snapshot_writer.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -459,6 +475,8 @@ before(async () => {
   await db.exec(await p2TemplateCloneIdempotencyMigration());
   await db.exec(await p2BlockInstanceLineageMigration());
   await db.exec(await p2TemplateSnapshotAuthorityMigration());
+  await db.exec(await p2LegacyTemplateSnapshotCloneMigration());
+  await db.exec(await p2LineageSnapshotWriterMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -6142,6 +6160,8 @@ test("P2 upgrade leaves an approved v1 snapshot byte-stable and promotes its clo
     await upgradeDb.exec(await p2TemplateCloneIdempotencyMigration());
     await upgradeDb.exec(await p2BlockInstanceLineageMigration());
     await upgradeDb.exec(await p2TemplateSnapshotAuthorityMigration());
+    await upgradeDb.exec(await p2LegacyTemplateSnapshotCloneMigration());
+    await upgradeDb.exec(await p2LineageSnapshotWriterMigration());
     const afterUpgrade = await upgradeDb.query(
       "select canonical_json,sha256,schema_version from public.lukas_drawing_snapshots where revision_id=$1",
       [source.revisionId],
