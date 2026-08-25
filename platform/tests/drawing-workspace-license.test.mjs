@@ -16,6 +16,8 @@ const lockUrl = new URL("../package-lock.json", import.meta.url);
 
 const approvedDirectDependencies = [
   "@hcaptcha/react-hcaptcha",
+  "@hocuspocus/provider",
+  "@hocuspocus/server",
   "@radix-ui/react-avatar",
   "@radix-ui/react-checkbox",
   "@radix-ui/react-collapsible",
@@ -48,6 +50,7 @@ const approvedDirectDependencies = [
   "i18next-resources-to-backend",
   "input-otp",
   "isbot",
+  "jose",
   "konva",
   "lucide-react",
   "next-themes",
@@ -70,6 +73,9 @@ const approvedDirectDependencies = [
   "tailwindcss-animate",
   "three",
   "web-ifc",
+  "y-indexeddb",
+  "y-protocols",
+  "yjs",
   "zod",
 ];
 
@@ -194,6 +200,36 @@ test("drawing export uses the exact unmodified MIT pdf-lib dependency", async ()
       () => assertPermissiveExportClosure(mutated, dependencyPaths),
       new RegExp(dependencyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     );
+  }
+});
+
+test("drawing collaboration pins its MIT protocol closure without direct transport or state packages", async () => {
+  const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+  const expected = {
+    yjs: "13.6.32",
+    "y-indexeddb": "9.0.12",
+    "@hocuspocus/provider": "4.6.0",
+    "@hocuspocus/server": "4.6.0",
+    "y-protocols": "1.0.7",
+    jose: "6.2.10",
+  };
+
+  for (const [name, version] of Object.entries(expected)) {
+    assert.equal(pkg.dependencies[name], version);
+    assert.equal(lock.packages[`node_modules/${name}`]?.version, version);
+    assert.equal(lock.packages[`node_modules/${name}`]?.license, "MIT");
+    assert.match(
+      notice,
+      new RegExp(
+        `\\|\\s*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*\\|\\s*${version.replaceAll(".", "\\.")}\\s*\\|.*\\|\\s*MIT\\s*\\|\\s*No\\s*\\|\\s*npm\\s*\\|`,
+      ),
+    );
+    assert.ok(lockedDependencyClosure(lock, `node_modules/${name}`).length > 0);
+  }
+  for (const prohibited of ["lib0", "ws", "redis", "zustand", "redux"]) {
+    assert.equal(Object.hasOwn(pkg.dependencies, prohibited), false);
   }
 });
 
