@@ -628,8 +628,19 @@ export const DrawingOperationInputSchema = z
     forward: z.record(z.string(), z.unknown()),
     inverse: z.record(z.string(), z.unknown()),
     createdAt: z.string().datetime(),
+    originalOperationId: Uuid.optional(),
+    historyAction: z.enum(["undo", "redo"]).optional(),
   })
   .superRefine((operation, context) => {
+    if (
+      Boolean(operation.originalOperationId) !==
+      Boolean(operation.historyAction)
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "도면 실행 취소 이력은 원본 작업과 동작을 함께 지정해야 합니다.",
+      });
     const forward = DrawingOperationPayloadSchemas[operation.type].safeParse(
       operation.forward,
     );

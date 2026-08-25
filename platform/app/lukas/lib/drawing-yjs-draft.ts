@@ -47,7 +47,6 @@ export type DrawingDraftSnapshot = {
 export type PreparedDrawingDraft = {
   operation: DrawingCollaborationOperation;
   state: DrawingDocumentState;
-  recordedOperation?: DrawingRecordedOperation;
 };
 
 export type DrawingDraftAdapter = {
@@ -133,6 +132,12 @@ function envelopeFor(
     forward: operation.forward,
     inverse: operation.inverse,
     createdAt: operation.createdAt,
+    ...(operation.originalOperationId && operation.historyAction
+      ? {
+          originalOperationId: operation.originalOperationId,
+          historyAction: operation.historyAction,
+        }
+      : {}),
   });
 }
 
@@ -149,13 +154,17 @@ function replay(
   state: DrawingDocumentState,
   operation: DrawingCollaborationOperation,
   authoritativeResultVersions?: Record<string, number>,
-  recordedOperation?: DrawingRecordedOperation,
 ): DrawingDocumentState {
   const applied = applyDrawingCommand(state, commandFor(operation), {
     createId: () => operation.clientOperationId,
     now: () => operation.createdAt,
   });
-  if (!same(envelopeFor(applied.operation), operation))
+  const reproduced = envelopeFor({
+    ...applied.operation,
+    originalOperationId: operation.originalOperationId,
+    historyAction: operation.historyAction,
+  });
+  if (!same(reproduced, operation))
     throw new DrawingDraftIntegrityError(
       "Drawing operation does not reproduce its canonical command.",
     );
@@ -167,14 +176,17 @@ function replay(
       "Drawing operation result versions are not authoritative.",
     );
   let next = applied.state;
-  if (
-    recordedOperation?.historyAction &&
-    recordedOperation.originalOperationId
-  ) {
+  if (operation.historyAction && operation.originalOperationId) {
     const actorId = operation.actorId;
-    const originalOperationId = recordedOperation.originalOperationId;
+    const originalOperationId = operation.originalOperationId;
     const undo = [...(state.undoStackByActor[actorId] ?? [])];
     const redo = [...(state.redoStackByActor[actorId] ?? [])];
+    const expectedOriginal =
+      operation.historyAction === "undo" ? undo.at(-1) : redo.at(-1);
+    if (expectedOriginal !== originalOperationId)
+      throw new DrawingDraftIntegrityError(
+        "Drawing history operation does not match the actor stack.",
+      );
     next = {
       ...applied.state,
       operations: [
@@ -182,20 +194,20 @@ function replay(
         {
           ...applied.operation,
           originalOperationId,
-          historyAction: recordedOperation.historyAction,
+          historyAction: operation.historyAction,
         },
       ],
       undoStackByActor: {
         ...applied.state.undoStackByActor,
         [actorId]:
-          recordedOperation.historyAction === "undo"
+          operation.historyAction === "undo"
             ? undo.slice(0, -1)
             : [...undo, originalOperationId],
       },
       redoStackByActor: {
         ...applied.state.redoStackByActor,
         [actorId]:
-          recordedOperation.historyAction === "undo"
+          operation.historyAction === "undo"
             ? [...redo, originalOperationId]
             : redo.slice(0, -1),
       },
@@ -276,7 +288,6 @@ export function createDrawingDraftAdapter(
   let locallyFrozen = options.frozen;
   let disposed = false;
   let baseOperationSequence = options.baseOperationSequence ?? 0;
-  const recordedHistory = new Map<string, DrawingRecordedOperation>();
   const listeners = new Set<() => void>();
   const persistenceSynced = Promise.resolve(
     options.localPersistenceSynced,
@@ -349,12 +360,7 @@ export function createDrawingDraftAdapter(
 
     let state = structuredClone(authoritativeState);
     for (const item of acknowledged)
-      state = replay(
-        state,
-        item.operation,
-        item.status.resultVersions,
-        recordedHistory.get(item.operationId),
-      );
+      state = replay(state, item.operation, item.status.resultVersions);
     const provisionalConflictOperationIds: string[] = [];
     for (const item of pending) {
       if (hasVersionConflict(state, item.operation)) {
@@ -362,12 +368,7 @@ export function createDrawingDraftAdapter(
         continue;
       }
       try {
-        state = replay(
-          state,
-          item.operation,
-          undefined,
-          recordedHistory.get(item.operationId),
-        );
+        state = replay(state, item.operation);
       } catch (error) {
         if (error instanceof DrawingDraftIntegrityError) throw error;
         provisionalConflictOperationIds.push(item.operationId);
@@ -481,7 +482,6 @@ export function createDrawingDraftAdapter(
       return {
         operation: envelopeFor(recordedOperation),
         state: snapshot.state,
-        recordedOperation,
       };
     },
     appendDurableLocal(prepared) {
@@ -498,19 +498,9 @@ export function createDrawingDraftAdapter(
           );
         return false;
       }
-      if (prepared.recordedOperation?.historyAction)
-        recordedHistory.set(
-          operation.clientOperationId,
-          structuredClone(prepared.recordedOperation),
-        );
-      try {
-        document.transact(() => {
-          appendDrawingCollaborationOperation(document, operation);
-        });
-      } catch (error) {
-        recordedHistory.delete(operation.clientOperationId);
-        throw error;
-      }
+      document.transact(() => {
+        appendDrawingCollaborationOperation(document, operation);
+      });
       return true;
     },
     applyServerProjection(update) {

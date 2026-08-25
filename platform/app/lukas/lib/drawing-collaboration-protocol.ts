@@ -156,10 +156,28 @@ const operationKeys = [
   "type",
 ] as const;
 
+const historyOperationKeys = [
+  "actorId",
+  "baseVersions",
+  "clientOperationId",
+  "createdAt",
+  "forward",
+  "historyAction",
+  "inverse",
+  "originalOperationId",
+  "revisionId",
+  "schemaVersion",
+  "type",
+] as const;
+
 const DrawingCollaborationOperationValidatedSchema = z
   .unknown()
   .superRefine((value, context) => {
-    if (!isRecord(value) || !hasExactKeys(value, operationKeys)) {
+    if (
+      !isRecord(value) ||
+      (!hasExactKeys(value, operationKeys) &&
+        !hasExactKeys(value, historyOperationKeys))
+    ) {
       report(
         context,
         [],

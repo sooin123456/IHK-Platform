@@ -474,6 +474,11 @@ const exactOperationKeys = [
   "revisionId",
   "type",
 ];
+const exactHistoryOperationKeys = [
+  ...exactOperationKeys,
+  "historyAction",
+  "originalOperationId",
+].sort();
 
 function sameJsonValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
@@ -512,8 +517,12 @@ function parseOperation(value: unknown): DrawingOperationInput {
     throw new Error("도면 작업 JSON 형식이 올바르지 않습니다.");
   const keys = Object.keys(value).sort();
   if (
-    keys.length !== exactOperationKeys.length ||
-    keys.some((key, index) => key !== exactOperationKeys[index])
+    !(
+      (keys.length === exactOperationKeys.length &&
+        keys.every((key, index) => key === exactOperationKeys[index])) ||
+      (keys.length === exactHistoryOperationKeys.length &&
+        keys.every((key, index) => key === exactHistoryOperationKeys[index]))
+    )
   )
     throw new Error("도면 작업에 허용되지 않은 필드가 있습니다.");
   const operation = DrawingOperationInputSchema.parse(value);

@@ -261,6 +261,12 @@ function collaborationOperation(
     forward: operation.forward,
     inverse: operation.inverse,
     createdAt: operation.createdAt,
+    ...(operation.originalOperationId && operation.historyAction
+      ? {
+          originalOperationId: operation.originalOperationId,
+          historyAction: operation.historyAction,
+        }
+      : {}),
   });
 }
 

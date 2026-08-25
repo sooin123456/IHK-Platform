@@ -144,6 +144,25 @@ test("operation envelopes enforce protocol and bounded operation collections", (
   );
 });
 
+test("history lineage is bounded, paired, canonical, and exact", () => {
+  const { DrawingCollaborationOperationSchema } = requireProtocol();
+  const history = operation({
+    historyAction: "undo",
+    originalOperationId: "00000000-0000-4000-8000-000000000207",
+  });
+  assert.deepEqual(DrawingCollaborationOperationSchema.parse(history), history);
+  for (const invalid of [
+    { ...operation(), historyAction: "undo" },
+    { ...operation(), originalOperationId: ids.layer },
+    { ...history, historyAction: "revert" },
+    { ...history, historyResult: true },
+  ])
+    assert.equal(
+      DrawingCollaborationOperationSchema.safeParse(invalid).success,
+      false,
+    );
+});
+
 test("server-only metadata and operation status reject client fields and malformed authority", () => {
   const {
     DrawingCollaborationMetaSchema,

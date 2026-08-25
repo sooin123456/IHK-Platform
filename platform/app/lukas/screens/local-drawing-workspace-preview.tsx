@@ -89,20 +89,34 @@ const previewCollaborationConnectionFactory = async ({
 
 type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
   emit(): void;
+  readonly subscribed: boolean;
+  ready: Promise<void>;
 };
 
 function createPreviewRealtimeAdapter(): PreviewRealtimeAdapter {
   let emit: (() => void) | null = null;
+  let subscribed = false;
+  let resolveReady: () => void = () => undefined;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
   return {
+    ready,
+    get subscribed() {
+      return subscribed;
+    },
     emit() {
       emit?.();
     },
     initialView: connectedDrawingWorkspaceRealtimeView(),
     subscribe({ onEvent, onStatus }) {
       emit = onEvent;
+      subscribed = true;
       onStatus("SUBSCRIBED");
+      resolveReady();
       return () => {
         if (emit === onEvent) emit = null;
+        subscribed = false;
       };
     },
   };
@@ -776,9 +790,15 @@ export default function LocalDrawingWorkspacePreview({
   const previewHarness = useMemo(() => ({ onInvalidate }), [onInvalidate]);
   useEffect(() => {
     if (!loaderData.realtimeTest) return;
-    const frame = requestAnimationFrame(() => setRealtimeReady(true));
-    return () => cancelAnimationFrame(frame);
-  }, [loaderData.realtimeTest]);
+    let active = true;
+    if (realtimeAdapter.subscribed) setRealtimeReady(true);
+    void realtimeAdapter.ready.then(() => {
+      if (active) setRealtimeReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [loaderData.realtimeTest, realtimeAdapter]);
   const retryPersistenceFactory = useMemo(
     () => async () => {
       const number = ++persistenceAttempts.current;

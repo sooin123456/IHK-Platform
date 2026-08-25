@@ -440,12 +440,92 @@ test("bridge normalizes recorded undo and redo while every local and remote tran
     "createdAt",
     "forward",
     "inverse",
+    "historyAction",
+    "originalOperationId",
     "revisionId",
     "type",
   ].sort();
   assert.equal(queued.length, 3);
   assert.deepEqual(Object.keys(queued[1]).sort(), exactInputFields);
   assert.deepEqual(Object.keys(queued[2]).sort(), exactInputFields);
+});
+
+test("persisted history reconstructs redo after reload and same-actor cross-tab sync", async () => {
+  const doc = initializedDoc();
+  let operationNumber = 0;
+  const adapter = create(doc, {
+    createId: () => [ids.operationA, ids.operationB][operationNumber++],
+  });
+  const bridge = createDrawingCollaborationCommandBridge({
+    adapter,
+    outbox: { async enqueue() {} },
+  });
+  await bridge.applyCommand({
+    type: "update_objects",
+    actorId: ids.actorA,
+    updates: [{ objectId: ids.objectA, patch: { name: "local" } }],
+  });
+  append(
+    doc,
+    recorded(
+      adapter.getSnapshot().state,
+      {
+        type: "update_objects",
+        actorId: ids.actorB,
+        updates: [{ objectId: ids.objectB, patch: { name: "remote" } }],
+      },
+      "00000000-0000-4000-8000-000000000512",
+    ).envelope,
+  );
+  const undone = undoDrawingCommand(adapter.getSnapshot().state, ids.actorA, {
+    createId: () => ids.operationB,
+    now: () => "2026-08-26T00:00:01.000Z",
+  });
+  await bridge.applyRecorded(undone);
+
+  const reloadedDoc = initializedDoc();
+  Y.applyUpdate(reloadedDoc, Y.encodeStateAsUpdate(doc));
+  let publications = 0;
+  const reloaded = create(reloadedDoc, { createId: () => ids.operationC });
+  reloaded.subscribe(() => publications++);
+  assert.deepEqual(
+    reloaded.getSnapshot().state.undoStackByActor[ids.actorA],
+    [],
+  );
+  assert.deepEqual(reloaded.getSnapshot().state.redoStackByActor[ids.actorA], [
+    ids.operationA,
+  ]);
+  assert.deepEqual(reloaded.getSnapshot().state.undoStackByActor[ids.actorB], [
+    "00000000-0000-4000-8000-000000000512",
+  ]);
+  const redone = redoDrawingCommand(reloaded.getSnapshot().state, ids.actorA, {
+    createId: () => ids.operationC,
+    now: () => "2026-08-26T00:00:02.000Z",
+  });
+  assert.ok(redone);
+  await createDrawingCollaborationCommandBridge({
+    adapter: reloaded,
+    outbox: { async enqueue() {} },
+  }).applyRecorded(redone);
+  assert.equal(reloaded.getSnapshot().state.objects[ids.objectA].name, "local");
+  assert.deepEqual(reloaded.getSnapshot().state.undoStackByActor[ids.actorA], [
+    ids.operationA,
+  ]);
+  assert.deepEqual(
+    reloaded.getSnapshot().state.redoStackByActor[ids.actorA],
+    [],
+  );
+  assert.equal(publications, 1);
+
+  Y.applyUpdate(reloadedDoc, Y.encodeStateAsUpdate(doc));
+  assert.deepEqual(reloaded.getSnapshot().state.undoStackByActor[ids.actorA], [
+    ids.operationA,
+  ]);
+  assert.deepEqual(
+    reloaded.getSnapshot().state.redoStackByActor[ids.actorA],
+    [],
+  );
+  assert.equal(publications, 2, "each received transaction projects only once");
 });
 
 test("durable enqueue race appends a provisional conflict and boot repair terminates with the remote winner", async () => {

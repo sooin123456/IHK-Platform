@@ -52,6 +52,13 @@
   document, persistence, and adapter. Retry is single-flight, clears the failed
   persistence authority on success, and provider construction failure degrades
   collaboration without misclassifying local durability or disabling editing.
+- Undo/redo lineage is now part of the same immutable operation envelope and
+  durable outbox entry (`historyAction` plus `originalOperationId`). The private
+  adapter-memory history map was removed; ordered replay reconstructs actor
+  stacks after IndexedDB reload and same-user cross-tab delivery.
+- Preview readiness no longer uses an animation-frame shortcut. Its injected
+  Realtime adapter exposes a one-shot ready promise and subscribed state that
+  advance only from the actual `subscribe` boundary.
 
 ## TDD evidence
 
@@ -83,22 +90,27 @@
   lost the connected read-only state, provider disconnect mapped to connecting,
   and retry leaked/retained failed local authority. Node and hydrated Chromium
   regressions cover each corrected boundary.
-- Review RED: the existing realtime preview barrier intermittently stayed in
-  `준비 중` during fresh full-shell runs. Readiness now advances on the first
-  post-hydration animation frame; the focused browser case passed three
-  consecutive fresh contexts.
+- Review RED: cloning edit → remote actor edit → undo into a fresh adapter lost
+  the redo stack because lineage existed only in adapter memory. The reload and
+  same-actor cross-tab regression now redoes successfully, excludes the remote
+  operation from the local actor's command, and remains idempotent on repeated
+  updates.
+- Review RED: the animation-frame preview barrier could report ready without a
+  Realtime subscription and still timed out cold. Readiness is now emitted by
+  the injected adapter's real subscription boundary.
 
 ### GREEN
 
-- Focused collaboration/outbox/Yjs/service command: 122 passed, 0 failed.
-- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 554 passed,
-  0 failed, 1 existing explicitly skipped gate (555 total).
+- Focused protocol/outbox/Yjs command: 92 passed, 0 failed; focused service and
+  server collaboration command: 44 passed, 0 failed.
+- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 556 passed,
+  0 failed, 1 existing explicitly skipped gate (557 total).
 - Fresh-server hydrated Chromium workspace shell: 8 passed, 0 failed. This
   includes same-revision local edit preservation, user-key reset, downgrade to
   viewer with a retained provider, transactional stale-row freeze, deterministic
   resource retry, visible collaboration status, and zero preview
-  Supabase/collaboration requests. The formerly flaky readiness case also passed
-  3/3 consecutive repetitions.
+  Supabase/collaboration requests. The formerly flaky readiness case passed
+  three consecutive full-suite repetitions and a fresh-server full run.
 - Real Chromium `y-indexeddb` recovery: 3 passed, 0 failed, including 100 offline
   operations, frozen recovery, and two-browser-realm same-ID deduplication.
 - `npm run typecheck`: passed.
@@ -112,13 +124,16 @@
 
 - `platform/app/lukas/components/drawing-workspace.tsx`
 - `platform/app/lukas/lib/drawing-collaboration-client.ts`
+- `platform/app/lukas/lib/drawing-collaboration-protocol.ts`
 - `platform/app/lukas/lib/drawing-workspace.server.ts`
+- `platform/app/lukas/lib/drawing-workspace.types.ts`
 - `platform/app/lukas/lib/drawing-yjs-draft.ts`
 - `platform/app/lukas/screens/drawing-workspace.tsx`
 - `platform/app/lukas/screens/local-drawing-workspace-preview.tsx`
 - `platform/collaboration/src/server.ts`
 - `platform/e2e/drawing-workspace-shell.spec.ts`
 - `platform/tests/drawing-collaboration-service.test.mjs`
+- `platform/tests/drawing-collaboration-protocol.test.mjs`
 - `platform/tests/drawing-workspace-collaboration.test.mjs`
 - `platform/tests/drawing-workspace-route.test.mjs`
 - `platform/tests/drawing-yjs-draft.test.mjs`
@@ -137,3 +152,4 @@
 
 - `feat: integrate collaborative drawing commands`
 - Review hardening follow-up: `fix: harden collaborative drawing integration`
+- Re-review follow-up: `fix: persist collaborative drawing history`
