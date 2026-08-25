@@ -435,6 +435,49 @@ test("clone validation accepts concurrent Y.Array appends in either Yjs order", 
   );
 });
 
+test("clone validation accepts concurrent recovery of the same immutable operation ID", () => {
+  const { validateDrawingClientUpdate, validatePersistedDrawingState } =
+    requireModules();
+  const base = initializedDocument();
+  const baseState = Y.encodeStateAsUpdate(base);
+  const baseVector = Y.encodeStateVector(base);
+  const first = new Y.Doc();
+  const second = new Y.Doc();
+  Y.applyUpdate(first, baseState);
+  Y.applyUpdate(second, baseState);
+  for (const document of [first, second])
+    document.transact(() => {
+      document.getMap("operations").set(ids.operation, operation());
+      document.getArray("operationOrder").push([ids.operation]);
+    });
+  const firstUpdate = Y.encodeStateAsUpdate(first, baseVector);
+  const secondUpdate = Y.encodeStateAsUpdate(second, baseVector);
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  for (const [accepted, candidate] of [
+    [firstUpdate, secondUpdate],
+    [secondUpdate, firstUpdate],
+  ]) {
+    const merged = new Y.Doc();
+    Y.applyUpdate(merged, baseState);
+    Y.applyUpdate(merged, accepted);
+    assert.doesNotThrow(() =>
+      validateDrawingClientUpdate(merged, candidate, context),
+    );
+    Y.applyUpdate(merged, candidate);
+    assert.doesNotThrow(() =>
+      validatePersistedDrawingState(Y.encodeStateAsUpdate(merged), {
+        projectId: ids.project,
+        revisionId: ids.revision,
+      }),
+    );
+  }
+});
+
 test("clone validation rejects delete-reinsert reordering of existing operation entries", () => {
   const { validateDrawingClientUpdate } = requireModules();
   const current = initializedDocument();

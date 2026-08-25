@@ -18,6 +18,12 @@ export const DRAWING_COLLABORATION_CLIENT_APPEND_ONLY_COLLECTIONS = [
   "operationOrder",
   "operations",
 ] as const;
+export const DRAWING_COLLABORATION_COLLECTIONS = [
+  "operationOrder",
+  "operationStatus",
+  "operations",
+  "serverMeta",
+] as const;
 
 export const DRAWING_COLLABORATION_LIMITS = {
   maxOperationBytes: 64 * 1024,
@@ -222,13 +228,7 @@ export const DrawingCollaborationOperationSchema =
 export const DrawingCollaborationOperationOrderSchema = z
   .array(CanonicalUuidSchema)
   .max(DRAWING_COLLABORATION_LIMITS.maxOperations)
-  .superRefine((operationIds, context) => {
-    if (new Set(operationIds).size !== operationIds.length)
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Operation IDs must be unique.",
-      });
-  });
+  .transform((operationIds) => [...new Set(operationIds)]);
 
 const DrawingCollaborationLedgerSchema = z
   .object({
@@ -300,6 +300,11 @@ export function validateDrawingCollaborationAppend(
   const next = DrawingCollaborationLedgerSchema.parse(nextValue);
   const actorId = CanonicalUuidSchema.parse(verifiedActorId);
   const room = parseDrawingRoomName(roomName);
+  if (
+    next.operationOrder.length === current.operationOrder.length &&
+    sameJsonValue(next, current)
+  )
+    return next;
   if (next.operationOrder.length <= current.operationOrder.length)
     throw new Error("Client updates must append drawing operations.");
   const currentIds = new Set(current.operationOrder);

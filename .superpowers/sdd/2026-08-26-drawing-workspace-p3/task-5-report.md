@@ -8,6 +8,12 @@
 - Added revision-scoped browser persistence with local-sync gating, explicit flush/dispose, SSR no-open behavior, and synchronous listener removal on IndexedDB version change.
 - Live workspace/provider/outbox wiring was intentionally not added; that remains Task 6.
 
+## Review fixes
+
+- Canonical operation order now de-duplicates identical durable IDs after a genuine two-document Yjs merge. Client, shared protocol, persisted-room validation, and live service update validation use the same canonical ledger while still rejecting rewrites, deletion/reinsert ordering, forged actors, and distinct-operation loss.
+- Client full-room projection now requires exactly the same four top-level Yjs collections as the collaboration service.
+- The Chromium harness no longer writes `serverMeta` or an unknown recovery collection from page code. It consumes a server-origin authoritative update, authors 100 canonical operations through `prepareLocal`/`appendDurableLocal`, then reopens persistence and a real adapter. Frozen recovery uses a valid authoritative frozen room with a real pending envelope.
+
 ## TDD evidence
 
 ### RED
@@ -19,6 +25,7 @@
 - Forged inverse: failed because an integrity error was initially classified as a provisional collision.
 - Duplicate authoritative sequences: failed because duplicate Postgres order was initially tie-broken rather than rejected.
 - Fresh-server Chromium rerun exposed a Vite-internal `/@id/yjs` dependency; the test was changed first to require a stable module-owned Y.Doc factory and failed until that API existed.
+- Review RED: same-ID two-document merge quarantined in both arrival orders; a rogue top-level map was accepted by the client; protocol/service rejected the idempotent merged ledger; and the replacement Chromium adapter fixtures were 0/2 until authoritative initial updates were applied through the server-origin document seam.
 
 ### GREEN
 
@@ -29,6 +36,7 @@
 - `npm run typecheck -- --pretty false`: pass.
 - `npm run typecheck:collaboration -- --pretty false`: pass.
 - `git diff --check`: pass.
+- Review GREEN: protocol, service, adapter, command, document-store, and outbox suite 184/184; real Chromium 3/3 with canonical adapter state, two same-origin browser realms sharing IndexedDB, and no quarantine.
 
 ## Honest gates
 

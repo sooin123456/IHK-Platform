@@ -266,6 +266,44 @@ test("append validation preserves the immutable operation order and accepts only
   );
 });
 
+test("same durable operation ID is a convergent idempotent order entry", () => {
+  const {
+    DrawingCollaborationClientAppendSchema,
+    drawingRoomName,
+    validateDrawingCollaborationAppend,
+  } = requireProtocol();
+  const envelope = operation();
+  const duplicate = {
+    operationOrder: [ids.operation, ids.operation],
+    operations: { [ids.operation]: envelope },
+  };
+  assert.deepEqual(
+    DrawingCollaborationClientAppendSchema.parse(duplicate).operationOrder,
+    [ids.operation],
+  );
+  assert.deepEqual(
+    validateDrawingCollaborationAppend(
+      { operationOrder: [], operations: {} },
+      duplicate,
+      ids.actor,
+      drawingRoomName(ids.project, ids.revision),
+    ).operationOrder,
+    [ids.operation],
+  );
+  assert.deepEqual(
+    validateDrawingCollaborationAppend(
+      {
+        operationOrder: [ids.operation],
+        operations: { [ids.operation]: envelope },
+      },
+      duplicate,
+      ids.actor,
+      drawingRoomName(ids.project, ids.revision),
+    ).operationOrder,
+    [ids.operation],
+  );
+});
+
 test("append validation accepts a bounded same-actor catch-up suffix", () => {
   const { drawingRoomName, validateDrawingCollaborationAppend } =
     requireProtocol();

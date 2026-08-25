@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   DRAWING_COLLABORATION_SCHEMA_VERSION,
   DRAWING_COLLABORATION_SERVER_ORIGIN,
+  DRAWING_COLLABORATION_COLLECTIONS,
   DrawingAwarenessStateSchema,
   DrawingCollaborationClientAppendSchema,
   DrawingCollaborationMetaSchema,
@@ -113,13 +114,7 @@ function ensureDrawingCollections(document: Y.Doc) {
 
 function validateLedgerWithoutAppend(document: Y.Doc, roomName: string) {
   const names = [...document.share.keys()].sort();
-  const required = [
-    "operationOrder",
-    "operationStatus",
-    "operations",
-    "serverMeta",
-  ];
-  if (!same(names, required))
+  if (!same(names, DRAWING_COLLABORATION_COLLECTIONS))
     throw new Error("Drawing document collections are invalid.");
   const value = documentCollections(document);
   const room = parseDrawingRoomName(roomName);
@@ -214,6 +209,7 @@ export function validateDrawingClientUpdate(
       DRAWING_COLLABORATION_SERVER_ORIGIN,
     );
     let protectedStructureChanged = false;
+    let existingOperationTouched = false;
     candidate.getMap("serverMeta").observe(() => {
       protectedStructureChanged = true;
     });
@@ -223,7 +219,7 @@ export function validateDrawingClientUpdate(
     candidate.getMap("operations").observe((event) => {
       for (const [operationId, change] of event.changes.keys)
         if (change.action !== "add" || existingOperationIds.has(operationId))
-          protectedStructureChanged = true;
+          existingOperationTouched = true;
     });
     candidate.getArray("operationOrder").observe((event) => {
       if (event.changes.delta.some((change) => "delete" in change))
@@ -242,14 +238,20 @@ export function validateDrawingClientUpdate(
       candidate,
       `drawing:${context.projectId}:${context.revisionId}`,
     );
-    if (
-      same(before.operationOrder, after.operationOrder) &&
-      same(before.operations, after.operations)
-    )
-      return;
+    const beforeLedger = DrawingCollaborationClientAppendSchema.parse({
+      operationOrder: before.operationOrder,
+      operations: before.operations,
+    });
+    const afterLedger = DrawingCollaborationClientAppendSchema.parse({
+      operationOrder: after.operationOrder,
+      operations: after.operations,
+    });
+    if (same(beforeLedger, afterLedger)) return;
+    if (existingOperationTouched)
+      throw new Error("Clients cannot rewrite protected collaboration state.");
     validateDrawingCollaborationAppend(
-      { operationOrder: before.operationOrder, operations: before.operations },
-      { operationOrder: after.operationOrder, operations: after.operations },
+      beforeLedger,
+      afterLedger,
       context.userId,
       `drawing:${context.projectId}:${context.revisionId}`,
     );

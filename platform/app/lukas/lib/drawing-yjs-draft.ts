@@ -9,6 +9,7 @@ import {
 } from "./drawing-commands.ts";
 import {
   DRAWING_COLLABORATION_SCHEMA_VERSION,
+  DRAWING_COLLABORATION_COLLECTIONS,
   DrawingCollaborationClientAppendSchema,
   DrawingCollaborationMetaSchema,
   DrawingCollaborationOperationSchema,
@@ -218,6 +219,13 @@ export function createDrawingDraftAdapter(
   ).then(() => undefined);
 
   function project(candidate: Y.Doc): DrawingDraftSnapshot {
+    if (
+      !same(
+        [...candidate.share.keys()].sort(),
+        DRAWING_COLLABORATION_COLLECTIONS,
+      )
+    )
+      throw new Error("Drawing document collections are invalid.");
     const meta = DrawingCollaborationMetaSchema.parse(
       candidate.getMap("serverMeta").toJSON(),
     );

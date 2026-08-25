@@ -557,3 +557,47 @@ test("duplicate authoritative sequences quarantine the projection", () => {
     });
   assert.ok(create(doc).getSnapshot().quarantine);
 });
+
+test("same durable operation ID from two offline docs converges once in both arrival orders", () => {
+  const base = initializedDoc();
+  const baseUpdate = Y.encodeStateAsUpdate(base);
+  const baseVector = Y.encodeStateVector(base);
+  const first = new Y.Doc();
+  const second = new Y.Doc();
+  Y.applyUpdate(first, baseUpdate);
+  Y.applyUpdate(second, baseUpdate);
+  const operation = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "recovered" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  append(first, operation);
+  append(second, structuredClone(operation));
+  const firstDelta = Y.encodeStateAsUpdate(first, baseVector);
+  const secondDelta = Y.encodeStateAsUpdate(second, baseVector);
+
+  for (const updates of [
+    [firstDelta, secondDelta],
+    [secondDelta, firstDelta],
+  ]) {
+    const merged = initializedDoc();
+    for (const update of updates) Y.applyUpdate(merged, update);
+    const snapshot = create(merged).getSnapshot();
+    assert.equal(snapshot.quarantine, null);
+    assert.deepEqual(snapshot.pendingOperationIds, [ids.operationA]);
+    assert.equal(snapshot.state.objects[ids.objectA].name, "recovered");
+    assert.equal(snapshot.state.operations.length, 1);
+  }
+});
+
+test("unknown top-level Yjs collections quarantine the client projection", () => {
+  const doc = initializedDoc();
+  doc.getMap("rogue").set("value", true);
+  const snapshot = create(doc).getSnapshot();
+  assert.ok(snapshot.quarantine);
+  assert.equal(snapshot.state.objects[ids.objectA].name, "A");
+});
