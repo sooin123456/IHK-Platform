@@ -4,8 +4,13 @@ import type {
   DrawingLayerInput,
   DrawingObject,
   DrawingOperationInput,
+  DrawingStructureAction,
   Point,
 } from "./drawing-workspace.types.ts";
+import {
+  applyDrawingStructureActions,
+  type DrawingStructureState,
+} from "./drawing-structure.ts";
 import {
   DrawingFillColorSchema,
   DrawingGeometrySchema,
@@ -42,6 +47,11 @@ export type DrawingCommand =
       actorId: string;
       layerId: string;
       patch: LayerPatch;
+    }
+  | {
+      type: "mutate_structure";
+      actorId: string;
+      actions: DrawingStructureAction[];
     };
 
 type DrawingCommandPayload =
@@ -49,9 +59,16 @@ type DrawingCommandPayload =
   | { type: "update_objects"; updates: ObjectUpdate[] }
   | { type: "delete_objects"; objectIds: string[] }
   | { type: "add_layer"; layer: DrawingLayerInput }
-  | { type: "update_layer"; layerId: string; patch: LayerPatch };
+  | { type: "update_layer"; layerId: string; patch: LayerPatch }
+  | { type: "mutate_structure"; actions: DrawingStructureAction[] };
 
-export type DrawingRecordedOperation = DrawingOperationInput & {
+export type DrawingRecordedOperation = Omit<
+  DrawingOperationInput,
+  "type" | "forward" | "inverse"
+> & {
+  type: DrawingCommand["type"];
+  forward: DrawingCommandPayload;
+  inverse: DrawingCommandPayload | Record<string, never>;
   actorId: string;
   /** add_layer has no inverse until the command union gains delete_layer. */
   undoable: boolean;
@@ -70,6 +87,8 @@ export type DrawingDocumentState = {
   operations: DrawingRecordedOperation[];
   undoStackByActor: Record<string, string[]>;
   redoStackByActor: Record<string, string[]>;
+  /** P2 canonical entities are absent until a document is upgraded/loaded. */
+  structure?: Omit<DrawingStructureState, "revisionId">;
 };
 
 export type DrawingCommandEnvironment = {
@@ -114,6 +133,7 @@ type Reduction = {
   resultVersions: Record<string, number | null>;
   realizedVersions: Record<string, number>;
   undoable: boolean;
+  structure?: Omit<DrawingStructureState, "revisionId">;
 };
 
 type CommandHistoryMetadata = {
@@ -172,6 +192,8 @@ function payloadFor(command: DrawingCommand): DrawingCommandPayload {
         layerId: command.layerId,
         patch: clone(command.patch),
       };
+    case "mutate_structure":
+      return { type: command.type, actions: clone(command.actions) };
   }
 }
 
@@ -439,6 +461,34 @@ function reduceCommand(
         undoable: true,
       };
     }
+    case "mutate_structure": {
+      if (!state.structure) {
+        throw new DrawingCommandError(
+          "Drawing structure state is required for mutate_structure.",
+        );
+      }
+      const applied = applyDrawingStructureActions(
+        { revisionId: state.revisionId, ...state.structure },
+        command.actions,
+      );
+      const { revisionId: _revisionId, ...structure } = applied.state;
+      return {
+        objects: applied.state.objects,
+        layers: applied.state.layers,
+        baseVersions: applied.baseVersions,
+        forward,
+        inverse: { type: "mutate_structure", actions: applied.inverse },
+        resultVersions: applied.resultVersions,
+        realizedVersions: Object.fromEntries(
+          Object.entries(applied.resultVersions).map(([id, version]) => [
+            id,
+            version ?? (applied.baseVersions[id] ?? 0) + 1,
+          ]),
+        ),
+        undoable: true,
+        structure,
+      };
+    }
   }
 }
 
@@ -469,6 +519,11 @@ function appendOperation(
       ...state,
       objects: reduced.objects,
       layers: reduced.layers,
+      structure:
+        reduced.structure ??
+        (state.structure
+          ? { ...state.structure, objects: reduced.objects, layers: reduced.layers }
+          : undefined),
       operations: [...state.operations, operation],
     },
     operation,
@@ -578,10 +633,12 @@ export function createDrawingDocumentState({
   revisionId,
   objects = [],
   layers = [],
+  structure,
 }: {
   revisionId: string;
   objects?: DrawingObject[];
   layers?: DrawingLayer[];
+  structure?: Omit<DrawingStructureState, "revisionId">;
 }): DrawingDocumentState {
   return {
     revisionId,
@@ -592,6 +649,7 @@ export function createDrawingDocumentState({
     operations: [],
     undoStackByActor: {},
     redoStackByActor: {},
+    structure: structure ? clone(structure) : undefined,
   };
 }
 

@@ -16,6 +16,8 @@ const PositiveFiniteMax = (maximum: number) =>
     .refine(Number.isFinite, "유한한 숫자여야 합니다.")
     .refine((value) => value > 0, "0보다 커야 합니다.");
 const Uuid = z.string().uuid();
+const PositiveInteger = z.number().int().positive();
+const NonNegativeInteger = z.number().int().nonnegative();
 const ExactTrimmedName = z
   .string()
   .min(1)
@@ -157,6 +159,19 @@ export const DrawingStyleSchema = z
   })
   .strict();
 
+export type DrawingStyle = z.infer<typeof DrawingStyleSchema>;
+export const DrawingStyleOverrideSchema = DrawingStyleSchema.partial();
+export type DrawingGeometry = z.infer<typeof DrawingGeometrySchema>;
+export type DrawingObject = {
+  id: string;
+  name: string;
+  layerId: string;
+  geometry: DrawingGeometry;
+  styleId?: string | null;
+  style: DrawingStyle;
+  version: number;
+};
+
 export const PdfCalibrationSchema = z.object({
   normalizedStart: PointSchema,
   normalizedEnd: PointSchema,
@@ -164,16 +179,34 @@ export const PdfCalibrationSchema = z.object({
   millimetersPerNormalizedUnit: PositiveFinite,
 });
 
-export const DrawingObjectSchema = z
+const DrawingObjectValidatedSchema = z
   .object({
     id: Uuid,
     name: DrawingObjectNameSchema,
     layerId: Uuid,
     geometry: DrawingGeometrySchema,
-    style: DrawingStyleSchema,
-    version: z.number().int().positive(),
+    /** Omitted is legacy inline-style data and is treated as null by resolvers. */
+    styleId: Uuid.nullable().optional(),
+    style: z.union([DrawingStyleSchema, DrawingStyleOverrideSchema]),
+    version: PositiveInteger,
   })
-  .strict();
+  .strict()
+  .superRefine((object, context) => {
+    if (object.styleId == null && !DrawingStyleSchema.safeParse(object.style).success) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["style"],
+        message: "인라인 도면 스타일은 완전해야 합니다.",
+      });
+    }
+  });
+
+/** `.strict()` remains available for P0/P1 callers; the inner object is strict. */
+export const DrawingObjectSchema = Object.assign(DrawingObjectValidatedSchema, {
+  strict: () => DrawingObjectValidatedSchema,
+}) as z.ZodType<DrawingObject> & {
+  strict: () => z.ZodType<DrawingObject>;
+};
 
 export const DrawingLayerInputSchema = z
   .object({
@@ -181,7 +214,10 @@ export const DrawingLayerInputSchema = z
     name: DrawingLayerNameSchema,
     visible: z.boolean(),
     locked: z.boolean(),
-    version: z.number().int().positive(),
+    /** Legacy P0/P1 layers predate canvas ownership. */
+    canvasId: Uuid.optional(),
+    sortOrder: NonNegativeInteger.optional(),
+    version: PositiveInteger,
   })
   .strict();
 
@@ -197,6 +233,241 @@ export const DrawingLayerSchema = DrawingLayerInputSchema.extend({
       });
     }
   });
+
+export const DrawingPageSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    name: ExactTrimmedName,
+    sortOrder: NonNegativeInteger,
+    version: PositiveInteger,
+  })
+  .strict();
+
+export const DrawingCanvasSchema = z
+  .object({
+    id: Uuid,
+    pageId: Uuid,
+    name: ExactTrimmedName,
+    spaceKind: z.enum(["paper", "model"]),
+    widthMillimeters: PositiveFinite,
+    heightMillimeters: PositiveFinite,
+    background: z
+      .object({
+        sourceFileId: Uuid,
+        sourceSha256: z.string().regex(/^[0-9a-f]{64}$/i),
+        pdfPageNumber: PositiveInteger.nullable(),
+        calibration: PdfCalibrationSchema.nullable(),
+      })
+      .strict()
+      .nullable(),
+    sortOrder: NonNegativeInteger,
+    version: PositiveInteger,
+  })
+  .strict();
+
+export const DrawingStyleDefinitionSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    name: ExactTrimmedName,
+    value: DrawingStyleSchema,
+    version: PositiveInteger,
+  })
+  .strict();
+
+const DrawingStyledPrimitiveSchema = z
+  .object({
+    localId: z.string().min(1).max(255),
+    name: DrawingObjectNameSchema,
+    geometry: DrawingGeometrySchema,
+    styleId: Uuid.nullable(),
+    style: z.union([DrawingStyleSchema, DrawingStyleOverrideSchema]),
+  })
+  .strict()
+  .superRefine((primitive, context) => {
+    if (
+      primitive.styleId === null &&
+      !DrawingStyleSchema.safeParse(primitive.style).success
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["style"],
+        message: "인라인 블록 스타일은 완전해야 합니다.",
+      });
+    }
+  });
+
+export const DrawingBlockPrimitiveSchema = DrawingStyledPrimitiveSchema;
+
+export const DrawingBlockSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    name: ExactTrimmedName,
+    primitives: z.array(DrawingBlockPrimitiveSchema).min(1),
+    version: PositiveInteger,
+  })
+  .strict()
+  .superRefine((block, context) => {
+    const localIds = new Set<string>();
+    for (const primitive of block.primitives) {
+      if (localIds.has(primitive.localId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["primitives"],
+          message: "블록 primitive localId는 고유해야 합니다.",
+        });
+      }
+      localIds.add(primitive.localId);
+    }
+  });
+
+export const DrawingBlockInstanceSchema = z
+  .object({
+    id: Uuid,
+    blockId: Uuid,
+    layerId: Uuid,
+    name: ExactTrimmedName,
+    origin: PointSchema,
+    rotation: Finite,
+    scaleX: Finite.refine((value) => value !== 0, "0일 수 없습니다."),
+    scaleY: Finite.refine((value) => value !== 0, "0일 수 없습니다."),
+    version: PositiveInteger,
+  })
+  .strict();
+
+const DrawingPropertyValueTypeSchema = z.enum([
+  "text",
+  "number",
+  "boolean",
+  "date",
+  "enum",
+]);
+const DrawingPropertyAppliesToSchema = z.enum([
+  "line",
+  "polyline",
+  "rectangle",
+  "circle",
+  "text",
+  "dimension",
+  "block_instance",
+]);
+
+export const DrawingPropertySchemaSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    name: ExactTrimmedName,
+    valueType: DrawingPropertyValueTypeSchema,
+    enumOptions: z.array(ExactTrimmedName).max(255),
+    appliesTo: z.array(DrawingPropertyAppliesToSchema).min(1),
+    required: z.boolean(),
+    version: PositiveInteger,
+  })
+  .strict()
+  .superRefine((schema, context) => {
+    if (schema.valueType === "enum" && schema.enumOptions.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["enumOptions"],
+        message: "enum 속성에는 하나 이상의 옵션이 필요합니다.",
+      });
+    }
+    if (schema.valueType !== "enum" && schema.enumOptions.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["enumOptions"],
+        message: "enum 이외 속성에는 옵션을 둘 수 없습니다.",
+      });
+    }
+  });
+
+export const DrawingPropertyValueSchema = z
+  .object({
+    id: Uuid,
+    schemaId: Uuid,
+    objectId: Uuid.nullable(),
+    blockInstanceId: Uuid.nullable(),
+    value: z.union([z.string(), Finite, z.boolean(), z.null()]),
+    version: PositiveInteger,
+  })
+  .strict()
+  .refine(
+    (value) =>
+      Number(value.objectId !== null) + Number(value.blockInstanceId !== null) ===
+      1,
+    "속성 값은 객체 또는 블록 instance 중 하나에만 귀속해야 합니다.",
+  );
+
+const DrawingTableColumnSchema = z
+  .object({
+    id: Uuid,
+    name: ExactTrimmedName,
+    kind: z.enum(["text", "number", "object_name", "object_type", "property"]),
+    propertySchemaId: Uuid.nullable(),
+  })
+  .strict()
+  .superRefine((column, context) => {
+    if ((column.kind === "property") !== (column.propertySchemaId !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["propertySchemaId"],
+        message: "property 열만 property schema를 참조해야 합니다.",
+      });
+    }
+  });
+
+const DrawingTableRowSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid.nullable(),
+    blockInstanceId: Uuid.nullable(),
+    cells: z.record(Uuid, z.union([z.string(), Finite, z.null()])),
+  })
+  .strict();
+
+export const DrawingTableSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    name: ExactTrimmedName,
+    columns: z.array(DrawingTableColumnSchema).min(1),
+    rows: z.array(DrawingTableRowSchema),
+    version: PositiveInteger,
+  })
+  .strict();
+
+const DrawingStructurePutActionSchema = <T extends z.ZodTypeAny>(
+  kind: string,
+  entity: T,
+) =>
+  z
+    .object({ kind: z.literal(kind), entity, baseVersion: PositiveInteger.nullable() })
+    .strict();
+const DrawingStructureDeleteActionSchema = (kind: string) =>
+  z.object({ kind: z.literal(kind), id: Uuid, baseVersion: PositiveInteger }).strict();
+
+export const DrawingStructureActionSchema = z.discriminatedUnion("kind", [
+  DrawingStructurePutActionSchema("put_object", DrawingObjectSchema),
+  DrawingStructureDeleteActionSchema("delete_object"),
+  DrawingStructurePutActionSchema("put_page", DrawingPageSchema),
+  DrawingStructureDeleteActionSchema("delete_page"),
+  DrawingStructurePutActionSchema("put_canvas", DrawingCanvasSchema),
+  DrawingStructureDeleteActionSchema("delete_canvas"),
+  DrawingStructurePutActionSchema("put_style", DrawingStyleDefinitionSchema),
+  DrawingStructureDeleteActionSchema("delete_style"),
+  DrawingStructurePutActionSchema("put_block", DrawingBlockSchema),
+  DrawingStructureDeleteActionSchema("delete_block"),
+  DrawingStructurePutActionSchema("put_block_instance", DrawingBlockInstanceSchema),
+  DrawingStructureDeleteActionSchema("delete_block_instance"),
+  DrawingStructurePutActionSchema("put_property_schema", DrawingPropertySchemaSchema),
+  DrawingStructureDeleteActionSchema("delete_property_schema"),
+  DrawingStructurePutActionSchema("put_property_value", DrawingPropertyValueSchema),
+  DrawingStructureDeleteActionSchema("delete_property_value"),
+  DrawingStructurePutActionSchema("put_table", DrawingTableSchema),
+  DrawingStructureDeleteActionSchema("delete_table"),
+]);
 
 const DrawingOperationObjectPatchSchema = z
   .object({
@@ -299,9 +570,66 @@ export const DrawingOperationInputSchema = z
   });
 
 export type PdfCalibration = z.infer<typeof PdfCalibrationSchema>;
-export type DrawingStyle = z.infer<typeof DrawingStyleSchema>;
-export type DrawingGeometry = z.infer<typeof DrawingGeometrySchema>;
-export type DrawingObject = z.infer<typeof DrawingObjectSchema>;
+export type DrawingStyleOverride = z.infer<typeof DrawingStyleOverrideSchema>;
 export type DrawingLayerInput = z.infer<typeof DrawingLayerInputSchema>;
 export type DrawingLayer = z.infer<typeof DrawingLayerSchema>;
+export type DrawingPage = z.infer<typeof DrawingPageSchema>;
+export type DrawingCanvas = z.infer<typeof DrawingCanvasSchema>;
+export type DrawingStyleDefinition = z.infer<typeof DrawingStyleDefinitionSchema>;
+export type DrawingBlockPrimitive = z.infer<typeof DrawingBlockPrimitiveSchema>;
+export type DrawingBlock = z.infer<typeof DrawingBlockSchema>;
+export type DrawingBlockInstance = z.infer<typeof DrawingBlockInstanceSchema>;
+export type DrawingPropertySchema = z.infer<typeof DrawingPropertySchemaSchema>;
+export type DrawingPropertyValue = z.infer<typeof DrawingPropertyValueSchema>;
+export type DrawingTable = z.infer<typeof DrawingTableSchema>;
+type DrawingStructureObject = Omit<DrawingObject, "style"> & {
+  style: DrawingStyleOverride;
+};
+type PutStructureAction<T> = {
+  kind:
+    | "put_object"
+    | "put_page"
+    | "put_canvas"
+    | "put_style"
+    | "put_block"
+    | "put_block_instance"
+    | "put_property_schema"
+    | "put_property_value"
+    | "put_table";
+  entity: T;
+  baseVersion: number | null;
+};
+type DeleteStructureAction = {
+  kind:
+    | "delete_object"
+    | "delete_page"
+    | "delete_canvas"
+    | "delete_style"
+    | "delete_block"
+    | "delete_block_instance"
+    | "delete_property_schema"
+    | "delete_property_value"
+    | "delete_table";
+  id: string;
+  baseVersion: number;
+};
+export type DrawingStructureAction =
+  | (PutStructureAction<DrawingStructureObject> & { kind: "put_object" })
+  | (PutStructureAction<DrawingPage> & { kind: "put_page" })
+  | (PutStructureAction<DrawingCanvas> & { kind: "put_canvas" })
+  | (PutStructureAction<DrawingStyleDefinition> & { kind: "put_style" })
+  | (PutStructureAction<DrawingBlock> & { kind: "put_block" })
+  | (PutStructureAction<DrawingBlockInstance> & { kind: "put_block_instance" })
+  | (PutStructureAction<DrawingPropertySchema> & { kind: "put_property_schema" })
+  | (PutStructureAction<DrawingPropertyValue> & { kind: "put_property_value" })
+  | (PutStructureAction<DrawingTable> & { kind: "put_table" })
+  | (DeleteStructureAction & { kind: "delete_object" })
+  | (DeleteStructureAction & { kind: "delete_page" })
+  | (DeleteStructureAction & { kind: "delete_canvas" })
+  | (DeleteStructureAction & { kind: "delete_style" })
+  | (DeleteStructureAction & { kind: "delete_block" })
+  | (DeleteStructureAction & { kind: "delete_block_instance" })
+  | (DeleteStructureAction & { kind: "delete_property_schema" })
+  | (DeleteStructureAction & { kind: "delete_property_value" })
+  | (DeleteStructureAction & { kind: "delete_table" });
 export type DrawingOperationInput = z.infer<typeof DrawingOperationInputSchema>;

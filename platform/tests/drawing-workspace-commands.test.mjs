@@ -41,6 +41,9 @@ const ids = {
   hiddenLayer: "00000000-0000-4000-8000-000000000007",
   hiddenRectangle: "00000000-0000-4000-8000-000000000008",
   lockedRectangle: "00000000-0000-4000-8000-000000000009",
+  page: "00000000-0000-4000-8000-000000000040",
+  canvas: "00000000-0000-4000-8000-000000000041",
+  modelCanvas: "00000000-0000-4000-8000-000000000042",
 };
 
 function environment() {
@@ -144,6 +147,68 @@ function emptyState(overrides = {}) {
     ...overrides,
   });
 }
+
+test("mutate_structure records strict forward and inverse payloads", () => {
+  const paper = {
+    id: ids.canvas,
+    pageId: ids.page,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 210,
+    heightMillimeters: 297,
+    background: null,
+    sortOrder: 0,
+    version: 1,
+  };
+  const model = {
+    ...paper,
+    id: ids.modelCanvas,
+    name: "Model",
+    spaceKind: "model",
+    version: 1,
+  };
+  const initial = emptyState({
+    structure: {
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: { [ids.canvas]: paper },
+      layers: {},
+      objects: {},
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  const applied = applyDrawingCommand(
+    initial,
+    {
+      type: "mutate_structure",
+      actorId: "actor-a",
+      actions: [{ kind: "put_canvas", entity: model, baseVersion: null }],
+    },
+    environment(),
+  );
+
+  assert.equal(applied.state.structure.canvases[ids.modelCanvas].name, "Model");
+  assert.deepEqual(applied.operation.forward, {
+    type: "mutate_structure",
+    actions: [{ kind: "put_canvas", entity: model, baseVersion: null }],
+  });
+  assert.deepEqual(applied.operation.inverse, {
+    type: "mutate_structure",
+    actions: [{ kind: "delete_canvas", id: ids.modelCanvas, baseVersion: 1 }],
+  });
+});
 
 test("add appends an operation with an inverse and leaves its input state unchanged", () => {
   const state = emptyState();
