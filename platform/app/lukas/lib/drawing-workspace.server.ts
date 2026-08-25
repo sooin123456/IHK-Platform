@@ -236,6 +236,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
 export type DrawingWorkspaceClient = SupabaseClient<DrawingWorkspaceDatabase>;
 
 const drawingObjectPageSize = 1_000;
+const drawingRowsMaxPageSize = 1_000;
 
 type DrawingRowsTable =
   | "lukas_drawing_pages" | "lukas_drawing_canvases" | "lukas_drawing_layers"
@@ -259,7 +260,8 @@ type DrawingRowsRequest = {
   select(columns: string): DrawingRowsRequest;
   eq(column: string, value: unknown): DrawingRowsRequest;
   order(column: string): DrawingRowsRequest;
-  range(from: number, to: number): Promise<{
+  gt(column: string, value: string): DrawingRowsRequest;
+  limit(count: number): PromiseLike<{
     data: unknown;
     error: { message: string } | null;
   }>;
@@ -274,36 +276,42 @@ export async function loadAllDrawingRows<TRow extends { id: string }>(
   query: DrawingRowsQuery,
 ): Promise<TRow[]> {
   const pageSize = query.pageSize ?? drawingObjectPageSize;
-  if (!Number.isInteger(pageSize) || pageSize <= 0)
-    throw new Error("Drawing row page size must be a positive integer.");
+  if (!Number.isInteger(pageSize) || pageSize <= 0 || pageSize > drawingRowsMaxPageSize)
+    throw new Error("Drawing row page size must be between 1 and 1000.");
   if (!query.order.includes("id"))
     throw new Error("Drawing row pagination requires an ID tie-breaker.");
 
   const rows = new Map<string, TRow>();
-  for (let from = 0; ; from += pageSize) {
-    let request = (client as unknown as { from: (table: DrawingRowsTable) => DrawingRowsRequest })
+  let cursor: string | null = null;
+  for (;;) {
+    let request: DrawingRowsRequest = client
       .from(query.table)
       .select(query.select ?? "*")
       .eq("project_id", query.projectId);
     if (query.revisionId) request = request.eq("revision_id", query.revisionId);
     for (const [column, value] of query.filters ?? [])
       request = request.eq(column, value);
-    for (const column of query.order) request = request.order(column);
-    const { data, error } = await request.range(from, from + pageSize - 1);
+    if (cursor !== null) request = request.gt("id", cursor);
+    const { data, error } = await request.order("id").limit(pageSize);
     if (error)
       throw new Error(`도면 ${query.table}을 불러오지 못했습니다: ${error.message}`);
     if (!Array.isArray(data) || data.some((row) => !row || typeof row !== "object" || typeof (row as { id?: unknown }).id !== "string"))
       throw new Error(`도면 ${query.table} 응답 형식이 올바르지 않습니다.`);
-    const page: TRow[] = [];
-    for (const row of data) page.push(row as TRow);
-    for (const row of page) rows.set(row.id, row);
+    const page: TRow[] = data as TRow[];
+    for (const row of page) {
+      if (rows.has(row.id)) throw new Error(`도면 ${query.table} 응답에 중복 ID가 있습니다.`);
+      if (cursor !== null && row.id <= cursor) throw new Error(`도면 ${query.table} keyset cursor가 진행하지 않았습니다.`);
+      rows.set(row.id, row);
+    }
+    if (page.length > 0) cursor = page.at(-1)!.id;
     if (page.length < pageSize)
       return [...rows.values()].sort((left, right) =>
         query.order.reduce((result, column) => {
           if (result !== 0) return result;
-          return String((left as Record<string, unknown>)[column]).localeCompare(
-            String((right as Record<string, unknown>)[column]),
-          );
+          const a = (left as Record<string, unknown>)[column];
+          const b = (right as Record<string, unknown>)[column];
+          if (typeof a === "number" && typeof b === "number") return a - b;
+          return String(a).localeCompare(String(b));
         }, 0),
       );
   }
@@ -935,6 +943,48 @@ export async function loadDrawingWorkspace(
     );
   if (!revision) return { file: file as DrawingWorkspaceFile, templateCandidates: [], document: null };
 
+  // A migrated revision is authoritatively identified by a canvas.  Probe it
+  // before reading any large child collection so a request never mixes the
+  // legacy and canonical P2 shapes.
+  const { data: canvasProbe, error: canvasProbeError } = await client
+    .from("lukas_drawing_canvases")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("revision_id", revision.id)
+    .order("id")
+    .limit(1);
+  if (canvasProbeError)
+    throw new Error(`도면 캔버스 형식을 확인하지 못했습니다: ${canvasProbeError.message}`);
+  if (Array.isArray(canvasProbe) && canvasProbe.length > 0) {
+    if (
+      document.project_id !== projectId ||
+      document.source_file_id !== file.id ||
+      document.source_sha256 !== file.sha256 ||
+      revision.project_id !== projectId ||
+      revision.document_id !== document.id
+    ) throw new Error("Drawing document source ancestry is invalid.");
+    const [pages, canvases, layers, objects, styles, blocks, blockInstances, propertySchemas, propertyValues, tables, issues, links, templateCandidates, reviewEvidence] = await Promise.all([
+      loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,revision_id,project_id,name,sort_order,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,primitives,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: ["id"], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_property_schemas", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value_type,enum_options,applies_to,required,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: ["id"], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
+      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: ["updated_at", "id"], select: "id,project_id,title,priority,status,updated_at" }),
+      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: ["created_at", "id"], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
+      loadDrawingTemplateCandidates(client, projectId),
+      loadReviewEvidence(client, projectId, revision),
+    ]);
+    const p2 = parseP2Workspace(projectId, revision.id, file as DrawingWorkspaceFile, { pages, canvases, layers, objects, styles, blocks, blockInstances, propertySchemas, propertyValues, tables });
+    const objectIds = new Set(p2.objects.map((object) => object.id));
+    const issueIds = new Set(issues.map((issue) => issue.id));
+    return { file: file as DrawingWorkspaceFile, templateCandidates, document: { ...document, revision: { ...revision, ...p2, issues, issueLinks: links.filter((link) => objectIds.has(link.object_id) && issueIds.has(link.issue_id)), reviewEvidence } } };
+  }
+
   const [pagesResult, layersResult, objects, issuesResult, linksResult] =
     await Promise.all([
       client
@@ -950,80 +1000,24 @@ export async function loadDrawingWorkspace(
         .eq("revision_id", revision.id)
         .order("sort_order"),
       loadAllDrawingObjects(client, projectId, revision.id),
-      client
-        .from("lukas_drawing_issues")
-        .select("id,project_id,title,priority,status,updated_at")
-        .eq("project_id", projectId)
-        .order("updated_at", { ascending: false }),
-      client
-        .from("lukas_drawing_object_issue_links")
-        .select(
-          "id,object_id,revision_id,issue_id,project_id,created_by,created_at",
-        )
-        .eq("project_id", projectId)
-        .eq("revision_id", revision.id)
-        .order("created_at"),
+      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: ["updated_at", "id"], select: "id,project_id,title,priority,status,updated_at" }),
+      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: ["created_at", "id"], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
     ]);
   const childError =
     pagesResult.error ??
     layersResult.error ??
-    issuesResult.error ??
-    linksResult.error;
+    undefined;
   if (childError)
     throw new Error(`도면 내용을 불러오지 못했습니다: ${childError.message}`);
   const layers = layersResult.data ?? [];
   const pages = pagesResult.data ?? [];
-  const issues = issuesResult.data ?? [];
+  const issues = issuesResult;
   const activeObjectIds = new Set(objects.map((object) => object.id));
   const issueIds = new Set(issues.map((issue) => issue.id));
-  const issueLinks = (linksResult.data ?? []).filter(
+  const issueLinks = linksResult.filter(
     (link) =>
       activeObjectIds.has(link.object_id) && issueIds.has(link.issue_id),
   );
-  const [p2Pages, p2Canvases, p2Layers, p2Objects, p2Styles, p2Blocks, p2BlockInstances, p2PropertySchemas, p2PropertyValues, p2Tables] = await Promise.all([
-    loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,revision_id,project_id,name,sort_order,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,primitives,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: ["id"], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_property_schemas", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value_type,enum_options,applies_to,required,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: ["id"], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
-    loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
-  ]);
-  const p2Format = p2Pages.some((row) => typeof row === "object" && row !== null && "sort_order" in row);
-  if (p2Format) {
-    if (
-      document.project_id !== projectId ||
-      document.source_file_id !== file.id ||
-      document.source_sha256 !== file.sha256 ||
-      revision.project_id !== projectId ||
-      revision.document_id !== document.id
-    )
-      throw new Error("Drawing document source ancestry is invalid.");
-    const templateCandidates = await loadDrawingTemplateCandidates(client, projectId);
-    const reviewEvidence = await loadReviewEvidence(client, projectId, revision);
-    const p2 = parseP2Workspace(projectId, revision.id, file as DrawingWorkspaceFile, {
-      pages: p2Pages, canvases: p2Canvases, layers: p2Layers, objects: p2Objects,
-      styles: p2Styles, blocks: p2Blocks, blockInstances: p2BlockInstances,
-      propertySchemas: p2PropertySchemas, propertyValues: p2PropertyValues, tables: p2Tables,
-    });
-    return {
-      file: file as DrawingWorkspaceFile,
-      templateCandidates,
-      document: {
-        ...document,
-        revision: {
-          ...revision,
-          ...p2,
-          issues,
-          issueLinks,
-          reviewEvidence,
-        },
-      },
-    };
-  }
   const sourceLayers = layers.filter((layer) => layer.system_kind === "source");
   if (
     layers.some(
@@ -1300,7 +1294,60 @@ export async function applyDrawingOperation(
     p_forward: operation.forward as Json,
     p_inverse: operation.inverse as Json,
   });
-  return rpcResult(data, error);
+  const result = z.object({
+    operationId: Uuid,
+    sequence: z.number().int().positive(),
+    resultVersions: z.record(Uuid, z.number().int().positive().nullable()),
+    clientOperationId: Uuid.optional(),
+  }).strict().parse(rpcResult(data, error));
+  if (result.clientOperationId && result.clientOperationId !== operation.clientOperationId)
+    throw new DrawingWorkspaceRpcError("도면 작업 확인 응답의 클라이언트 작업 ID가 일치하지 않습니다.");
+  const expectedVersions = expectedOperationResultVersions(operation);
+  const touched = Object.keys(expectedVersions);
+  if (
+    new Set(touched).size !== touched.length ||
+    Object.keys(result.resultVersions).length !== touched.length ||
+    touched.some((id) => result.resultVersions[id] !== expectedVersions[id])
+  )
+    throw new DrawingWorkspaceRpcError("도면 작업 확인 응답이 요청 대상과 일치하지 않습니다.");
+  return result;
+}
+
+function expectedOperationResultVersions(operation: DrawingOperationInput): Record<string, number | null> {
+  const expected: Record<string, number | null> = {};
+  const add = (id: string, version: number | null) => {
+    if (id in expected) throw new DrawingWorkspaceRpcError("도면 작업 대상 ID가 중복되었습니다.");
+    expected[id] = version;
+  };
+  switch (operation.type) {
+    case "add_objects":
+      for (const object of AddObjectsPayloadSchema.parse(operation.forward).objects) add(object.id, object.version);
+      break;
+    case "update_objects":
+      for (const update of UpdateObjectsPayloadSchema.parse(operation.forward).updates)
+        add(update.objectId, operation.baseVersions[update.objectId] + 1);
+      break;
+    case "delete_objects":
+      for (const id of DeleteObjectsPayloadSchema.parse(operation.forward).objectIds) add(id, null);
+      break;
+    case "add_layer": {
+      const layer = AddLayerPayloadSchema.parse(operation.forward).layer;
+      add(layer.id, layer.version);
+      break;
+    }
+    case "update_layer": {
+      const layerId = UpdateLayerPayloadSchema.parse(operation.forward).layerId;
+      add(layerId, operation.baseVersions[layerId] + 1);
+      break;
+    }
+    case "mutate_structure":
+      for (const action of MutateStructurePayloadSchema.parse(operation.forward).actions) {
+        if ("id" in action) add(action.id, null);
+        else add(action.entity.id, action.entity.version);
+      }
+      break;
+  }
+  return expected;
 }
 
 const DrawingObjectIssueLinkResultSchema = z

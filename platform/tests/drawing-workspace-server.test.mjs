@@ -50,10 +50,10 @@ const p2Ids = {
   template: "00000000-0000-4000-8000-000000000020",
 };
 
-test("workspace object loading paginates beyond the Supabase response cap", async () => {
+test("workspace object loading uses an ID keyset beyond the Supabase response cap", async () => {
   const calls = [];
   const rows = Array.from({ length: 2_005 }, (_, index) => ({
-    id: String(index),
+    id: String(index).padStart(5, "0"),
   }));
   const client = {
     from(table) {
@@ -68,10 +68,13 @@ test("workspace object loading paginates beyond the Supabase response cap", asyn
         order() {
           return builder;
         },
-        range(from, to) {
-          calls.push([from, to]);
+        gt(column, cursor) { calls.push(["gt", column, cursor]); return builder; },
+        limit(size) {
+          const cursor = calls.findLast((call) => call[0] === "gt")?.[2];
+          const from = cursor == null ? 0 : rows.findIndex((row) => row.id === cursor) + 1;
+          calls.push(["limit", size]);
           return Promise.resolve({
-            data: rows.slice(from, to + 1),
+            data: rows.slice(from, from + size),
             error: null,
           });
         },
@@ -87,10 +90,8 @@ test("workspace object loading paginates beyond the Supabase response cap", asyn
     1_000,
   );
   assert.equal(loaded.length, 2_005);
-  assert.deepEqual(calls, [
-    [0, 999],
-    [1_000, 1_999],
-    [2_000, 2_999],
+  assert.deepEqual(calls.filter((call) => call[0] === "limit"), [
+    ["limit", 1_000], ["limit", 1_000], ["limit", 1_000],
   ]);
 });
 
@@ -106,6 +107,13 @@ test("bounded drawing row pagination has deterministic ID ties and removes dupli
         select() { return builder; },
         eq() { return builder; },
         order(column) { calls.push([table, "order", column]); return builder; },
+        gt(_column, cursor) { calls.push([table, "gt", cursor]); return builder; },
+        limit(size) {
+          const cursor = calls.findLast((call) => call[1] === "gt")?.[2];
+          const from = cursor == null ? 0 : rows.findIndex((row) => row.id > cursor);
+          calls.push([table, "limit", size]);
+          return Promise.resolve({ data: rows.slice(from, from + size), error: null });
+        },
         range(from, to) {
           calls.push([table, from, to]);
           return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
@@ -124,11 +132,43 @@ test("bounded drawing row pagination has deterministic ID ties and removes dupli
   assert.equal(loaded.length, 2_005);
   assert.equal(new Set(loaded.map((row) => row.id)).size, 2_005);
   assert.deepEqual(loaded.map((row) => row.id), [...loaded.map((row) => row.id)].sort());
-  assert.deepEqual(calls.filter((call) => typeof call[1] === "number"), [
-    ["lukas_drawing_blocks", 0, 999],
-    ["lukas_drawing_blocks", 1_000, 1_999],
-    ["lukas_drawing_blocks", 2_000, 2_999],
+  assert.deepEqual(calls.filter((call) => call[1] === "limit"), [
+    ["lukas_drawing_blocks", "limit", 1_000],
+    ["lukas_drawing_blocks", "limit", 1_000],
+    ["lukas_drawing_blocks", "limit", 1_000],
   ]);
+});
+
+test("keyset transport rejects duplicate rows, caps pages, and applies numeric canonical order", async () => {
+  const rows = [{ id: "0002", sort_order: 10 }, { id: "0001", sort_order: 2 }];
+  const client = {
+    from() {
+      const builder = {
+        select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
+        limit(size) { return Promise.resolve({ data: rows.slice(0, size), error: null }); },
+      };
+      return builder;
+    },
+  };
+  const loaded = await loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: ["sort_order", "id"] });
+  assert.deepEqual(loaded.map((row) => row.sort_order), [2, 10]);
+  await assert.rejects(
+    () => loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: ["id"], pageSize: 1_001 }),
+    /between 1 and 1000/,
+  );
+  const duplicate = {
+    from() {
+      const builder = {
+        select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
+        limit() { return Promise.resolve({ data: [{ id: "0001" }, { id: "0001" }], error: null }); },
+      };
+      return builder;
+    },
+  };
+  await assert.rejects(
+    () => loadAllDrawingRows(duplicate, { table: "lukas_drawing_blocks", projectId: ids.project, order: ["id"] }),
+    /중복 ID/,
+  );
 });
 
 test("P2 loader strictly converts snake-case rows and fails closed for broken canvas ancestry", async () => {
@@ -159,6 +199,8 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
     objects: [],
     blockInstances: [],
   });
+  for (const table of ["lukas_drawing_pages", "lukas_drawing_layers", "lukas_drawing_objects"])
+    assert.equal(client.calls.filter((call) => call.table === table).length, 1, `${table} is loaded exactly once for P2`);
 
   const malformed = queryClient({
     ...Object.fromEntries(client.calls.map((call) => [call.table, { data: [], error: null }])),
@@ -553,6 +595,18 @@ function queryClient(responses) {
           call.orders.push([column, options]);
           return builder;
         },
+        gt(column, value) {
+          call.filters.push(["gt", column, value]);
+          return builder;
+        },
+        limit(value) {
+          call.limit = value;
+          if (value === 1) return builder;
+          call.terminal = "limit";
+          const rows = Array.isArray(response.data) ? response.data : [];
+          const cursor = call.filters.find((filter) => filter[0] === "gt")?.[2];
+          return Promise.resolve({ ...response, data: Array.isArray(response.data) ? rows.filter((row) => cursor == null || row.id > cursor).slice(0, value) : [] });
+        },
         range(from, to) {
           call.range = [from, to];
           call.terminal = "range";
@@ -560,10 +614,6 @@ function queryClient(responses) {
             ...response,
             data: Array.isArray(response.data) ? response.data : [],
           });
-        },
-        limit(value) {
-          call.limit = value;
-          return builder;
         },
         single() {
           call.terminal = "single";
@@ -704,37 +754,28 @@ test("workspace loading scopes searchable issues and current links to the projec
     layer_id: activeObject.layerId,
     status: "active",
   };
+  const manyIssues = Array.from({ length: 1_005 }, (_, index) => ({
+    id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+    project_id: ids.project, title: `issue ${index}`, priority: "high", status: "open", updated_at: "2026-08-24T03:00:00.000Z",
+  }));
+  const manyLinks = manyIssues.map((issue, index) => ({
+    id: `00000000-0000-4000-8000-${String(index + 2_000).padStart(12, "0")}`,
+    object_id: ids.object, revision_id: ids.revision, issue_id: issue.id, project_id: ids.project, created_by: ids.actor, created_at: "2026-08-24T03:00:00.000Z",
+  }));
   const responses = {
     lukas_drawing_objects: { data: [objectRow], error: null },
     lukas_drawing_issues: {
-      data: [
-        {
-          id: ids.issue,
-          project_id: ids.project,
-          title: "출입문 치수 확인",
-          priority: "high",
-          status: "open",
-          updated_at: "2026-08-24T03:00:00.000Z",
-        },
-      ],
+      data: manyIssues,
       error: null,
     },
     lukas_drawing_object_issue_links: {
       data: [
-        {
-          id: ids.link,
-          object_id: ids.object,
-          revision_id: ids.revision,
-          issue_id: ids.issue,
-          project_id: ids.project,
-          created_by: ids.actor,
-          created_at: "2026-08-24T03:00:00.000Z",
-        },
+        ...manyLinks,
         {
           id: ids.operation,
           object_id: "00000000-0000-4000-8000-000000000099",
           revision_id: ids.revision,
-          issue_id: ids.issue,
+          issue_id: manyIssues[0].id,
           project_id: ids.project,
           created_by: ids.actor,
           created_at: "2026-08-24T03:00:00.000Z",
@@ -770,10 +811,10 @@ test("workspace loading scopes searchable issues and current links to the projec
   const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
   assert.deepEqual(
     loaded.document.revision.issues,
-    responses.lukas_drawing_issues.data,
+    manyIssues,
   );
   assert.deepEqual(loaded.document.revision.issueLinks, [
-    responses.lukas_drawing_object_issue_links.data[0],
+    ...manyLinks,
   ]);
   const issueCall = client.calls.find(
     (call) => call.table === "lukas_drawing_issues",
@@ -786,6 +827,8 @@ test("workspace loading scopes searchable issues and current links to the projec
     ["eq", "project_id", ids.project],
     ["eq", "revision_id", ids.revision],
   ]);
+  assert.equal(client.calls.filter((call) => call.table === "lukas_drawing_issues").length, 2);
+  assert.equal(client.calls.filter((call) => call.table === "lukas_drawing_object_issue_links").length, 2);
 });
 
 test("workspace loading fails closed when source-layer metadata is missing", async () => {
@@ -1123,7 +1166,7 @@ test("operation RPC receives exact client operation fields and exposes conflicts
   const successful = {
     async rpc(name, args) {
       calls.push([name, args]);
-      return { data: { operationId: ids.operation }, error: null };
+      return { data: { operationId: ids.operation, sequence: 1, resultVersions: { [ids.object]: 1 } }, error: null };
     },
   };
   await applyDrawingOperation(successful, input);
@@ -1154,6 +1197,10 @@ test("operation RPC receives exact client operation fields and exposes conflicts
     (error) =>
       error.name === "DrawingWorkspaceConflictError" &&
       error.kind === "conflict",
+  );
+  await assert.rejects(
+    () => applyDrawingOperation({ async rpc() { return { data: {}, error: null }; } }, input),
+    /operationId|sequence|resultVersions/,
   );
 });
 
@@ -1298,7 +1345,7 @@ test("apply action echoes the server-validated client operation id for exact out
     client: {
       async rpc() {
         return {
-          data: { operationId: "00000000-0000-4000-8000-000000000011" },
+          data: { operationId: "00000000-0000-4000-8000-000000000011", sequence: 1, resultVersions: { [ids.object]: 1 } },
           error: null,
         };
       },
@@ -1316,7 +1363,7 @@ test("apply action echoes the server-validated client operation id for exact out
       kind: "success",
       error: null,
       clientOperationId: input.clientOperationId,
-      result: { operationId: "00000000-0000-4000-8000-000000000011" },
+      result: { operationId: "00000000-0000-4000-8000-000000000011", sequence: 1, resultVersions: { [ids.object]: 1 } },
     },
   });
 });
