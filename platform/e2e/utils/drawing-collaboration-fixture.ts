@@ -23,6 +23,7 @@ type WorkspaceFixture = {
 export type DrawingFixture = {
   admin: SupabaseClient;
   owner: TestUser;
+  editor: TestUser;
   reviewer: TestUser;
   viewer: TestUser;
   nonMember: TestUser;
@@ -273,6 +274,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
 
   try {
     const owner = await addUser("owner");
+    const editor = await addUser("editor");
     const reviewer = await addUser("reviewer");
     const viewer = await addUser("viewer");
     const nonMember = await addUser("nonmember");
@@ -309,6 +311,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     const { error: memberError } = await ownerAuth
       .from("lukas_qto_project_members")
       .insert([
+        { project_id: project.id, user_id: editor.id, role: "estimator" },
         { project_id: project.id, user_id: reviewer.id, role: "reviewer" },
         { project_id: project.id, user_id: viewer.id, role: "viewer" },
       ]);
@@ -471,6 +474,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     return {
       admin,
       owner,
+      editor,
       reviewer,
       viewer,
       nonMember,
@@ -1097,6 +1101,12 @@ export async function destroyDrawingFixture(
     fixture.admin,
     fixture.storagePaths,
     fixture.projectId,
-    [fixture.owner, fixture.reviewer, fixture.viewer, fixture.nonMember],
+    [
+      fixture.owner,
+      fixture.editor,
+      fixture.reviewer,
+      fixture.viewer,
+      fixture.nonMember,
+    ].filter((user): user is TestUser => Boolean(user)),
   );
 }

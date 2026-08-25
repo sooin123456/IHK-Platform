@@ -180,6 +180,99 @@ test("P2 production spec registers all twelve executable serial gates", async ()
     assert.doesNotMatch(gate.body, /test\.skip|TODO|placeholder/i, gate.name);
   }
 
+  const gateBodies = Object.fromEntries(
+    registered.map(({ name, body }) => [name.slice(0, 7), body]),
+  );
+  const gateContracts = {
+    "Gate 01": [/lukas_drawing_canvases/, /retained.*toEqual/s],
+    "Gate 02": [/10_000/, /data-active-canvas-id/],
+    "Gate 03": [
+      /data-rendered-object-count/,
+      /data-rendered-instance-count/,
+      /toBeLessThan/,
+    ],
+    "Gate 04": [/put_style/, /styleRead\.data.*toEqual/s, /styleId.*toBe/s],
+    "Gate 05": [
+      /put_block_instance/,
+      /select\("origin,rotation,scale_x,scale_y,version"\)/,
+      /transformedRead.*toEqual/s,
+      /delete_block_instance/,
+      /blocked\.error.*toBeTruthy/s,
+    ],
+    "Gate 06": [
+      /lukas_drawing_request_review/,
+      /lukas_drawing_record_revision_decision/,
+      /lukas_drawing_create_from_template/,
+      /sourceRevisionId.*toBe/s,
+    ],
+    "Gate 07": [
+      /put_property_schema/,
+      /rejected\.error.*toBeTruthy/s,
+      /rejected\.error\?\.code.*toBe\("P1C01"\)/s,
+      /put_property_value/,
+    ],
+    "Gate 08": [
+      /getByRole\("table"/,
+      /toHaveCount\(21\)/,
+      /toHaveValue\(\s*"manual-0-0"/s,
+      /page\.reload/,
+      /toContainText/,
+    ],
+    "Gate 09": [
+      /context\.setOffline\(true\)/,
+      /오프라인/,
+      /context\.setOffline\(false\)/,
+      /page\.reload/,
+      /toBeVisible/,
+    ],
+    "Gate 10": [
+      /fixture\.editor/,
+      /authenticateApiClient\(fixture, fixture\.editor\)/,
+      /editorApproval\.error.*toBeTruthy/s,
+      /update\.error.*update\.data/s,
+      /deletion\.error.*deletion\.data/s,
+      /after\.data.*toEqual\(before\.data\)/s,
+      /rpcDenied\.error.*toBeTruthy/s,
+    ],
+    "Gate 11": [
+      /runDownload\(page,\s*"SVG"\)/,
+      /runDownload\(page,\s*"PNG"\)/,
+      /runDownload\(page,\s*"PDF"\)/,
+      /XMLParser/,
+      /parsePng/,
+      /PDFDocument\.load/,
+      /getPageCount\(\).*toBe/s,
+    ],
+    "Gate 12": [
+      /readSourceEvidence/,
+      /storageByteSha256.*metadataSha256/s,
+      /response\?\.status\(\).*toBe\(200\)/s,
+      /\/projects\/\$\{fixture\.projectId\}\/quantities/,
+      /현장 검증 ZIP 다운로드/,
+      /maxRedirects:\s*0/,
+      /releaseDownload\.ok\(\).*toBe\(true\)/s,
+    ],
+  };
+  for (const [gate, patterns] of Object.entries(gateContracts))
+    for (const pattern of patterns)
+      assert.match(gateBodies[gate], pattern, `${gate}: ${pattern}`);
+
+  const performanceTest = calls.find(
+    ({ name, node }) =>
+      name === "test" &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      node.arguments[0].text.includes("performance fixture records"),
+  );
+  assert.ok(performanceTest);
+  const performanceBody = performanceTest.node.arguments[1].getText(file);
+  assert.match(performanceBody, /selectionTargets/);
+  assert.match(
+    performanceBody,
+    /selectionTargets\[selection\s*%\s*selectionTargets\.length\]/,
+  );
+  assert.match(performanceBody, /lastSelectedName/);
+  assert.match(performanceBody, /not\.toBe\(lastSelectedName\)/);
+
   for (const requiredCall of [
     "authenticateContext",
     "authenticateApiClient",
@@ -206,6 +299,17 @@ test("P2 production spec registers all twelve executable serial gates", async ()
   ])
     assert.match(source, new RegExp(evidence.replace(".", "\\.")), evidence);
   assert.doesNotMatch(source, /Yjs|Hocuspocus|live cursor/i);
+});
+
+test("P2 fixture provisions an independent estimator-backed editor", async () => {
+  const source = await read("e2e/utils/drawing-collaboration-fixture.ts");
+  assert.match(source, /editor:\s*TestUser/);
+  assert.match(source, /const editor = await addUser\("editor"\)/);
+  assert.match(source, /user_id:\s*editor\.id,\s*role:\s*"estimator"/s);
+  assert.match(
+    source,
+    /fixture\.owner,\s*fixture\.editor,\s*fixture\.reviewer/s,
+  );
 });
 
 test("canvas exposes active-slice mount evidence to the browser gate", async () => {

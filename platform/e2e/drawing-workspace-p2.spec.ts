@@ -385,17 +385,23 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     await page
       .getByRole("button", { name: /P2 block 01 Instance .*보기/ })
       .click();
-    const instanceButton = page.getByRole("button", {
-      name: "P2 active block instance instance 선택",
-    });
+    const selectionTargets = [
+      "P2 active block instance",
+      "P2 instance 0021",
+    ].map((name) => ({
+      name,
+      button: page.getByRole("button", { name: `${name} instance 선택` }),
+    }));
     const selectionDurations: number[] = [];
+    let lastSelectedName: string | null = null;
     for (let selection = 0; selection < 20; selection += 1) {
+      const target = selectionTargets[selection % selectionTargets.length];
+      expect(target.name).not.toBe(lastSelectedName);
       const selectionStarted = performance.now();
-      await instanceButton.click();
-      await expect(page.getByLabel("속성 검사기")).toContainText(
-        "P2 active block instance",
-      );
+      await target.button.click();
+      await expect(page.getByLabel("속성 검사기")).toContainText(target.name);
       selectionDurations.push(performance.now() - selectionStarted);
+      lastSelectedName = target.name;
     }
     expect(selectionDurations).toHaveLength(20);
     expect(percentile(selectionDurations, 0.95)).toBeLessThanOrEqual(50);
@@ -519,6 +525,19 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
       ],
       { [copyId]: 1 },
     );
+    const { data: transformedRead, error: transformedReadError } = await owner
+      .from("lukas_drawing_block_instances")
+      .select("origin,rotation,scale_x,scale_y,version")
+      .eq("id", copyId)
+      .single();
+    if (transformedReadError) throw transformedReadError;
+    expect(transformedRead).toEqual({
+      origin: transformed.origin,
+      rotation: 45,
+      scale_x: 1.5,
+      scale_y: 0.75,
+      version: 2,
+    });
     const blocked = await owner.rpc("lukas_drawing_apply_operation", {
       p_revision_id: fixture.blankWorkspace.revisionId,
       p_client_operation_id: randomUUID(),
@@ -825,11 +844,23 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     browser,
   }) => {
     const owner = await authenticateApiClient(fixture, fixture.owner);
+    const editor = await authenticateApiClient(fixture, fixture.editor);
     const reviewer = await authenticateApiClient(fixture, fixture.reviewer);
     const viewer = await authenticateApiClient(fixture, fixture.viewer);
     const outsider = await authenticateApiClient(fixture, fixture.nonMember);
     const path = workspacePath(fixture, fixture.blankWorkspace);
 
+    const editorContext = await browser.newContext();
+    const editorPage = await authenticateContext(
+      fixture,
+      editorContext,
+      fixture.editor,
+      baseUrl,
+      path,
+    );
+    await expect(
+      editorPage.getByRole("button", { name: "선 도구" }),
+    ).toBeVisible();
     const reviewerContext = await browser.newContext();
     const reviewerPage = await authenticateContext(
       fixture,
@@ -862,7 +893,31 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     expect(outsiderRead.error).toBeNull();
     expect(outsiderRead.data).toEqual([]);
 
-    const review = await owner.rpc("lukas_drawing_request_review", {
+    const editorObject = {
+      id: randomUUID(),
+      name: "P2 editor-authored evidence",
+      layerId: performanceFixture.layers[0].id,
+      geometry: {
+        type: "line",
+        start: { x: 8, y: 8 },
+        end: { x: 16, y: 16 },
+      },
+      style: { stroke: "#0f172a", strokeWidth: 1, fill: null },
+      version: 1,
+    };
+    await addObjects(editor, fixture.blankWorkspace.revisionId, [editorObject]);
+    const editorRead = await editor
+      .from("lukas_drawing_objects")
+      .select("id,name,version")
+      .eq("id", editorObject.id)
+      .single();
+    if (editorRead.error) throw editorRead.error;
+    expect(editorRead.data).toEqual({
+      id: editorObject.id,
+      name: editorObject.name,
+      version: 1,
+    });
+    const review = await editor.rpc("lukas_drawing_request_review", {
       p_revision_id: fixture.blankWorkspace.revisionId,
     });
     if (review.error) throw review.error;
@@ -878,6 +933,17 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
       },
     );
     expect(ownApproval.error).toBeTruthy();
+    const editorApproval = await editor.rpc(
+      "lukas_drawing_record_revision_decision",
+      {
+        p_revision_id: fixture.blankWorkspace.revisionId,
+        p_subject_version: review.data.subjectVersion,
+        p_snapshot_sha256: review.data.snapshotSha256,
+        p_decision: "approved",
+        p_note: "editor role has no approval capability",
+      },
+    );
+    expect(editorApproval.error).toBeTruthy();
     const approval = await reviewer.rpc(
       "lukas_drawing_record_revision_decision",
       {
@@ -950,14 +1016,14 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
       ],
     ] as const;
     for (const [table, id, patch] of probes) {
-      const before = await owner.from(table).select("*").eq("id", id).single();
+      const before = await editor.from(table).select("*").eq("id", id).single();
       if (before.error) throw before.error;
-      const update = await owner
+      const update = await editor
         .from(table)
         .update(patch)
         .eq("id", id)
         .select("id");
-      const deletion = await owner
+      const deletion = await editor
         .from(table)
         .delete()
         .eq("id", id)
@@ -970,11 +1036,11 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
         Boolean(deletion.error) || deletion.data?.length === 0,
         `${table} delete`,
       ).toBe(true);
-      const after = await owner.from(table).select("*").eq("id", id).single();
+      const after = await editor.from(table).select("*").eq("id", id).single();
       if (after.error) throw after.error;
       expect(after.data, table).toEqual(before.data);
     }
-    const rpcDenied = await owner.rpc("lukas_drawing_apply_operation", {
+    const rpcDenied = await editor.rpc("lukas_drawing_apply_operation", {
       p_revision_id: fixture.blankWorkspace.revisionId,
       p_client_operation_id: randomUUID(),
       p_operation_type: "mutate_structure",
@@ -1004,6 +1070,7 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
           .eq("revision_id", fixture.blankWorkspace.revisionId)
       ).data?.length,
     ).toBe(20);
+    await editorContext.close();
     await reviewerContext.close();
     await viewerContext.close();
   });
@@ -1023,7 +1090,7 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     );
     await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
       "data-rendered-object-count",
-      "501",
+      "502",
     );
     const svg = await runDownload(page, "SVG");
     expect(svg.filename).toMatch(/\.svg$/);
@@ -1124,18 +1191,41 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
       baseUrl,
       "/",
     );
-    for (const route of [
-      `/projects/${fixture.projectId}`,
-      `/projects/${fixture.projectId}/drawings/${fixture.pdfFileId}`,
-      `/projects/${fixture.projectId}/boq`,
-      `/projects/${fixture.projectId}/materials`,
-      `/projects/${fixture.projectId}/ifc/${fixture.ifcFileId}`,
-    ]) {
+    for (const [route, visibleEvidence] of [
+      [`/projects/${fixture.projectId}`, /1HK Drawing E2E/],
+      [
+        `/projects/${fixture.projectId}/drawings/${fixture.pdfFileId}`,
+        /1HK-test-drawing\.pdf/,
+      ],
+      [`/projects/${fixture.projectId}/quantities`, /물량 산출 결과/],
+      [`/projects/${fixture.projectId}/materials`, /자재 관리/],
+      [
+        `/projects/${fixture.projectId}/ifc/${fixture.ifcFileId}`,
+        /모델을 보고 요소와 속성을 확인합니다/,
+      ],
+    ] as const) {
       const response = await page.goto(`${baseUrl}${route}`);
-      expect(response?.status(), route).toBeLessThan(500);
+      expect(response?.status(), route).toBe(200);
       expect(page.url(), route).toContain(route);
+      await expect(page.getByText(visibleEvidence).first()).toBeVisible();
     }
-    await expect(page.getByText(/IFC|Revit/).first()).toBeVisible();
+
+    const downloadLanding = await page.goto(`${baseUrl}/download`);
+    expect(downloadLanding?.status()).toBe(200);
+    const revitLink = page.getByRole("link", {
+      name: /현장 검증 ZIP 다운로드/,
+    });
+    await expect(revitLink).toHaveAttribute("href", "/download/revit-2025");
+    const releaseRedirect = await page.request.get(
+      `${baseUrl}/download/revit-2025`,
+      { maxRedirects: 0 },
+    );
+    expect([301, 302, 303, 307, 308]).toContain(releaseRedirect.status());
+    const releaseUrl = releaseRedirect.headers().location;
+    expect(releaseUrl).toBeTruthy();
+    const releaseDownload = await page.request.get(releaseUrl!);
+    expect(releaseDownload.ok()).toBe(true);
+    expect((await releaseDownload.body()).byteLength).toBeGreaterThan(0);
     await context.close();
     const combinedSha = createHash("sha256")
       .update(
