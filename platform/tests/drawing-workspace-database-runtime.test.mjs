@@ -168,6 +168,14 @@ const p2LineageSnapshotWriterMigration = () =>
   );
 const p2TemplateCloneSecurityMigration = () =>
   readFile(new URL("../supabase/migrations/20260825190000_drawing_workspace_template_clone_security.sql", import.meta.url), "utf8");
+const p3CollaborationStateMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825192113_drawing_workspace_p3_collaboration_state.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const p2TemplateCloneFinalLedgerMigration = () =>
   readFile(
     new URL(
@@ -239,6 +247,7 @@ const foundationSql = `
     create role anon nologin;
     create role authenticated nologin;
     create role service_role nologin bypassrls;
+    create publication supabase_realtime;
     create schema auth;
     create schema private;
     create table auth.users(id uuid primary key);
@@ -499,6 +508,7 @@ before(async () => {
   await db.exec(await p2LegacyTemplateSnapshotCloneMigration());
   await db.exec(await p2LineageSnapshotWriterMigration());
   await db.exec(await p2TemplateCloneSecurityMigration());
+  await db.exec(await p3CollaborationStateMigration());
   await db.exec(await p2TemplateCloneFinalLedgerMigration());
   await db.exec(await task9ContractFixesMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
@@ -521,6 +531,316 @@ before(async () => {
      values ($1,$2,$3,'pdf',$4)`,
     [PDF, PROJECT, OWNER, PDF_SHA],
   );
+});
+
+test("P3 collaboration bootstrap is one canonical capability-scoped payload", async () => {
+  const ids = await createDocument("P3 bootstrap");
+  const owner = await db.query(
+    "select public.lukas_drawing_collaboration_bootstrap($1) result",
+    [ids.revisionId],
+  );
+  const payload = owner.rows[0].result;
+  assert.equal(payload.schemaVersion, 2);
+  assert.equal(payload.operationSequence, 0);
+  assert.equal(payload.revisionStatus, "draft");
+  assert.equal(payload.capability, "admin");
+  assert.equal(payload.canWrite, true);
+  assert.equal(payload.canonicalJson.revision.id, ids.revisionId);
+  await db.exec("reset role");
+  const canonicalDigest = await db.query(
+    "select encode(extensions.digest(convert_to(private.lukas_drawing_p2_canonical_snapshot($1,true)::text,'UTF8'),'sha256'),'hex') sha",
+    [ids.revisionId],
+  );
+  assert.equal(payload.sha256, canonicalDigest.rows[0].sha);
+  assert.deepEqual(payload.recentOutcomes, []);
+
+  await asActor(REVIEWER);
+  const reviewer = await db.query(
+    "select public.lukas_drawing_collaboration_bootstrap($1) result",
+    [ids.revisionId],
+  );
+  assert.equal(reviewer.rows[0].result.capability, "reviewer");
+  assert.equal(reviewer.rows[0].result.canWrite, false);
+
+  await asActor(OUTSIDER);
+  await assert.rejects(
+    db.query("select public.lukas_drawing_collaboration_bootstrap($1)", [
+      ids.revisionId,
+    ]),
+    (error) => error.code === "P3A01",
+  );
+
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_qto_project_members(project_id,user_id,role) values($1,$2,'viewer')",
+    [PROJECT, OUTSIDER],
+  );
+  await asActor(OUTSIDER);
+  const viewer = await db.query(
+    "select public.lukas_drawing_collaboration_bootstrap($1) result",
+    [ids.revisionId],
+  );
+  assert.equal(viewer.rows[0].result.capability, "viewer");
+  assert.equal(viewer.rows[0].result.canWrite, false);
+  await db.exec("reset role");
+  await db.query(
+    "delete from public.lukas_qto_project_members where project_id=$1 and user_id=$2",
+    [PROJECT, OUTSIDER],
+  );
+
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  const editor = await db.query(
+    "select * from private.lukas_drawing_collaboration_authorize($1,$2,$3)",
+    [EDITOR, PROJECT, ids.revisionId],
+  );
+  assert.deepEqual(editor.rows[0], {
+    capability: "editor",
+    can_write: true,
+    revision_status: "draft",
+  });
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_authorize($1,$2,$3)",
+      [EDITOR, randomUUID(), ids.revisionId],
+    ),
+    (error) => error.code === "P3A01",
+  );
+  await db.exec("reset role");
+});
+
+test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, and draft-only", async () => {
+  const ids = await createDocument("P3 state");
+  const firstBytes = Buffer.from([0, 1, 2, 3]);
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  const stored = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+    [OWNER, PROJECT, ids.revisionId, firstBytes],
+  );
+  assert.equal(stored.rows[0].byte_size, firstBytes.length);
+  assert.equal(
+    stored.rows[0].yjs_sha256,
+    createHash("sha256").update(firstBytes).digest("hex"),
+  );
+  const editorStore = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+    [EDITOR, PROJECT, ids.revisionId, Buffer.from([3, 2, 1])],
+  );
+  assert.deepEqual([...editorStore.rows[0].yjs_state], [3, 2, 1]);
+
+  const reviewerLoad = await db.query(
+    "select * from private.lukas_drawing_collaboration_load_state($1,$2,$3)",
+    [REVIEWER, PROJECT, ids.revisionId],
+  );
+  assert.equal(reviewerLoad.rows.length, 1);
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+      [REVIEWER, PROJECT, ids.revisionId, Buffer.from([9])],
+    ),
+    (error) => error.code === "P3A02",
+  );
+  for (const [schema, bytes, sequence] of [
+    [2, Buffer.from([1]), 0],
+    [1, Buffer.alloc(0), 0],
+    [1, Buffer.from([1]), 1],
+  ]) {
+    await assert.rejects(
+      db.query(
+        "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,$4::smallint,$5::bytea,$6::bigint)",
+        [OWNER, PROJECT, ids.revisionId, schema, bytes, sequence],
+      ),
+      (error) => error.code === "P3S01",
+    );
+  }
+  await db.exec("reset role");
+
+  await asActor(OWNER);
+  const layerId = randomUUID();
+  const acceptedId = randomUUID();
+  await applyOperationWithId(
+    ids.revisionId,
+    acceptedId,
+    "add_layer",
+    { [layerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: layerId,
+        name: "P3 accepted layer",
+        canvasId: ids.canvasId,
+        sortOrder: 4,
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
+    [OWNER, PROJECT, ids.revisionId, Buffer.from([4, 5])],
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([6])],
+    ),
+    (error) => error.code === "P3S02",
+  );
+
+  const accepted = await db.query(
+    "select * from private.lukas_drawing_collaboration_lookup_operations($1,$2)",
+    [ids.revisionId, [acceptedId, randomUUID()]],
+  );
+  assert.equal(accepted.rows.length, 1);
+  assert.deepEqual(Object.keys(accepted.rows[0]), [
+    "revision_id",
+    "client_operation_id",
+    "actor_id",
+    "operation_type",
+    "base_versions",
+    "forward",
+    "inverse",
+    "sequence",
+    "result_versions",
+  ]);
+  const bootstrap = await db.query(
+    "select private.lukas_drawing_collaboration_bootstrap($1,$2,$3) result",
+    [OWNER, PROJECT, ids.revisionId],
+  );
+  assert.equal(bootstrap.rows[0].result.operationSequence, 1);
+  assert.equal(bootstrap.rows[0].result.recentOutcomes.length, 1);
+  assert.equal(
+    bootstrap.rows[0].result.recentOutcomes[0].clientOperationId,
+    acceptedId,
+  );
+  assert.deepEqual(Object.keys(bootstrap.rows[0].result.recentOutcomes[0]), [
+    "actorId",
+    "forward",
+    "inverse",
+    "sequence",
+    "revisionId",
+    "baseVersions",
+    "operationType",
+    "resultVersions",
+    "clientOperationId",
+  ]);
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_lookup_operations($1,$2)",
+      [ids.revisionId, []],
+    ),
+    (error) => error.code === "P3S01",
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_lookup_operations($1,$2)",
+      [ids.revisionId, Array.from({ length: 257 }, () => randomUUID())],
+    ),
+    (error) => error.code === "P3S01",
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_lookup_operations($1,$2)",
+      [ids.revisionId, [acceptedId, acceptedId]],
+    ),
+    (error) => error.code === "P3S01",
+  );
+
+  await db.exec("reset role; alter table public.lukas_drawing_revisions disable trigger user");
+  await db.query(
+    "update public.lukas_drawing_revisions set status='review_requested',review_requested_at=now() where id=$1",
+    [ids.revisionId],
+  );
+  await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([7])],
+    ),
+    (error) => error.code === "P3A02",
+  );
+  await db.exec("reset role; alter table public.lukas_drawing_revisions disable trigger user");
+  await db.query(
+    "update public.lukas_drawing_revisions set status='approved',approved_at=now() where id=$1",
+    [ids.revisionId],
+  );
+  await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([8])],
+    ),
+    (error) => error.code === "P3A02",
+  );
+  await db.exec("reset role");
+
+  const privileges = await db.query(`select
+    has_table_privilege('authenticated','private.lukas_drawing_collaboration_states','select') authenticated_table,
+    has_table_privilege('service_role','private.lukas_drawing_collaboration_states','select') service_table,
+    has_table_privilege('anon','private.lukas_drawing_collaboration_states','select') anon_table,
+    has_table_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_states','select') collaboration_table,
+    has_function_privilege('authenticated','private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)','execute') authenticated_private,
+    has_function_privilege('anon','private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)','execute') anon_private,
+    has_function_privilege('service_role','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') service_store,
+    has_function_privilege('service_role','public.lukas_drawing_collaboration_bootstrap(uuid)','execute') service_public,
+    has_function_privilege('authenticated','public.lukas_drawing_collaboration_bootstrap(uuid)','execute') authenticated_public,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') collaboration_store`);
+  assert.deepEqual(privileges.rows[0], {
+    authenticated_table: false,
+    service_table: false,
+    anon_table: false,
+    collaboration_table: false,
+    authenticated_private: false,
+    anon_private: false,
+    service_store: false,
+    service_public: false,
+    authenticated_public: true,
+    collaboration_store: true,
+  });
+  const privateSignatures = [
+    "private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid)",
+    "private.lukas_drawing_collaboration_load_state(uuid,uuid,uuid)",
+    "private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)",
+    "private.lukas_drawing_collaboration_lookup_operations(uuid,uuid[])",
+    "private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)",
+  ];
+  for (const signature of privateSignatures) {
+    const grants = await db.query(`select
+      has_function_privilege('public',$1,'execute') public_execute,
+      has_function_privilege('anon',$1,'execute') anon_execute,
+      has_function_privilege('authenticated',$1,'execute') authenticated_execute,
+      has_function_privilege('service_role',$1,'execute') service_execute,
+      has_function_privilege('lukas_drawing_collaboration',$1,'execute') collaboration_execute`,
+    [signature]);
+    assert.deepEqual(grants.rows[0], {
+      public_execute: false,
+      anon_execute: false,
+      authenticated_execute: false,
+      service_execute: false,
+      collaboration_execute: true,
+    });
+  }
+  const roleAndPublication = await db.query(`select
+    (select not rolcanlogin from pg_roles where rolname='lukas_drawing_collaboration') role_is_nologin,
+    (select not rolinherit from pg_roles where rolname='lukas_drawing_collaboration') role_is_noinherit,
+    (select array_agg(tablename order by tablename) from pg_publication_tables
+      where pubname='supabase_realtime' and schemaname='public'
+        and tablename in ('lukas_drawing_revisions','lukas_drawing_object_issue_links','lukas_drawing_issues','lukas_qto_project_members')) publication_tables,
+    exists(select 1 from pg_publication_tables where pubname='supabase_realtime'
+      and tablename='lukas_drawing_collaboration_states') private_state_published`);
+  assert.deepEqual(roleAndPublication.rows[0], {
+    role_is_nologin: true,
+    role_is_noinherit: true,
+    publication_tables: [
+      "lukas_drawing_issues",
+      "lukas_drawing_object_issue_links",
+      "lukas_drawing_revisions",
+      "lukas_qto_project_members",
+    ],
+    private_state_published: false,
+  });
 });
 
 test("P2 navigation persists exact layer-only reorder and inverse through the RPC", async () => {

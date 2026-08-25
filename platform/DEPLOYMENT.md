@@ -106,6 +106,43 @@ Do not mark the drawing room complete from build output alone. Production maker,
 reviewer, viewer, and non-member behavior must be verified by database enforcement,
 and two real users must complete the field flow.
 
+## Drawing Workspace P3 collaboration database
+
+The P3 state migration creates `lukas_drawing_collaboration` as a `NOLOGIN`
+database role. After applying the migration, create or rotate a separate runtime
+login through the deployment secret manager and grant it only that role. Never
+commit its password or place its database URL in a `VITE_*` variable. The
+collaboration service must not use the Supabase service-role key.
+
+Before deploying the collaboration service, verify that the runtime login inherits
+only the dedicated role, Data API roles cannot read the private state or execute
+private collaboration functions, and the role itself cannot log in:
+
+```sql
+select rolname, rolcanlogin, rolinherit
+from pg_roles
+where rolname = 'lukas_drawing_collaboration';
+
+select grantee, routine_schema, routine_name, privilege_type
+from information_schema.role_routine_grants
+where routine_name like 'lukas_drawing_collaboration_%'
+order by routine_schema, routine_name, grantee;
+
+select has_table_privilege(
+  'authenticated',
+  'private.lukas_drawing_collaboration_states',
+  'select'
+) as authenticated_can_read_private_state;
+```
+
+The role must report `rolcanlogin = false`; private service functions must be
+executable only through `lukas_drawing_collaboration`; the table check must be
+false. Confirm stored `byte_size` and `yjs_sha256` match the exact `yjs_state`
+bytes, and that no collaboration-state table appears in `supabase_realtime`.
+Only the public invalidation tables listed by the workspace Realtime adapter may
+be added to that publication. The migration never changes the locked `realtime`
+schema.
+
 ## Drawing Workspace P0/P1 release runbook
 
 The browser editor is an additive route. Keep the existing collaboration room
