@@ -18,6 +18,9 @@ const vite = await createServer({
 const workspaceModule = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-workspace.tsx",
 );
+const realtimeModule = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-workspace-realtime.ts",
+);
 const exportDialogModule = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-export-dialog.tsx",
 );
@@ -40,6 +43,8 @@ function renderWorkspace(overrides = {}) {
             element: createElement(workspaceModule.default, {
               ...fixture,
               previewMode: true,
+              realtimeAdapter:
+                realtimeModule.createInertDrawingWorkspaceRealtimeAdapter(),
             }),
           },
         ],
@@ -112,6 +117,13 @@ test("local preview uses project-owned drawing copy", () => {
   assert.doesNotMatch(fixture.workspace.document.title, /Rayon/);
   assert.doesNotMatch(fixture.workspace.file.original_filename, /Rayon/);
   assert.doesNotMatch(renderWorkspace(), /Rayon \/ /);
+});
+
+test("local preview exposes its inert connected realtime state in the workspace top bar", () => {
+  assert.match(
+    renderWorkspace(),
+    /aria-label="실시간 상태: 실시간 연결됨"[^>]*>[^<]*실시간 연결됨/,
+  );
 });
 
 test("workspace offers the native export dialog to editors and viewers", () => {

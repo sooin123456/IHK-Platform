@@ -1,6 +1,7 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
+import { createInertDrawingWorkspaceRealtimeAdapter } from "~/lukas/lib/drawing-workspace-realtime";
 import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
 import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
@@ -61,6 +62,7 @@ const ids = {
 
 const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
+const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
 
 const styleWall: DrawingStyleDefinition = {
   id: ids.styleWall,
@@ -670,7 +672,11 @@ export default function LocalDrawingWorkspacePreview({
 }: Route.ComponentProps) {
   return (
     <>
-      <DrawingWorkspaceClient {...loaderData} previewMode />
+      <DrawingWorkspaceClient
+        {...loaderData}
+        previewMode
+        realtimeAdapter={previewRealtimeAdapter}
+      />
       <aside
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"

@@ -12,6 +12,16 @@ async function openPreview(page: Page) {
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
 }
 
+test("local preview keeps its realtime indicator connected without a Supabase request", async ({
+  page,
+}) => {
+  await openPreview(page);
+
+  await expect(
+    page.getByRole("status", { name: "실시간 상태: 실시간 연결됨" }),
+  ).toBeVisible();
+});
+
 test("local preview click selects the Style tab and reveals its panel", async ({
   page,
 }) => {

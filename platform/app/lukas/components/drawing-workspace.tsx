@@ -101,6 +101,10 @@ import {
   type DrawingClientModuleState,
 } from "~/lukas/lib/drawing-workspace-view";
 import {
+  useDrawingWorkspaceRealtime,
+  type DrawingWorkspaceRealtimeAdapter,
+} from "~/lukas/lib/drawing-workspace-realtime";
+import {
   DrawingCommandMenu,
   type DrawingCommandId,
 } from "./drawing-command-menu";
@@ -456,6 +460,7 @@ type Props = {
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
   previewMode?: boolean;
+  realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -468,6 +473,7 @@ export default function DrawingWorkspaceClient({
   capability,
   currentUserId,
   previewMode = false,
+  realtimeAdapter,
   roomUrl,
   sourceUrl,
   workspace,
@@ -539,6 +545,13 @@ export default function DrawingWorkspaceClient({
   const { file, document: drawingDocument } = workspace;
   const navigation = useNavigation();
   const { revision } = drawingDocument;
+  const realtime = useDrawingWorkspaceRealtime({
+    adapter: realtimeAdapter,
+    enabled: true,
+    projectId: revision.project_id,
+    revisionId: revision.id,
+    userId: currentUserId,
+  });
   const documentStoreRef = useRef<DrawingDocumentStore | null>(null);
   if (!documentStoreRef.current) {
     documentStoreRef.current = createDrawingDocumentStore(
@@ -1393,6 +1406,13 @@ export default function DrawingWorkspaceClient({
           >
             <Cloud className="size-4" />
             {saveStatus}
+          </span>
+          <span
+            aria-label={`실시간 상태: ${realtime.message}`}
+            className={`inline-flex min-h-9 items-center px-2 text-xs ${realtime.phase === "connected" ? "text-emerald-300" : realtime.phase === "disconnected" ? "text-amber-300" : "text-slate-300"}`}
+            role="status"
+          >
+            {realtime.message}
           </span>
           <DrawingExportDialog
             createdAt={drawingDocument.created_at}
