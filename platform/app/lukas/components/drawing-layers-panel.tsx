@@ -70,12 +70,7 @@ export function DrawingLayersPanel({
         activeCanvasId ?? undefined,
       );
       onCommand(command);
-      const layer =
-        command.type === "add_layer"
-          ? command.layer
-          : command.actions.find((action) => "entity" in action)?.entity;
-      if (!layer) throw new Error("레이어 생성 작업이 없습니다.");
-      onActiveLayerChange(layer.id);
+      onActiveLayerChange(command.layer.id);
       setError(null);
       form.reset();
     } catch (caught) {

@@ -183,6 +183,42 @@ export type DrawingTransientState = {
   selectedIds: string[];
 };
 
+type ActiveCanvasSlice = {
+  layers: Record<string, DrawingLayer>;
+  objects: Record<string, DrawingObject>;
+};
+
+const activeCanvasSlices = new WeakMap<
+  DrawingDocumentSnapshot,
+  Map<string, ActiveCanvasSlice>
+>();
+
+/** Memoizes canonical canvas indexes by stable snapshot identity and canvas ID. */
+export function drawingActiveCanvasSlice(
+  snapshot: DrawingDocumentSnapshot,
+): ActiveCanvasSlice {
+  const canvasId = snapshot.activeCanvasId ?? "";
+  let byCanvas = activeCanvasSlices.get(snapshot);
+  if (!byCanvas) {
+    byCanvas = new Map();
+    activeCanvasSlices.set(snapshot, byCanvas);
+  }
+  const cached = byCanvas.get(canvasId);
+  if (cached) return cached;
+  const layers = Object.fromEntries(
+    Object.entries(snapshot.layers).filter(([, layer]) =>
+      !canvasId || layer.canvasId === canvasId,
+    ),
+  ) as Record<string, DrawingLayer>;
+  const layerIds = new Set(Object.keys(layers));
+  const objects = Object.fromEntries(
+    Object.entries(snapshot.objects).filter(([, object]) => layerIds.has(object.layerId)),
+  ) as Record<string, DrawingObject>;
+  const slice = { layers, objects };
+  byCanvas.set(canvasId, slice);
+  return slice;
+}
+
 /**
  * Names the boundary at which transient canvas interaction must be discarded.
  * It intentionally includes permission as well as the active document slice.
@@ -236,16 +272,7 @@ export function deriveDrawingTransientState(
     selectedIds: string[];
   },
 ): DrawingTransientState {
-  const activeCanvasId = snapshot.activeCanvasId;
-  const layers = Object.fromEntries(
-    Object.entries(snapshot.layers).filter(([, layer]) =>
-      !activeCanvasId || layer.canvasId === activeCanvasId,
-    ),
-  ) as Record<string, DrawingLayer>;
-  const layerIds = new Set(Object.keys(layers));
-  const objects = Object.fromEntries(
-    Object.entries(snapshot.objects).filter(([, object]) => layerIds.has(object.layerId)),
-  );
+  const { layers, objects } = drawingActiveCanvasSlice(snapshot);
   const eligible = (layer: DrawingLayer | undefined) => Boolean(
     layer &&
     (layer.systemKind === "work" || layer.systemKind === "custom") &&

@@ -227,8 +227,9 @@ test("page tree and canvas-scoped layer controls use native labeled interactions
   assert.match(shell, /<DrawingPagesPanel/);
   assert.match(shell, /documentStore\.selectCanvas/);
   assert.match(shell, /activeCanvasId=\{drawingState\.activeCanvasId\}/);
-  assert.match(pages, /role="tree"/);
-  assert.match(pages, /role="treeitem"/);
+  assert.doesNotMatch(pages, /role="tree(?:item)?"/);
+  assert.match(pages, /<ul/);
+  assert.match(pages, /type="button"/);
   for (const label of [
     "새 페이지 이름",
     "페이지 추가",

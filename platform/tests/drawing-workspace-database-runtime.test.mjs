@@ -94,6 +94,14 @@ const p2HistoryReconciliationMigration = () =>
     ),
     "utf8",
   );
+const p2NavigationHardeningMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825100000_drawing_workspace_p2_navigation_hardening.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -268,6 +276,7 @@ before(async () => {
   await db.exec(await p2HardeningMigration());
   await db.exec(await p2CompatibilityMigration());
   await db.exec(await p2HistoryReconciliationMigration());
+  await db.exec(await p2NavigationHardeningMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -288,6 +297,128 @@ before(async () => {
      values ($1,$2,$3,'pdf',$4)`,
     [PDF, PROJECT, OWNER, PDF_SHA],
   );
+});
+
+test("P2 navigation persists exact layer-only reorder and inverse through the RPC", async () => {
+  const ids = await createDocument();
+  const detailId = randomUUID();
+  const detail = {
+    id: detailId,
+    name: "Details",
+    visible: true,
+    locked: false,
+    canvasId: ids.canvasId,
+    sortOrder: 2,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [detailId]: 1 },
+    { type: "add_layer", layer: detail },
+    {},
+  );
+  const existingWork = await db.query(
+    "select name,visible,locked,system_kind,canvas_id,sort_order,version from public.lukas_drawing_layers where id=$1",
+    [ids.workLayerId],
+  );
+  const existingDetail = await db.query(
+    "select name,visible,locked,system_kind,canvas_id,sort_order,version from public.lukas_drawing_layers where id=$1",
+    [detailId],
+  );
+  const work = {
+    id: ids.workLayerId,
+    name: existingWork.rows[0].name,
+    visible: existingWork.rows[0].visible,
+    locked: existingWork.rows[0].locked,
+    systemKind: existingWork.rows[0].system_kind,
+    canvasId: existingWork.rows[0].canvas_id,
+    sortOrder: 1,
+    version: existingWork.rows[0].version,
+  };
+  const persistedDetail = {
+    id: detailId,
+    name: existingDetail.rows[0].name,
+    visible: existingDetail.rows[0].visible,
+    locked: existingDetail.rows[0].locked,
+    systemKind: existingDetail.rows[0].system_kind,
+    canvasId: existingDetail.rows[0].canvas_id,
+    sortOrder: existingDetail.rows[0].sort_order,
+    version: existingDetail.rows[0].version,
+  };
+  const first = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_layer", entity: work, baseVersion: 1 },
+      {
+        kind: "put_layer",
+        entity: { ...persistedDetail, sortOrder: 1 },
+        baseVersion: 1,
+      },
+    ],
+  };
+  const undoFirst = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_layer", entity: persistedDetail, baseVersion: 2 },
+      {
+        kind: "put_layer",
+        entity: { ...work, sortOrder: existingWork.rows[0].sort_order },
+        baseVersion: 2,
+      },
+    ],
+  };
+  const redoFirst = {
+    type: "mutate_structure",
+    actions: [
+      { kind: "put_layer", entity: { ...work, version: 2 }, baseVersion: 3 },
+      {
+        kind: "put_layer",
+        entity: { ...persistedDetail, sortOrder: 1, version: 2 },
+        baseVersion: 3,
+      },
+    ],
+  };
+  const applied = await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [ids.workLayerId]: 1, [detailId]: 1 },
+    first,
+    undoFirst,
+  );
+  assert.deepEqual(applied.resultVersions, { [ids.workLayerId]: 2, [detailId]: 2 });
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [ids.workLayerId]: 2, [detailId]: 2 },
+    undoFirst,
+    redoFirst,
+  );
+  await db.exec("reset role");
+  const persisted = await db.query(
+    "select id,sort_order,version from public.lukas_drawing_layers where id in ($1,$2) order by id",
+    [ids.workLayerId, detailId],
+  );
+  const restored = Object.fromEntries(persisted.rows.map((row) => [row.id, [row.sort_order, row.version]]));
+  assert.deepEqual(restored[ids.workLayerId], [existingWork.rows[0].sort_order, 3]);
+  assert.deepEqual(restored[detailId], [existingDetail.rows[0].sort_order, 3]);
+});
+
+test("P2 navigation database invariant refuses removal of the last page", async () => {
+  const ids = await createDocument();
+  await db.exec("reset role");
+  await db.query(
+    "select set_config('private.lukas_drawing_delete_page_ids',$1,false)",
+    [ids.pageId],
+  );
+  await assert.rejects(
+    db.query("delete from public.lukas_drawing_pages where id=$1", [ids.pageId]),
+    (error) => error.code === "P1C01" && /at least one page/i.test(error.message),
+  );
+  await db.query(
+    "select set_config('private.lukas_drawing_delete_page_ids','',false)",
+  );
+  await asActor(OWNER);
 });
 
 test("release hardening gives one non-null source one document and keeps blank documents repeatable", async () => {

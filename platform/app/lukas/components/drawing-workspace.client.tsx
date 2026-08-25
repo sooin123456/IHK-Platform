@@ -437,7 +437,13 @@ export default function DrawingWorkspaceClient({
         canEdit: baseCanEdit,
         ...transientInput,
       }),
-    [baseCanEdit, drawingState, transientInput],
+    [
+      baseCanEdit,
+      drawingState,
+      transientInput.activeLayerId,
+      transientInput.activeTool,
+      transientInput.selectedIds,
+    ],
   );
   const activeDrawingState = transient.state;
   const visibleObjects = useMemo(

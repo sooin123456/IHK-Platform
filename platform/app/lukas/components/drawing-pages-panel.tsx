@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
   createDrawingCanvasCommand,
@@ -46,6 +46,10 @@ export function DrawingPagesPanel({
   state,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
+  const canvasButtons = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (activeCanvasId) canvasButtons.current.get(activeCanvasId)?.focus();
+  }, [activeCanvasId]);
   const structure = state.structure;
   if (!structure) return null;
   const pages = ordered(Object.values(structure.pages));
@@ -137,7 +141,6 @@ export function DrawingPagesPanel({
       ) : null}
       <ul
         className="mt-4 space-y-3"
-        role="tree"
         aria-label="도면 페이지와 canvas"
       >
         {pages.map((page, pageIndex) => {
@@ -148,7 +151,7 @@ export function DrawingPagesPanel({
           );
           const pageDeleteReason = drawingPageDeletionReason(state, page.id);
           return (
-            <li key={page.id} role="treeitem" aria-expanded="true">
+            <li key={page.id}>
               <div className="rounded-md border border-white/10 bg-white/5 p-2">
                 {canEdit ? (
                   <div className="flex items-center gap-1">
@@ -210,17 +213,18 @@ export function DrawingPagesPanel({
                     </button>
                     <button
                       aria-label={`페이지 삭제: ${page.name}`}
+                      aria-describedby={pageDeleteReason ? `page-delete-reason-${page.id}` : undefined}
                       disabled={Boolean(pageDeleteReason)}
                       onClick={() =>
                         run(() =>
                           deleteDrawingPageCommand(state, actorId, page.id),
                         )
                       }
-                      title={pageDeleteReason ?? "페이지 삭제"}
                       type="button"
                     >
                       삭제
                     </button>
+                    {pageDeleteReason ? <p className="text-xs text-slate-400" id={`page-delete-reason-${page.id}`}>{pageDeleteReason}</p> : null}
                   </div>
                 ) : (
                   <p className="font-medium">{page.name}</p>
@@ -244,22 +248,21 @@ export function DrawingPagesPanel({
               </div>
               <ul
                 className="ml-3 mt-2 space-y-2 border-l border-white/10 pl-3"
-                role="group"
               >
                 {canvases.map((canvas, canvasIndex) => {
                   const reason = drawingCanvasDeletionReason(state, canvas.id);
                   return (
-                    <li
-                      key={canvas.id}
-                      role="treeitem"
-                      aria-selected={activeCanvasId === canvas.id}
-                    >
+                    <li key={canvas.id}>
                       <div className="rounded-md border border-white/10 p-2">
                         <button
                           aria-current={
                             activeCanvasId === canvas.id ? "page" : undefined
                           }
                           className="min-h-9 text-left text-sm font-medium"
+                          ref={(node) => {
+                            if (node) canvasButtons.current.set(canvas.id, node);
+                            else canvasButtons.current.delete(canvas.id);
+                          }}
                           onClick={() => onCanvasSelect(canvas.id)}
                           type="button"
                         >
@@ -331,6 +334,7 @@ export function DrawingPagesPanel({
                             </button>
                             <button
                               aria-label={`canvas 삭제: ${canvas.name}`}
+                              aria-describedby={reason ? `canvas-delete-reason-${canvas.id}` : undefined}
                               disabled={Boolean(reason)}
                               onClick={() =>
                                 run(() =>
@@ -341,11 +345,11 @@ export function DrawingPagesPanel({
                                   ),
                                 )
                               }
-                              title={reason ?? "canvas 삭제"}
                               type="button"
                             >
                               삭제
                             </button>
+                            {reason ? <p className="text-xs text-slate-400" id={`canvas-delete-reason-${canvas.id}`}>{reason}</p> : null}
                           </div>
                         ) : null}
                       </div>

@@ -7,6 +7,10 @@ import {
 } from "../app/lukas/lib/drawing-structure.ts";
 import {
   createDrawingCanvasCommand,
+  createDrawingLayerCommand,
+  deleteDrawingPageCommand,
+  drawingPageDeletionReason,
+  reorderDrawingCanvasCommand,
   createDrawingPageCommand,
   deleteDrawingCanvasCommand,
   reorderDrawingLayerCommand,
@@ -268,6 +272,117 @@ test("page and canvas factories record atomic structural creation and determinis
   assert.throws(
     () => deleteDrawingCanvasCommand(documentState, "actor-a", ids.canvas),
     /default paper canvas/,
+  );
+});
+
+test("page, canvas, and layer navigation commands reject duplicates, pin defaults, and normalize order", () => {
+  const secondPageId = "00000000-0000-4000-8000-000000000120";
+  const secondCanvasId = "00000000-0000-4000-8000-000000000121";
+  const secondLayerId = "00000000-0000-4000-8000-000000000122";
+  const current = state({
+    pages: {
+      ...state().pages,
+      [secondPageId]: {
+        id: secondPageId,
+        revisionId: ids.revision,
+        name: "Page 2",
+        sortOrder: 1,
+        version: 1,
+      },
+    },
+    canvases: {
+      [ids.canvas]: canvas(),
+      [ids.modelCanvas]: canvas({
+        id: ids.modelCanvas,
+        name: "Model",
+        spaceKind: "model",
+        sortOrder: 4,
+      }),
+      [secondCanvasId]: canvas({
+        id: secondCanvasId,
+        pageId: secondPageId,
+        name: "Paper",
+        sortOrder: 0,
+      }),
+    },
+    layers: {
+      ...state().layers,
+      [ids.modelLayer]: {
+        ...state().layers[ids.layer],
+        id: ids.modelLayer,
+        canvasId: ids.modelCanvas,
+        name: "Detail",
+        sortOrder: 8,
+      },
+      [secondLayerId]: {
+        ...state().layers[ids.layer],
+        id: secondLayerId,
+        canvasId: ids.modelCanvas,
+        name: "Notes",
+        sortOrder: 8,
+      },
+    },
+  });
+  const documentState = { revisionId: ids.revision, layers: current.layers, structure: current };
+
+  assert.equal(
+    createDrawingCanvasCommand(documentState, "actor-a", ids.page, "paper", "Paper", () => "00000000-0000-4000-8000-000000000124").actions[0].entity.name,
+    "Paper 2",
+  );
+  assert.throws(
+    () => reorderDrawingCanvasCommand(documentState, "actor-a", ids.canvas, "down"),
+    /default paper canvas/i,
+  );
+  const reorder = reorderDrawingLayerCommand(documentState, "actor-a", ids.modelLayer, "down");
+  assert.equal(
+    reorder.actions.find(({ entity }) => entity.id === ids.modelLayer).entity.sortOrder,
+    1,
+  );
+  assert.equal(
+    reorder.actions.find(({ entity }) => entity.id === secondLayerId).entity.sortOrder,
+    0,
+  );
+  assert.throws(
+    () => deleteDrawingPageCommand({ ...documentState, structure: state({ canvases: { [ids.canvas]: canvas() } }) }, "actor-a", ids.page),
+    /at least one page/i,
+  );
+  assert.equal(
+    drawingPageDeletionReason({ ...documentState, structure: state({ canvases: { [ids.canvas]: canvas() } }) }, ids.page),
+    "A drawing document requires at least one page.",
+  );
+});
+
+test("standalone P2 layer creation uses legacy add_layer with canonical canvas fields", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  const command = createDrawingLayerCommand(
+    { revisionId: ids.revision, layers: current.layers, structure: current },
+    "actor-a",
+    "Details",
+    () => "00000000-0000-4000-8000-000000000123",
+    ids.canvas,
+  );
+  assert.equal(command.type, "add_layer");
+  assert.deepEqual(command.layer, {
+    id: "00000000-0000-4000-8000-000000000123",
+    name: "Details",
+    visible: true,
+    locked: false,
+    canvasId: ids.canvas,
+    sortOrder: 1,
+    version: 1,
+  });
+});
+
+test("structure reducer rejects deleting the last page", () => {
+  const current = state({ canvases: { [ids.canvas]: canvas() } });
+  assert.throws(
+    () =>
+      applyDrawingStructureActions(current, [
+        { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
+        { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+        { kind: "delete_page", id: ids.page, baseVersion: 1 },
+      ]),
+    /at least one page/i,
   );
 });
 
@@ -899,7 +1014,7 @@ test("rotated block conversion accepts its exact generated inverse without weake
   );
 });
 
-test("fresh structure entities start at version one and pages may remove their default canvas before themselves", () => {
+test("fresh structure entities start at version one and documents cannot lose their final page", () => {
   const current = state({ canvases: { [ids.canvas]: canvas() } });
   assert.throws(
     () =>
@@ -935,13 +1050,12 @@ test("fresh structure entities start at version one and pages may remove their d
       ]),
     DrawingStructureError,
   );
-  const deleted = applyDrawingStructureActions(current, [
-    { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
-    { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
-    { kind: "delete_page", id: ids.page, baseVersion: 1 },
-  ]);
-  assert.deepEqual(deleted.state.pages, {});
-  const restored = applyDrawingStructureActions(deleted.state, deleted.inverse);
-  assert.equal(restored.state.canvases[ids.canvas].version, 3);
-  assert.equal(restored.state.pages[ids.page].name, "Page 1");
+  assert.throws(
+    () => applyDrawingStructureActions(current, [
+      { kind: "delete_layer", id: ids.layer, baseVersion: 1 },
+      { kind: "delete_canvas", id: ids.canvas, baseVersion: 1 },
+      { kind: "delete_page", id: ids.page, baseVersion: 1 },
+    ]),
+    /at least one page/i,
+  );
 });

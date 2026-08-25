@@ -499,6 +499,11 @@ function validateReferences(state: DrawingStructureState): void {
 }
 
 function validateFinalCanvasInvariant(state: DrawingStructureState): void {
+  if (Object.keys(state.pages).length === 0) {
+    throw new DrawingStructureError(
+      "A drawing document requires at least one page.",
+    );
+  }
   for (const page of Object.values(state.pages)) {
     const canvases = Object.values(state.canvases).filter(
       (canvas) => canvas.pageId === page.id,
