@@ -808,6 +808,84 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
   assert.equal(recovered.state.structure.layers[modelLayerId].canvasId, modelId);
 });
 
+test("P2 recovery restores a deleted tombstone at the authoritative inverse version", () => {
+  const pageId = "00000000-0000-4000-8000-000000000211";
+  const paperId = "00000000-0000-4000-8000-000000000212";
+  const modelId = "00000000-0000-4000-8000-000000000213";
+  const modelLayerId = "00000000-0000-4000-8000-000000000214";
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
+      canvases: {
+        [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 },
+        [modelId]: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 },
+      },
+      layers: {
+        [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 },
+        [modelLayerId]: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 },
+      },
+      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const deleted = applyDrawingCommand(initial, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: [
+      { kind: "delete_layer", id: modelLayerId, baseVersion: 1 },
+      { kind: "delete_canvas", id: modelId, baseVersion: 1 },
+    ],
+  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:00.000Z" });
+  const restored = applyDrawingCommand(deleted.state, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: deleted.operation.inverse.actions,
+  }, { createId: () => ids.operation2, now: () => "2026-08-25T00:01:00.000Z" });
+  const serverAfterDelete = structuredClone(deleted.state);
+  delete serverAfterDelete.structure.tombstones;
+  const recovered = recoverPendingDrawingState(serverAfterDelete, [restored.operation]);
+
+  assert.equal(recovered.ambiguousOperationIds.length, 0);
+  assert.equal(recovered.state.structure.canvases[modelId].version, 3);
+  const next = applyDrawingCommand(recovered.state, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: [{ kind: "put_canvas", entity: { ...recovered.state.structure.canvases[modelId], name: "Model 2" }, baseVersion: 3 }],
+  });
+  assert.equal(next.operation.baseVersions[modelId], 3);
+});
+
+test("an acknowledged P2 create already present in the loader does not become conflict evidence", async () => {
+  const pageId = "00000000-0000-4000-8000-000000000221";
+  const paperId = "00000000-0000-4000-8000-000000000222";
+  const modelId = "00000000-0000-4000-8000-000000000223";
+  const modelLayerId = "00000000-0000-4000-8000-000000000224";
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
+      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
+      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 } },
+      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+    },
+  });
+  const created = applyDrawingCommand(initial, {
+    type: "mutate_structure", actorId: ids.ownerA,
+    actions: [
+      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
+      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
+    ],
+  }, { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" });
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(created.operation);
+  const restored = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (operation) => ({ clientOperationId: operation.clientOperationId, status: "acked" }),
+    serverState: created.state,
+  });
+
+  assert.deepEqual(restored.conflictedOperationIds, []);
+  assert.equal((await outbox.entries()).length, 0);
+});
+
 test("reload recovery does not apply later work from a blocked revision", () => {
   const recovered = recoverPendingDrawingState(state(), [
     {
@@ -1202,6 +1280,21 @@ test("local persistence capability fails closed", () => {
   assert.equal(canPersistDrawingMutation("commenter"), false);
   assert.equal(canPersistDrawingMutation("viewer"), false);
   assert.equal(canPersistDrawingMutation("unknown"), false);
+});
+
+test("immutable revisions deny editor/admin persistence and legacy attribution", async () => {
+  assert.equal(canPersistDrawingMutation("editor", undefined, "review_requested"), false);
+  assert.equal(canPersistDrawingMutation("admin", undefined, "approved"), false);
+  const outbox = scopedOutbox(memoryAdapter());
+  await assert.rejects(
+    claimLegacyDrawingOperations({
+      capability: "admin",
+      confirmed: true,
+      outbox,
+      revisionStatus: "approved",
+    }),
+    /editor/i,
+  );
 });
 
 test("review preparation freezes edits before draining and confirms every scoped queue is empty", async () => {

@@ -423,7 +423,7 @@ function validateReferences(state: DrawingStructureState): void {
     }
   }
   for (const layer of Object.values(state.layers)) {
-    if (layer.canvasId && !state.canvases[layer.canvasId]) {
+    if (!layer.canvasId || !state.canvases[layer.canvasId]) {
       throw new DrawingStructureError(`Layer ${layer.id} references a missing canvas.`);
     }
   }
@@ -525,6 +525,33 @@ function validateFinalCanvasInvariant(state: DrawingStructureState): void {
       throw new DrawingStructureError(`Canvas ${canvas.id} must retain an editable layer.`);
     }
   }
+}
+
+/** Validates a complete P2 graph before it becomes canonical client state. */
+export function validateDrawingStructureState(state: DrawingStructureState): void {
+  const collections: Array<[StructureCollection, Record<string, StructureEntity>]> = [
+    ["objects", state.objects], ["pages", state.pages], ["canvases", state.canvases],
+    ["layers", state.layers as Record<string, StructureEntity>], ["styles", state.styles], ["blocks", state.blocks],
+    ["blockInstances", state.blockInstances], ["propertySchemas", state.propertySchemas],
+    ["propertyValues", state.propertyValues], ["tables", state.tables],
+  ];
+  const ids = new Set<string>();
+  for (const [collection, records] of collections) {
+    for (const [id, entity] of Object.entries(records)) {
+      if (id !== entity.id)
+        throw new DrawingStructureError(`${collection} key ${id} does not match its entity ID.`);
+      if (ids.has(id))
+        throw new DrawingStructureError(`Structure collections reuse UUID ${id}.`);
+      ids.add(id);
+    }
+  }
+  for (const [id, tombstone] of Object.entries(state.tombstones ?? {})) {
+    if (id !== tombstone.entity.id || ids.has(id))
+      throw new DrawingStructureError(`Structure tombstone ${id} is invalid.`);
+    ids.add(id);
+  }
+  validateReferences(state);
+  validateFinalCanvasInvariant(state);
 }
 
 function validateObjectCompound(

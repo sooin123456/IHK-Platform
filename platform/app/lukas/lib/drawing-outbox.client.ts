@@ -544,10 +544,76 @@ function structureActionMatchesAcknowledgedState(
     | Record<string, unknown>
     | undefined;
   if (!("entity" in action)) return !current && inverse.baseVersion === null;
-  if (!current || "entity" in inverse === false || inverse.baseVersion === null)
+  if (!current || inverse.baseVersion === null)
     return false;
+  const inverseId = "entity" in inverse ? inverse.entity.id : inverse.id;
+  if (inverseId !== id) return false;
   const expected = { ...action.entity, version: inverse.baseVersion };
   return valuesMatch(current, expected);
+}
+
+function pairedInverse(
+  actions: DrawingStructureAction[],
+  index: number,
+): DrawingStructureAction {
+  const inverse = actions[actions.length - index - 1];
+  if (!inverse) throw new Error("Structure inverse action is missing.");
+  return inverse;
+}
+
+function structureActionId(action: DrawingStructureAction) {
+  return "entity" in action ? action.entity.id : action.id;
+}
+
+function requireExactStructureInverse(
+  action: DrawingStructureAction,
+  inverse: DrawingStructureAction,
+) {
+  const id = structureActionId(action);
+  const inverseId = structureActionId(inverse);
+  const suffix = action.kind.replace(/^(put|delete)_/, "");
+  if (inverseId !== id) throw new Error("Structure inverse target is not exact.");
+  if ("entity" in action) {
+    const expectedKind = action.baseVersion === null
+      ? `delete_${suffix}`
+      : `put_${suffix}`;
+    if (inverse.kind !== expectedKind || inverse.baseVersion === null)
+      throw new Error("Structure put inverse is not exact.");
+    return;
+  }
+  if (inverse.kind !== `put_${suffix}` || inverse.baseVersion !== null)
+    throw new Error("Structure delete inverse is not exact.");
+}
+
+function restoreMissingStructureTombstones(
+  state: NonNullable<DrawingDocumentState["structure"]>,
+  actions: DrawingStructureAction[],
+  inverse: DrawingStructureAction[],
+) {
+  for (const [index, action] of actions.entries()) {
+    if (!("entity" in action) || action.baseVersion !== null) continue;
+    const paired = pairedInverse(inverse, index);
+    requireExactStructureInverse(action, paired);
+    const id = structureActionId(action);
+    if (!("id" in paired) || paired.id !== id || paired.baseVersion < 1)
+      throw new Error("Structure acknowledgement inverse is not exact.");
+    const collection = structureCollectionForRecovery(action.kind);
+    if (state[collection][id]) continue;
+    // A creation acknowledgement uses version 1. A higher inverse delete base
+    // proves this is a tombstone restore; recreate only that exact tombstone.
+    if (paired.baseVersion === 1) continue;
+    state.tombstones ??= {};
+    if (state.tombstones[id]) {
+      if (state.tombstones[id].version !== paired.baseVersion - 1)
+        throw new Error("Structure tombstone version is not exact.");
+      continue;
+    }
+    state.tombstones[id] = {
+      collection,
+      entity: structuredClone(action.entity) as never,
+      version: paired.baseVersion - 1,
+    };
+  }
 }
 
 function valuesMatch(left: unknown, right: unknown) {
@@ -755,10 +821,32 @@ export function recoverPendingDrawingState(
         const forward = operation.forward as {
           actions: DrawingStructureAction[];
         };
+        const inverse = operation.inverse as {
+          actions: DrawingStructureAction[];
+        };
+        if (forward.actions.length !== inverse.actions.length)
+          throw new Error("Structure inverse action count is not exact.");
+        restoreMissingStructureTombstones(
+          candidate.structure,
+          forward.actions,
+          inverse.actions,
+        );
         const applied = applyDrawingStructureActions(
           { revisionId: candidate.revisionId, ...candidate.structure },
           forward.actions,
         );
+        for (const [index, action] of forward.actions.entries()) {
+          const expected = pairedInverse(inverse.actions, index);
+          requireExactStructureInverse(action, expected);
+          const id = structureActionId(action);
+          if ("entity" in action) {
+            const current = applied.state[structureCollectionForRecovery(action.kind)][id];
+            if (!current || current.version !== expected.baseVersion)
+              throw new Error("Structure result version is not exact.");
+          } else if (expected.baseVersion !== null) {
+            throw new Error("Structure deletion inverse is not exact.");
+          }
+        }
         const { revisionId: _revisionId, ...structure } = applied.state;
         candidate.objects = applied.state.objects;
         candidate.layers = applied.state.layers;
@@ -862,12 +950,14 @@ export async function claimLegacyDrawingOperations({
   capability,
   confirmed,
   outbox,
+  revisionStatus = "draft",
 }: {
   capability: string;
   confirmed: boolean;
   outbox: Pick<DrawingOutbox, "claimLegacyEntries">;
+  revisionStatus?: string;
 }) {
-  if (!canPersistDrawingMutation(capability))
+  if (!canPersistDrawingMutation(capability, undefined, revisionStatus))
     throw new Error(
       "Drawing editor capability is required to claim legacy work.",
     );
@@ -973,8 +1063,10 @@ export async function prepareDrawingReview({
 export function canPersistDrawingMutation(
   capability: string,
   persistence?: Pick<DrawingPersistenceSnapshot, "failed">,
+  revisionStatus = "draft",
 ) {
   return (
+    revisionStatus === "draft" &&
     !persistence?.failed && (capability === "admin" || capability === "editor")
   );
 }

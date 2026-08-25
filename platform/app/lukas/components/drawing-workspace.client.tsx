@@ -35,11 +35,9 @@ import {
   createDrawingDocumentState,
   deleteDrawingSelection,
   duplicateDrawingSelection,
-  isEditableDrawingLayer,
   moveDrawingSelection,
   pasteDrawingClipboard,
   redoDrawingCommand,
-  resolveActiveDrawingLayerId,
   undoDrawingCommand,
   type AppliedDrawingCommand,
   type DrawingCommand,
@@ -48,6 +46,7 @@ import {
 } from "~/lukas/lib/drawing-commands";
 import {
   createDrawingDocumentStore,
+  deriveDrawingTransientState,
   hydrateDrawingDocumentState,
   type DrawingDocumentStore,
 } from "~/lukas/lib/drawing-document-store.client";
@@ -348,6 +347,7 @@ export default function DrawingWorkspaceClient({
       {
         activePageId: revision.activePageId,
         activeCanvasId: revision.activeCanvasId,
+        revisionStatus: revision.status,
       },
     );
   }
@@ -371,17 +371,30 @@ export default function DrawingWorkspaceClient({
     setActiveLayerId(null);
     setSelectedIds([]);
   }, [drawingState]);
+  const capabilityCanPersist = canPersistDrawingMutation(capability, persistenceState);
+  const baseCanEdit =
+    outboxReady &&
+    !reviewPreparing &&
+    capabilityCanPersist &&
+    revision.status === "draft";
+  const transient = useMemo(
+    () => deriveDrawingTransientState(drawingState, {
+      canEdit: baseCanEdit,
+      activeLayerId,
+      activeTool,
+      selectedIds,
+    }),
+    [activeLayerId, activeTool, baseCanEdit, drawingState, selectedIds],
+  );
+  const activeDrawingState = transient.state;
   const visibleObjects = useMemo(
     () =>
-      Object.values(drawingState.objects).filter(
-        (object) => drawingState.layers[object.layerId]?.visible,
+      Object.values(activeDrawingState.objects).filter(
+        (object) => activeDrawingState.layers[object.layerId]?.visible,
       ),
-    [drawingState.layers, drawingState.objects],
+    [activeDrawingState.layers, activeDrawingState.objects],
   );
-  const resolvedActiveLayerId = useMemo(
-    () => resolveActiveDrawingLayerId(drawingState.layers, activeLayerId),
-    [activeLayerId, drawingState.layers],
-  );
+  const resolvedActiveLayerId = transient.activeLayerId;
   const activeCanvas = drawingState.activeCanvasId
     ? drawingState.structure?.canvases[drawingState.activeCanvasId] ?? null
     : null;
@@ -396,16 +409,15 @@ export default function DrawingWorkspaceClient({
     : revision.pages.find((candidate) => "width_mm" in candidate);
   const editingContext = drawingEditingContext(
     capability,
-    Object.values(drawingState.layers),
+    Object.values(activeDrawingState.layers),
     resolvedActiveLayerId,
   );
   const editing = {
     ...editingContext,
     canEdit:
-      outboxReady &&
-      !reviewPreparing &&
+      baseCanEdit &&
       editingContext.canEdit &&
-      canPersistDrawingMutation(capability, persistenceState),
+      revision.status === "draft",
   };
   const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
 
@@ -631,15 +643,12 @@ export default function DrawingWorkspaceClient({
 
   useEffect(() => {
     setSelectedIds((current) => {
-      const eligible = current.filter((objectId) => {
-        const object = drawingState.objects[objectId];
-        return Boolean(
-          object && isEditableDrawingLayer(drawingState.layers[object.layerId]),
-        );
-      });
+      const eligible = current.filter((objectId) =>
+        transient.selectedIds.includes(objectId),
+      );
       return eligible.length === current.length ? current : eligible;
     });
-  }, [drawingState.layers, drawingState.objects]);
+  }, [transient.selectedIds]);
 
   const commitApplied = useCallback(
     (applied: AppliedDrawingCommand) => {
@@ -647,14 +656,14 @@ export default function DrawingWorkspaceClient({
       if (
         reviewFrozenRef.current ||
         !persistence ||
-        !canPersistDrawingMutation(capability, persistence.snapshot())
+        !canPersistDrawingMutation(capability, persistence.snapshot(), revision.status)
       )
         return;
       void persistence.capture(applied.operation);
       documentStore.replace(applied.state);
       drawingStateRef.current = documentStore.getSnapshot();
     },
-    [capability, documentStore],
+    [capability, documentStore, revision.status],
   );
 
   const applyCommand = useCallback(
@@ -662,48 +671,48 @@ export default function DrawingWorkspaceClient({
       if (
         reviewFrozenRef.current ||
         !outboxReady ||
-        !canPersistDrawingMutation(capability, persistenceState)
+        !canPersistDrawingMutation(capability, persistenceState, revision.status)
       )
         return;
       commitApplied(applyDrawingCommand(drawingStateRef.current, command));
     },
-    [capability, commitApplied, outboxReady, persistenceState],
+    [capability, commitApplied, outboxReady, persistenceState, revision.status],
   );
 
   const undo = useCallback(() => {
     if (
       !outboxReady ||
-      !canPersistDrawingMutation(capability, persistenceState)
+      !canPersistDrawingMutation(capability, persistenceState, revision.status)
     )
       return;
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState]);
+  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState, revision.status]);
 
   const redo = useCallback(() => {
     if (
       !outboxReady ||
-      !canPersistDrawingMutation(capability, persistenceState)
+      !canPersistDrawingMutation(capability, persistenceState, revision.status)
     )
       return;
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
     commitApplied(result);
-  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState]);
+  }, [capability, commitApplied, currentUserId, outboxReady, persistenceState, revision.status]);
 
   const copySelection = useCallback(() => {
-    const clipboard = copyDrawingSelection(drawingState, selectedIds);
+    const clipboard = copyDrawingSelection(drawingState, transient.selectedIds);
     if (clipboard.items.length === 0) return false;
     clipboardRef.current = clipboard;
     return true;
-  }, [drawingState, selectedIds]);
+  }, [drawingState, transient.selectedIds]);
 
   const pasteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
     if (
       clipboardRef.current.items.some((item) => {
-        const targetLayer = drawingState.layers[item.layerId];
+        const targetLayer = activeDrawingState.layers[item.layerId];
         return !targetLayer?.visible || targetLayer.locked;
       })
     )
@@ -713,40 +722,40 @@ export default function DrawingWorkspaceClient({
     applyCommand(command);
     setSelectedIds(command.objects.map((object) => object.id));
     return true;
-  }, [applyCommand, currentUserId, drawingState.layers, editing.canEdit]);
+  }, [activeDrawingState.layers, applyCommand, currentUserId, editing.canEdit]);
 
   const duplicateSelection = useCallback(() => {
     if (!editing.canEdit) return false;
     const command = duplicateDrawingWorkspaceSelection(
       drawingState,
-      selectedIds,
+      transient.selectedIds,
       currentUserId,
     );
     if (!command) return false;
     applyCommand(command);
     setSelectedIds(command.objects.map((object) => object.id));
     return true;
-  }, [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds]);
+  }, [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds]);
 
   const deleteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
     const command = deleteDrawingSelection(
       drawingState,
-      selectedIds,
+      transient.selectedIds,
       currentUserId,
     );
     if (!command) return false;
     applyCommand(command);
     setSelectedIds([]);
     return true;
-  }, [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds]);
+  }, [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds]);
 
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
       if (!editing.canEdit) return false;
       const command = moveDrawingSelection(
         drawingState,
-        selectedIds,
+        transient.selectedIds,
         currentUserId,
         delta,
       );
@@ -754,7 +763,7 @@ export default function DrawingWorkspaceClient({
       applyCommand(command);
       return true;
     },
-    [applyCommand, currentUserId, drawingState, editing.canEdit, selectedIds],
+    [applyCommand, currentUserId, drawingState, editing.canEdit, transient.selectedIds],
   );
 
   useEffect(() => {
@@ -818,10 +827,10 @@ export default function DrawingWorkspaceClient({
           (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0
         );
       if (commandId === "duplicate" || commandId === "delete")
-        return editing.canEdit && selectedIds.length > 0;
+        return editing.canEdit && transient.selectedIds.length > 0;
       return editing.canEdit;
     },
-    [currentUserId, drawingState, editing.canEdit, selectedIds.length],
+    [currentUserId, drawingState, editing.canEdit, transient.selectedIds.length],
   );
 
   const runCommand = useCallback(
@@ -1063,7 +1072,7 @@ export default function DrawingWorkspaceClient({
         >
           이전 브라우저 작업 {legacyOperationCount}건이 격리되어 있습니다.
           복구하면 현재 로그인 사용자가 복구 책임자로 기록됩니다.{" "}
-          {canPersistDrawingMutation(capability, persistenceState) ? (
+          {canPersistDrawingMutation(capability, persistenceState, revision.status) ? (
             <Button
               onClick={async () => {
                 const confirmed = window.confirm(
@@ -1076,6 +1085,7 @@ export default function DrawingWorkspaceClient({
                     capability,
                     confirmed,
                     outbox: drawingOutbox,
+                    revisionStatus: revision.status,
                   });
                   retryStorageRef.current();
                 } catch {
@@ -1106,7 +1116,7 @@ export default function DrawingWorkspaceClient({
             canEdit={editing.canEdit}
             onActiveLayerChange={setActiveLayerId}
             onCommand={applyCommand}
-            state={drawingState}
+            state={activeDrawingState}
           />
         </aside>
 
@@ -1132,21 +1142,27 @@ export default function DrawingWorkspaceClient({
               ) : null}
               {Canvas ? (
                 <Canvas
-                  activeTool={activeTool}
+                  activeTool={transient.activeTool as DrawingTool}
                   actorId={currentUserId}
                   background={background}
                   calibration={calibration}
                   calibrationId={calibrationId}
                   canEdit={editing.canEdit}
                   layerId={editing.layerId}
-                  layers={Object.values(drawingState.layers)}
+                  layers={Object.values(activeDrawingState.layers)}
                   objects={visibleObjects}
                   onCommand={applyCommand}
-                  onSelectionChange={setSelectedIds}
-                  onToolComplete={setActiveTool}
+                  onSelectionChange={(ids) =>
+                    setSelectedIds(ids.filter((id) =>
+                      transient.selectedIds.includes(id) || Boolean(activeDrawingState.objects[id]),
+                    ))
+                  }
+                  onToolComplete={(tool) => setActiveTool(
+                    transient.activeLayerId ? tool : "select",
+                  )}
                   ref={canvasRef}
                   repeatMode={repeatMode}
-                  selectedIds={selectedIds}
+                  selectedIds={transient.selectedIds}
                 />
               ) : canvasLoadError ? (
                 <div
@@ -1306,16 +1322,16 @@ export default function DrawingWorkspaceClient({
             canEdit={editing.canEdit}
             canLinkIssues={drawingIssueLinkReady({
               capability,
-              objectIds: Object.keys(drawingState.objects),
+              objectIds: Object.keys(activeDrawingState.objects),
               saveStatus,
-              selectedIds,
+              selectedIds: transient.selectedIds,
               status: revision.status,
             })}
             issueLinks={revision.issueLinks}
             issues={revision.issues}
             onCommand={applyCommand}
-            selectedIds={selectedIds}
-            state={drawingState}
+            selectedIds={transient.selectedIds}
+            state={activeDrawingState}
           />
         </aside>
       </div>

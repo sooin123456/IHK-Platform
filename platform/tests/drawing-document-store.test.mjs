@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createDrawingDocumentState } from "../app/lukas/lib/drawing-commands.ts";
 import {
+  deriveDrawingTransientState,
   createDrawingDocumentStore,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.client.ts";
@@ -69,6 +70,8 @@ test("hydrates every P2 collection into one canonical document state", () => {
   assert.equal(state.structure.blocks[ids.block].name, "Symbol");
   assert.equal(state.structure.propertySchemas[ids.schema].name, "Code");
   assert.equal(state.structure.tables[ids.table].name, "Schedule");
+  assert.strictEqual(state.objects, state.structure.objects);
+  assert.strictEqual(state.layers, state.structure.layers);
 });
 
 test("store preserves canonical P2 state and falls back to the page default after active canvas deletion", () => {
@@ -132,4 +135,63 @@ test("hydration fails closed on a malformed P2 row", () => {
     revisionId: ids.revision,
     ...Object.fromEntries(Object.entries(input).map(([key, value]) => [key, Object.values(value)])),
   }));
+});
+
+test("hydration rejects orphaned, cross-revision, colliding, defaultless, and non-editable P2 graphs", () => {
+  const invalid = (mutate) => {
+    const input = structure();
+    mutate(input);
+    return () => hydrateDrawingDocumentState({
+      revisionId: ids.revision,
+      ...Object.fromEntries(Object.entries(input).map(([key, value]) => [key, Object.values(value)])),
+    });
+  };
+  assert.throws(invalid((input) => { input.pages[ids.page].revisionId = ids.actor; }));
+  assert.throws(invalid((input) => { input.canvases[ids.paper].pageId = ids.actor; }));
+  assert.throws(invalid((input) => { input.styles[ids.style].id = ids.object; }));
+  assert.throws(invalid((input) => { input.canvases[ids.paper].spaceKind = "model"; }));
+  assert.throws(invalid((input) => {
+    input.layers[ids.work].locked = true;
+    input.layers[ids.modelWork].locked = true;
+  }));
+});
+
+test("non-draft stores reject mutations before changing their snapshot", () => {
+  const initial = createDrawingDocumentState({ revisionId: ids.revision, structure: structure() });
+  const store = createDrawingDocumentStore(initial, { revisionStatus: "approved" });
+  const before = store.getSnapshot();
+
+  assert.throws(() => store.dispatch({
+    type: "update_objects",
+    actorId: ids.actor,
+    updates: [{ objectId: ids.object, patch: { name: "Blocked" } }],
+  }));
+  assert.strictEqual(store.getSnapshot(), before);
+});
+
+test("transient state synchronously removes inactive, locked, and non-draft editing state", () => {
+  const store = createDrawingDocumentStore(
+    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    { activePageId: ids.page, activeCanvasId: ids.model },
+  );
+  const snapshot = store.getSnapshot();
+  const modelObject = { ...snapshot.objects[ids.object], id: "00000000-0000-4000-8000-000000000115", layerId: ids.modelWork };
+  const state = {
+    ...snapshot,
+    objects: { ...snapshot.objects, [modelObject.id]: modelObject },
+    structure: { ...snapshot.structure, objects: { ...snapshot.structure.objects, [modelObject.id]: modelObject } },
+  };
+
+  const transient = deriveDrawingTransientState(state, {
+    canEdit: false,
+    activeLayerId: ids.work,
+    activeTool: "rectangle",
+    selectedIds: [ids.object, modelObject.id],
+  });
+
+  assert.deepEqual(Object.keys(transient.state.layers), [ids.modelWork]);
+  assert.deepEqual(Object.keys(transient.state.objects), [modelObject.id]);
+  assert.deepEqual(transient.selectedIds, []);
+  assert.equal(transient.activeLayerId, null);
+  assert.equal(transient.activeTool, "select");
 });

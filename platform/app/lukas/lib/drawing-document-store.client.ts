@@ -6,10 +6,12 @@ import {
   type DrawingCommandEnvironment,
   type DrawingDocumentState,
 } from "./drawing-commands.ts";
+import { validateDrawingStructureState } from "./drawing-structure.ts";
 import type {
   DrawingBlock,
   DrawingBlockInstance,
   DrawingCanvas,
+  DrawingLayer,
   DrawingObject,
   DrawingPage,
   DrawingPropertySchema,
@@ -59,6 +61,11 @@ export type DrawingDocumentStore = {
   selectCanvas(canvasId: string): void;
 };
 
+type DrawingDocumentStoreOptions = Partial<DrawingCommandEnvironment> &
+  Pick<Partial<DrawingDocumentSnapshot>, "activePageId" | "activeCanvasId"> & {
+    revisionStatus?: string;
+  };
+
 export class DrawingDocumentStoreError extends Error {
   constructor(message: string) {
     super(message);
@@ -80,20 +87,22 @@ function byId<T extends { id: string }>(items: T[]): Record<string, T> {
 export function hydrateDrawingDocumentState(
   hydration: DrawingDocumentHydration,
 ): DrawingDocumentState {
+  const structure = {
+    pages: byId(hydration.pages.map((value) => DrawingPageSchema.parse(value))),
+    canvases: byId(hydration.canvases.map((value) => DrawingCanvasSchema.parse(value))),
+    layers: byId(hydration.layers.map((value) => DrawingStructureLayerSchema.parse(value))),
+    objects: byId(hydration.objects.map((value) => DrawingObjectSchema.parse(value))),
+    styles: byId(hydration.styles.map((value) => DrawingStyleDefinitionSchema.parse(value))),
+    blocks: byId(hydration.blocks.map((value) => DrawingBlockSchema.parse(value))),
+    blockInstances: byId(hydration.blockInstances.map((value) => DrawingBlockInstanceSchema.parse(value))),
+    propertySchemas: byId(hydration.propertySchemas.map((value) => DrawingPropertySchemaSchema.parse(value))),
+    propertyValues: byId(hydration.propertyValues.map((value) => DrawingPropertyValueSchema.parse(value))),
+    tables: byId(hydration.tables.map((value) => DrawingTableSchema.parse(value))),
+  };
+  validateDrawingStructureState({ revisionId: hydration.revisionId, ...structure });
   return createDrawingDocumentState({
     revisionId: hydration.revisionId,
-    structure: {
-      pages: byId(hydration.pages.map((value) => DrawingPageSchema.parse(value))),
-      canvases: byId(hydration.canvases.map((value) => DrawingCanvasSchema.parse(value))),
-      layers: byId(hydration.layers.map((value) => DrawingStructureLayerSchema.parse(value))),
-      objects: byId(hydration.objects.map((value) => DrawingObjectSchema.parse(value))),
-      styles: byId(hydration.styles.map((value) => DrawingStyleDefinitionSchema.parse(value))),
-      blocks: byId(hydration.blocks.map((value) => DrawingBlockSchema.parse(value))),
-      blockInstances: byId(hydration.blockInstances.map((value) => DrawingBlockInstanceSchema.parse(value))),
-      propertySchemas: byId(hydration.propertySchemas.map((value) => DrawingPropertySchemaSchema.parse(value))),
-      propertyValues: byId(hydration.propertyValues.map((value) => DrawingPropertyValueSchema.parse(value))),
-      tables: byId(hydration.tables.map((value) => DrawingTableSchema.parse(value))),
-    },
+    structure,
   });
 }
 
@@ -157,7 +166,78 @@ function snapshotFor(
     Pick<DrawingDocumentSnapshot, "activePageId" | "activeCanvasId">
   >,
 ): DrawingDocumentSnapshot {
+  if (state.structure) {
+    if (state.objects !== state.structure.objects || state.layers !== state.structure.layers)
+      throw new DrawingDocumentStoreError(
+        "Drawing objects and layers must share the canonical structure maps.",
+      );
+    validateDrawingStructureState({ revisionId: state.revisionId, ...state.structure });
+  }
   return { ...state, ...resolveActiveIdentity(state, requested) };
+}
+
+export type DrawingTransientState = {
+  state: DrawingDocumentSnapshot;
+  activeLayerId: string | null;
+  activeTool: string;
+  selectedIds: string[];
+};
+
+/**
+ * Produces the render-time canvas slice. This is deliberately synchronous so
+ * an identity/capability change cannot leak stale selections for one render.
+ */
+export function deriveDrawingTransientState(
+  snapshot: DrawingDocumentSnapshot,
+  input: {
+    canEdit: boolean;
+    activeLayerId: string | null;
+    activeTool: string;
+    selectedIds: string[];
+  },
+): DrawingTransientState {
+  const activeCanvasId = snapshot.activeCanvasId;
+  const layers = Object.fromEntries(
+    Object.entries(snapshot.layers).filter(([, layer]) =>
+      !activeCanvasId || layer.canvasId === activeCanvasId,
+    ),
+  ) as Record<string, DrawingLayer>;
+  const layerIds = new Set(Object.keys(layers));
+  const objects = Object.fromEntries(
+    Object.entries(snapshot.objects).filter(([, object]) => layerIds.has(object.layerId)),
+  );
+  const eligible = (layer: DrawingLayer | undefined) => Boolean(
+    layer &&
+    (layer.systemKind === "work" || layer.systemKind === "custom") &&
+    layer.visible &&
+    !layer.locked,
+  );
+  const activeLayer = input.canEdit && eligible(layers[input.activeLayerId ?? ""])
+    ? input.activeLayerId
+    : input.canEdit
+      ? Object.values(layers).find((layer) => layer.systemKind === "work" && eligible(layer))?.id ??
+        Object.values(layers).find(eligible)?.id ?? null
+      : null;
+  const selectedIds = input.canEdit
+    ? input.selectedIds.filter((id) => {
+        const object = objects[id];
+        return Boolean(object && eligible(layers[object.layerId]));
+      })
+    : [];
+  const state = {
+    ...snapshot,
+    layers,
+    objects,
+    structure: snapshot.structure
+      ? { ...snapshot.structure, layers, objects }
+      : undefined,
+  } as DrawingDocumentSnapshot;
+  return {
+    state,
+    activeLayerId: activeLayer,
+    activeTool: activeLayer ? input.activeTool : "select",
+    selectedIds,
+  };
 }
 
 /**
@@ -166,9 +246,9 @@ function snapshotFor(
  */
 export function createDrawingDocumentStore(
   initial: DrawingDocumentState,
-  options: Partial<DrawingCommandEnvironment> &
-    Pick<Partial<DrawingDocumentSnapshot>, "activePageId" | "activeCanvasId"> = {},
+  options: DrawingDocumentStoreOptions = {},
 ): DrawingDocumentStore {
+  const revisionStatus = options.revisionStatus ?? "draft";
   let snapshot = snapshotFor(initial, options);
   const listeners = new Set<() => void>();
   const publish = () => {
@@ -187,6 +267,8 @@ export function createDrawingDocumentStore(
       return () => listeners.delete(listener);
     },
     dispatch(command) {
+      if (revisionStatus !== "draft")
+        throw new DrawingDocumentStoreError("Only draft drawing revisions may be mutated.");
       const applied = applyDrawingCommand(snapshot, command, options);
       set(snapshotFor(applied.state, snapshot));
       return applied;
