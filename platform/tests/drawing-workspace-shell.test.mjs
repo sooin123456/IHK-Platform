@@ -49,6 +49,16 @@ function renderWorkspace(overrides = {}) {
   );
 }
 
+function deferred() {
+  let reject;
+  let resolve;
+  const promise = new Promise((nextResolve, nextReject) => {
+    reject = nextReject;
+    resolve = nextResolve;
+  });
+  return { promise, reject, resolve };
+}
+
 test("workspace SSR shell keeps the canvas first below xl and restores three columns at xl", () => {
   const html = renderWorkspace();
   assert.match(
@@ -162,6 +172,164 @@ test("user cancellation is idempotent and distinct from timeout", () => {
   assert.doesNotMatch(operation.abortError().message, /시간을 초과/);
   operation.finish();
   assert.equal(timerCleanupCount, 1);
+});
+
+test("real export lifecycle times out a stalled executor, clears its gate, and admits a second run", async () => {
+  const createOperation = exportDialogModule.createDrawingExportOperation;
+  const runLifecycle = exportDialogModule.runDrawingExportLifecycle;
+  assert.equal(
+    typeof runLifecycle,
+    "function",
+    "the dialog must use one production lifecycle boundary",
+  );
+  const activeOperationRef = { current: null };
+  const firstExecutor = deferred();
+  const statuses = [];
+  const downloads = [];
+  const terminalGateValues = [];
+  let fireTimeout;
+  const firstRun = runLifecycle({
+    activeOperationRef,
+    createOperation: () =>
+      createOperation({
+        cancelScheduled: () => {},
+        schedule: (callback, milliseconds) => {
+          assert.equal(milliseconds, 30_000);
+          fireTimeout = callback;
+          return 29;
+        },
+      }),
+    download: (value) => downloads.push(value),
+    execute: async () => firstExecutor.promise,
+    publishStatus: (status) => {
+      statuses.push(status);
+      if (status.kind === "error" || status.kind === "success")
+        terminalGateValues.push(activeOperationRef.current);
+    },
+  });
+  await Promise.resolve();
+  assert.notEqual(activeOperationRef.current, null);
+
+  fireTimeout();
+  assert.equal(
+    await Promise.race([
+      firstRun.then(() => "settled"),
+      new Promise((resolve) => setTimeout(() => resolve("stalled"), 25)),
+    ]),
+    "settled",
+  );
+  assert.equal(activeOperationRef.current, null);
+  assert.deepEqual(
+    statuses.map(({ kind }) => kind),
+    ["working", "error"],
+  );
+  assert.match(statuses.at(-1).message, /30초.*시간을 초과/i);
+  assert.deepEqual(downloads, []);
+  assert.deepEqual(terminalGateValues, [null]);
+
+  let secondExecutorCount = 0;
+  await runLifecycle({
+    activeOperationRef,
+    createOperation: () =>
+      createOperation({
+        cancelScheduled: () => {},
+        schedule: () => 31,
+      }),
+    download: (value) => downloads.push(value),
+    execute: async () => {
+      secondExecutorCount += 1;
+      return "second export";
+    },
+    publishStatus: (status) => {
+      statuses.push(status);
+      if (status.kind === "error" || status.kind === "success")
+        terminalGateValues.push(activeOperationRef.current);
+    },
+  });
+  assert.equal(secondExecutorCount, 1);
+  assert.deepEqual(downloads, ["second export"]);
+  assert.equal(statuses.at(-1).kind, "success");
+  assert.deepEqual(terminalGateValues, [null, null]);
+
+  firstExecutor.resolve("late first export");
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(downloads, ["second export"]);
+  assert.equal(statuses.filter(({ kind }) => kind === "success").length, 1);
+});
+
+test("real export lifecycle cancels a stalled disposer once without blocking the next run", async () => {
+  const createOperation = exportDialogModule.createDrawingExportOperation;
+  const runLifecycle = exportDialogModule.runDrawingExportLifecycle;
+  assert.equal(typeof runLifecycle, "function");
+  const activeOperationRef = { current: null };
+  const stalledDisposer = deferred();
+  const disposerStarted = deferred();
+  const statuses = [];
+  const downloads = [];
+  let disposerCount = 0;
+  let firstOperation;
+  const firstRun = runLifecycle({
+    activeOperationRef,
+    createOperation: () => {
+      firstOperation = createOperation({ schedule: () => 37 });
+      return firstOperation;
+    },
+    download: (value) => downloads.push(value),
+    execute: async ({ registerDisposer }) => {
+      registerDisposer(async () => {
+        disposerCount += 1;
+        disposerStarted.resolve();
+        return stalledDisposer.promise;
+      });
+      return "first export";
+    },
+    publishStatus: (status) => statuses.push(status),
+  });
+  await disposerStarted.promise;
+
+  firstOperation.cancel();
+  assert.equal(
+    await Promise.race([
+      firstRun.then(() => "settled"),
+      new Promise((resolve) => setTimeout(() => resolve("stalled"), 25)),
+    ]),
+    "settled",
+  );
+  assert.equal(disposerCount, 1);
+  assert.equal(activeOperationRef.current, null);
+  assert.deepEqual(downloads, []);
+  assert.deepEqual(
+    statuses.map(({ kind }) => kind),
+    ["working", "error"],
+  );
+  assert.match(statuses.at(-1).message, /취소/);
+
+  let secondExecutorCount = 0;
+  await runLifecycle({
+    activeOperationRef,
+    createOperation: () =>
+      createOperation({
+        cancelScheduled: () => {},
+        schedule: () => 41,
+      }),
+    download: (value) => downloads.push(value),
+    execute: async () => {
+      secondExecutorCount += 1;
+      return "second export";
+    },
+    publishStatus: (status) => statuses.push(status),
+  });
+  assert.equal(secondExecutorCount, 1);
+  assert.deepEqual(downloads, ["second export"]);
+  assert.equal(statuses.at(-1).kind, "success");
+
+  stalledDisposer.reject(new Error("late disposer failure"));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(disposerCount, 1);
+  assert.deepEqual(downloads, ["second export"]);
+  assert.equal(statuses.filter(({ kind }) => kind === "success").length, 1);
 });
 
 test("native download revokes its Blob URL exactly once even when click fails", () => {

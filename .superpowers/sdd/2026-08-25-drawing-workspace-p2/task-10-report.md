@@ -121,3 +121,44 @@ npx prettier --check <six affected code/test files>
 ```
 
 Representative SVG, 2x PNG, and three-page PDF artifacts were regenerated under the ignored Task 10 artifact directory without rerunning the PDF artifact marker. `file`, `pdfinfo`, and Poppler confirmed SVG, `2378 × 1682` RGBA PNG, PDF 1.7, three pages, A0 first page, and fixed metadata. Fresh Poppler rasters were visually inspected: pages 1 and 3 retain their distinct vector content, page 2 remains intentionally blank, clipped text/dimensions are visible, and no rendering defect or unintended source background appeared. Temporary render/cache/test output was removed.
+
+## Fix round 2 — whole-lifecycle deadline and prompt gate release
+
+The remaining I5 finding from `task-10-rereview1.md` is addressed without changing the export renderer, dependency graph, source-data boundary, or the I1-I4/I6/I7 fixes.
+
+- **One bounded lifecycle:** `runDrawingExportLifecycle()` now owns the per-run controller, timer, active-operation gate, executor, native download, registered resources, cleanup, and terminal status. The abort race settles the caller even when an executor (including either dynamic import) or disposer ignores its signal.
+- **Cleanup before download/success:** a successful executor result is not downloaded or announced until all currently registered disposers settle within the same deadline. Timeout/cancel starts cleanup exactly once, detaches any stalled cleanup with an observed rejection, releases the timer/ref gate, and publishes one explicit terminal error. A disposer registered by a late executor continuation is immediately attempted once and cannot update the completed run.
+- **No late side effects:** the lifecycle checks both the signal and run-owned ref immediately before native download and again before success. Once timeout/cancel wins, late executor/download/disposer completion is observed but cannot publish status or start a native download. The existing native-download `try/finally` continues to create and revoke one Blob URL exactly once for a download that actually starts.
+- **PDF.js resources:** `pdfBackground()` now checks cancellation after its dynamic import, after document opening, and after rendering. Its render-task cleanup, canvas release, and document destruction share one once-wrapped disposer, including error and late-cancellation paths.
+- **Prompt reuse:** the active ref and timer are released before either terminal status is published, so the UI cannot look idle/successful while retaining the old gate. A second run receives a distinct controller/timer/resource registry and is admitted immediately after timeout or cancel.
+
+### Fix round 2 TDD evidence
+
+- RED: the shell suite was 8/10 because the production lifecycle helper did not exist. The two new tests separately stalled the real executor and a registered disposer.
+- GREEN: the shell suite became 10/10 after the lifecycle helper was implemented and the dialog was routed through it.
+- A tighter gate-order assertion then went RED because the first implementation published terminal status immediately before clearing `activeOperationRef`; moving idempotent release before terminal status returned the suite to GREEN.
+- The timeout test fires the injected production 30-second timer, observes prompt timeout, no download, a cleared gate at status publication, successful admission of a second run, and no late success/download when the first executor finishes.
+- The cancel test stalls a real registered disposer, observes prompt explicit cancellation, exactly one disposal attempt, no first download/success, a cleared gate, a successful second run, and no late update or unhandled rejection when detached cleanup rejects.
+
+### Fix round 2 verification
+
+```text
+node --test tests/drawing-workspace-export.test.mjs tests/drawing-workspace-license.test.mjs tests/drawing-workspace-shell.test.mjs
+# 35 tests, 35 pass, 0 fail
+
+npm run test:drawing-workspace
+# 411 tests, 411 pass, 0 fail
+
+SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=preview \
+VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_ANON_KEY=preview \
+npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --workers=1
+# 3 tests, 3 pass, 0 fail, including the hydrated export dialog cancel/reopen gate
+
+npm run typecheck
+# pass
+
+npm run build
+# pass: client 2,582 modules; SSR 139 modules
+```
+
+The production build retained only the previously documented non-blocking chunk-size, React Router future-flag, mixed IFC import, and unsigned preview theme-cookie warnings. No dependency, lockfile, notice, migration, route action, RPC, Storage mutation, or source-record mutation changed in this round.

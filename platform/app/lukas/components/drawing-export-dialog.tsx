@@ -42,6 +42,28 @@ type DrawingExportOperationOptions = {
   schedule?: (callback: () => void, milliseconds: number) => unknown;
 };
 
+type DrawingExportOperation = ReturnType<typeof createDrawingExportOperation>;
+
+type DrawingExportOperationRef = {
+  current: DrawingExportOperation | null;
+};
+
+type DrawingExportLifecycleOptions<Result> = {
+  activeOperationRef: DrawingExportOperationRef;
+  createOperation?: () => DrawingExportOperation;
+  download: (result: Result) => Promise<void> | void;
+  execute: (context: {
+    registerDisposer: (dispose: () => Promise<void>) => void;
+    signal: AbortSignal;
+  }) => Promise<Result>;
+  publishStatus: (status: ExportStatus) => void;
+};
+
+type DrawingExportDownload = {
+  blob: Blob;
+  filename: string;
+};
+
 export function createDrawingExportOperation({
   cancelScheduled = (handle) =>
     clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -83,6 +105,124 @@ export function createDrawingExportOperation({
   };
 }
 
+function raceDrawingExportOperation<Result>(
+  operation: DrawingExportOperation,
+  promise: Promise<Result>,
+) {
+  if (operation.signal.aborted) {
+    void promise.catch(() => {});
+    return Promise.reject(operation.abortError());
+  }
+  return new Promise<Result>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      operation.signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(operation.abortError()));
+    operation.signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
+function onceAsync(dispose: () => Promise<void>) {
+  let pending: Promise<void> | null = null;
+  return () => (pending ??= Promise.resolve().then(dispose));
+}
+
+/** Bounds executor, native download, and cleanup behind one operation gate. */
+export async function runDrawingExportLifecycle<Result>({
+  activeOperationRef,
+  createOperation = createDrawingExportOperation,
+  download,
+  execute,
+  publishStatus,
+}: DrawingExportLifecycleOptions<Result>) {
+  if (activeOperationRef.current) return false;
+  const operation = createOperation();
+  activeOperationRef.current = operation;
+  const disposers: Array<() => Promise<void>> = [];
+  let cleanupStarted = false;
+  const registerDisposer = (dispose: () => Promise<void>) => {
+    const disposeOnce = onceAsync(dispose);
+    if (cleanupStarted) void disposeOnce().catch(() => {});
+    else disposers.push(disposeOnce);
+  };
+  const cleanup = onceAsync(async () => {
+    cleanupStarted = true;
+    await Promise.allSettled(disposers.map((dispose) => dispose()));
+  });
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    operation.finish();
+    if (activeOperationRef.current === operation)
+      activeOperationRef.current = null;
+  };
+  publishStatus({ kind: "working", message: "내보내기를 준비하는 중입니다." });
+
+  try {
+    let failed = false;
+    let failure: unknown = null;
+    let result: Result | undefined;
+    try {
+      result = await raceDrawingExportOperation(
+        operation,
+        Promise.resolve().then(() =>
+          execute({ registerDisposer, signal: operation.signal }),
+        ),
+      );
+    } catch (error) {
+      failed = true;
+      failure = error;
+    }
+    try {
+      await raceDrawingExportOperation(operation, cleanup());
+    } catch (error) {
+      failed = true;
+      failure = error;
+    }
+    if (failed) throw failure;
+    if (operation.signal.aborted || activeOperationRef.current !== operation)
+      throw operation.abortError();
+    await raceDrawingExportOperation(
+      operation,
+      Promise.resolve().then(() => {
+        if (
+          operation.signal.aborted ||
+          activeOperationRef.current !== operation
+        )
+          throw operation.abortError();
+        return download(result as Result);
+      }),
+    );
+    if (operation.signal.aborted || activeOperationRef.current !== operation)
+      throw operation.abortError();
+    release();
+    publishStatus({ kind: "success", message: "내보내기를 완료했습니다." });
+  } catch (error) {
+    release();
+    publishStatus({
+      kind: "error",
+      message: operation.signal.aborted
+        ? operation.abortError().message
+        : error instanceof Error
+          ? error.message
+          : "도면을 내보내지 못했습니다.",
+    });
+  } finally {
+    void cleanup().catch(() => {});
+    release();
+  }
+  return true;
+}
+
 function safeFilename(value: string) {
   const normalized = value
     .normalize("NFKC")
@@ -110,11 +250,6 @@ export function downloadDrawingExport(blob: Blob, filename: string) {
   }
 }
 
-function onceAsync(dispose: () => Promise<void>) {
-  let pending: Promise<void> | null = null;
-  return () => (pending ??= dispose());
-}
-
 export async function pdfBackground(
   canvas: DrawingCanvas,
   sourceUrl: string | null,
@@ -129,10 +264,22 @@ export async function pdfBackground(
   const { openPdfDocument, renderPdfPageToCanvas } = await import(
     "~/lukas/lib/pdf-page-renderer.client"
   );
+  if (signal?.aborted) throw new Error("Drawing export was cancelled.");
   const opened = await openPdfDocument(sourceUrl, signal);
   const pixels = document.createElement("canvas");
+  let rendered: Awaited<ReturnType<typeof renderPdfPageToCanvas>> | undefined;
+  const dispose = onceAsync(async () => {
+    try {
+      rendered?.cleanup();
+    } finally {
+      pixels.width = 0;
+      pixels.height = 0;
+      await opened.destroy();
+    }
+  });
   try {
-    const rendered = await renderPdfPageToCanvas({
+    if (signal?.aborted) throw new Error("Drawing export was cancelled.");
+    rendered = await renderPdfPageToCanvas({
       canvas: pixels,
       document: opened.document,
       hostWidth: 1600,
@@ -140,6 +287,7 @@ export async function pdfBackground(
       signal,
       zoom: 1,
     });
+    if (signal?.aborted) throw new Error("Drawing export was cancelled.");
     return {
       background: {
         bounds: drawingPdfImagePlacement(rendered.canvasSize, {
@@ -151,17 +299,10 @@ export async function pdfBackground(
         sourceFileId: canvas.background.sourceFileId,
         sourceSha256: canvas.background.sourceSha256,
       },
-      dispose: async () => {
-        rendered.cleanup();
-        await opened.destroy();
-        pixels.width = 0;
-        pixels.height = 0;
-      },
+      dispose,
     };
   } catch (error) {
-    await opened.destroy();
-    pixels.width = 0;
-    pixels.height = 0;
+    await dispose();
     throw error;
   }
 }
@@ -178,9 +319,7 @@ export function DrawingExportDialog({
   const [currentModelOnly, setCurrentModelOnly] = useState(false);
   const [includeBackground, setIncludeBackground] = useState(false);
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
-  const activeOperationRef = useRef<ReturnType<
-    typeof createDrawingExportOperation
-  > | null>(null);
+  const activeOperationRef = useRef<DrawingExportOperation | null>(null);
   const mountedRef = useRef(true);
   const activeCanvas = documentState.activeCanvasId
     ? documentState.structure?.canvases[documentState.activeCanvasId]
@@ -196,36 +335,35 @@ export function DrawingExportDialog({
   }, []);
 
   async function runExport() {
-    if (activeOperationRef.current) return;
     if (!activeCanvas) {
       setStatus({ kind: "error", message: "내보낼 canvas가 없습니다." });
       return;
     }
-    const operation = createDrawingExportOperation();
-    activeOperationRef.current = operation;
-    setStatus({ kind: "working", message: "내보내기를 준비하는 중입니다." });
-    const disposers: Array<() => Promise<void>> = [];
-    try {
-      const baseName = safeFilename(title);
-      if (format === "svg") {
-        const xml = exportDrawingSvg(documentState, activeCanvas.id);
-        downloadDrawingExport(
-          new Blob([xml], { type: "image/svg+xml;charset=utf-8" }),
-          `${baseName}.svg`,
-        );
-      } else if (format === "png") {
-        const rendered = includeBackground
-          ? await pdfBackground(activeCanvas, sourceUrl, operation.signal)
-          : { background: undefined, dispose: async () => {} };
-        disposers.push(onceAsync(rendered.dispose));
-        const png = await exportDrawingPng(documentState, activeCanvas.id, {
-          background: rendered.background,
-          includeBackground,
-          scale,
-          signal: operation.signal,
-        });
-        downloadDrawingExport(png, `${baseName}@${scale}x.png`);
-      } else {
+    await runDrawingExportLifecycle<DrawingExportDownload>({
+      activeOperationRef,
+      download: ({ blob, filename }) => downloadDrawingExport(blob, filename),
+      execute: async ({ registerDisposer, signal }) => {
+        const baseName = safeFilename(title);
+        if (format === "svg") {
+          const xml = exportDrawingSvg(documentState, activeCanvas.id);
+          return {
+            blob: new Blob([xml], { type: "image/svg+xml;charset=utf-8" }),
+            filename: `${baseName}.svg`,
+          };
+        }
+        if (format === "png") {
+          const rendered = includeBackground
+            ? await pdfBackground(activeCanvas, sourceUrl, signal)
+            : { background: undefined, dispose: async () => {} };
+          registerDisposer(rendered.dispose);
+          const blob = await exportDrawingPng(documentState, activeCanvas.id, {
+            background: rendered.background,
+            includeBackground,
+            scale,
+            signal,
+          });
+          return { blob, filename: `${baseName}@${scale}x.png` };
+        }
         const bytes = await exportDrawingPdf(documentState, {
           canvasIds:
             currentModelOnly && activeCanvas.spaceKind === "model"
@@ -233,47 +371,26 @@ export function DrawingExportDialog({
               : undefined,
           createdAt,
           getBackground: async (canvas) => {
-            const rendered = await pdfBackground(
-              canvas,
-              sourceUrl,
-              operation.signal,
-            );
-            disposers.push(onceAsync(rendered.dispose));
+            const rendered = await pdfBackground(canvas, sourceUrl, signal);
+            registerDisposer(rendered.dispose);
             return rendered.background;
           },
           scale,
-          signal: operation.signal,
+          signal,
           subject: "Canonical drawing workspace export",
           title,
         });
-        downloadDrawingExport(
-          new Blob([Uint8Array.from(bytes).buffer], {
+        return {
+          blob: new Blob([Uint8Array.from(bytes).buffer], {
             type: "application/pdf",
           }),
-          `${baseName}.pdf`,
-        );
-      }
-      if (mountedRef.current)
-        setStatus({ kind: "success", message: "내보내기를 완료했습니다." });
-    } catch (error) {
-      if (
-        mountedRef.current &&
-        (!operation.signal.aborted || operation.timedOut)
-      )
-        setStatus({
-          kind: "error",
-          message: operation.signal.aborted
-            ? operation.abortError().message
-            : error instanceof Error
-              ? error.message
-              : "도면을 내보내지 못했습니다.",
-        });
-    } finally {
-      await Promise.allSettled(disposers.map((dispose) => dispose()));
-      operation.finish();
-      if (activeOperationRef.current === operation)
-        activeOperationRef.current = null;
-    }
+          filename: `${baseName}.pdf`,
+        };
+      },
+      publishStatus: (nextStatus) => {
+        if (mountedRef.current) setStatus(nextStatus);
+      },
+    });
   }
 
   return (
