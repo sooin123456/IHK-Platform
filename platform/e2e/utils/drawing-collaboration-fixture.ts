@@ -14,6 +14,7 @@ type WorkspaceFixture = {
   documentId: string;
   revisionId: string;
   pageId: string;
+  canvasId: string;
   sourceLayerId: string;
   workLayerId: string;
   fileId: string;
@@ -110,6 +111,54 @@ function required(name: string) {
   return value;
 }
 
+const DRAWING_P2_PRODUCTION_VARIABLES = [
+  "E2E_BASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+] as const;
+
+function isActualProductionValue(value: string | undefined) {
+  if (!value?.trim()) return false;
+  const normalized = value.trim().toLowerCase();
+  return !(
+    normalized === "[sensitive]" ||
+    normalized === "***" ||
+    normalized.includes("<masked") ||
+    normalized.includes("placeholder")
+  );
+}
+
+export function drawingP2ProductionCredentialStatus(
+  environment: Record<string, string | undefined>,
+) {
+  const missing = DRAWING_P2_PRODUCTION_VARIABLES.filter(
+    (name) => !isActualProductionValue(environment[name]),
+  );
+  return {
+    status: missing.length === 0 ? ("READY" as const) : ("UNEXECUTED" as const),
+    missing,
+  };
+}
+
+export function requireDrawingP2ProductionCredentials(
+  environment: Record<string, string | undefined>,
+) {
+  const status = drawingP2ProductionCredentialStatus(environment);
+  if (status.status !== "READY")
+    throw new Error(
+      `P2 production gate is UNEXECUTED: real values are required for ${status.missing.join(
+        ", ",
+      )}`,
+    );
+  return Object.fromEntries(
+    DRAWING_P2_PRODUCTION_VARIABLES.map((name) => [
+      name,
+      environment[name]!.trim(),
+    ]),
+  ) as Record<(typeof DRAWING_P2_PRODUCTION_VARIABLES)[number], string>;
+}
+
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -155,6 +204,7 @@ function parseWorkspace(value: unknown, fileId: string): WorkspaceFixture {
     !row?.documentId ||
     !row.revisionId ||
     !row.pageId ||
+    !row.canvasId ||
     !row.sourceLayerId ||
     !row.workLayerId
   ) {
@@ -491,10 +541,9 @@ export function buildDrawingPerformanceFixture(
     const y = isolated
       ? selectionTargetWorld.y
       : 12 + Math.floor(gridIndex / 100) * 2;
-    const geometry =
-      isolated
-        ? { type: "circle" as const, center: { x, y }, radius: 2 }
-        : type === "line"
+    const geometry = isolated
+      ? { type: "circle" as const, center: { x, y }, radius: 2 }
+      : type === "line"
         ? { type, start: { x, y }, end: { x: x + 4, y: y + 2 } }
         : type === "polyline"
           ? {
@@ -547,6 +596,420 @@ export function buildDrawingPerformanceFixture(
       tolerancePixels: 6,
     },
   };
+}
+
+type DrawingP2FixtureInput = {
+  revisionId: string;
+  pageId: string;
+  canvasId: string;
+  layerId: string;
+};
+
+function stableDrawingP2FixtureId(
+  input: DrawingP2FixtureInput,
+  kind: string,
+  index: number,
+) {
+  const digest = createHash("sha256")
+    .update(`${input.revisionId}:${kind}:${index}`)
+    .digest("hex");
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(
+    13,
+    16,
+  )}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
+export function buildDrawingP2PerformanceFixture(input: DrawingP2FixtureInput) {
+  const pages = Array.from({ length: 3 }, (_, index) => ({
+    id:
+      index === 0
+        ? input.pageId
+        : stableDrawingP2FixtureId(input, "page", index),
+    revisionId: input.revisionId,
+    name: `P2 performance page ${index + 1}`,
+    sortOrder: index,
+    version: 1,
+  }));
+  const canvases = Array.from({ length: 20 }, (_, index) => ({
+    id:
+      index === 0
+        ? input.canvasId
+        : stableDrawingP2FixtureId(input, "canvas", index),
+    pageId: pages[index % pages.length].id,
+    name: `P2 ${index % 2 === 0 ? "paper" : "model"} canvas ${String(
+      index + 1,
+    ).padStart(2, "0")}`,
+    spaceKind: index % 2 === 0 ? ("paper" as const) : ("model" as const),
+    widthMillimeters: index % 2 === 0 ? 420 : 1_000,
+    heightMillimeters: index % 2 === 0 ? 297 : 1_000,
+    background: null,
+    sortOrder: Math.floor(index / pages.length),
+    version: 1,
+  }));
+  const layers = canvases.map((canvas, index) => ({
+    id:
+      index === 0
+        ? input.layerId
+        : stableDrawingP2FixtureId(input, "layer", index),
+    name: `P2 performance layer ${String(index + 1).padStart(2, "0")}`,
+    visible: true,
+    locked: false,
+    systemKind: index === 0 ? ("work" as const) : ("custom" as const),
+    canvasId: canvas.id,
+    sortOrder: index === 0 ? 1 : 0,
+    version: 1,
+  }));
+  const styles = Array.from({ length: 20 }, (_, index) => ({
+    id: stableDrawingP2FixtureId(input, "style", index),
+    revisionId: input.revisionId,
+    name: `P2 style ${String(index + 1).padStart(2, "0")}`,
+    value: {
+      stroke: `#${(0x102030 + index * 0x030303).toString(16).padStart(6, "0")}`,
+      strokeWidth: (index % 4) + 1,
+      fill: index % 2 === 0 ? "#bfdbfe33" : null,
+    },
+    version: 1,
+  }));
+  const objects = Array.from({ length: 10_000 }, (_, index) => {
+    const canvasIndex = Math.floor(index / 500);
+    const localIndex = index % 500;
+    const type = ["line", "rectangle", "circle", "text"][index % 4];
+    const x = 10 + (localIndex % 25) * 14;
+    const y = 10 + Math.floor(localIndex / 25) * 12;
+    const geometry =
+      type === "line"
+        ? { type, start: { x, y }, end: { x: x + 8, y: y + 4 } }
+        : type === "rectangle"
+          ? { type, origin: { x, y }, width: 8, height: 5, rotation: 0 }
+          : type === "circle"
+            ? { type, center: { x, y }, radius: 3 }
+            : { type, origin: { x, y }, width: 40, text: `P2-${index}` };
+    return {
+      id: stableDrawingP2FixtureId(input, "object", index),
+      name:
+        index === 0
+          ? "P2 active selection target"
+          : `P2 ${type} ${String(index + 1).padStart(5, "0")}`,
+      layerId: layers[canvasIndex].id,
+      geometry,
+      styleId: styles[index % styles.length].id,
+      style: index % 10 === 0 ? { strokeWidth: 6 } : {},
+      version: 1,
+    };
+  });
+  const blocks = Array.from({ length: 20 }, (_, index) => ({
+    id: stableDrawingP2FixtureId(input, "block", index),
+    revisionId: input.revisionId,
+    name: `P2 block ${String(index + 1).padStart(2, "0")}`,
+    primitives: [
+      {
+        localId: "circle",
+        name: "Block circle",
+        geometry: {
+          type: "circle" as const,
+          center: { x: 0, y: 0 },
+          radius: 3,
+        },
+        styleId: styles[index].id,
+        style: {},
+      },
+    ],
+    version: 1,
+  }));
+  const blockInstances = Array.from({ length: 1_000 }, (_, index) => {
+    const canvasIndex = Math.floor(index / 50);
+    const id = stableDrawingP2FixtureId(input, "instance", index);
+    return {
+      id,
+      lineageId: id,
+      blockId: blocks[index % blocks.length].id,
+      layerId: layers[canvasIndex].id,
+      name:
+        index === 0
+          ? "P2 active block instance"
+          : `P2 instance ${String(index + 1).padStart(4, "0")}`,
+      origin: { x: 20 + (index % 10) * 20, y: 20 + (index % 5) * 20 },
+      rotation: (index % 12) * 30,
+      scaleX: 1,
+      scaleY: 1,
+      version: 1,
+    };
+  });
+  const valueTypes = ["text", "number", "boolean", "date", "enum"] as const;
+  const propertySchemas = Array.from({ length: 20 }, (_, index) => ({
+    id: stableDrawingP2FixtureId(input, "property-schema", index),
+    revisionId: input.revisionId,
+    name: `P2 property ${String(index + 1).padStart(2, "0")}`,
+    valueType: valueTypes[index % valueTypes.length],
+    enumOptions:
+      valueTypes[index % valueTypes.length] === "enum" ? ["A", "B"] : [],
+    appliesTo: ["line", "rectangle", "circle", "text"],
+    required: index < 5,
+    version: 1,
+  }));
+  const propertyValues = propertySchemas.map((schema, index) => ({
+    id: stableDrawingP2FixtureId(input, "property-value", index),
+    schemaId: schema.id,
+    objectId: objects[index].id,
+    blockInstanceId: null,
+    value:
+      schema.valueType === "text"
+        ? `P2 value ${index + 1}`
+        : schema.valueType === "number"
+          ? index + 0.5
+          : schema.valueType === "boolean"
+            ? index % 2 === 0
+            : schema.valueType === "date"
+              ? `2026-09-${String((index % 20) + 1).padStart(2, "0")}`
+              : index % 2 === 0
+                ? "A"
+                : "B",
+    version: 1,
+  }));
+  const tables = Array.from({ length: 5 }, (_, tableIndex) => {
+    const columns = [
+      {
+        id: stableDrawingP2FixtureId(input, `table-${tableIndex}-column`, 0),
+        name: "Object",
+        kind: "object_name",
+        propertySchemaId: null,
+      },
+      {
+        id: stableDrawingP2FixtureId(input, `table-${tableIndex}-column`, 1),
+        name: "Property",
+        kind: "property",
+        propertySchemaId: propertySchemas[tableIndex].id,
+      },
+      {
+        id: stableDrawingP2FixtureId(input, `table-${tableIndex}-column`, 2),
+        name: "Manual note",
+        kind: "text",
+        propertySchemaId: null,
+      },
+      {
+        id: stableDrawingP2FixtureId(input, `table-${tableIndex}-column`, 3),
+        name: "Manual number",
+        kind: "number",
+        propertySchemaId: null,
+      },
+    ];
+    return {
+      id: stableDrawingP2FixtureId(input, "table", tableIndex),
+      revisionId: input.revisionId,
+      name: `P2 schedule ${tableIndex + 1}`,
+      columns,
+      rows: Array.from({ length: 20 }, (_, rowIndex) => ({
+        id: stableDrawingP2FixtureId(
+          input,
+          `table-${tableIndex}-row`,
+          rowIndex,
+        ),
+        objectId: objects[tableIndex * 20 + rowIndex].id,
+        blockInstanceId: null,
+        cells: {
+          [columns[2].id]: `manual-${tableIndex}-${rowIndex}`,
+          [columns[3].id]: tableIndex * 20 + rowIndex + 0.25,
+        },
+      })),
+      version: 1,
+    };
+  });
+  return {
+    activeCanvasId: input.canvasId,
+    activeLayerId: input.layerId,
+    pages,
+    canvases,
+    layers,
+    objects,
+    blocks,
+    blockInstances,
+    styles,
+    propertySchemas,
+    propertyValues,
+    tables,
+    counts: {
+      pages: pages.length,
+      canvases: canvases.length,
+      layers: layers.length,
+      objects: objects.length,
+      blocks: blocks.length,
+      blockInstances: blockInstances.length,
+      styles: styles.length,
+      propertySchemas: propertySchemas.length,
+      propertyValues: propertyValues.length,
+      tables: tables.length,
+    },
+  };
+}
+
+export async function seedDrawingP2PerformanceFixture(fixture: DrawingFixture) {
+  const owner = await authenticateApiClient(fixture, fixture.owner);
+  const performanceFixture = buildDrawingP2PerformanceFixture({
+    revisionId: fixture.blankWorkspace.revisionId,
+    pageId: fixture.blankWorkspace.pageId,
+    canvasId: fixture.blankWorkspace.canvasId,
+    layerId: fixture.blankWorkspace.workLayerId,
+  });
+  const initialActions = [
+    ...performanceFixture.pages.slice(1).map((entity) => ({
+      kind: "put_page" as const,
+      entity,
+      baseVersion: null,
+    })),
+    ...performanceFixture.canvases.slice(1).map((entity) => ({
+      kind: "put_canvas" as const,
+      entity,
+      baseVersion: null,
+    })),
+    ...performanceFixture.layers.slice(1).map((entity) => ({
+      kind: "put_layer" as const,
+      entity,
+      baseVersion: null,
+    })),
+    ...performanceFixture.styles.map((entity) => ({
+      kind: "put_style" as const,
+      entity,
+      baseVersion: null,
+    })),
+    ...performanceFixture.blocks.map((entity) => ({
+      kind: "put_block" as const,
+      entity,
+      baseVersion: null,
+    })),
+    ...performanceFixture.propertySchemas.map((entity) => ({
+      kind: "put_property_schema" as const,
+      entity,
+      baseVersion: null,
+    })),
+  ];
+  const initialInverse = [
+    ...performanceFixture.propertySchemas
+      .slice()
+      .reverse()
+      .map(({ id }) => ({
+        kind: "delete_property_schema" as const,
+        id,
+        baseVersion: 1,
+      })),
+    ...performanceFixture.blocks
+      .slice()
+      .reverse()
+      .map(({ id }) => ({ kind: "delete_block" as const, id, baseVersion: 1 })),
+    ...performanceFixture.styles
+      .slice()
+      .reverse()
+      .map(({ id }) => ({ kind: "delete_style" as const, id, baseVersion: 1 })),
+    ...performanceFixture.layers
+      .slice(1)
+      .slice()
+      .reverse()
+      .map(({ id }) => ({ kind: "delete_layer" as const, id, baseVersion: 1 })),
+    ...performanceFixture.canvases
+      .slice(1)
+      .slice()
+      .reverse()
+      .map(({ id }) => ({
+        kind: "delete_canvas" as const,
+        id,
+        baseVersion: 1,
+      })),
+    ...performanceFixture.pages
+      .slice(1)
+      .slice()
+      .reverse()
+      .map(({ id }) => ({ kind: "delete_page" as const, id, baseVersion: 1 })),
+  ];
+  const applyStructure = async (
+    actions: Array<Record<string, unknown>>,
+    inverseActions: Array<Record<string, unknown>>,
+    baseVersions: Record<string, number> = {},
+  ) => {
+    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.blankWorkspace.revisionId,
+      p_client_operation_id: randomUUID(),
+      p_operation_type: "mutate_structure",
+      p_base_versions: baseVersions,
+      p_forward: { type: "mutate_structure", actions },
+      p_inverse: { type: "mutate_structure", actions: inverseActions },
+    });
+    if (error) throw error;
+  };
+  await applyStructure(initialActions, initialInverse);
+
+  for (
+    let offset = 0;
+    offset < performanceFixture.objects.length;
+    offset += 250
+  ) {
+    const objects = performanceFixture.objects.slice(offset, offset + 250);
+    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.blankWorkspace.revisionId,
+      p_client_operation_id: randomUUID(),
+      p_operation_type: "add_objects",
+      p_base_versions: {},
+      p_forward: { type: "add_objects", objects },
+      p_inverse: {
+        type: "delete_objects",
+        objectIds: objects.map(({ id }) => id),
+      },
+    });
+    if (error) throw error;
+  }
+
+  for (
+    let offset = 0;
+    offset < performanceFixture.blockInstances.length;
+    offset += 100
+  ) {
+    const instances = performanceFixture.blockInstances.slice(
+      offset,
+      offset + 100,
+    );
+    await applyStructure(
+      instances.map((entity) => ({
+        kind: "put_block_instance",
+        entity,
+        baseVersion: null,
+      })),
+      instances
+        .slice()
+        .reverse()
+        .map(({ id }) => ({
+          kind: "delete_block_instance",
+          id,
+          baseVersion: 1,
+        })),
+    );
+  }
+  await applyStructure(
+    [
+      ...performanceFixture.propertyValues.map((entity) => ({
+        kind: "put_property_value",
+        entity,
+        baseVersion: null,
+      })),
+      ...performanceFixture.tables.map((entity) => ({
+        kind: "put_table",
+        entity,
+        baseVersion: null,
+      })),
+    ],
+    [
+      ...performanceFixture.tables
+        .slice()
+        .reverse()
+        .map(({ id }) => ({ kind: "delete_table", id, baseVersion: 1 })),
+      ...performanceFixture.propertyValues
+        .slice()
+        .reverse()
+        .map(({ id }) => ({
+          kind: "delete_property_value",
+          id,
+          baseVersion: 1,
+        })),
+    ],
+  );
+  return performanceFixture;
 }
 
 export async function seedDrawingPerformanceObjects(

@@ -141,6 +141,7 @@ available throughout rollout and use it as the immediate product rollback path.
    `SUPABASE_SERVICE_ROLE_KEY`. Never print their values. The fixture creates its
    own project/users/files and deletes the project cascade, Storage objects, and
    Auth users in dependency order while collecting every cleanup failure.
+
 7. Promote only after the Editor/Viewer smoke, exact PDF/IFC SHA comparison,
    separate reviewer approval, and cleanup all pass. Record the Playwright browser,
    viewport, 10,000-object composition, 120-frame median/p95, and selection
@@ -154,6 +155,57 @@ an applied additive database migration, prefer a reviewed forward-fix; restore t
 backup only under the incident runbook after confirming no post-snapshot customer
 writes would be lost. Approved revisions and immutable source-file rows must never
 be directly rewritten during rollback.
+
+## Drawing Workspace P2 release gate
+
+Run this gate after P0/P1 and before promotion. First record a backup identifier,
+schema snapshot identifier, current migration list, application deployment ID,
+representative PDF SHA-256, and representative IFC SHA-256. The following
+duplicate/invariant preflight must return no rows before migrations are applied:
+
+```sql
+select 'duplicate page order' as violation, revision_id::text as scope
+from public.lukas_drawing_pages
+group by revision_id, sort_order
+having count(*) > 1
+union all
+select 'duplicate canvas order', page_id::text
+from public.lukas_drawing_canvases
+group by page_id, sort_order
+having count(*) > 1
+union all
+select 'canvas without matching page', c.id::text
+from public.lukas_drawing_canvases c
+left join public.lukas_drawing_pages p on p.id = c.page_id
+where p.id is null
+union all
+select 'layer without matching canvas', l.id::text
+from public.lukas_drawing_layers l
+left join public.lukas_drawing_canvases c on c.id = l.canvas_id
+where c.id is null;
+```
+
+Apply pending migrations once, in filename order, without modifying any applied
+migration. Run `npm run db:typegen` and review the generated type diff. Then run
+`npm run test:drawing-workspace`, `node --test tests/*.test.mjs`,
+`npm run test:ifc`, `npm run typecheck`, and `npm run build`; retain the pinned IFC
+fixture SHA evidence. Deploy a preview and run the credential-free local Chromium
+specs plus Editor, Reviewer, Viewer, and non-member smoke checks.
+
+The production command is
+`npm run test:e2e:drawing-workspace-p2:production`. Its spec fails closed unless
+`E2E_BASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY` are all real, unmasked values. Missing credentials are
+recorded as **production unexecuted**, never skipped or passed, and secret values
+must not be printed.
+
+Promote only with the preflight result, backup/schema identifiers, migration and
+typegen diffs, local command logs, preview evidence, production P2 Playwright
+report, cleanup result, source hashes, and measured-target annotations attached to
+the release. For application rollback, route users to the existing collaboration
+room and restore the prior deployment. Database changes use an additive
+**forward-fix**; a backup restore is an **incident-only** action after the incident
+runbook proves that no post-snapshot customer writes will be lost.
 
 ## Commercial boundary
 

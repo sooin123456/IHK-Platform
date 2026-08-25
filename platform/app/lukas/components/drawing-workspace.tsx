@@ -131,7 +131,11 @@ type WorkspaceLayer = NonNullable<
 >["revision"]["layers"][number];
 
 export type DrawingWorkspacePanel =
-  "structure" | "styles" | "properties" | "schedules" | "blocks";
+  | "structure"
+  | "styles"
+  | "properties"
+  | "schedules"
+  | "blocks";
 
 const drawingWorkspacePanels: Array<{
   id: DrawingWorkspacePanel;
@@ -299,12 +303,7 @@ export function createDrawingWorkspaceBlockMutationAdapter({
     moveSelection(delta: { x: number; y: number }) {
       if (!canMutate) return false;
       onCommand(
-        moveDrawingBlockInstancesCommand(
-          state,
-          actorId,
-          selectedIds,
-          delta,
-        ),
+        moveDrawingBlockInstancesCommand(state, actorId, selectedIds, delta),
       );
       return true;
     },
@@ -1751,6 +1750,7 @@ export default function DrawingWorkspaceClient({
               {Canvas ? (
                 <Canvas
                   key={authorizationKey}
+                  activeCanvasId={drawingState.activeCanvasId!}
                   activeTool={transient.activeTool as DrawingTool}
                   actorId={currentUserId}
                   background={background}
@@ -1801,15 +1801,43 @@ export default function DrawingWorkspaceClient({
                       viewBox="0 0 1000 707"
                     >
                       <defs>
-                        <pattern height="20" id="preview-grid-small" patternUnits="userSpaceOnUse" width="20">
-                          <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.7" />
+                        <pattern
+                          height="20"
+                          id="preview-grid-small"
+                          patternUnits="userSpaceOnUse"
+                          width="20"
+                        >
+                          <path
+                            d="M 20 0 L 0 0 0 20"
+                            fill="none"
+                            stroke="#e2e8f0"
+                            strokeWidth="0.7"
+                          />
                         </pattern>
-                        <pattern height="100" id="preview-grid" patternUnits="userSpaceOnUse" width="100">
-                          <rect fill="url(#preview-grid-small)" height="100" width="100" />
-                          <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#cbd5e1" strokeWidth="1" />
+                        <pattern
+                          height="100"
+                          id="preview-grid"
+                          patternUnits="userSpaceOnUse"
+                          width="100"
+                        >
+                          <rect
+                            fill="url(#preview-grid-small)"
+                            height="100"
+                            width="100"
+                          />
+                          <path
+                            d="M 100 0 L 0 0 0 100"
+                            fill="none"
+                            stroke="#cbd5e1"
+                            strokeWidth="1"
+                          />
                         </pattern>
                       </defs>
-                      <rect fill="url(#preview-grid)" height="707" width="1000" />
+                      <rect
+                        fill="url(#preview-grid)"
+                        height="707"
+                        width="1000"
+                      />
                       <g fill="none" stroke="#0f172a" strokeWidth="7">
                         <path d="M120 105 H880 V585 H120 Z" />
                         <path d="M430 105 V345 H120 M430 345 H880 M650 345 V585" />
@@ -1830,10 +1858,30 @@ export default function DrawingWorkspaceClient({
                         <path d="M170 620 H820 M170 610 V630 M820 610 V630" />
                       </g>
                       <g fill="#0f172a" fontFamily="sans-serif">
-                        <text fontSize="18" fontWeight="700" x="145" y="85">A-101 1층 평면도 · P2 VECTOR OVERLAY</text>
-                        <text fontSize="16" x="500" y="220">CORE</text>
-                        <text fill="#ef4444" fontSize="14" fontWeight="700" x="680" y="300">창호 간섭 확인</text>
-                        <text fill="#475569" fontSize="14" textAnchor="middle" x="495" y="650">6,500 mm</text>
+                        <text fontSize="18" fontWeight="700" x="145" y="85">
+                          A-101 1층 평면도 · P2 VECTOR OVERLAY
+                        </text>
+                        <text fontSize="16" x="500" y="220">
+                          CORE
+                        </text>
+                        <text
+                          fill="#ef4444"
+                          fontSize="14"
+                          fontWeight="700"
+                          x="680"
+                          y="300"
+                        >
+                          창호 간섭 확인
+                        </text>
+                        <text
+                          fill="#475569"
+                          fontSize="14"
+                          textAnchor="middle"
+                          x="495"
+                          y="650"
+                        >
+                          6,500 mm
+                        </text>
                       </g>
                     </svg>
                     <div className="absolute left-4 top-4 rounded-md bg-slate-950/85 px-3 py-2 text-xs font-semibold text-white shadow-lg">

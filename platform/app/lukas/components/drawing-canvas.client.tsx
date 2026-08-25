@@ -1074,6 +1074,7 @@ export type DrawingCanvasHandle = {
 };
 
 type DrawingCanvasProps = {
+  activeCanvasId: string;
   activeTool: DrawingTool;
   actorId: string;
   background: DrawingCanvasBackground;
@@ -1403,6 +1404,7 @@ export const DrawingCanvas = forwardRef<
   DrawingCanvasProps
 >(function DrawingCanvas(
   {
+    activeCanvasId,
     activeTool,
     actorId,
     background,
@@ -2036,6 +2038,10 @@ export const DrawingCanvas = forwardRef<
       aria-describedby="drawing-canvas-input-description"
       aria-label="도면 화면. 스페이스 키와 드래그 또는 가운데 단추 드래그로 이동합니다."
       className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      data-active-canvas-id={activeCanvasId}
+      data-rendered-instance-count={blockInstances.length}
+      data-rendered-layer-count={layers.length}
+      data-rendered-object-count={objects.length}
       data-selected-object-name={selectedObjects[0]?.name ?? ""}
       data-selection-count={selectionState.selectedIds.length}
       data-viewport-x={viewport.x}
