@@ -100,6 +100,74 @@ function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Trigonometric block transforms can round-trip a finite geometry measurement
+// by a few ulps. Keep the absolute allowance sub-nanometric in drawing units,
+// with a small relative allowance for large finite coordinates.
+const GEOMETRY_ABSOLUTE_TOLERANCE = 1e-12;
+const GEOMETRY_RELATIVE_TOLERANCE = 64 * Number.EPSILON;
+
+function sameGeometryNumber(left: number, right: number): boolean {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+  return Math.abs(left - right) <=
+    GEOMETRY_ABSOLUTE_TOLERANCE +
+      GEOMETRY_RELATIVE_TOLERANCE * Math.max(Math.abs(left), Math.abs(right));
+}
+
+function samePoint(
+  left: { x: number; y: number },
+  right: { x: number; y: number },
+): boolean {
+  return sameGeometryNumber(left.x, right.x) &&
+    sameGeometryNumber(left.y, right.y);
+}
+
+function sameGeometry(left: DrawingGeometry, right: DrawingGeometry): boolean {
+  if (left.type !== right.type) return false;
+  switch (left.type) {
+    case "line":
+      return right.type === "line" &&
+        samePoint(left.start, right.start) &&
+        samePoint(left.end, right.end);
+    case "polyline":
+      return right.type === "polyline" &&
+        left.closed === right.closed &&
+        left.points.length === right.points.length &&
+        left.points.every((point, index) => samePoint(point, right.points[index]));
+    case "rectangle":
+      return right.type === "rectangle" &&
+        samePoint(left.origin, right.origin) &&
+        sameGeometryNumber(left.width, right.width) &&
+        sameGeometryNumber(left.height, right.height) &&
+        sameGeometryNumber(left.rotation, right.rotation);
+    case "circle":
+      return right.type === "circle" &&
+        samePoint(left.center, right.center) &&
+        sameGeometryNumber(left.radius, right.radius);
+    case "text":
+      return right.type === "text" &&
+        left.text === right.text &&
+        samePoint(left.origin, right.origin) &&
+        sameGeometryNumber(left.width, right.width);
+    case "dimension":
+      return right.type === "dimension" &&
+        left.calibrationId === right.calibrationId &&
+        samePoint(left.start, right.start) &&
+        samePoint(left.end, right.end) &&
+        sameGeometryNumber(left.offset, right.offset);
+  }
+}
+
+function sameBlockObject(
+  left: ReturnType<typeof drawingObjectFromBlockPrimitive>,
+  right: ReturnType<typeof drawingObjectFromBlockPrimitive>,
+): boolean {
+  return left.name === right.name &&
+    left.layerId === right.layerId &&
+    left.styleId === right.styleId &&
+    sameJson(left.style, right.style) &&
+    sameGeometry(left.geometry, right.geometry);
+}
+
 function transformPoint(
   point: { x: number; y: number },
   instance: DrawingBlockInstance,
@@ -566,7 +634,7 @@ function validateObjectCompound(
         style: object.style,
       };
       const index = remaining.findIndex((expectedObject) =>
-        sameJson(expectedObject, candidate),
+        sameBlockObject(expectedObject, candidate),
       );
       if (index < 0) {
         throw new DrawingStructureError(

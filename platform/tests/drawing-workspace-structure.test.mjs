@@ -348,6 +348,86 @@ test("block conversion preserves the canonical transformed primitive through its
   );
 });
 
+test("rotated block conversion accepts its exact generated inverse without weakening geometry or style validation", () => {
+  const source = object({
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 2, fill: null },
+    geometry: {
+      type: "rectangle",
+      origin: { x: 14.75, y: 26.125 },
+      width: 20.5,
+      height: 10.25,
+      rotation: 47,
+    },
+  });
+  const current = state({
+    canvases: { [ids.canvas]: canvas() },
+    objects: { [ids.object]: source },
+  });
+  const actions = [
+    { kind: "delete_object", id: ids.object, baseVersion: 1 },
+    {
+      kind: "put_block",
+      entity: {
+        id: ids.block,
+        revisionId: ids.revision,
+        name: "Rotated block",
+        primitives: [{
+          localId: "rotated-primitive",
+          name: source.name,
+          geometry: {
+            type: "rectangle",
+            origin: { x: 10.653845264191645, y: 10.953001293556998 },
+            width: 10.25,
+            height: 5.125,
+            rotation: 17,
+          },
+          styleId: null,
+          style: source.style,
+        }],
+        version: 1,
+      },
+      baseVersion: null,
+    },
+    {
+      kind: "put_block_instance",
+      entity: {
+        id: ids.instance,
+        blockId: ids.block,
+        layerId: ids.layer,
+        name: "Rotated block",
+        origin: { x: 7.25, y: -3.5 },
+        rotation: 30,
+        scaleX: 2,
+        scaleY: 2,
+        version: 1,
+      },
+      baseVersion: null,
+    },
+  ];
+
+  const converted = applyDrawingStructureActions(current, actions);
+  const restored = applyDrawingStructureActions(converted.state, converted.inverse);
+  assert.deepEqual(
+    { ...restored.state.objects[ids.object], version: source.version },
+    source,
+  );
+
+  const changedGeometry = structuredClone(converted.state);
+  changedGeometry.blocks[ids.block].primitives[0].geometry.origin.x += 0.000001;
+  assert.throws(
+    () => applyDrawingStructureActions(changedGeometry, converted.inverse),
+    DrawingStructureError,
+  );
+
+  const changedStyle = structuredClone(converted.state);
+  changedStyle.blocks[ids.block].primitives[0].style.strokeWidth = 3;
+  assert.throws(
+    () => applyDrawingStructureActions(changedStyle, converted.inverse),
+    DrawingStructureError,
+  );
+});
+
 test("fresh structure entities start at version one and pages may remove their default canvas before themselves", () => {
   const current = state({ canvases: { [ids.canvas]: canvas() }, layers: {} });
   assert.throws(() => applyDrawingStructureActions(current, [{ kind: "put_canvas", entity: canvas({ id: "00000000-0000-4000-8000-000000000095", name: "Model", spaceKind: "model", sortOrder: 1, version: 99 }), baseVersion: null }]), DrawingStructureError);
