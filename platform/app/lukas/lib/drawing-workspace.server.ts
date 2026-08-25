@@ -246,11 +246,19 @@ type DrawingRowsTable =
   | "lukas_drawing_documents" | "lukas_drawing_snapshots" | "lukas_drawing_issues"
   | "lukas_drawing_object_issue_links";
 
+type DrawingRowOrder = {
+  column: string;
+  direction: "asc" | "desc";
+};
+
 type DrawingRowsQuery = {
   table: DrawingRowsTable;
   projectId: string;
   revisionId?: string;
-  order: readonly string[];
+  // Transport is always raw-ID ascending keyset.  This descriptor controls
+  // only the complete in-memory canonical order; callers include `id` as the
+  // deterministic final tie-breaker (normally ascending).
+  order: readonly DrawingRowOrder[];
   pageSize?: number;
   filters?: ReadonlyArray<readonly [string, unknown]>;
   select?: string;
@@ -278,7 +286,7 @@ export async function loadAllDrawingRows<TRow extends { id: string }>(
   const pageSize = query.pageSize ?? drawingObjectPageSize;
   if (!Number.isInteger(pageSize) || pageSize <= 0 || pageSize > drawingRowsMaxPageSize)
     throw new Error("Drawing row page size must be between 1 and 1000.");
-  if (!query.order.includes("id"))
+  if (!query.order.some((order) => order.column === "id"))
     throw new Error("Drawing row pagination requires an ID tie-breaker.");
 
   const rows = new Map<string, TRow>();
@@ -306,12 +314,14 @@ export async function loadAllDrawingRows<TRow extends { id: string }>(
     if (page.length > 0) cursor = page.at(-1)!.id;
     if (page.length < pageSize)
       return [...rows.values()].sort((left, right) =>
-        query.order.reduce((result, column) => {
+        query.order.reduce((result, order) => {
           if (result !== 0) return result;
-          const a = (left as Record<string, unknown>)[column];
-          const b = (right as Record<string, unknown>)[column];
-          if (typeof a === "number" && typeof b === "number") return a - b;
-          return String(a).localeCompare(String(b));
+          const a = (left as Record<string, unknown>)[order.column];
+          const b = (right as Record<string, unknown>)[order.column];
+          const compared = typeof a === "number" && typeof b === "number"
+            ? a - b
+            : String(a).localeCompare(String(b));
+          return order.direction === "asc" ? compared : -compared;
         }, 0),
       );
   }
@@ -327,7 +337,7 @@ export async function loadAllDrawingObjects(
     table: "lukas_drawing_objects",
     projectId,
     revisionId,
-    order: ["created_at", "id"],
+    order: [{ column: "created_at", direction: "asc" }, { column: "id", direction: "asc" }],
     pageSize,
     filters: [["status", "active"]],
   });
@@ -853,9 +863,9 @@ export async function loadDrawingTemplateCandidates(
   projectId: string,
 ): Promise<DrawingTemplateCandidate[]> {
   const [revisionRows, documentRows, snapshotRows] = await Promise.all([
-    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_revisions", projectId, order: ["approved_at", "id"], filters: [["status", "approved"]], select: "id,document_id,project_id,status,version,approved_at" }),
-    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_documents", projectId, order: ["id"], select: "id,project_id,title" }),
-    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_snapshots", projectId, order: ["revision_id", "id"], select: "id,revision_id,project_id,revision_version,sha256" }),
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_revisions", projectId, order: [{ column: "approved_at", direction: "asc" }, { column: "id", direction: "asc" }], filters: [["status", "approved"]], select: "id,document_id,project_id,status,version,approved_at" }),
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_documents", projectId, order: [{ column: "id", direction: "asc" }], select: "id,project_id,title" }),
+    loadAllDrawingRows<{ id: string } & Record<string, unknown>>(client, { table: "lukas_drawing_snapshots", projectId, order: [{ column: "revision_id", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,revision_id,project_id,revision_version,sha256" }),
   ]);
   const documents = new Map(documentRows.map((row) => {
     const parsed = TemplateDocumentRowSchema.safeParse(row);
@@ -964,18 +974,18 @@ export async function loadDrawingWorkspace(
       revision.document_id !== document.id
     ) throw new Error("Drawing document source ancestry is invalid.");
     const [pages, canvases, layers, objects, styles, blocks, blockInstances, propertySchemas, propertyValues, tables, issues, links, templateCandidates, reviewEvidence] = await Promise.all([
-      loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,revision_id,project_id,name,sort_order,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: ["sort_order", "id"], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: ["id"], filters: [["status", "active"]], select: "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,primitives,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: ["id"], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_property_schemas", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,value_type,enum_options,applies_to,required,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: ["id"], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
-      loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: ["id"], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
-      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: ["updated_at", "id"], select: "id,project_id,title,priority,status,updated_at" }),
-      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: ["created_at", "id"], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId, revisionId: revision.id, order: [{ column: "sort_order", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,revision_id,project_id,name,sort_order,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_canvases", projectId, revisionId: revision.id, order: [{ column: "sort_order", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_layers", projectId, revisionId: revision.id, order: [{ column: "sort_order", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_objects", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], filters: [["status", "active"]], select: "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_styles", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,revision_id,project_id,name,value,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_blocks", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,revision_id,project_id,name,primitives,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_block_instances", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_property_schemas", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,revision_id,project_id,name,value_type,enum_options,applies_to,required,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_property_values", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,schema_id,object_id,block_instance_id,revision_id,project_id,value,version" }),
+      loadAllDrawingRows(client, { table: "lukas_drawing_tables", projectId, revisionId: revision.id, order: [{ column: "id", direction: "asc" }], select: "id,revision_id,project_id,name,columns_json,rows_json,version" }),
+      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: [{ column: "updated_at", direction: "desc" }, { column: "id", direction: "asc" }], select: "id,project_id,title,priority,status,updated_at" }),
+      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: [{ column: "created_at", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
       loadDrawingTemplateCandidates(client, projectId),
       loadReviewEvidence(client, projectId, revision),
     ]);
@@ -1000,8 +1010,8 @@ export async function loadDrawingWorkspace(
         .eq("revision_id", revision.id)
         .order("sort_order"),
       loadAllDrawingObjects(client, projectId, revision.id),
-      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: ["updated_at", "id"], select: "id,project_id,title,priority,status,updated_at" }),
-      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: ["created_at", "id"], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
+      loadAllDrawingRows<DrawingWorkspaceIssue>(client, { table: "lukas_drawing_issues", projectId, order: [{ column: "updated_at", direction: "desc" }, { column: "id", direction: "asc" }], select: "id,project_id,title,priority,status,updated_at" }),
+      loadAllDrawingRows<DrawingObjectIssueLink>(client, { table: "lukas_drawing_object_issue_links", projectId, revisionId: revision.id, order: [{ column: "created_at", direction: "asc" }, { column: "id", direction: "asc" }], select: "id,object_id,revision_id,issue_id,project_id,created_by,created_at" }),
     ]);
   const childError =
     pagesResult.error ??
@@ -1307,43 +1317,68 @@ export async function applyDrawingOperation(
   if (
     new Set(touched).size !== touched.length ||
     Object.keys(result.resultVersions).length !== touched.length ||
-    touched.some((id) => result.resultVersions[id] !== expectedVersions[id])
+    touched.some((id) => !matchesOperationResultVersion(expectedVersions[id], result.resultVersions[id]))
   )
     throw new DrawingWorkspaceRpcError("도면 작업 확인 응답이 요청 대상과 일치하지 않습니다.");
   return result;
 }
 
-function expectedOperationResultVersions(operation: DrawingOperationInput): Record<string, number | null> {
-  const expected: Record<string, number | null> = {};
-  const add = (id: string, version: number | null) => {
+type OperationResultExpectation =
+  | { kind: "deleted" }
+  | { kind: "at_least"; version: number }
+  | { kind: "exact"; version: number };
+
+function matchesOperationResultVersion(
+  expected: OperationResultExpectation,
+  actual: number | null | undefined,
+) {
+  if (expected.kind === "deleted") return actual === null;
+  return typeof actual === "number" && actual > 0 &&
+    (expected.kind === "exact" ? actual === expected.version : actual >= expected.version);
+}
+
+function expectedOperationResultVersions(operation: DrawingOperationInput): Record<string, OperationResultExpectation> {
+  const expected: Record<string, OperationResultExpectation> = {};
+  const add = (id: string, version: OperationResultExpectation) => {
     if (id in expected) throw new DrawingWorkspaceRpcError("도면 작업 대상 ID가 중복되었습니다.");
     expected[id] = version;
   };
   switch (operation.type) {
     case "add_objects":
-      for (const object of AddObjectsPayloadSchema.parse(operation.forward).objects) add(object.id, object.version);
+      for (const object of AddObjectsPayloadSchema.parse(operation.forward).objects) {
+        const base = operation.baseVersions[object.id];
+        add(object.id, base === undefined
+          ? { kind: "at_least", version: object.version }
+          : { kind: "exact", version: base + 1 });
+      }
       break;
     case "update_objects":
       for (const update of UpdateObjectsPayloadSchema.parse(operation.forward).updates)
-        add(update.objectId, operation.baseVersions[update.objectId] + 1);
+        add(update.objectId, { kind: "exact", version: operation.baseVersions[update.objectId] + 1 });
       break;
     case "delete_objects":
-      for (const id of DeleteObjectsPayloadSchema.parse(operation.forward).objectIds) add(id, null);
+      for (const id of DeleteObjectsPayloadSchema.parse(operation.forward).objectIds) add(id, { kind: "deleted" });
       break;
     case "add_layer": {
       const layer = AddLayerPayloadSchema.parse(operation.forward).layer;
-      add(layer.id, layer.version);
+      add(layer.id, { kind: "at_least", version: layer.version });
       break;
     }
     case "update_layer": {
       const layerId = UpdateLayerPayloadSchema.parse(operation.forward).layerId;
-      add(layerId, operation.baseVersions[layerId] + 1);
+      add(layerId, { kind: "exact", version: operation.baseVersions[layerId] + 1 });
       break;
     }
     case "mutate_structure":
       for (const action of MutateStructurePayloadSchema.parse(operation.forward).actions) {
-        if ("id" in action) add(action.id, null);
-        else add(action.entity.id, action.entity.version);
+        if ("id" in action) add(action.id, { kind: "deleted" });
+        else if (action.baseVersion === null)
+          // A restore retains its raw ID and can advance beyond the entity's
+          // tombstoned payload version; fresh entities still begin at one.
+          add(action.entity.id, { kind: "at_least", version: action.entity.version });
+        else
+          // Task2's structural RPC advances an existing entity exactly once.
+          add(action.entity.id, { kind: "exact", version: action.baseVersion + 1 });
       }
       break;
   }

@@ -126,7 +126,7 @@ test("bounded drawing row pagination has deterministic ID ties and removes dupli
     table: "lukas_drawing_blocks",
     projectId: ids.project,
     revisionId: ids.revision,
-    order: ["id"],
+    order: [{ column: "id", direction: "asc" }],
     pageSize: 1_000,
   });
   assert.equal(loaded.length, 2_005);
@@ -150,10 +150,27 @@ test("keyset transport rejects duplicate rows, caps pages, and applies numeric c
       return builder;
     },
   };
-  const loaded = await loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: ["sort_order", "id"] });
+  const loaded = await loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "sort_order", direction: "asc" }, { column: "id", direction: "asc" }] });
   assert.deepEqual(loaded.map((row) => row.sort_order), [2, 10]);
+  const directionalRows = [
+    { id: "0003", sort_order: 2, updated_at: "2026-08-24T01:00:00.000Z" },
+    { id: "0001", sort_order: 10, updated_at: "2026-08-25T01:00:00.000Z" },
+    { id: "0002", sort_order: 2, updated_at: "2026-08-24T01:00:00.000Z" },
+  ];
+  const directionalClient = { from() { const builder = {
+    select() { return builder; }, eq() { return builder; }, order() { return builder; }, gt() { return builder; },
+    limit() { return Promise.resolve({ data: directionalRows, error: null }); },
+  }; return builder; } };
+  assert.deepEqual(
+    (await loadAllDrawingRows(directionalClient, { table: "lukas_drawing_issues", projectId: ids.project, order: [{ column: "updated_at", direction: "desc" }, { column: "id", direction: "asc" }] })).map((row) => row.id),
+    ["0001", "0002", "0003"],
+  );
+  assert.deepEqual(
+    (await loadAllDrawingRows(directionalClient, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "sort_order", direction: "desc" }, { column: "id", direction: "asc" }] })).map((row) => row.sort_order),
+    [10, 2, 2],
+  );
   await assert.rejects(
-    () => loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: ["id"], pageSize: 1_001 }),
+    () => loadAllDrawingRows(client, { table: "lukas_drawing_pages", projectId: ids.project, order: [{ column: "id", direction: "asc" }], pageSize: 1_001 }),
     /between 1 and 1000/,
   );
   const duplicate = {
@@ -166,7 +183,7 @@ test("keyset transport rejects duplicate rows, caps pages, and applies numeric c
     },
   };
   await assert.rejects(
-    () => loadAllDrawingRows(duplicate, { table: "lukas_drawing_blocks", projectId: ids.project, order: ["id"] }),
+    () => loadAllDrawingRows(duplicate, { table: "lukas_drawing_blocks", projectId: ids.project, order: [{ column: "id", direction: "asc" }] }),
     /중복 ID/,
   );
 });
@@ -1202,6 +1219,28 @@ test("operation RPC receives exact client operation fields and exposes conflicts
     () => applyDrawingOperation({ async rpc() { return { data: {}, error: null }; } }, input),
     /operationId|sequence|resultVersions/,
   );
+});
+
+test("structure acknowledgements require exact targets and authoritative monotonic versions", async () => {
+  const style = (id, version) => ({ id, revisionId: ids.revision, name: "Dimension", value: { stroke: "#112233", strokeWidth: 1, fill: null }, version });
+  const structure = (action, baseVersions = {}) => ({
+    clientOperationId: ids.operation, revisionId: ids.revision, type: "mutate_structure", baseVersions,
+    forward: { type: "mutate_structure", actions: [action] }, inverse: { type: "mutate_structure", actions: [action] }, createdAt: "2026-08-24T02:00:00.000Z",
+  });
+  const acknowledge = (resultVersions) => ({ async rpc() { return { data: { operationId: ids.operation, sequence: 1, resultVersions }, error: null }; } });
+  const updated = structure({ kind: "put_style", entity: style(p2Ids.style, 2), baseVersion: 1 }, { [p2Ids.style]: 1 });
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 2 }), updated);
+  const fresh = structure({ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null });
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 1 }), fresh);
+  const restored = structure({ kind: "put_style", entity: style(p2Ids.style, 1), baseVersion: null });
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: 7 }), restored);
+  const deleted = structure({ kind: "delete_style", id: p2Ids.style, baseVersion: 7 }, { [p2Ids.style]: 7 });
+  await applyDrawingOperation(acknowledge({ [p2Ids.style]: null }), deleted);
+  for (const resultVersions of [
+    { [p2Ids.style]: 1 },
+    {},
+    { [p2Ids.style]: 2, [ids.object]: 1 },
+  ]) await assert.rejects(() => applyDrawingOperation(acknowledge(resultVersions), updated), /확인 응답/);
 });
 
 test("capability comes from project ownership or membership rows, never user metadata", async () => {
