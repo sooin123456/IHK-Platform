@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
 import { Server } from "@hocuspocus/server";
+import { removeAwarenessStates, type Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { z } from "zod";
 
@@ -39,8 +40,11 @@ import {
 type CollaborationStorage = ReturnType<
   typeof createDrawingCollaborationStorage
 >;
+type DrawingRuntimeContext = DrawingConnectionContext & {
+  serviceAuthority?: boolean;
+};
 type TrackedConnection = {
-  context: DrawingConnectionContext;
+  context: DrawingRuntimeContext;
   readOnly: boolean;
   close: (event?: { code: number; reason: string }) => void;
   requestToken?: () => void;
@@ -201,6 +205,7 @@ export function validateDrawingClientUpdate(
   if (update.byteLength > 1024 * 1024)
     throw new Error("Drawing collaboration update is too large.");
   const before = documentCollections(current);
+  const existingOperationIds = new Set(before.operationOrder);
   const candidate = new Y.Doc();
   try {
     Y.applyUpdate(
@@ -208,7 +213,25 @@ export function validateDrawingClientUpdate(
       Y.encodeStateAsUpdate(current),
       DRAWING_COLLABORATION_SERVER_ORIGIN,
     );
+    let protectedStructureChanged = false;
+    candidate.getMap("serverMeta").observe(() => {
+      protectedStructureChanged = true;
+    });
+    candidate.getMap("operationStatus").observe(() => {
+      protectedStructureChanged = true;
+    });
+    candidate.getMap("operations").observe((event) => {
+      for (const [operationId, change] of event.changes.keys)
+        if (change.action !== "add" || existingOperationIds.has(operationId))
+          protectedStructureChanged = true;
+    });
+    candidate.getArray("operationOrder").observe((event) => {
+      if (event.changes.delta.some((change) => "delete" in change))
+        protectedStructureChanged = true;
+    });
     Y.applyUpdate(candidate, update);
+    if (protectedStructureChanged)
+      throw new Error("Clients cannot rewrite protected collaboration state.");
     const after = documentCollections(candidate);
     if (
       !same(before.serverMeta, after.serverMeta) ||
@@ -352,7 +375,15 @@ type Dependencies = {
   ) => Promise<DrawingRoomAuthorization | null>;
   storage: Pick<
     CollaborationStorage,
-    "load" | "store" | "bootstrap" | "lookupOperations" | "health" | "close"
+    | "load"
+    | "store"
+    | "loadService"
+    | "storeService"
+    | "bootstrap"
+    | "bootstrapService"
+    | "lookupOperations"
+    | "health"
+    | "close"
   >;
   preflightAuth?: () => Promise<void>;
   purgeAuth?: () => void;
@@ -445,6 +476,8 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       context: DrawingConnectionContext;
       states: Map<number, Record<string, unknown>>;
       connection?: TrackedConnection;
+      awareness?: Awareness;
+      origin?: unknown;
       document?: {
         getConnections: () => any[];
         getClients: (connection: any) => Set<any>;
@@ -460,6 +493,10 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         throw new Error("One Awareness client is allowed per connection.");
       if (input.connection && input.document) {
         const owned = input.document.getClients(input.connection);
+        if (!input.states.size && owned.size && input.awareness) {
+          removeAwarenessStates(input.awareness, [...owned], input.origin);
+          return;
+        }
         for (const clientId of input.states.keys()) {
           if (owned.size && !owned.has(clientId))
             throw new Error(
@@ -492,23 +529,38 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     async store(input: {
       document: Y.Doc;
       roomName: string;
-      context: Pick<DrawingStorageScope, "userId" | "projectId" | "revisionId">;
+      context: Pick<
+        DrawingRuntimeContext,
+        "userId" | "projectId" | "revisionId"
+      > & {
+        serviceAuthority?: boolean;
+      };
     }) {
       validateLedgerWithoutAppend(input.document, input.roomName);
       const meta = DrawingCollaborationMetaSchema.parse(
         input.document.getMap("serverMeta").toJSON(),
       );
       if (
-        !input.context.userId ||
+        (!input.context.serviceAuthority && !input.context.userId) ||
         input.context.projectId !== meta.projectId ||
         input.context.revisionId !== meta.revisionId
       )
         throw new Error("Drawing collaboration store scope is invalid.");
-      const stored = await dependencies.storage.store({
-        ...input.context,
-        state: Y.encodeStateAsUpdate(input.document),
-        baseOperationSequence: meta.baseOperationSequence,
-      });
+      const state = Y.encodeStateAsUpdate(input.document);
+      const stored = input.context.serviceAuthority
+        ? await dependencies.storage.storeService({
+            projectId: input.context.projectId,
+            revisionId: input.context.revisionId,
+            state,
+            baseOperationSequence: meta.baseOperationSequence,
+          })
+        : await dependencies.storage.store({
+            userId: input.context.userId,
+            projectId: input.context.projectId,
+            revisionId: input.context.revisionId,
+            state,
+            baseOperationSequence: meta.baseOperationSequence,
+          });
       if (stored.state) {
         validatePersistedDrawingState(stored.state, input.context);
         Y.applyUpdate(input.document, stored.state, {
@@ -521,7 +573,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     },
   };
 
-  const server = new Server<DrawingConnectionContext>({
+  const server = new Server<DrawingRuntimeContext>({
     port: dependencies.config.port,
     stopOnSignals: false,
     quiet: true,
@@ -572,6 +624,8 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         context: payload.context,
         states: payload.states,
         connection: payload.connection,
+        awareness: payload.awareness,
+        origin: payload.transactionOrigin,
         document: payload.document,
       });
     },
@@ -607,51 +661,25 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   });
   const hocuspocus = server.hocuspocus;
 
-  function persistenceContext(document: Y.Doc): DrawingConnectionContext {
+  function persistenceContext(document: Y.Doc): DrawingRuntimeContext {
     const meta = DrawingCollaborationMetaSchema.parse(
       document.getMap("serverMeta").toJSON(),
     );
-    const connected =
-      "getConnections" in document
-        ? (
-            document as typeof document & {
-              getConnections(): TrackedConnection[];
-            }
-          )
-            .getConnections()
-            .map((connection) => connection.context)
-            .find((context) => context?.canWrite)
-        : undefined;
-    const statuses = document.getMap("operationStatus");
-    const operation = Object.entries(
-      document.getMap("operations").toJSON(),
-    ).find(([operationId]) => {
-      const status = statuses.get(operationId) as
-        | { status?: string }
-        | undefined;
-      return !status || status.status === "pending";
-    })?.[1] as { actorId?: string } | undefined;
-    const userId = connected?.userId ?? operation?.actorId;
-    if (!userId)
-      throw new Error(
-        "Drawing collaboration persistence actor is unavailable.",
-      );
-    return (
-      connected ?? {
-        userId,
-        email: null,
-        expiresAtMs: Number.POSITIVE_INFINITY,
-        capability: "editor",
-        canWrite: true,
-        revisionStatus: "draft",
-        projectId: meta.projectId,
-        revisionId: meta.revisionId,
-        roomName: `drawing:${meta.projectId}:${meta.revisionId}`,
-        displayName: "server",
-        color: "#000000",
-        lastAuthorizedAt: now(),
-      }
-    );
+    return {
+      userId: "00000000-0000-4000-8000-000000000000",
+      email: null,
+      expiresAtMs: Number.POSITIVE_INFINITY,
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+      projectId: meta.projectId,
+      revisionId: meta.revisionId,
+      roomName: `drawing:${meta.projectId}:${meta.revisionId}`,
+      displayName: "server",
+      color: "#000000",
+      lastAuthorizedAt: now(),
+      serviceAuthority: true,
+    };
   }
 
   async function runPassiveAuthorizationCheck() {
@@ -713,8 +741,8 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       );
     }
     const room = parseDrawingRoomName(receipt.roomName);
-    const context: DrawingConnectionContext = {
-      userId: receipt.operation.actorId,
+    const context: DrawingRuntimeContext = {
+      userId: "00000000-0000-4000-8000-000000000000",
       email: null,
       expiresAtMs: Number.POSITIVE_INFINITY,
       capability: "editor",
@@ -725,14 +753,33 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       displayName: "server",
       color: "#000000",
       lastAuthorizedAt: now(),
+      serviceAuthority: true,
     };
-    const document = await hocuspocus.createDocument(
-      receipt.roomName,
-      new Request("http://localhost/internal/outcomes"),
-      receipt.receiptId,
-      { readOnly: false, isAuthenticated: true },
-      context,
-    );
+    const loadedDocument = hocuspocus.documents.get(receipt.roomName);
+    const detached = !loadedDocument;
+    const document: Y.Doc = loadedDocument ?? new Y.Doc();
+    if (detached) {
+      const stored = await dependencies.storage.loadService(room);
+      if (stored) {
+        Y.applyUpdate(
+          document,
+          stored.yjsState,
+          DRAWING_COLLABORATION_SERVER_ORIGIN,
+        );
+        ensureDrawingCollections(document);
+        validateLedgerWithoutAppend(document, receipt.roomName);
+      } else {
+        if (!dependencies.storage.bootstrapService)
+          throw new Error(
+            "Drawing collaboration service bootstrap is unavailable.",
+          );
+        await initializeDrawingCollaborationDocument(document, {
+          projectId: room.projectId,
+          revisionId: room.revisionId,
+          bootstrap: () => dependencies.storage.bootstrapService!(room),
+        });
+      }
+    }
     const operations = document.getMap("operations");
     const statuses = document.getMap("operationStatus");
     const existing = operations.get(receipt.operationId);
@@ -765,6 +812,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       { source: "local", context },
     );
     await hooks.store({ document, roomName: receipt.roomName, context });
+    if (detached) document.destroy();
     return receipt;
   }
 

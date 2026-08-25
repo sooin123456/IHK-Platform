@@ -1,0 +1,13 @@
+{
+  "name": "@1hk/drawing-collaboration",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hocuspocus/server": "4.6.0",
+    "jose": "6.2.10",
+    "postgres": "3.4.5",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.32",
+    "zod": "3.24.3"
+  }
+}

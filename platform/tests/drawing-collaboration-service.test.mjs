@@ -476,6 +476,67 @@ test("clone validation rejects delete-reinsert reordering of existing operation 
   );
 });
 
+test("clone validation rejects equal-value writes to protected CRDT structures", () => {
+  const { validateDrawingClientUpdate } = requireModules();
+  const current = initializedDocument();
+  Y.applyUpdate(current, appendUpdate(current));
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  const maliciousUpdate = (mutation) => {
+    const attacker = new Y.Doc();
+    Y.applyUpdate(attacker, Y.encodeStateAsUpdate(current));
+    const vector = Y.encodeStateVector(current);
+    attacker.transact(mutation.bind(null, attacker));
+    return Y.encodeStateAsUpdate(attacker, vector);
+  };
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      current,
+      maliciousUpdate((attacker) =>
+        attacker.getMap("serverMeta").set("freezeState", "active"),
+      ),
+      context,
+    ),
+  );
+  const third = operation({
+    clientOperationId: ids.operation3,
+    forward: {
+      ...operation().forward,
+      layer: { ...operation().forward.layer, id: ids.layer3, name: "Third" },
+    },
+  });
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      current,
+      maliciousUpdate((attacker) => {
+        const operations = attacker.getMap("operations");
+        operations.delete(ids.operation);
+        operations.set(ids.operation, operation());
+        operations.set(ids.operation3, third);
+        attacker.getArray("operationOrder").push([ids.operation3]);
+      }),
+      context,
+    ),
+  );
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      current,
+      maliciousUpdate((attacker) => {
+        const order = attacker.getArray("operationOrder");
+        order.delete(0, 1);
+        order.insert(0, [ids.operation]);
+        order.push([ids.operation3]);
+        attacker.getMap("operations").set(ids.operation3, third);
+      }),
+      context,
+    ),
+  );
+});
+
 test("Awareness is bounded and identity is overwritten from verified context", () => {
   const { sanitizeDrawingAwarenessState } = requireModules();
   const value = sanitizeDrawingAwarenessState(
@@ -598,6 +659,15 @@ test("Awareness binds one clientId to its connection and bounds ten-second lease
   peerAwareness.setLocalState({ user: { id: ids.actor } });
   const roomDocument = new Y.Doc();
   const roomAwareness = new Awareness(roomDocument);
+  const ownDocument = new Y.Doc();
+  ownDocument.clientID = 1;
+  const ownAwareness = new Awareness(ownDocument);
+  ownAwareness.setLocalState({ user: { id: ids.actor } });
+  applyAwarenessUpdate(
+    roomAwareness,
+    encodeAwarenessUpdate(ownAwareness, [1]),
+    null,
+  );
   applyAwarenessUpdate(
     roomAwareness,
     encodeAwarenessUpdate(peerAwareness, [99]),
@@ -623,6 +693,8 @@ test("Awareness binds one clientId to its connection and bounds ten-second lease
               connection,
               document,
               states,
+              awareness: roomAwareness,
+              origin: { source: "connection", connection },
             }),
         },
       },
@@ -630,6 +702,9 @@ test("Awareness binds one clientId to its connection and bounds ten-second lease
     ),
   );
   assert.equal(roomAwareness.getStates().has(99), true);
+  assert.equal(roomAwareness.getStates().has(1), false);
+  ownAwareness.destroy();
+  ownDocument.destroy();
   peerAwareness.destroy();
   peerDocument.destroy();
   roomAwareness.destroy();
@@ -711,6 +786,101 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
     }
     assert.deepEqual(cursorState?.cursorWorld, { x: 12, y: 34 });
     assert.equal(cursorState?.user.id, ids.actor);
+    const clientId = provider.awareness.clientID;
+    provider.awareness.setLocalState(null);
+    const removalDeadline = Date.now() + 2_000;
+    while (Date.now() < removalDeadline) {
+      const document = runtime.hocuspocus.documents.get(roomName);
+      if (!document?.awareness.getStates().has(clientId)) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(
+      runtime.hocuspocus.documents
+        .get(roomName)
+        ?.awareness.getStates()
+        .has(clientId) ?? false,
+      false,
+    );
+    provider.awareness.setLocalState({ cursorWorld: { x: 56, y: 78 } });
+    const republishDeadline = Date.now() + 2_000;
+    while (Date.now() < republishDeadline) {
+      const state = runtime.hocuspocus.documents
+        .get(roomName)
+        ?.awareness.getStates()
+        .get(clientId);
+      if (state?.cursorWorld?.x === 56) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.deepEqual(
+      runtime.hocuspocus.documents
+        .get(roomName)
+        ?.awareness.getStates()
+        .get(clientId)?.cursorWorld,
+      { x: 56, y: 78 },
+    );
+    provider.destroy();
+    provider = undefined;
+    const disconnectDeadline = Date.now() + 2_000;
+    while (Date.now() < disconnectDeadline) {
+      if (
+        !runtime.hocuspocus.documents
+          .get(roomName)
+          ?.awareness.getStates()
+          .has(clientId)
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(
+      runtime.hocuspocus.documents
+        .get(roomName)
+        ?.awareness.getStates()
+        .has(clientId) ?? false,
+      false,
+    );
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("provider reconnect timed out")),
+        2_000,
+      );
+      provider = new HocuspocusProvider({
+        url: server.webSocketURL,
+        name: roomName,
+        token: "test-token",
+        WebSocketPolyfill: OriginWebSocket,
+        onSynced: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        onAuthenticationFailed: ({ reason }) => {
+          clearTimeout(timeout);
+          reject(new Error(reason));
+        },
+      });
+    });
+    provider.setAwarenessField("cursorWorld", { x: 90, y: 12 });
+    const reconnectDeadline = Date.now() + 2_000;
+    while (Date.now() < reconnectDeadline) {
+      const found = [
+        ...(runtime.hocuspocus.documents
+          .get(roomName)
+          ?.awareness.getStates()
+          .values() ?? []),
+      ].some((state) => state.cursorWorld?.x === 90);
+      if (found) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(
+      [
+        ...(runtime.hocuspocus.documents
+          .get(roomName)
+          ?.awareness.getStates()
+          .values() ?? []),
+      ].some(
+        (state) => state.cursorWorld?.x === 90 && state.user?.id === ids.actor,
+      ),
+      true,
+    );
   } finally {
     provider?.destroy();
     await runtime.stop();
@@ -722,6 +892,7 @@ test("storage retries transient reads and uses exact generation/SHA CAS without 
   let loads = 0;
   let storeAttempts = 0;
   let lookupAttempts = 0;
+  let serviceStores = 0;
   const stores = [];
   const storage = createDrawingCollaborationStorage({
     database: {
@@ -755,6 +926,20 @@ test("storage retries transient reads and uses exact generation/SHA CAS without 
           });
         return [];
       },
+      async loadService() {
+        return {
+          yjsState: new Uint8Array([1]),
+          generation: 7,
+          sha256: "d".repeat(64),
+          baseOperationSequence: 3,
+        };
+      },
+      async storeService(input) {
+        serviceStores += 1;
+        assert.equal("userId" in input, false);
+        assert.equal(input.expectedGeneration, 7);
+        return { generation: 8, sha256: "e".repeat(64) };
+      },
     },
     sleep: async () => {},
   });
@@ -775,6 +960,14 @@ test("storage retries transient reads and uses exact generation/SHA CAS without 
   assert.equal(stores[0].expectedSha256, "b".repeat(64));
   await storage.lookupOperations(ids.revision, [ids.operation]);
   assert.equal(lookupAttempts, 2);
+  const serviceScope = { projectId: ids.project, revisionId: ids.revision };
+  await storage.loadService(serviceScope);
+  await storage.storeService({
+    ...serviceScope,
+    state: new Uint8Array([2]),
+    baseOperationSequence: 3,
+  });
+  assert.equal(serviceStores, 1);
 });
 
 test("a Task 3 CAS conflict reloads, merges, validates, and retries once", async () => {
@@ -1007,7 +1200,16 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
   let persisted = null;
   let stores = 0;
   const storage = {
-    load: async () =>
+    load: async () => {
+      throw Object.assign(new Error("removed actor"), { code: "P3A01" });
+    },
+    store: async () => {
+      throw Object.assign(new Error("removed actor"), { code: "P3A02" });
+    },
+    bootstrap: async () => {
+      throw Object.assign(new Error("removed actor"), { code: "P3A01" });
+    },
+    loadService: async () =>
       persisted
         ? {
             yjsState: persisted,
@@ -1016,13 +1218,13 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
             baseOperationSequence: 0,
           }
         : null,
-    bootstrap: async () => ({
+    bootstrapService: async () => ({
       sha256: "a".repeat(64),
       operationSequence: 0,
     }),
-    async store(input) {
+    async storeService(input) {
       stores += 1;
-      assert.equal(input.userId, ids.actor);
+      assert.equal("userId" in input, false);
       assert.equal(input.projectId, ids.project);
       assert.equal(input.revisionId, ids.revision);
       persisted = input.state;
@@ -1119,6 +1321,9 @@ test("polling persists server status with room scope and contains room lookup fa
         baseOperationSequence: 0,
       }),
       async store(input) {
+        throw new Error(`user store is forbidden for ${input.userId}`);
+      },
+      async storeService(input) {
         storedScopes.push(input);
         return {
           generation: 2,
@@ -1164,7 +1369,7 @@ test("polling persists server status with room scope and contains room lookup fa
     document.getMap("operationStatus").get(ids.operation).status,
     "acked",
   );
-  assert.equal(storedScopes.at(-1).userId, ids.actor);
+  assert.equal("userId" in storedScopes.at(-1), false);
   assert.equal(storedScopes.at(-1).projectId, ids.project);
   assert.equal(storedScopes.at(-1).revisionId, ids.revision);
   failLookup = true;
@@ -1478,11 +1683,19 @@ test("outcome endpoint distinguishes invalid signatures from retriable persisten
     }),
     storage: {
       load: async () => null,
+      loadService: async () => null,
       bootstrap: async () => ({
         sha256: "a".repeat(64),
         operationSequence: 0,
       }),
+      bootstrapService: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
       store: async () => {
+        throw new Error("receipt must not use actor storage");
+      },
+      storeService: async () => {
         stores += 1;
         if (stores === 1) throw new Error("database unavailable");
         return { generation: stores, sha256: "a".repeat(64) };
@@ -1573,5 +1786,51 @@ test("collaboration OCI contract is Node 22 multi-stage, non-root, one-port and 
   assert.doesNotMatch(
     dockerfile,
     /@vercel|@supabase|service.?role|\bws\b|lib0/i,
+  );
+  assert.match(
+    dockerfile,
+    /COPY collaboration\/package\.json collaboration\/package-lock\.json/,
+  );
+  const manifest = JSON.parse(
+    await readFile(
+      new URL("../collaboration/package.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(Object.keys(manifest.dependencies).sort(), [
+    "@hocuspocus/server",
+    "jose",
+    "postgres",
+    "y-protocols",
+    "yjs",
+    "zod",
+  ]);
+  assert.equal("devDependencies" in manifest, false);
+  const lock = JSON.parse(
+    await readFile(
+      new URL("../collaboration/package-lock.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    Object.keys(lock.packages)
+      .filter((path) => path.startsWith("node_modules/"))
+      .map((path) => path.slice("node_modules/".length))
+      .sort(),
+    [
+      "@hocuspocus/common",
+      "@hocuspocus/server",
+      "async-mutex",
+      "crossws",
+      "isomorphic.js",
+      "jose",
+      "kleur",
+      "lib0",
+      "postgres",
+      "tslib",
+      "y-protocols",
+      "yjs",
+      "zod",
+    ],
   );
 });

@@ -8,6 +8,7 @@ export type DrawingStorageScope = {
   projectId: string;
   revisionId: string;
 };
+export type DrawingServiceStorageScope = Omit<DrawingStorageScope, "userId">;
 export type DrawingStoredState = {
   yjsState: Uint8Array;
   generation: number;
@@ -42,7 +43,14 @@ export type DrawingCollaborationDatabase = {
   store: (
     input: DrawingStoreInput,
   ) => Promise<{ generation: number; sha256: string }>;
+  loadService?: (
+    scope: DrawingServiceStorageScope,
+  ) => Promise<DrawingStoredState | null>;
+  storeService?: (
+    input: Omit<DrawingStoreInput, "userId">,
+  ) => Promise<{ generation: number; sha256: string }>;
   bootstrap?: (scope: DrawingStorageScope) => Promise<unknown>;
+  bootstrapService?: (scope: DrawingServiceStorageScope) => Promise<unknown>;
   lookupOperations?: (
     revisionId: string,
     operationIds: string[],
@@ -87,7 +95,10 @@ async function retry<T>(
 export function createDrawingCollaborationStorage(input: {
   database: DrawingCollaborationDatabase;
   sleep?: (milliseconds: number) => Promise<void>;
-  validateState?: (state: Uint8Array, scope: DrawingStorageScope) => void;
+  validateState?: (
+    state: Uint8Array,
+    scope: DrawingServiceStorageScope,
+  ) => void;
 }) {
   const tokens = new Map<
     string,
@@ -97,41 +108,64 @@ export function createDrawingCollaborationStorage(input: {
     input.sleep ??
     ((milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)));
-  const key = (scope: DrawingStorageScope) =>
-    `${scope.userId}:${scope.projectId}:${scope.revisionId}`;
+  const key = (scope: DrawingServiceStorageScope, userId: string | null) =>
+    `${userId ?? "service"}:${scope.projectId}:${scope.revisionId}`;
 
-  async function load(scope: DrawingStorageScope) {
-    const state = await retry(() => input.database.load(scope), sleep);
+  async function loadWith(
+    scope: DrawingStorageScope | DrawingServiceStorageScope,
+    service: boolean,
+  ) {
+    if (service && !input.database.loadService)
+      throw new Error("Drawing collaboration service load is unavailable.");
+    const state = await retry(
+      () =>
+        service
+          ? input.database.loadService!(scope)
+          : input.database.load(scope as DrawingStorageScope),
+      sleep,
+    );
+    const userId = service ? null : (scope as DrawingStorageScope).userId;
     tokens.set(
-      key(scope),
+      key(scope, userId),
       state
         ? { generation: state.generation, sha256: state.sha256 }
         : { generation: 0, sha256: null },
     );
     return state;
   }
+  const load = (scope: DrawingStorageScope) => loadWith(scope, false);
+  const loadService = (scope: DrawingServiceStorageScope) =>
+    loadWith(scope, true);
 
-  async function store(
-    value: DrawingStorageScope & {
+  async function storeWith(
+    value: (DrawingStorageScope | DrawingServiceStorageScope) & {
       state: Uint8Array;
       baseOperationSequence: number;
     },
+    service: boolean,
   ) {
+    if (service && !input.database.storeService)
+      throw new Error("Drawing collaboration service store is unavailable.");
     let state = value.state;
-    let token = tokens.get(key(value)) ?? { generation: 0, sha256: null };
+    const userId = service ? null : (value as DrawingStorageScope).userId;
+    let token = tokens.get(key(value, userId)) ?? {
+      generation: 0,
+      sha256: null,
+    };
     for (let casAttempt = 0; ; casAttempt += 1) {
       try {
-        const stored = await retry(
-          () =>
-            input.database.store({
-              ...value,
-              state,
-              expectedGeneration: token.generation,
-              expectedSha256: token.sha256,
-            }),
-          sleep,
-        );
-        tokens.set(key(value), {
+        const stored = await retry(() => {
+          const payload = {
+            ...value,
+            state,
+            expectedGeneration: token.generation,
+            expectedSha256: token.sha256,
+          };
+          return service
+            ? input.database.storeService!(payload)
+            : input.database.store(payload as DrawingStoreInput);
+        }, sleep);
+        tokens.set(key(value, userId), {
           generation: stored.generation,
           sha256: stored.sha256,
         });
@@ -149,7 +183,7 @@ export function createDrawingCollaborationStorage(input: {
           error.code !== "P3S03"
         )
           throw error;
-        const current = await load(value);
+        const current = await loadWith(value, service);
         if (!current) throw error;
         const merged = new Y.Doc();
         Y.applyUpdate(merged, Y.mergeUpdates([current.yjsState, state]));
@@ -169,12 +203,27 @@ export function createDrawingCollaborationStorage(input: {
       }
     }
   }
+  const store = (
+    value: DrawingStorageScope & {
+      state: Uint8Array;
+      baseOperationSequence: number;
+    },
+  ) => storeWith(value, false);
+  const storeService = (
+    value: DrawingServiceStorageScope & {
+      state: Uint8Array;
+      baseOperationSequence: number;
+    },
+  ) => storeWith(value, true);
 
   return {
     load,
     store,
+    loadService,
+    storeService,
     authorize: input.database.authorize,
     bootstrap: input.database.bootstrap,
+    bootstrapService: input.database.bootstrapService,
     lookupOperations: input.database.lookupOperations
       ? (revisionId: string, operationIds: string[]) =>
           retry(
@@ -268,6 +317,47 @@ export function createPostgresDrawingCollaborationDatabase(
           sha256: row.yjs_sha256,
         };
       }),
+    loadService: (scope) =>
+      inRole(async (tx) => {
+        const row = firstRow(
+          await tx<
+            {
+              yjs_state: Uint8Array;
+              store_generation: number;
+              yjs_sha256: string;
+              base_operation_sequence: number;
+            }[]
+          >`select * from private.lukas_drawing_collaboration_service_load_state(${scope.projectId}::uuid,${scope.revisionId}::uuid)`,
+        );
+        return row
+          ? {
+              yjsState: new Uint8Array(row.yjs_state),
+              generation: Number(row.store_generation),
+              sha256: row.yjs_sha256,
+              baseOperationSequence: Number(row.base_operation_sequence),
+            }
+          : null;
+      }),
+    storeService: (value) =>
+      inRole(async (tx) => {
+        const row = firstRow(
+          await tx<
+            { store_generation: number; yjs_sha256: string }[]
+          >`select * from private.lukas_drawing_collaboration_service_store_state(
+            ${value.projectId}::uuid,${value.revisionId}::uuid,1::smallint,
+            ${Buffer.from(value.state)}::bytea,${value.baseOperationSequence}::bigint,
+            ${value.expectedGeneration}::bigint,${value.expectedSha256}
+          )`,
+        );
+        if (!row)
+          throw new Error(
+            "Drawing collaboration service store returned no state.",
+          );
+        return {
+          generation: Number(row.store_generation),
+          sha256: row.yjs_sha256,
+        };
+      }),
     bootstrap: (scope) =>
       inRole(async (tx) => {
         const row = firstRow(
@@ -277,6 +367,19 @@ export function createPostgresDrawingCollaborationDatabase(
         );
         if (!row)
           throw new Error("Drawing collaboration bootstrap returned no state.");
+        return row.result;
+      }),
+    bootstrapService: (scope) =>
+      inRole(async (tx) => {
+        const row = firstRow(
+          await tx<
+            { result: unknown }[]
+          >`select private.lukas_drawing_collaboration_service_bootstrap(${scope.projectId}::uuid,${scope.revisionId}::uuid) result`,
+        );
+        if (!row)
+          throw new Error(
+            "Drawing collaboration service bootstrap returned no state.",
+          );
         return row.result;
       }),
     lookupOperations: (revisionId, operationIds) =>

@@ -16,6 +16,13 @@ const fenceMigration = await readFile(
   ),
   "utf8",
 );
+const serviceAuthorityMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260825210528_drawing_workspace_p3_collaboration_service_authority.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(migration, /create role lukas_drawing_collaboration\s+noinherit\s+nologin/i);
@@ -100,4 +107,32 @@ test("P3 collaboration forward fix fences equal-checkpoint state stores", () => 
     fenceMigration,
     /revoke all on function private\.lukas_drawing_collaboration_store_state\(uuid,uuid,uuid,smallint,bytea,bigint\)/i,
   );
+});
+
+test("P3 collaboration service authority is room-bound and excludes Data API roles", () => {
+  for (const name of ["load_state", "store_state", "bootstrap"]) {
+    assert.match(
+      serviceAuthorityMigration,
+      new RegExp(
+        `create or replace function private\\.lukas_drawing_collaboration_service_${name}`,
+        "i",
+      ),
+    );
+  }
+  assert.match(
+    serviceAuthorityMigration,
+    /where r\.id=p_revision_id and r\.project_id=p_project_id for update/i,
+  );
+  assert.match(serviceAuthorityMigration, /v_status<>'draft'/i);
+  assert.match(serviceAuthorityMigration, /p_expected_generation[\s\S]*store_generation/i);
+  assert.match(serviceAuthorityMigration, /p_expected_sha256[\s\S]*yjs_sha256/i);
+  assert.match(
+    serviceAuthorityMigration,
+    /revoke all on function private\.lukas_drawing_collaboration_service_[\s\S]*from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    serviceAuthorityMigration,
+    /grant execute on function private\.lukas_drawing_collaboration_service_[\s\S]*to lukas_drawing_collaboration/i,
+  );
+  assert.doesNotMatch(serviceAuthorityMigration, /p_user_id|auth\.uid\(\)/i);
 });

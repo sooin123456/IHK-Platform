@@ -17,14 +17,17 @@
   actor-scoped concurrent operation appends, connection-owned and lease-bounded
   stamped Awareness, atomic accepted-operation polling, and constant-time
   signed idempotent rejected/conflicted outcome receipts that durably load and
-  store unloaded rooms before acknowledgement.
+  store unloaded rooms before acknowledgement. Server-owned polling and signed
+  receipts use room-bound dedicated-role functions rather than a browser
+  actor's current membership.
 - Added complete-document validation, Task 3 generation/SHA CAS persistence,
   transient read/write retry, reload/merge/revalidate CAS recovery that advances
   both the checkpoint and live room, scoped server-origin status persistence,
   bounded Hocuspocus debounce/max-debounce, real liveness/readiness HTTP probes,
   and single-flight shutdown.
 - Added a multi-stage `node:22-bookworm-slim` OCI build with a non-root runtime,
-  one exposed port, and a built-in readiness healthcheck. No Redis, direct
+  one exposed port, a built-in readiness healthcheck, and a collaboration-only
+  reproducible manifest/lock whose production closure is 13 packages. No Redis, direct
   `ws`/`lib0`, service-role key, Vercel/Supabase SDK, or second state manager was
   added to the service.
 
@@ -71,17 +74,35 @@ RED:
   must now appear in exactly their prior relative order after new concurrent
   IDs are filtered out. The reorder attack is rejected while both legitimate
   Yjs concurrent arrival orders remain accepted.
+- Final-review RED: same-value writes to `serverMeta`, delete/set of an existing
+  operation envelope with equal JSON, and same-position order delete/reinsert
+  all passed snapshot comparison. Clone observers now reject structural events
+  on server-owned maps, updates/deletes of existing operation keys, and order
+  deletes; genuine concurrent insert-only updates still pass in both orders.
+- Final-review RED: an unloaded receipt failed permanently when injected actor
+  load/store returned `P3A01`/`P3A02`. The Supabase-CLI-created forward
+  migration adds project/revision-bound load/store/bootstrap functions granted
+  only to `lukas_drawing_collaboration`; runtime receipt and polling tests prove
+  actor storage is never invoked.
+- Final-review RED: real Provider `setLocalState(null)` left its cursor in the
+  room. The v4 hook now converts a scratch-only removal into removal of only
+  that connection's owned IDs. Real TCP tests cover owned removal, malicious
+  peer preservation, republish, disconnect cleanup, and reconnect ownership.
+- Final-review RED: the runtime image installed the root web dependency graph.
+  It now runs `npm ci` from a collaboration-only manifest and lock. The exact
+  13-package installed closure is asserted and `npm audit --omit=dev` reports
+  zero vulnerabilities.
 
 GREEN:
 
-- `node --test tests/drawing-collaboration-service.test.mjs`: 24 passed,
+- `node --test tests/drawing-collaboration-service.test.mjs`: 25 passed,
   0 failed.
 - `npm run typecheck:collaboration`: exit 0.
 - `npm run build:collaboration`: exit 0; the emitted entrypoint imports
   successfully under the local Node runtime.
 - `npm run typecheck`: exit 0.
 - `node --test tests/drawing-collaboration-protocol.test.mjs tests/drawing-workspace-p3-database-contract.test.mjs tests/drawing-workspace-p3-postgres-concurrency.test.mjs`:
-  12 passed, 0 failed, 1 explicitly `UNEXECUTED` PostgreSQL fixture gate.
+  13 passed, 0 failed, 1 explicitly `UNEXECUTED` PostgreSQL fixture gate.
 - `git diff --check`: exit 0.
 - Static scans found no collaboration source import of `ws`, `lib0`, Redis,
   Vercel/Supabase vendor SDKs, service-role shortcuts, console token logging,
@@ -95,9 +116,13 @@ GREEN:
 - `platform/collaboration/src/server.ts`
 - `platform/collaboration/tsconfig.json`
 - `platform/collaboration/Dockerfile`
+- `platform/collaboration/package.json`
+- `platform/collaboration/package-lock.json`
 - `platform/collaboration/.dockerignore`
 - `platform/collaboration/.gitignore`
 - `platform/tests/drawing-collaboration-service.test.mjs`
+- `platform/tests/drawing-workspace-p3-database-contract.test.mjs`
+- `platform/supabase/migrations/20260825210528_drawing_workspace_p3_collaboration_service_authority.sql`
 - `platform/package.json`
 
 ## Commit
@@ -113,9 +138,10 @@ GREEN:
   covered by the focused static test.
 - No production/disposable asymmetric Supabase JWKS, dedicated collaboration
   database login, or real PostgreSQL fixture credentials were available.
-  Therefore deployed JWT rotation, `SET LOCAL ROLE` database calls, real
-  WebSocket clients, and deployed store/reconciliation behavior are
-  `UNEXECUTED`. Tests use real `jose`-generated RSA/EC key pairs, real Yjs
-  documents, Hocuspocus v4's real message encoder/decoder and HTTP server, and
-  injected database contracts; they do not claim a deployed integration run.
+  Therefore deployed JWT rotation, `SET LOCAL ROLE` database calls, and deployed
+  store/reconciliation behavior are `UNEXECUTED`. Tests use real
+  `jose`-generated RSA/EC key pairs, real Yjs documents, real local TCP
+  `HocuspocusProvider` clients, Hocuspocus v4's message encoder/decoder and HTTP
+  server, and injected database contracts; they do not claim a deployed
+  integration run.
 - No production migration, secret, database, or external service was modified.
