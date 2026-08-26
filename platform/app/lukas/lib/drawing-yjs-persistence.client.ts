@@ -22,6 +22,20 @@ export type DrawingYjsPersistence = {
   dispose(): Promise<void>;
 };
 
+function waitForDrawingIndexedDbWrites(database: IDBDatabase) {
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction("updates", "readonly");
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Drawing IndexedDB flush failed."));
+    transaction.onabort = () =>
+      reject(
+        transaction.error ?? new Error("Drawing IndexedDB flush aborted."),
+      );
+    transaction.objectStore("updates").count();
+  });
+}
+
 export function createDrawingYjsDocument(authoritativeState?: Uint8Array) {
   const document = new Y.Doc();
   if (authoritativeState)
@@ -78,6 +92,7 @@ export async function openDrawingYjsPersistence({
     async flush() {
       if (disposed || closed) return;
       await storeState(persistence, true);
+      await waitForDrawingIndexedDbWrites(database);
     },
     async dispose() {
       await destroy();

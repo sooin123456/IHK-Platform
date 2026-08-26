@@ -2076,6 +2076,114 @@ export function translateDrawingGeometry(
   }
 }
 
+function drawingGeometryAnchor(geometry: DrawingGeometry): Point | null {
+  switch (geometry.type) {
+    case "line":
+    case "dimension":
+    case "wall":
+    case "grid":
+      return geometry.start;
+    case "polyline":
+      return geometry.points[0] ?? null;
+    case "rectangle":
+    case "text":
+      return geometry.origin;
+    case "circle":
+    case "arc":
+      return geometry.center;
+    case "space":
+    case "area":
+      return geometry.boundary[0] ?? null;
+    case "opening":
+      return null;
+  }
+}
+
+function sameDrawingValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function rebaseDrawingGeometry(
+  source: DrawingGeometry,
+  requested: DrawingGeometry,
+  latest: DrawingGeometry,
+): DrawingGeometry {
+  if (source.type !== requested.type || source.type !== latest.type)
+    return clone(requested);
+  if (source.type === "opening") {
+    if (requested.type !== "opening" || latest.type !== "opening")
+      return clone(requested);
+    const rebased = clone(latest);
+    for (const key of Object.keys(requested) as Array<keyof typeof requested>) {
+      if (sameDrawingValue(requested[key], source[key])) continue;
+      if (key === "offsetMillimeters") {
+        rebased.offsetMillimeters = addDrawingSemanticNumbers(
+          latest.offsetMillimeters,
+          normalizeDrawingSemanticNumber(
+            requested.offsetMillimeters - source.offsetMillimeters,
+          ),
+        );
+      } else {
+        (rebased as unknown as Record<string, unknown>)[key] = clone(
+          requested[key],
+        );
+      }
+    }
+    return DrawingGeometrySchema.parse(rebased);
+  }
+  const sourceAnchor = drawingGeometryAnchor(source);
+  const requestedAnchor = drawingGeometryAnchor(requested);
+  if (sourceAnchor && requestedAnchor) {
+    const delta = {
+      x: requestedAnchor.x - sourceAnchor.x,
+      y: requestedAnchor.y - sourceAnchor.y,
+    };
+    const translated = translateDrawingGeometry(source, delta);
+    if (sameDrawingValue(translated, requested))
+      return translateDrawingGeometry(latest, delta);
+  }
+  const rebased = clone(latest) as unknown as Record<string, unknown>;
+  const sourceRecord = source as unknown as Record<string, unknown>;
+  const requestedRecord = requested as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(requestedRecord))
+    if (!sameDrawingValue(value, sourceRecord[key]))
+      rebased[key] = clone(value);
+  return DrawingGeometrySchema.parse(rebased);
+}
+
+/** Replays one queued update intent on the latest locally-applied projection. */
+export function rebaseDrawingCommandForProjection(
+  command: DrawingCommand,
+  source: DrawingDocumentState,
+  latest: DrawingDocumentState,
+): DrawingCommand {
+  if (command.type !== "update_objects") return command;
+  return {
+    ...command,
+    updates: command.updates.map((update) => {
+      const sourceObject = source.objects[update.objectId];
+      const latestObject = latest.objects[update.objectId];
+      if (!sourceObject || !latestObject) return update;
+      return {
+        ...update,
+        baseVersion: latestObject.version,
+        patch: {
+          ...update.patch,
+          ...(update.patch.geometry
+            ? {
+                geometry: rebaseDrawingGeometry(
+                  sourceObject.geometry,
+                  update.patch.geometry,
+                  latestObject.geometry,
+                ),
+              }
+            : {}),
+        },
+      };
+    }),
+  };
+}
+
 /** Creates one version-aware update command for a local selection move. */
 export function moveDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,

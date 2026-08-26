@@ -172,6 +172,108 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
   ).toBe(ifcBefore);
 });
 
+test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPreview(page, "?verticalTest=1");
+  const wallId = "00000000-0000-4000-8000-000000000100";
+  const openingId = "00000000-0000-4000-8000-000000000101";
+  const before = await mountedSnapshot(page);
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 500, y: 720 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([wallId]);
+
+  const burst = [
+    ...Array(12).fill("Shift+ArrowRight"),
+    ...Array(7).fill("Shift+ArrowDown"),
+    ...Array(5).fill("Shift+ArrowLeft"),
+    ...Array(3).fill("Shift+ArrowUp"),
+  ];
+  for (const key of burst) await page.keyboard.press(key);
+
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).objects[wallId].version)
+    .toBe(before.objects[wallId].version + burst.length);
+  const after = await mountedSnapshot(page);
+  expect(after.objects[wallId].geometry.start).toEqual({ x: 190, y: 760 });
+  expect(after.objects[wallId].geometry.end).toEqual({ x: 970, y: 760 });
+  expect(after.objects[openingId].geometry).toEqual(
+    before.objects[openingId].geometry,
+  );
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 420, y: 760 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([openingId]);
+  await dragWorld(page, { x: 420, y: 760 }, { x: 440, y: 760 });
+  await dragWorld(page, { x: 440, y: 760 }, { x: 460, y: 760 });
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[openingId].geometry
+          .offsetMillimeters,
+    )
+    .toBe(270);
+  expect(
+    (await mountedSnapshot(page)).objects[openingId].version,
+  ).toBeGreaterThan(before.objects[openingId].version);
+
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 600, y: 760 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([wallId]);
+  await page.getByLabel("벽 두께").fill("220");
+  await page.getByLabel("벽 높이").fill("3200");
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry
+          .thicknessMillimeters,
+    )
+    .toBe(220);
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry
+          .heightMillimeters,
+    )
+    .toBe(3200);
+  expect((await mountedSnapshot(page)).objects[wallId].geometry.start).toEqual({
+    x: 190,
+    y: 760,
+  });
+  const beforeHistoryBurst = await mountedSnapshot(page);
+  await page.getByLabel(/도면 화면/).focus();
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+Shift+z");
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).objects[wallId].version)
+    .toBe(beforeHistoryBurst.objects[wallId].version + 2);
+  const durable = await mountedSnapshot(page);
+  expect(durable.objects[wallId].geometry).toEqual(
+    beforeHistoryBurst.objects[wallId].geometry,
+  );
+  await page.getByRole("button", { name: "P4 로컬 저장 동기화" }).click();
+  await expect(page.getByLabel("P4 mounted command result")).toHaveText(
+    "로컬 저장 동기화됨",
+  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).operationIds)
+    .toEqual(durable.operationIds);
+  const reloaded = await mountedSnapshot(page);
+  expect(reloaded.objects).toEqual(durable.objects);
+  expect(reloaded.operationIds).toEqual(durable.operationIds);
+  expect(reloaded.undoIds).toEqual(durable.undoIds);
+  expect(reloaded.redoIds).toEqual(durable.redoIds);
+});
+
 test("P4 integrated architectural authoring, conflict, restore, permissions, freeze, and durable export vertical", async ({
   page,
 }) => {
@@ -344,6 +446,12 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
         (await mountedSnapshot(page)).objects[wallId].geometry.start.x,
     )
     .toBe(wallBefore.start.x + 10);
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry.start.y,
+    )
+    .toBe(wallBefore.start.y + 10);
   const afterWallMove = await mountedSnapshot(page);
   const wallAfter = afterWallMove.objects[wallId].geometry;
   const openingAfterWallMove = afterWallMove.objects[openingId].geometry;

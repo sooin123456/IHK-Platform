@@ -50,11 +50,13 @@ import {
   moveDrawingSelection,
   pasteDrawingClipboard,
   redoDrawingCommand,
+  rebaseDrawingCommandForProjection,
   revertDrawingOperation,
   undoDrawingCommand,
   type AppliedDrawingCommand,
   type DrawingCommand,
   type DrawingClipboard,
+  DrawingCommandError,
   type DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import {
@@ -653,6 +655,10 @@ export function canonicalCheckpointEntities(
   });
 }
 
+function sameDrawingWorkspaceValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 type Props = {
   actionError?: string | null;
   activityPage?: { items: DrawingActivityItem[]; nextCursor: string | null };
@@ -795,6 +801,7 @@ export default function DrawingWorkspaceClient({
   const persistenceRef = useRef<ReturnType<
     typeof createDrawingPersistenceQueue
   > | null>(null);
+  const localDraftFlushRef = useRef<() => Promise<void>>(async () => {});
   const retryStorageRef = useRef<() => void>(() => {});
   const { file, document: drawingDocument } = workspace;
   const navigation = useNavigation();
@@ -854,6 +861,9 @@ export default function DrawingWorkspaceClient({
   const collaborationCommandRef = useRef<ReturnType<
     typeof createDrawingCollaborationCommandBridge
   > | null>(null);
+  const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const commandQueueProjectionRef = useRef<DrawingDocumentState | null>(null);
+  const commandQueueSizeRef = useRef(0);
   const collaborationConnectionRef =
     useRef<DrawingCollaborationConnection | null>(null);
   const awarenessStoreRef = useRef(createDrawingAwarenessPeerStore());
@@ -1404,6 +1414,9 @@ export default function DrawingWorkspaceClient({
           attempt = null;
           return;
         }
+        localDraftFlushRef.current = async () => {
+          await attempt?.persistence?.flush();
+        };
         const draft = attempt.adapter;
         collaborationAdapterRef.current = attempt.adapter;
         collaborationCommandRef.current =
@@ -1474,6 +1487,7 @@ export default function DrawingWorkspaceClient({
       if (persistenceRef.current === persistence) persistenceRef.current = null;
       if (legacyOutboxRef.current === outbox) legacyOutboxRef.current = null;
       if (flushOutboxRef.current === flush) flushOutboxRef.current = null;
+      localDraftFlushRef.current = async () => {};
       retryStorageRef.current = () => {};
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
@@ -1600,6 +1614,41 @@ export default function DrawingWorkspaceClient({
     ],
   );
 
+  const enqueueDrawingMutation = useCallback(
+    (
+      mutation: (
+        latest: DrawingDocumentState,
+        expected: DrawingDocumentState | null,
+      ) => Promise<DrawingDocumentState | null>,
+      onError?: (error: unknown) => void,
+    ) => {
+      commandQueueSizeRef.current += 1;
+      const run = async () => {
+        const latest =
+          collaborationAdapterRef.current?.getSnapshot().state ??
+          drawingStateRef.current;
+        const next = await mutation(latest, commandQueueProjectionRef.current);
+        if (next) commandQueueProjectionRef.current = next;
+      };
+      const result = commandQueueRef.current.then(run);
+      commandQueueRef.current = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      const settled = () => {
+        commandQueueSizeRef.current -= 1;
+        if (commandQueueSizeRef.current === 0)
+          commandQueueProjectionRef.current = null;
+      };
+      void result.then(settled, (error) => {
+        settled();
+        if (onError) onError(error);
+        else markStorageFailed();
+      });
+    },
+    [markStorageFailed],
+  );
+
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
       const lockConflict = drawingCommandSoftLockConflict(
@@ -1625,7 +1674,32 @@ export default function DrawingWorkspaceClient({
       const bridge = collaborationCommandRef.current;
       if (!bridge) return false;
       setCollaborationEditNotice(null);
-      void bridge.applyCommand(command).catch(markStorageFailed);
+      const source = drawingStateRef.current;
+      enqueueDrawingMutation(
+        async (latest, expected) => {
+          const locallyOrdered =
+            command.type === "update_objects" &&
+            expected !== null &&
+            command.updates.every((update) =>
+              sameDrawingWorkspaceValue(
+                expected.objects[update.objectId],
+                latest.objects[update.objectId],
+              ),
+            );
+          const nextCommand = locallyOrdered
+            ? rebaseDrawingCommandForProjection(command, source, latest)
+            : command;
+          const prepared = await bridge.applyCommand(nextCommand);
+          return prepared.state;
+        },
+        (error) => {
+          if (error instanceof DrawingCommandError) {
+            setCollaborationEditNotice(error.message);
+            return;
+          }
+          markStorageFailed();
+        },
+      );
       return true;
     },
     [
@@ -1633,6 +1707,7 @@ export default function DrawingWorkspaceClient({
       awarenessLockPeers,
       effectiveCapability,
       effectiveRevisionStatus,
+      enqueueDrawingMutation,
       outboxReady,
       persistenceState,
       reportLockConflict,
@@ -1702,6 +1777,16 @@ export default function DrawingWorkspaceClient({
       accepted ? "직접 변경 제출됨" : "직접 변경 권한 차단됨",
     );
   }, [applyCommand, currentUserId]);
+  const runVerticalLocalDraftFlush = useCallback(async () => {
+    try {
+      await localDraftFlushRef.current();
+      setVerticalTestStatus("로컬 저장 동기화됨");
+    } catch (error) {
+      setVerticalTestStatus(
+        `로컬 저장 동기화 실패 · ${error instanceof Error ? error.message : "저장 오류"}`,
+      );
+    }
+  }, []);
   const revertOperation = useCallback(
     async (operationId: string) => {
       try {
@@ -1830,54 +1915,68 @@ export default function DrawingWorkspaceClient({
     ],
   );
 
-  const undo = useCallback(() => {
-    if (
-      !outboxReady ||
-      !authorityCanWrite ||
-      !canPersistDrawingMutation(
-        effectiveCapability,
-        persistenceState,
-        effectiveRevisionStatus,
+  const queueHistoryMutation = useCallback(
+    (direction: "undo" | "redo") => {
+      if (
+        !outboxReady ||
+        !authorityCanWrite ||
+        !canPersistDrawingMutation(
+          effectiveCapability,
+          persistenceState,
+          effectiveRevisionStatus,
+        )
       )
-    )
-      return;
-    const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
-    if (!result || "kind" in result) return;
-    void commitApplied(result).catch(markStorageFailed);
-  }, [
-    authorityCanWrite,
-    commitApplied,
-    currentUserId,
-    outboxReady,
-    persistenceState,
-    effectiveCapability,
-    effectiveRevisionStatus,
-  ]);
+        return false;
+      const bridge = collaborationCommandRef.current;
+      if (!bridge) return false;
+      enqueueDrawingMutation(async (latest) => {
+        const result =
+          direction === "undo"
+            ? undoDrawingCommand(latest, currentUserId)
+            : redoDrawingCommand(latest, currentUserId);
+        if (!result) return latest;
+        if ("kind" in result) {
+          setHistoryStatus("후속 변경이 있어 안전하게 되돌릴 수 없습니다.");
+          return latest;
+        }
+        const lockConflict = drawingRecordedOperationSoftLockConflict(
+          result.operation,
+          awarenessLockPeers,
+        );
+        if (lockConflict) {
+          reportLockConflict(lockConflict);
+          setAwarenessSoftLock(null);
+          return latest;
+        }
+        await persistDrawingRecordedOperation(bridge, result);
+        return result.state;
+      }, markStorageFailed);
+      return true;
+    },
+    [
+      authorityCanWrite,
+      awarenessLockPeers,
+      currentUserId,
+      effectiveCapability,
+      effectiveRevisionStatus,
+      enqueueDrawingMutation,
+      markStorageFailed,
+      outboxReady,
+      persistenceState,
+      reportLockConflict,
+      setAwarenessSoftLock,
+    ],
+  );
 
-  const redo = useCallback(() => {
-    if (
-      !outboxReady ||
-      !authorityCanWrite ||
-      !canPersistDrawingMutation(
-        effectiveCapability,
-        persistenceState,
-        effectiveRevisionStatus,
-      )
-    )
-      return;
-    const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
-    if (!result || "kind" in result) return;
-    void commitApplied(result).catch(markStorageFailed);
-  }, [
-    authorityCanWrite,
-    commitApplied,
-    currentUserId,
-    outboxReady,
-    persistenceState,
-    effectiveCapability,
-    effectiveRevisionStatus,
-    markStorageFailed,
-  ]);
+  const undo = useCallback(
+    () => queueHistoryMutation("undo"),
+    [queueHistoryMutation],
+  );
+
+  const redo = useCallback(
+    () => queueHistoryMutation("redo"),
+    [queueHistoryMutation],
+  );
 
   const copySelection = useCallback(() => {
     if (!selectionMutationAllowed()) return false;
@@ -2075,25 +2174,15 @@ export default function DrawingWorkspaceClient({
       else if (shortcut.type === "delete") handled = deleteSelection();
       else if (shortcut.type === "move")
         handled = moveSelection(shortcut.delta);
-      else if (shortcut.type === "undo") {
-        handled =
-          (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0;
-        if (handled) undo();
-      } else {
-        handled =
-          (drawingState.redoStackByActor[currentUserId]?.length ?? 0) > 0;
-        if (handled) redo();
-      }
+      else if (shortcut.type === "undo") handled = undo();
+      else handled = redo();
       if (handled) event.preventDefault();
     }
     window.addEventListener("keydown", handleWorkspaceShortcut);
     return () => window.removeEventListener("keydown", handleWorkspaceShortcut);
   }, [
     copySelection,
-    currentUserId,
     deleteSelection,
-    drawingState.redoStackByActor,
-    drawingState.undoStackByActor,
     duplicateSelection,
     moveSelection,
     pasteSelection,
@@ -2285,6 +2374,12 @@ export default function DrawingWorkspaceClient({
           </button>
           <button onClick={runVerticalDirectMutation} type="button">
             P4 직접 변경 시도
+          </button>
+          <button
+            onClick={() => void runVerticalLocalDraftFlush()}
+            type="button"
+          >
+            P4 로컬 저장 동기화
           </button>
           <output aria-label="P4 mounted command result">
             {verticalTestStatus}

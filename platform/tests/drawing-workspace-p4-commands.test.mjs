@@ -476,6 +476,115 @@ test("semantic translation moves authored coordinates but never XY-translates an
   );
 });
 
+test("queued update intent rebases rapid moves and inspector fields onto the latest projection", () => {
+  const initial = state([wall(), opening()]);
+  const right = drawingCommands.moveDrawingSelection(
+    initial,
+    [ids.wall],
+    ids.actor,
+    { x: 100, y: 0 },
+  );
+  const downFromStaleRender = drawingCommands.moveDrawingSelection(
+    initial,
+    [ids.wall],
+    ids.actor,
+    { x: 0, y: 50 },
+  );
+  const afterRight = drawingCommands.applyDrawingCommand(initial, right).state;
+  const rebasedDown = drawingCommands.rebaseDrawingCommandForProjection(
+    downFromStaleRender,
+    initial,
+    afterRight,
+  );
+  const afterBurst = drawingCommands.applyDrawingCommand(
+    afterRight,
+    rebasedDown,
+  ).state;
+  assert.deepEqual(afterBurst.objects[ids.wall].geometry.start, {
+    x: 100,
+    y: 50,
+  });
+  assert.deepEqual(afterBurst.objects[ids.wall].geometry.end, {
+    x: 1100,
+    y: 50,
+  });
+  assert.deepEqual(
+    afterBurst.objects[ids.opening],
+    initial.objects[ids.opening],
+  );
+  assert.deepEqual(
+    resolveDrawingOpening(
+      afterBurst.objects[ids.opening].geometry,
+      afterBurst.objects,
+    ).center,
+    { x: 600, y: 50 },
+  );
+
+  const inspectorFromStaleRender = {
+    type: "update_objects",
+    actorId: ids.actor,
+    updates: [
+      {
+        objectId: ids.wall,
+        baseVersion: 1,
+        patch: {
+          name: "Inspector wall",
+          geometry: {
+            ...initial.objects[ids.wall].geometry,
+            thicknessMillimeters: 240,
+          },
+        },
+      },
+    ],
+  };
+  const rebasedInspector = drawingCommands.rebaseDrawingCommandForProjection(
+    inspectorFromStaleRender,
+    initial,
+    afterBurst,
+  );
+  const afterInspector = drawingCommands.applyDrawingCommand(
+    afterBurst,
+    rebasedInspector,
+  ).state;
+  assert.equal(afterInspector.objects[ids.wall].name, "Inspector wall");
+  assert.equal(
+    afterInspector.objects[ids.wall].geometry.thicknessMillimeters,
+    240,
+  );
+  assert.deepEqual(afterInspector.objects[ids.wall].geometry.start, {
+    x: 100,
+    y: 50,
+  });
+});
+
+test("queued hosted-opening moves preserve each pointer delta on the latest offset", () => {
+  const initial = state([wall(), opening()]);
+  const first = drawingCommands.moveDrawingOpeningToPoint(
+    initial,
+    ids.opening,
+    ids.actor,
+    { x: 600, y: 0 },
+  );
+  const secondFromStaleRender = drawingCommands.moveDrawingOpeningToPoint(
+    initial,
+    ids.opening,
+    ids.actor,
+    { x: 550, y: 0 },
+  );
+  const afterFirst = drawingCommands.applyDrawingCommand(initial, first).state;
+  const rebasedSecond = drawingCommands.rebaseDrawingCommandForProjection(
+    secondFromStaleRender,
+    initial,
+    afterFirst,
+  );
+  const afterBurst = drawingCommands.applyDrawingCommand(
+    afterFirst,
+    rebasedSecond,
+  ).state;
+  assert.equal(afterBurst.objects[ids.opening].geometry.offsetMillimeters, 650);
+  assert.equal(afterBurst.objects[ids.opening].version, 3);
+});
+
 test("semantic command outputs stay on the exact six-decimal grid without drift", () => {
   const diagonalWall = wall({
     geometry: {
