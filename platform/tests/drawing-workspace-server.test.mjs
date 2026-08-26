@@ -1227,6 +1227,39 @@ test("mutation parsing accepts only the approved narrow intent shapes", () => {
   );
 });
 
+test("review rejection immediately notifies collaboration authority for the live room", async () => {
+  const workspace = loadedWorkspace();
+  workspace.document.revision.status = "review_requested";
+  const reconciliations = [];
+  const response = await handleWorkspaceMutation({
+    client: {
+      async rpc(name) {
+        assert.equal(name, "lukas_drawing_record_revision_decision");
+        return { data: { decision: "rejected" }, error: null };
+      },
+    },
+    projectId: ids.project,
+    capability: "reviewer",
+    workspace,
+    form: form({
+      intent: "record_revision_decision",
+      revision_id: ids.revision,
+      subject_version: "1",
+      snapshot_sha256: sourceSha,
+      decision: "rejected",
+      note: "revise",
+    }),
+    async reconcileDecision(scope) {
+      reconciliations.push(scope);
+      return true;
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(reconciliations, [
+    { projectId: ids.project, revisionId: ids.revision },
+  ]);
+});
+
 function queryClient(responses) {
   const calls = [];
   return {

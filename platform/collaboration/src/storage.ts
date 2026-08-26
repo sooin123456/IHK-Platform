@@ -78,9 +78,9 @@ const transientCodes = new Set([
 function isTransient(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      transientCodes.has(String(error.code)),
+    typeof error === "object" &&
+    "code" in error &&
+    transientCodes.has(String(error.code)),
   );
 }
 
@@ -429,9 +429,15 @@ export function createPostgresDrawingCollaborationDatabase(
                 freeze_state: DrawingFreezeState["state"];
                 freeze_request_id: string | null;
                 revision_status: string;
+                revision_version: number;
                 accepted_manifest_sha256: string | null;
                 accepted_operation_count: number | null;
                 frozen_base_operation_sequence: number | null;
+                frozen_subject_revision_version: number | null;
+                frozen_yjs_state_vector: string | null;
+                frozen_operation_statuses:
+                  DrawingFreezeState["operationStatuses"] | null;
+                review_committed: boolean;
               }[]
             >`select * from private.lukas_drawing_collaboration_read_freeze(${scope.projectId}::uuid,${scope.revisionId}::uuid)`,
           );
@@ -440,6 +446,7 @@ export function createPostgresDrawingCollaborationDatabase(
                 state: row.freeze_state,
                 requestId: row.freeze_request_id,
                 revisionStatus: row.revision_status,
+                revisionVersion: Number(row.revision_version),
                 manifestSha256: row.accepted_manifest_sha256,
                 manifestCount:
                   row.accepted_operation_count === null
@@ -449,6 +456,13 @@ export function createPostgresDrawingCollaborationDatabase(
                   row.frozen_base_operation_sequence === null
                     ? null
                     : Number(row.frozen_base_operation_sequence),
+                frozenSubjectRevisionVersion:
+                  row.frozen_subject_revision_version === null
+                    ? null
+                    : Number(row.frozen_subject_revision_version),
+                stateVectorBase64: row.frozen_yjs_state_vector,
+                operationStatuses: row.frozen_operation_statuses,
+                reviewCommitted: row.review_committed,
               }
             : null;
         }),
@@ -474,7 +488,9 @@ export function createPostgresDrawingCollaborationDatabase(
               ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
               ${Buffer.from(value.yjsState)}::bytea,
               ${tx.json(JSON.parse(JSON.stringify(value.manifest.operations)))}::jsonb,${value.manifest.sha256},
-              ${value.manifest.count}::integer,${value.manifest.baseOperationSequence}::bigint
+              ${value.manifest.count}::integer,${value.manifest.baseOperationSequence}::bigint,
+              ${value.manifest.stateVectorBase64},
+              ${tx.json(JSON.parse(JSON.stringify(value.manifest.operationStatuses)))}::jsonb
             ) result`,
           );
           if (!row) throw new Error("Drawing freeze returned no state.");
@@ -492,6 +508,19 @@ export function createPostgresDrawingCollaborationDatabase(
           );
           if (!row)
             throw new Error("Drawing freeze release returned no state.");
+          return row.result;
+        }),
+      syncReleasedState: (value) =>
+        inRole(async (tx) => {
+          const row = firstRow(
+            await tx<
+              { result: DrawingFreezeState }[]
+            >`select private.lukas_drawing_collaboration_sync_released_state(
+              ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+              ${Buffer.from(value.yjsState)}::bytea
+            ) result`,
+          );
+          if (!row) throw new Error("Drawing released sync returned no state.");
           return row.result;
         }),
     },

@@ -249,7 +249,8 @@ export function drawingActivityDescription(item: DrawingActivityItem) {
     item.detail && typeof item.detail === "object"
       ? (item.detail as Record<string, unknown>)
       : {};
-  const detailType = typeof detail.type === "string" ? detail.type : item.action;
+  const detailType =
+    typeof detail.type === "string" ? detail.type : item.action;
   const count = [detail.actions, detail.updates, detail.objects].find(
     Array.isArray,
   ) as unknown[] | undefined;
@@ -273,8 +274,7 @@ export function drawingActivityDescription(item: DrawingActivityItem) {
 }
 
 export function drawingActivityProvenance(item: DrawingActivityItem) {
-  if (item.kind === "issue_event")
-    return `이슈 ${item.issueId.slice(0, 8)}`;
+  if (item.kind === "issue_event") return `이슈 ${item.issueId.slice(0, 8)}`;
   return item.provenance.originalOperationId
     ? `${item.action} · 원본 작업 ${item.provenance.originalOperationId.slice(0, 8)}`
     : `리비전 ${item.revisionId.slice(0, 8)}`;
@@ -296,6 +296,13 @@ export function drawingReviewSubmissionEnabled(input: {
     input.volatileCount === 0 &&
     !input.persistenceFailed
   );
+}
+
+export function drawingReviewFreezeStorageKey(
+  revisionId: string,
+  revisionVersion: number,
+) {
+  return `drawing-review-freeze:${revisionId}:${revisionVersion}`;
 }
 
 export type DrawingWorkspaceShortcut =
@@ -627,7 +634,10 @@ function drawingStateFromBootstrap(
   });
 }
 
-export function canonicalCheckpointEntities(values: unknown[], omitted: string[]) {
+export function canonicalCheckpointEntities(
+  values: unknown[],
+  omitted: string[],
+) {
   return values.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value))
       return value;
@@ -2071,7 +2081,10 @@ export default function DrawingWorkspaceClient({
       event.preventDefault();
       const form = event.currentTarget;
       const submitter = (event.nativeEvent as SubmitEvent).submitter;
-      const requestStorageKey = `drawing-review-freeze:${revision.id}`;
+      const requestStorageKey = drawingReviewFreezeStorageKey(
+        revision.id,
+        revision.version,
+      );
       let requestId: string | null = null;
       try {
         requestId = window.sessionStorage.getItem(requestStorageKey);

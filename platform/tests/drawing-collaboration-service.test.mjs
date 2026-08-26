@@ -2028,6 +2028,88 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
   }
 });
 
+test("internal endpoints reject a single valid JSON chunk above 16 KiB before parsing", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const secret = "bounded-internal-secret-is-long-enough";
+  let serviceLoads = 0;
+  let freezeReads = 0;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: secret,
+      freezeSecret: secret,
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 120_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      loadService: async () => {
+        serviceLoads += 1;
+        return null;
+      },
+      bootstrap: async () => ({ sha256: "a".repeat(64), operationSequence: 0 }),
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+      freeze: {
+        async readFreeze() {
+          freezeReads += 1;
+          return null;
+        },
+        async beginFreeze() {
+          throw new Error("must not parse");
+        },
+        async completeFreeze() {
+          throw new Error("must not parse");
+        },
+        async releaseFreeze() {
+          throw new Error("must not parse");
+        },
+        async syncReleasedState() {
+          throw new Error("must not parse");
+        },
+      },
+    },
+  });
+  const server = await runtime.start();
+  try {
+    const outcomeBody = `${JSON.stringify({ valid: true })}${" ".repeat(17 * 1024)}`;
+    const outcome = await fetch(`${server.httpURL}/internal/outcomes`, {
+      method: "POST",
+      body: outcomeBody,
+      headers: {
+        "x-1hk-signature": createHmac("sha256", secret)
+          .update(outcomeBody)
+          .digest("hex"),
+      },
+    });
+    assert.equal(outcome.status, 413);
+    const freezeBody = `${JSON.stringify({ action: "freeze", roomName, freezeRequestId: randomUUID() })}${" ".repeat(17 * 1024)}`;
+    const freeze = await fetch(`${server.httpURL}/internal/freeze`, {
+      method: "POST",
+      body: freezeBody,
+      headers: { "x-1hk-freeze-secret": secret },
+    });
+    assert.equal(freeze.status, 413);
+    assert.equal(serviceLoads, 0);
+    assert.equal(freezeReads, 0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("outcome endpoint distinguishes invalid signatures from retriable persistence failures", async () => {
   const { createDrawingCollaborationServer } = requireModules();
   const secret = "receipt-secret-that-is-long-enough";

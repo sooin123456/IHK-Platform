@@ -504,8 +504,7 @@ export async function reconcileAcceptedDrawingOperations(
     throw new Error("Accepted drawing operation lookup is invalid.");
   const validated = accepted.map((row) => {
     const envelope = operations[row.clientOperationId] as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (
       !pending.includes(row.clientOperationId) ||
       !envelope ||
@@ -738,6 +737,24 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     },
   };
 
+  const freezeCoordinator = dependencies.storage.freeze
+    ? createDrawingFreezeCoordinator({
+        database: dependencies.storage.freeze,
+        reconcile: async (document) => {
+          if (!dependencies.storage.lookupOperations) return;
+          const revisionId = String(
+            document.getMap("serverMeta").get("revisionId"),
+          );
+          await reconcileAcceptedDrawingOperations(document, (ids) =>
+            dependencies.storage.lookupOperations!(revisionId, ids),
+          );
+        },
+      })
+    : null;
+  const reconcileLoadedDocument = (document: Y.Doc, roomName: string) =>
+    freezeCoordinator?.reconcileLoaded({ document, roomName }) ??
+    Promise.resolve(null);
+
   const server = new Server<DrawingRuntimeContext>({
     port: dependencies.config.port,
     stopOnSignals: false,
@@ -814,6 +831,8 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           bootstrap: () => dependencies.storage.bootstrap!(scope),
         });
       }
+      await reconcileLoadedDocument(payload.document, payload.documentName);
+      validateLedgerWithoutAppend(payload.document, payload.documentName);
       return payload.document;
     },
     async onStoreDocument(payload) {
@@ -826,20 +845,6 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   });
   const hocuspocus = server.hocuspocus;
 
-  const freezeCoordinator = dependencies.storage.freeze
-    ? createDrawingFreezeCoordinator({
-        database: dependencies.storage.freeze,
-        reconcile: async (document) => {
-          if (!dependencies.storage.lookupOperations) return;
-          const revisionId = String(
-            document.getMap("serverMeta").get("revisionId"),
-          );
-          await reconcileAcceptedDrawingOperations(document, (ids) =>
-            dependencies.storage.lookupOperations!(revisionId, ids),
-          );
-        },
-      })
-    : null;
   const verifyFreezeSecret = dependencies.config.freezeSecret
     ? createDrawingFreezeSecretVerifier(dependencies.config.freezeSecret)
     : null;
@@ -886,23 +891,33 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         "Drawing freeze authentication failed.",
       );
     }
+    const room = z.string().refine((value) => {
+      try {
+        parseDrawingRoomName(value);
+        return true;
+      } catch {
+        return false;
+      }
+    });
     const request = z
-      .object({
-        action: z.enum(["freeze", "reconcile", "release"]),
-        roomName: z.string().refine((value) => {
-          try {
-            parseDrawingRoomName(value);
-            return true;
-          } catch {
-            return false;
-          }
-        }),
-        freezeRequestId: z.string().uuid(),
-      })
-      .strict()
+      .discriminatedUnion("action", [
+        z.object({ action: z.literal("authority"), roomName: room }).strict(),
+        z
+          .object({
+            action: z.enum(["freeze", "reconcile", "release"]),
+            roomName: room,
+            freezeRequestId: z.string().uuid(),
+          })
+          .strict(),
+      ])
       .parse(JSON.parse(body));
     const loaded = await loadServiceDocument(request.roomName);
     try {
+      if (request.action === "authority")
+        return await freezeCoordinator.reconcileLoaded({
+          document: loaded.document,
+          roomName: request.roomName,
+        });
       if (request.action === "release")
         return await freezeCoordinator.release({
           document: loaded.document,
@@ -962,18 +977,27 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   }
 
   async function runReconciliationCheck() {
-    if (!dependencies.storage.lookupOperations) return;
+    if (!dependencies.storage.lookupOperations && !freezeCoordinator) return;
     await Promise.allSettled(
       [...hocuspocus.documents.values()].map((document) =>
         (async () => {
           const context = persistenceContext(document);
-          const changed = await reconcileAcceptedDrawingOperations(
+          await freezeCoordinator?.reconcileLoaded({
             document,
-            (ids) =>
-              dependencies.storage.lookupOperations!(context.revisionId, ids),
-            (mutation) =>
-              document.transact(mutation, { source: "local", context }),
-          );
+            roomName: context.roomName,
+          });
+          const changed = dependencies.storage.lookupOperations
+            ? await reconcileAcceptedDrawingOperations(
+                document,
+                (ids) =>
+                  dependencies.storage.lookupOperations!(
+                    context.revisionId,
+                    ids,
+                  ),
+                (mutation) =>
+                  document.transact(mutation, { source: "local", context }),
+              )
+            : false;
           if (changed)
             await hooks.store({
               document,
@@ -1124,11 +1148,18 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           request.method === "POST" &&
           url.pathname === "/internal/outcomes"
         ) {
-          let body = "";
+          const chunks: Buffer[] = [];
+          let byteCount = 0;
           for await (const chunk of request) {
-            body += chunk;
-            if (Buffer.byteLength(body) > 16 * 1024) break;
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            byteCount += bytes.byteLength;
+            if (byteCount > 16 * 1024) {
+              response.writeHead(413).end();
+              return;
+            }
+            chunks.push(bytes);
           }
+          const body = Buffer.concat(chunks).toString("utf8");
           try {
             await applyOutcomeReceipt(
               body,
@@ -1145,11 +1176,18 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           return;
         }
         if (request.method === "POST" && url.pathname === "/internal/freeze") {
-          let body = "";
+          const chunks: Buffer[] = [];
+          let byteCount = 0;
           for await (const chunk of request) {
-            body += chunk;
-            if (Buffer.byteLength(body) > 16 * 1024) break;
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            byteCount += bytes.byteLength;
+            if (byteCount > 16 * 1024) {
+              response.writeHead(413).end();
+              return;
+            }
+            chunks.push(bytes);
           }
+          const body = Buffer.concat(chunks).toString("utf8");
           try {
             const result = await applyFreezeRequest(
               body,
@@ -1210,6 +1248,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     runReconciliationCheck,
     applyOutcomeReceipt,
     applyFreezeRequest,
+    reconcileLoadedDocument,
     purgeAuthCache() {
       dependencies.purgeAuth?.();
     },

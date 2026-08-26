@@ -22,7 +22,17 @@
 - Reconstructed and returned the full persisted manifest after a committed complete-freeze response is lost.
 - Reconciled the same request after an initial freeze HTTP response is lost and attempted an authoritative safe release after every final DB-transition failure, including permission revocation.
 - Built candidate released Yjs bytes off-document, committed the database release first, then applied them to the live room. A concurrent review commit therefore cannot make the live room writable.
-- Independent read-only review finished with no remaining critical or important finding.
+
+## Changes-required follow-up
+
+- Added the forward-only CLI migration `20260826052305_drawing_workspace_p3_review_rejection_recovery.sql`; the committed `20260826043741` migration remains byte-unchanged.
+- Bound every new freeze to `frozen_subject_revision_version` and persisted bounded `frozen_yjs_state_vector` plus exact explicit operation statuses. The application server validates and submits all three fields, independently of the Yjs-state byte SHA and canonical business snapshot SHA.
+- Made reviewer rejection atomically return `review_requested` to a version-incremented draft while releasing collaboration state and clearing the committed fence and all prior proof. Old request/version proof is denied; the next edit and review require a new version-bound request and freeze. Approval stays permanently frozen.
+- Added authoritative load-time reconciliation before `onLoadDocument` returns. Fresh server/coordinator instances resolve and release interrupted draft freezes, synchronize rejected drafts to released Yjs bytes, and preserve exact review-requested/approved freezes without a tab retry.
+- Reviewer rejection also sends a server-only authenticated authority notification to reconcile an already-loaded live room immediately; periodic authoritative room reconciliation is the fallback. Exact already-released rooms short-circuit without new Yjs structs, state-vector growth, database generation churn, or persistence writes.
+- Both internal HTTP endpoints now count raw bytes while reading and immediately return 413 above 16 KiB before authentication, parsing, storage, or coordinator work. A real HTTP test sends valid oversized JSON as one chunk to both endpoints.
+- Browser retry identity is now keyed by revision ID and version, so a rejected revision cannot reuse its previous session proof.
+- A mistaken `pnpm exec` verification attempt created untracked `platform/pnpm-lock.yaml` and `platform/pnpm-workspace.yaml` in this npm-lock repository. Those two known generated artifacts were removed immediately; subsequent verification used `./node_modules/.bin/tsc` and npm scripts.
 
 ## TDD evidence
 
@@ -40,6 +50,17 @@
 - `npm run build`: passed; only existing chunk-size, React Router future-flag, unsigned theme-cookie and localStorage warnings were emitted.
 - Fresh Chromium: 2 passed, 0 failed.
 - `git diff --check`: passed.
+
+Follow-up verification on the changes-required fixes:
+
+- `npm run test:drawing-workspace`: 488 tests, 487 passed, 1 existing environment-dependent test skipped, 0 failed.
+- Full PGlite drawing database runtime: 118 passed, 0 failed, including `freeze -> request -> reject -> edit -> new-request refreeze -> approve`, old-proof denial, released proof clearing, and permanent approval freeze.
+- Focused service/freeze suites: 45 passed, 0 failed; fresh server instances cover interrupted, rejected-draft, review-requested, approved, and already-loaded live-room boundaries, including repeated released-state idempotency.
+- Real one-port HTTP oversized-valid-JSON tests: both `/internal/outcomes` and `/internal/freeze` return 413 with no parser/storage/coordinator side effect.
+- `npm run typecheck`, direct collaboration `tsc --noEmit`, and `npm run build`: passed.
+- Fresh Chromium review-freeze/bootstrap selection: passed (exit 0).
+- `git diff --check`: passed.
+- Final independent read-only review found no remaining critical or important issue; its focused six-file Node/PGlite suite passed 222/222.
 
 ## Production gates not claimed
 

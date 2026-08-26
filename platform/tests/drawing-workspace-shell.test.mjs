@@ -64,6 +64,14 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
+test("review rejection version fences the prior browser freeze request", () => {
+  const revisionId = "00000000-0000-4000-8000-000000000123";
+  assert.notEqual(
+    workspaceModule.drawingReviewFreezeStorageKey(revisionId, 1),
+    workspaceModule.drawingReviewFreezeStorageKey(revisionId, 2),
+  );
+});
+
 test("review submit stays disabled for pending, conflicted, or volatile work", () => {
   const canSubmit = workspaceModule.drawingReviewSubmissionEnabled;
   assert.equal(

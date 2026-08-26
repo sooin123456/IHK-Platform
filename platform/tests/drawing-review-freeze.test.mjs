@@ -97,6 +97,15 @@ test("freeze manifest compares only immutable business fields and authoritative 
   ]);
   assert.equal("createdAt" in first.operations[0], false);
   assert.equal("schemaVersion" in first.operations[0], false);
+  assert.match(first.stateVectorBase64, /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.deepEqual(first.operationStatuses, [
+    {
+      clientOperationId: ids.operation,
+      status: "acked",
+      authoritativeSequence: 1,
+      resultVersions: { [ids.layer]: 1 },
+    },
+  ]);
 });
 
 test("pending and conflicted ledgers cannot freeze", () => {
@@ -151,6 +160,8 @@ test("freeze persists freezing before frozen and is idempotent across a lost res
   assert.equal(first.manifestSha256, second.manifestSha256);
   assert.deepEqual(first.operations, second.operations);
   assert.equal(first.operations.length, 1);
+  assert.equal(first.stateVectorBase64, second.stateVectorBase64);
+  assert.deepEqual(first.operationStatuses, second.operationStatuses);
   assert.equal(doc.getMap("serverMeta").get("freezeState"), "frozen");
 
   const attacker = new Y.Doc();
@@ -225,6 +236,282 @@ test("a review commit racing release leaves the live document frozen", async () 
   assert.equal(doc.getMap("serverMeta").get("freezeState"), "frozen");
 });
 
+test("a fresh server resolves interrupted and rejected freezes before admission", async () => {
+  const requestId = randomUUID();
+  const interrupted = document();
+  interrupted.getMap("serverMeta").set("freezeState", "freezing");
+  interrupted.getMap("serverMeta").set("freezeRequestId", requestId);
+  let state = {
+    state: "freezing",
+    requestId,
+    revisionStatus: "draft",
+    revisionVersion: 1,
+    frozenSubjectRevisionVersion: 1,
+  };
+  const database = {
+    async readFreeze() {
+      return state;
+    },
+    async beginFreeze() {
+      return state;
+    },
+    async completeFreeze(input) {
+      state = {
+        ...state,
+        state: "frozen",
+        manifestSha256: input.manifest.sha256,
+        manifestCount: input.manifest.count,
+        frozenBaseOperationSequence: input.manifest.baseOperationSequence,
+        stateVectorBase64: input.manifest.stateVectorBase64,
+        operationStatuses: input.manifest.operationStatuses,
+      };
+      return state;
+    },
+    async releaseFreeze() {
+      state = {
+        state: "released",
+        requestId,
+        revisionStatus: "draft",
+        revisionVersion: state.revisionVersion,
+      };
+      return state;
+    },
+    async syncReleasedState() {
+      throw new Error("unused");
+    },
+  };
+  const createRuntime = () =>
+    createDrawingCollaborationServer({
+      config: {
+        port: 0,
+        supabaseUrl: "https://example.supabase.co",
+        databaseUrl: "postgres://unused",
+        allowedOrigins: new Set(["https://app.example.com"]),
+        internalSecret: "i".repeat(32),
+        freezeSecret: "f".repeat(32),
+        authorizationIntervalMs: 30_000,
+        debounceMs: 10,
+        maxDebounceMs: 20,
+      },
+      verifyToken: async () => ({
+        userId: ids.actor,
+        email: null,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      authorize: async () => ({
+        capability: "editor",
+        canWrite: true,
+        revisionStatus: "draft",
+      }),
+      storage: {
+        load: async () => null,
+        store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+        bootstrap: async () => ({
+          sha256: "a".repeat(64),
+          operationSequence: 0,
+        }),
+        freeze: database,
+      },
+      setInterval: () => 1,
+      clearInterval: () => {},
+    });
+  const restarted = createRuntime();
+  const recovered = await restarted.reconcileLoadedDocument(
+    interrupted,
+    roomName,
+  );
+  assert.equal(recovered.freezeState, "released");
+  assert.equal(interrupted.getMap("serverMeta").get("freezeState"), "released");
+  await restarted.stop();
+
+  state = {
+    state: "released",
+    requestId,
+    revisionStatus: "draft",
+    revisionVersion: 2,
+  };
+  let synchronized = false;
+  database.syncReleasedState = async (input) => {
+    synchronized = true;
+    const restored = new Y.Doc();
+    Y.applyUpdate(restored, input.yjsState);
+    assert.equal(restored.getMap("serverMeta").get("freezeState"), "released");
+    restored.destroy();
+    return state;
+  };
+  const afterRejection = new Y.Doc();
+  Y.applyUpdate(afterRejection, Y.encodeStateAsUpdate(interrupted));
+  afterRejection.transact(() => {
+    afterRejection.getMap("serverMeta").set("freezeState", "frozen");
+    afterRejection.getMap("serverMeta").set("freezeRequestId", requestId);
+  });
+  const secondRestart = createRuntime();
+  const released = await secondRestart.reconcileLoadedDocument(
+    afterRejection,
+    roomName,
+  );
+  assert.equal(released.freezeState, "released");
+  assert.equal(synchronized, true);
+  assert.equal(
+    afterRejection.getMap("serverMeta").get("freezeState"),
+    "released",
+  );
+  await secondRestart.stop();
+});
+
+test("fresh servers preserve exact review-requested and approved freezes", async () => {
+  for (const revisionStatus of ["review_requested", "approved"]) {
+    const doc = document();
+    const requestId = randomUUID();
+    doc.getMap("serverMeta").set("freezeState", "frozen");
+    doc.getMap("serverMeta").set("freezeRequestId", requestId);
+    const manifest = drawingFreezeManifest(doc);
+    const state = {
+      state: "frozen",
+      requestId,
+      revisionStatus,
+      revisionVersion: 1,
+      frozenSubjectRevisionVersion: 1,
+      manifestSha256: manifest.sha256,
+      manifestCount: manifest.count,
+      frozenBaseOperationSequence: manifest.baseOperationSequence,
+      stateVectorBase64: manifest.stateVectorBase64,
+      operationStatuses: manifest.operationStatuses,
+      reviewCommitted: true,
+    };
+    const runtime = createDrawingCollaborationServer({
+      config: {
+        port: 0,
+        supabaseUrl: "https://example.supabase.co",
+        databaseUrl: "postgres://unused",
+        allowedOrigins: new Set(["https://app.example.com"]),
+        internalSecret: "i".repeat(32),
+        freezeSecret: "f".repeat(32),
+        authorizationIntervalMs: 30_000,
+        debounceMs: 10,
+        maxDebounceMs: 20,
+      },
+      verifyToken: async () => ({
+        userId: ids.actor,
+        email: null,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      authorize: async () => ({
+        capability: "editor",
+        canWrite: false,
+        revisionStatus,
+      }),
+      storage: {
+        load: async () => null,
+        store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+        bootstrap: async () => ({
+          sha256: "a".repeat(64),
+          operationSequence: 0,
+        }),
+        freeze: {
+          async readFreeze() {
+            return state;
+          },
+          async beginFreeze() {
+            throw new Error("unused");
+          },
+          async completeFreeze() {
+            throw new Error("unused");
+          },
+          async releaseFreeze() {
+            throw new Error("unused");
+          },
+          async syncReleasedState() {
+            throw new Error("must remain frozen");
+          },
+        },
+      },
+      setInterval: () => 1,
+      clearInterval: () => {},
+    });
+    const recovered = await runtime.reconcileLoadedDocument(doc, roomName);
+    assert.equal(recovered.freezeState, "frozen");
+    await runtime.stop();
+  }
+});
+
+test("rejection authority immediately releases an already-loaded live room", async () => {
+  const doc = document();
+  const requestId = randomUUID();
+  doc.getMap("serverMeta").set("freezeState", "frozen");
+  doc.getMap("serverMeta").set("freezeRequestId", requestId);
+  const state = {
+    state: "released",
+    requestId,
+    revisionStatus: "draft",
+    revisionVersion: 2,
+  };
+  let synchronized = 0;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl: "https://example.supabase.co",
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "i".repeat(32),
+      freezeSecret: "f".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+      bootstrap: async () => ({ sha256: "a".repeat(64), operationSequence: 0 }),
+      freeze: {
+        async readFreeze() {
+          return state;
+        },
+        async beginFreeze() {
+          throw new Error("unused");
+        },
+        async completeFreeze() {
+          throw new Error("unused");
+        },
+        async releaseFreeze() {
+          throw new Error("unused");
+        },
+        async syncReleasedState() {
+          synchronized += 1;
+          return state;
+        },
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  runtime.hocuspocus.documents.set(roomName, doc);
+  await runtime.applyFreezeRequest(
+    JSON.stringify({ action: "authority", roomName }),
+    "f".repeat(32),
+  );
+  assert.equal(synchronized, 1);
+  assert.equal(doc.getMap("serverMeta").get("freezeState"), "released");
+  const releasedBytes = Buffer.from(Y.encodeStateAsUpdate(doc));
+  const releasedVector = Buffer.from(Y.encodeStateVector(doc));
+  await runtime.runReconciliationCheck();
+  await runtime.runReconciliationCheck();
+  assert.equal(synchronized, 1);
+  assert.deepEqual(Buffer.from(Y.encodeStateAsUpdate(doc)), releasedBytes);
+  assert.deepEqual(Buffer.from(Y.encodeStateVector(doc)), releasedVector);
+  await runtime.stop();
+});
+
 test("freeze authentication uses a separate constant-time bounded secret", () => {
   const secret = "f".repeat(32);
   const verify = createDrawingFreezeSecretVerifier(secret);
@@ -253,6 +540,9 @@ test("application server freezes before the DB transition and releases the same 
           manifestSha256: manifest.sha256,
           manifestCount: manifest.count,
           baseOperationSequence: manifest.baseOperationSequence,
+          subjectRevisionVersion: 1,
+          stateVectorBase64: manifest.stateVectorBase64,
+          operationStatuses: manifest.operationStatuses,
           operations: manifest.operations,
         };
       },
@@ -263,6 +553,9 @@ test("application server freezes before the DB transition and releases the same 
       events.push("database");
       assert.equal(name, "lukas_drawing_request_collaborative_review");
       assert.equal(args.p_request_id, requestId);
+      assert.equal(args.p_subject_revision_version, 1);
+      assert.equal(args.p_state_vector_base64, manifest.stateVectorBase64);
+      assert.deepEqual(args.p_operation_statuses, manifest.operationStatuses);
       return { data: null, error: { code: "P3F01", message: "mismatch" } };
     },
   };
@@ -316,8 +609,7 @@ test("application server reconciles the same freeze request after its response i
     async fetcher(_url, init) {
       const body = JSON.parse(init.body);
       events.push(body.action);
-      if (body.action === "freeze")
-        throw new Error("freeze response was lost");
+      if (body.action === "freeze") throw new Error("freeze response was lost");
       return {
         ok: true,
         status: 200,
@@ -328,6 +620,9 @@ test("application server reconciles the same freeze request after its response i
             manifestSha256: manifest.sha256,
             manifestCount: manifest.count,
             baseOperationSequence: manifest.baseOperationSequence,
+            subjectRevisionVersion: 1,
+            stateVectorBase64: manifest.stateVectorBase64,
+            operationStatuses: manifest.operationStatuses,
             operations: manifest.operations,
           };
         },
@@ -375,6 +670,9 @@ test("a definitively rejected DB transition safely releases the draft freeze", a
                   manifestSha256: manifest.sha256,
                   manifestCount: manifest.count,
                   baseOperationSequence: manifest.baseOperationSequence,
+                  subjectRevisionVersion: 1,
+                  stateVectorBase64: manifest.stateVectorBase64,
+                  operationStatuses: manifest.operationStatuses,
                   operations: manifest.operations,
                 };
           },

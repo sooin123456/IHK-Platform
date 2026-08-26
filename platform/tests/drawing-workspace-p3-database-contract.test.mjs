@@ -44,6 +44,13 @@ const reviewFreezeMigration = await readFile(
   ),
   "utf8",
 );
+const reviewRejectionRecoveryMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260826052305_drawing_workspace_p3_review_rejection_recovery.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(
@@ -302,4 +309,22 @@ test("P3 review freeze is forward-only, private, manifest-bound, and DB-canonica
     reviewFreezeMigration,
     /(?:create|alter|drop)\s+(?:table|function|schema|policy)[\s\S]{0,80}\brealtime\./i,
   );
+});
+
+test("P3 review rejection recovery is version-bound and forward-only", () => {
+  assert.match(
+    reviewRejectionRecoveryMigration,
+    /frozen_subject_revision_version/i,
+  );
+  assert.match(reviewRejectionRecoveryMigration, /frozen_yjs_state_vector/i);
+  assert.match(reviewRejectionRecoveryMigration, /frozen_operation_statuses/i);
+  assert.match(
+    reviewRejectionRecoveryMigration,
+    /z_lukas_drawing_revision_rejection_release_freeze/i,
+  );
+  assert.match(
+    reviewRejectionRecoveryMigration,
+    /lukas_drawing_collaboration_sync_released_state/i,
+  );
+  assert.doesNotMatch(reviewRejectionRecoveryMigration, /\brealtime\./i);
 });

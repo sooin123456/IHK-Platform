@@ -48,11 +48,7 @@ type TableDefinition<Row, Insert = never, Update = never> = {
 };
 
 export type DrawingWorkspaceCapability =
-  | "admin"
-  | "editor"
-  | "reviewer"
-  | "commenter"
-  | "viewer";
+  "admin" | "editor" | "reviewer" | "commenter" | "viewer";
 
 export type DrawingWorkspaceFile = {
   id: string;
@@ -134,12 +130,7 @@ type DrawingObjectRow = {
   revision_id: string;
   project_id: string;
   object_type:
-    | "line"
-    | "polyline"
-    | "rectangle"
-    | "circle"
-    | "text"
-    | "dimension";
+    "line" | "polyline" | "rectangle" | "circle" | "text" | "dimension";
   geometry: Json;
   style: Json;
   status: "active" | "deleted";
@@ -232,6 +223,9 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_manifest_sha256: string;
         p_manifest_count: number;
         p_base_operation_sequence: number;
+        p_subject_revision_version: number;
+        p_state_vector_base64: string;
+        p_operation_statuses: Json;
         p_manifest: Json;
       }>;
       lukas_drawing_record_revision_decision: DrawingRpc<{
@@ -538,14 +532,12 @@ function parseOperation(value: unknown): DrawingOperationInput {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("도면 작업 JSON 형식이 올바르지 않습니다.");
   const keys = Object.keys(value).sort();
-  if (
-    !(
-      (keys.length === exactOperationKeys.length &&
-        keys.every((key, index) => key === exactOperationKeys[index])) ||
-      (keys.length === exactHistoryOperationKeys.length &&
-        keys.every((key, index) => key === exactHistoryOperationKeys[index]))
-    )
-  )
+  if (!(
+    (keys.length === exactOperationKeys.length &&
+      keys.every((key, index) => key === exactOperationKeys[index])) ||
+    (keys.length === exactHistoryOperationKeys.length &&
+      keys.every((key, index) => key === exactHistoryOperationKeys[index]))
+  ))
     throw new Error("도면 작업에 허용되지 않은 필드가 있습니다.");
   const operation = DrawingOperationInputSchema.parse(value);
   parseExactPayload(OperationPayloadSchemas[operation.type], operation.forward);
@@ -2500,10 +2492,55 @@ const DrawingCollaborativeFreezeResultSchema = z
     manifestSha256: Sha256,
     manifestCount: z.number().int().nonnegative().max(10_000),
     baseOperationSequence: z.number().int().nonnegative(),
+    subjectRevisionVersion: z.number().int().positive(),
+    stateVectorBase64: z
+      .string()
+      .min(1)
+      .max(87_384)
+      .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+      .refine((value) => value.length % 4 === 0),
+    operationStatuses: z
+      .array(
+        z
+          .object({
+            clientOperationId: Uuid,
+            status: z.enum(["acked", "rejected"]),
+            authoritativeSequence: z.number().int().positive().nullable(),
+            resultVersions: z.record(z.string(), z.number().int().positive()),
+          })
+          .strict(),
+      )
+      .max(10_000)
+      .superRefine((items, context) => {
+        if (
+          new Set(items.map((item) => item.clientOperationId)).size !==
+          items.length
+        )
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Duplicate operation status.",
+          });
+        if (
+          items.some(
+            (item) =>
+              (item.status === "acked") !==
+              (item.authoritativeSequence !== null),
+          )
+        )
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Operation status sequence is invalid.",
+          });
+      }),
     operations: z.array(z.record(z.string(), z.unknown())).max(10_000),
   })
   .strict()
-  .refine((value) => value.operations.length === value.manifestCount);
+  .refine(
+    (value) =>
+      value.operations.length === value.manifestCount &&
+      value.operationStatuses.filter((item) => item.status === "acked")
+        .length === value.manifestCount,
+  );
 
 type DrawingFreezeFetcher = (
   input: string,
@@ -2589,6 +2626,9 @@ export async function requestDrawingCollaborativeReview({
     p_manifest_sha256: frozen.manifestSha256,
     p_manifest_count: frozen.manifestCount,
     p_base_operation_sequence: frozen.baseOperationSequence,
+    p_subject_revision_version: frozen.subjectRevisionVersion,
+    p_state_vector_base64: frozen.stateVectorBase64,
+    p_operation_statuses: frozen.operationStatuses as Json,
     p_manifest: frozen.operations as Json,
   };
   const transition = async () => {
@@ -2617,6 +2657,35 @@ export async function requestDrawingCollaborativeReview({
       throw retryError;
     }
   }
+}
+
+export async function reconcileDrawingCollaborationAuthority({
+  projectId,
+  revisionId,
+  environment = process.env,
+  fetcher = fetch as DrawingFreezeFetcher,
+}: {
+  projectId: string;
+  revisionId: string;
+  environment?: Record<string, string | undefined>;
+  fetcher?: DrawingFreezeFetcher;
+}) {
+  const url = environment.COLLABORATION_INTERNAL_URL;
+  const secret = environment.COLLABORATION_FREEZE_SECRET;
+  if (!url || !secret || secret.length < 32) return false;
+  const response = await fetcher(new URL("/internal/freeze", url).toString(), {
+    method: "POST",
+    body: JSON.stringify({
+      action: "authority",
+      roomName: drawingRoomName(Uuid.parse(projectId), Uuid.parse(revisionId)),
+    }),
+    headers: {
+      "content-type": "application/json",
+      "x-1hk-freeze-secret": secret,
+    },
+    signal: AbortSignal.timeout(5_000),
+  });
+  return response.ok;
 }
 
 export async function restoreApprovedDrawingSnapshot(
@@ -2725,6 +2794,7 @@ export async function handleWorkspaceMutation({
   actorId,
   deliverOutcome = deliverDrawingCollaborationOutcome,
   requestReview = requestDrawingCollaborativeReview,
+  reconcileDecision = reconcileDrawingCollaborationAuthority,
   environment = {
     createId: () => crypto.randomUUID(),
     now: () => new Date().toISOString(),
@@ -2738,6 +2808,7 @@ export async function handleWorkspaceMutation({
   actorId?: string;
   deliverOutcome?: typeof deliverDrawingCollaborationOutcome;
   requestReview?: typeof requestDrawingCollaborativeReview;
+  reconcileDecision?: typeof reconcileDrawingCollaborationAuthority;
   environment?: WorkspaceMutationEnvironment;
 }): Promise<{ status: number; body: DrawingWorkspaceActionBody }> {
   let receiptOperation: DrawingOperationInput | null = null;
@@ -2753,6 +2824,11 @@ export async function handleWorkspaceMutation({
         });
       assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
       result = await recordDrawingRevisionDecision(client, mutation);
+      if (mutation.decision === "rejected")
+        await reconcileDecision({
+          projectId,
+          revisionId: mutation.revisionId,
+        }).catch(() => false);
     } else {
       if (
         mutation.intent === "restore_approved_snapshot"

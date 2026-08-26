@@ -262,6 +262,14 @@ const p3ReviewFreezeMigration = () =>
     ),
     "utf8",
   );
+const p3ReviewRejectionRecoveryMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826052305_drawing_workspace_p3_review_rejection_recovery.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -634,6 +642,7 @@ before(async () => {
   await db.exec(await p3ActivityAuthorityMigration());
   await db.exec(await p3CheckpointReferenceAuthorityMigration());
   await db.exec(await p3ReviewFreezeMigration());
+  await db.exec(await p3ReviewRejectionRecoveryMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1592,6 +1601,14 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
   const manifestSha256 = createHash("sha256")
     .update(JSON.stringify(manifest))
     .digest("hex");
+  const operationStatuses = manifest.map((operation) => ({
+    clientOperationId: operation.clientOperationId,
+    status: "acked",
+    authoritativeSequence: Number(operation.sequence),
+    resultVersions: operation.resultVersions,
+  }));
+  const stateVectorBase64 = "AQ==";
+  const subjectVersion = 1;
   const requestId = randomUUID();
 
   await db.exec("reset role");
@@ -1612,8 +1629,17 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
 
   await assert.rejects(
     db.query(
-      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
-      [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8)",
+      [
+        ids.revisionId,
+        requestId,
+        manifestSha256,
+        manifest.length,
+        subjectVersion,
+        stateVectorBase64,
+        operationStatuses,
+        manifest,
+      ],
     ),
     (error) => error.code === "P3F01",
   );
@@ -1631,13 +1657,15 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
         PROJECT,
         ids.revisionId,
         Buffer.from([9, 9, 9]),
-        createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex"),
+        createHash("sha256")
+          .update(Buffer.from([1, 2, 3]))
+          .digest("hex"),
       ],
     ),
     (error) => error.code === "P3F02",
   );
-  await db.query(
-    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,$7,0)",
+  const completedFreeze = await db.query(
+    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,$7,0,$8,$9) result",
     [
       PROJECT,
       ids.revisionId,
@@ -1646,32 +1674,79 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
       manifest,
       manifestSha256,
       manifest.length,
+      stateVectorBase64,
+      operationStatuses,
     ],
+  );
+  assert.equal(completedFreeze.rows[0].result.frozenSubjectRevisionVersion, 1);
+  assert.equal(
+    completedFreeze.rows[0].result.stateVectorBase64,
+    stateVectorBase64,
+  );
+  assert.deepEqual(
+    completedFreeze.rows[0].result.operationStatuses,
+    operationStatuses,
   );
   await db.exec("reset role");
   await asActor(OWNER);
   await assert.rejects(
     db.query(
-      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
-      [ids.revisionId, randomUUID(), manifestSha256, manifest.length, manifest],
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8)",
+      [
+        ids.revisionId,
+        randomUUID(),
+        manifestSha256,
+        manifest.length,
+        subjectVersion,
+        stateVectorBase64,
+        operationStatuses,
+        manifest,
+      ],
     ),
     (error) => error.code === "P3F01",
   );
   await assert.rejects(
     db.query(
-      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
-      [ids.revisionId, requestId, "f".repeat(64), manifest.length, manifest],
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8)",
+      [
+        ids.revisionId,
+        requestId,
+        "f".repeat(64),
+        manifest.length,
+        subjectVersion,
+        stateVectorBase64,
+        operationStatuses,
+        manifest,
+      ],
     ),
     (error) => error.code === "P3F01",
   );
 
   const first = await db.query(
-    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5) result",
-    [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8) result",
+    [
+      ids.revisionId,
+      requestId,
+      manifestSha256,
+      manifest.length,
+      subjectVersion,
+      stateVectorBase64,
+      operationStatuses,
+      manifest,
+    ],
   );
   const retry = await db.query(
-    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5) result",
-    [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8) result",
+    [
+      ids.revisionId,
+      requestId,
+      manifestSha256,
+      manifest.length,
+      subjectVersion,
+      stateVectorBase64,
+      operationStatuses,
+      manifest,
+    ],
   );
   assert.deepEqual(retry.rows[0].result, first.rows[0].result);
   assert.equal(first.rows[0].result.freezeRequestId, requestId);
@@ -1690,11 +1765,142 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
   assert.equal(evidence.rows[0].accepted_manifest_sha256, manifestSha256);
   assert.equal(evidence.rows[0].sha256, evidence.rows[0].recomputed);
 
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'rejected','changes required')",
+    [
+      ids.revisionId,
+      first.rows[0].result.subjectVersion,
+      first.rows[0].result.snapshotSha256,
+    ],
+  );
+  await db.exec("reset role");
+  const rejected = await db.query(
+    `select r.status,r.version,s.freeze_state,s.review_committed_at,
+      s.frozen_subject_revision_version,s.frozen_yjs_state_vector,
+      s.frozen_operation_statuses,s.accepted_manifest_sha256
+     from public.lukas_drawing_revisions r
+     join private.lukas_drawing_collaboration_states s on s.revision_id=r.id
+     where r.id=$1`,
+    [ids.revisionId],
+  );
+  assert.deepEqual(rejected.rows[0], {
+    status: "draft",
+    version: 2,
+    freeze_state: "released",
+    review_committed_at: null,
+    frozen_subject_revision_version: null,
+    frozen_yjs_state_vector: null,
+    frozen_operation_statuses: null,
+    accepted_manifest_sha256: null,
+  });
+
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5,$6,$7,$8)",
+      [
+        ids.revisionId,
+        requestId,
+        manifestSha256,
+        manifest.length,
+        subjectVersion,
+        stateVectorBase64,
+        operationStatuses,
+        manifest,
+      ],
+    ),
+    (error) => error.code === "P3F01",
+  );
+
+  const secondOperationId = randomUUID();
+  const secondLayerId = randomUUID();
+  await applyOperationWithId(
+    ids.revisionId,
+    secondOperationId,
+    "add_layer",
+    { [secondLayerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: secondLayerId,
+        name: "After rejection",
+        canvasId: ids.canvasId,
+        sortOrder: 10,
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  const secondAccepted = await db.query(
+    `select client_operation_id "clientOperationId",revision_id "revisionId",
+      actor_id "actorId",operation_type "operationType",base_versions "baseVersions",
+      forward,inverse,history_action "historyAction",
+      original_operation_id "originalOperationId",sequence,result_versions "resultVersions"
+     from public.lukas_drawing_operations where revision_id=$1 order by sequence`,
+    [ids.revisionId],
+  );
+  const secondManifest = secondAccepted.rows;
+  const secondSha = createHash("sha256")
+    .update(JSON.stringify(secondManifest))
+    .digest("hex");
+  const secondStatuses = secondManifest.map((operation) => ({
+    clientOperationId: operation.clientOperationId,
+    status: "acked",
+    authoritativeSequence: Number(operation.sequence),
+    resultVersions: operation.resultVersions,
+  }));
+  const secondRequestId = randomUUID();
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,0)",
+    [PROJECT, ids.revisionId, secondRequestId, Buffer.from([8])],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,$7,0,$8,$9)",
+    [
+      PROJECT,
+      ids.revisionId,
+      secondRequestId,
+      Buffer.from([9]),
+      secondManifest,
+      secondSha,
+      secondManifest.length,
+      stateVectorBase64,
+      secondStatuses,
+    ],
+  );
+  await db.exec("reset role");
+  await asActor(OWNER);
+  const secondReview = await db.query(
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,2,$5,$6,$7) result",
+    [
+      ids.revisionId,
+      secondRequestId,
+      secondSha,
+      secondManifest.length,
+      stateVectorBase64,
+      secondStatuses,
+      secondManifest,
+    ],
+  );
+  assert.equal(secondReview.rows[0].result.subjectRevisionVersion, 2);
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','accepted')",
+    [
+      ids.revisionId,
+      secondReview.rows[0].result.subjectVersion,
+      secondReview.rows[0].result.snapshotSha256,
+    ],
+  );
   await db.exec("reset role; set role lukas_drawing_collaboration");
   await assert.rejects(
     db.query(
       "select private.lukas_drawing_collaboration_release_freeze($1,$2,$3,$4::bytea)",
-      [PROJECT, ids.revisionId, requestId, Buffer.from([7])],
+      [PROJECT, ids.revisionId, secondRequestId, Buffer.from([10])],
     ),
     (error) => error.code === "P3F02",
   );
