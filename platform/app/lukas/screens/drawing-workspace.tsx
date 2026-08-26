@@ -6,7 +6,14 @@ import { Form, Link, data, redirect } from "react-router";
 import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialog";
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
-import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
+import {
+  drawingContext,
+  listDrawingAssignees,
+  loadDrawingRoom,
+  mutateDrawingIssue,
+  parseDrawingMutationForm,
+  type DrawingClient,
+} from "~/lukas/lib/drawing-collaboration.server";
 import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
   handleWorkspaceMutation,
@@ -75,6 +82,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         { cursor: new URL(request.url).searchParams.get("historyCursor") },
       )
     : null;
+  const collaborationClient = client as unknown as DrawingClient;
+  const [collaborationRoom, assignees] = await Promise.all([
+    loadDrawingRoom(collaborationClient, project.id, workspace.file.id),
+    listDrawingAssignees(collaborationClient, project.id, project.owner_id),
+  ]);
   return data(
     {
       project,
@@ -82,6 +94,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       capability: collaborationBootstrap?.capability ?? capability,
       collaborationBootstrap,
       activityPage,
+      collaborationRoom,
+      assignees,
       workspace,
       sourceUrl,
     },
@@ -101,6 +115,34 @@ export async function action({ request, params }: Route.ActionArgs) {
     params.fileId!,
     new URL(request.url).searchParams.get("document") ?? undefined,
   );
+  const intent = form.get("intent");
+  if (intent === "comment" || intent === "add_canvas_region_anchor") {
+    if (capability === "viewer")
+      throw new Response("댓글을 작성할 권한이 없습니다.", { status: 403 });
+    const mutation = parseDrawingMutationForm(form);
+    if (
+      mutation.intent === "add_canvas_region_anchor" &&
+      workspace.document?.revision.id !== mutation.revisionId
+    )
+      throw new Response("현재 도면 영역만 연결할 수 있습니다.", {
+        status: 409,
+      });
+    const mutationResult = await mutateDrawingIssue(
+      client as unknown as DrawingClient,
+      user.id,
+      project.id,
+      mutation,
+    );
+    return data(
+      {
+        ok: true,
+        kind: "success" as const,
+        error: null,
+        result: mutationResult,
+      },
+      { headers },
+    );
+  }
   const result = await handleWorkspaceMutation({
     client,
     projectId: project.id,
@@ -154,6 +196,8 @@ export default function DrawingWorkspaceScreen({
         capability={capability}
         collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
         activityPage={loaderData.activityPage ?? undefined}
+        assignees={loaderData.assignees}
+        collaborationRoom={loaderData.collaborationRoom}
         currentUserId={loaderData.currentUserId}
         projectId={project.id}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}

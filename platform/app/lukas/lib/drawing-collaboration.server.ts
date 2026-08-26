@@ -577,38 +577,63 @@ export async function loadDrawingRoom(
       comments: [] as DrawingCommentRow[],
       events: [] as DrawingEventRow[],
       approvals: [] as DrawingApprovalRow[],
+      mentions: [] as DrawingCommentMentionRow[],
+      canvasRegionAnchors: [] as DrawingCanvasRegionAnchorRow[],
     };
 
-  const [anchorsResult, commentsResult, eventsResult, approvalsResult] =
-    await Promise.all([
-      client
-        .from("lukas_drawing_issue_anchors")
-        .select("*")
-        .in("issue_id", issueIds)
-        .order("created_at"),
-      client
-        .from("lukas_drawing_issue_comments")
-        .select("*")
-        .in("issue_id", issueIds)
-        .order("created_at"),
-      client
-        .from("lukas_drawing_issue_events")
-        .select("*")
-        .in("issue_id", issueIds)
-        .order("created_at"),
-      client
-        .from("lukas_drawing_issue_approvals")
-        .select("*")
-        .in("issue_id", issueIds)
-        .order("created_at"),
-    ]);
+  const [
+    anchorsResult,
+    commentsResult,
+    eventsResult,
+    approvalsResult,
+    regionsResult,
+  ] = await Promise.all([
+    client
+      .from("lukas_drawing_issue_anchors")
+      .select("*")
+      .in("issue_id", issueIds)
+      .order("created_at"),
+    client
+      .from("lukas_drawing_issue_comments")
+      .select("*")
+      .in("issue_id", issueIds)
+      .order("created_at"),
+    client
+      .from("lukas_drawing_issue_events")
+      .select("*")
+      .in("issue_id", issueIds)
+      .order("created_at"),
+    client
+      .from("lukas_drawing_issue_approvals")
+      .select("*")
+      .in("issue_id", issueIds)
+      .order("created_at"),
+    client
+      .from("lukas_drawing_canvas_region_anchors")
+      .select("*")
+      .in("issue_id", issueIds)
+      .order("created_at"),
+  ]);
   const error =
     anchorsResult.error ??
     commentsResult.error ??
     eventsResult.error ??
-    approvalsResult.error;
+    approvalsResult.error ??
+    regionsResult.error;
   if (error)
     throw new Error(`도면 이슈 근거를 불러오지 못했습니다: ${error.message}`);
+  const commentIds = (commentsResult.data ?? []).map((comment) => comment.id);
+  const mentionsResult = commentIds.length
+    ? await client
+        .from("lukas_drawing_comment_mentions")
+        .select("*")
+        .in("comment_id", commentIds)
+        .order("created_at")
+    : { data: [] as DrawingCommentMentionRow[], error: null };
+  if (mentionsResult.error)
+    throw new Error(
+      `도면 댓글 멘션을 불러오지 못했습니다: ${mentionsResult.error.message}`,
+    );
   return {
     file: file as DrawingFile,
     issues: visibleIssues,
@@ -617,6 +642,8 @@ export async function loadDrawingRoom(
     comments: commentsResult.data ?? [],
     events: eventsResult.data ?? [],
     approvals: approvalsResult.data ?? [],
+    mentions: mentionsResult.data ?? [],
+    canvasRegionAnchors: regionsResult.data ?? [],
   };
 }
 

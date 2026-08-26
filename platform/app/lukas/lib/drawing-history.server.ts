@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 const HistoryCursorSchema = z.object({
-  operationId: z.string().uuid().nullable(),
-  eventId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  id: z.string().uuid(),
+  kind: z.enum(["operation", "issue_event"]),
 });
 
 export type DrawingHistoryCursor = z.infer<typeof HistoryCursorSchema>;
@@ -13,6 +14,7 @@ export type DrawingActivityItem =
       id: string;
       createdAt: string;
       actorId: string;
+      clientOperationId: string;
       revisionId: string;
       action: string;
       detail: unknown;
@@ -32,7 +34,7 @@ export type DrawingActivityItem =
 type HistoryQuery = {
   select(columns: string): HistoryQuery;
   eq(column: string, value: string): HistoryQuery;
-  gt(column: string, value: string): HistoryQuery;
+  or(filter: string): HistoryQuery;
   order(column: string, options?: { ascending?: boolean }): HistoryQuery;
   limit(count: number): PromiseLike<{
     data: Array<Record<string, unknown>> | null;
@@ -49,7 +51,7 @@ export function encodeDrawingHistoryCursor(cursor: DrawingHistoryCursor) {
 }
 
 export function parseDrawingHistoryCursor(value?: string | null) {
-  if (!value) return { operationId: null, eventId: null };
+  if (!value) return null;
   try {
     return HistoryCursorSchema.parse(
       JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
@@ -59,7 +61,19 @@ export function parseDrawingHistoryCursor(value?: string | null) {
   }
 }
 
-/** Loads one bounded immutable activity page using independent ID keysets. */
+export function drawingHistoryPageHref(
+  documentId: string,
+  cursor: string,
+  itemId: string,
+) {
+  const query = new URLSearchParams({
+    document: documentId,
+    historyCursor: cursor,
+  });
+  return `?${query}#history-${itemId}`;
+}
+
+/** Loads one bounded immutable activity page using a shared global keyset. */
 export async function loadDrawingActivityPage(
   client: HistoryClient,
   projectId: string,
@@ -73,36 +87,46 @@ export async function loadDrawingActivityPage(
   let operations = client
     .from("lukas_drawing_operations")
     .select(
-      "id,revision_id,actor_id,operation_type,forward,history_action,original_operation_id,created_at",
+      "id,client_operation_id,revision_id,actor_id,operation_type,forward,history_action,original_operation_id,created_at",
     )
     .eq("project_id", projectId)
     .eq("revision_id", revisionId);
-  if (cursor.operationId) operations = operations.gt("id", cursor.operationId);
+  if (cursor)
+    operations = operations.or(
+      `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+    );
   let events = client
     .from("lukas_drawing_issue_events")
     .select(
       "id,issue_id,project_id,actor_id,event_type,to_value,note,created_at",
     )
     .eq("project_id", projectId);
-  if (cursor.eventId) events = events.gt("id", cursor.eventId);
+  if (cursor)
+    events = events.or(
+      `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})${cursor.kind === "operation" ? `,and(created_at.eq.${cursor.createdAt},id.eq.${cursor.id})` : ""}`,
+    );
   const [operationResult, eventResult] = await Promise.all([
-    operations.order("id", { ascending: true }).limit(limit + 1),
-    events.order("id", { ascending: true }).limit(limit + 1),
+    operations
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit + 1),
+    events
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit + 1),
   ]);
   const error = operationResult.error ?? eventResult.error;
   if (error)
     throw new Error(`도면 변경 이력을 불러오지 못했습니다: ${error.message}`);
   const operationRows = operationResult.data ?? [];
   const eventRows = eventResult.data ?? [];
-  const hasMore = operationRows.length > limit || eventRows.length > limit;
-  const boundedOperations = operationRows.slice(0, limit);
-  const boundedEvents = eventRows.slice(0, limit);
   const items: DrawingActivityItem[] = [
-    ...boundedOperations.map((row) => ({
+    ...operationRows.map((row) => ({
       kind: "operation" as const,
       id: String(row.id),
       createdAt: String(row.created_at),
       actorId: String(row.actor_id),
+      clientOperationId: String(row.client_operation_id),
       revisionId: String(row.revision_id),
       action: String(row.history_action ?? row.operation_type),
       detail: row.forward,
@@ -113,7 +137,7 @@ export async function loadDrawingActivityPage(
             : null,
       },
     })),
-    ...boundedEvents.map((row) => ({
+    ...eventRows.map((row) => ({
       kind: "issue_event" as const,
       id: String(row.id),
       createdAt: String(row.created_at),
@@ -126,19 +150,18 @@ export async function loadDrawingActivityPage(
   ].sort(
     (left, right) =>
       right.createdAt.localeCompare(left.createdAt) ||
-      right.id.localeCompare(left.id),
+      right.id.localeCompare(left.id) ||
+      right.kind.localeCompare(left.kind),
   );
-  const nextCursor = hasMore
-    ? encodeDrawingHistoryCursor({
-        operationId:
-          boundedOperations.length > 0
-            ? String(boundedOperations.at(-1)!.id)
-            : cursor.operationId,
-        eventId:
-          boundedEvents.length > 0
-            ? String(boundedEvents.at(-1)!.id)
-            : cursor.eventId,
-      })
-    : null;
-  return { items, nextCursor };
+  const boundedItems = items.slice(0, limit);
+  const last = boundedItems.at(-1);
+  const nextCursor =
+    items.length > limit && last
+      ? encodeDrawingHistoryCursor({
+          createdAt: last.createdAt,
+          id: last.id,
+          kind: last.kind,
+        })
+      : null;
+  return { items: boundedItems, nextCursor };
 }

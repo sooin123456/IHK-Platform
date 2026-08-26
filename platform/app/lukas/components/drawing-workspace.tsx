@@ -42,6 +42,7 @@ import {
 } from "~/lukas/lib/drawing-blocks";
 import {
   copyDrawingSelection,
+  createDrawingCheckpointRestoreCommand,
   createDrawingDocumentState,
   duplicateDrawingSelection,
   isEditableDrawingLayer,
@@ -105,6 +106,11 @@ import type {
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
 import type { DrawingActivityItem } from "~/lukas/lib/drawing-history.server";
+import type {
+  DrawingAssignee,
+  DrawingAnchorRow,
+  DrawingCanvasRegionAnchorRow,
+} from "~/lukas/lib/drawing-collaboration.server";
 import {
   DrawingLayerSchema,
   DrawingObjectSchema,
@@ -219,6 +225,61 @@ export function resolveDrawingWorkspacePanelKey(
   ].id;
 }
 
+export function persistDrawingRecordedOperation(
+  bridge: { applyRecorded(applied: AppliedDrawingCommand): Promise<unknown> },
+  applied: AppliedDrawingCommand,
+) {
+  return bridge.applyRecorded(applied);
+}
+
+function drawingHistoryPageHref(
+  documentId: string,
+  cursor: string,
+  itemId: string,
+) {
+  const query = new URLSearchParams({
+    document: documentId,
+    historyCursor: cursor,
+  });
+  return `?${query}#history-${itemId}`;
+}
+
+export function drawingActivityDescription(item: DrawingActivityItem) {
+  const detail =
+    item.detail && typeof item.detail === "object"
+      ? (item.detail as Record<string, unknown>)
+      : {};
+  const detailType = typeof detail.type === "string" ? detail.type : item.action;
+  const count = [detail.actions, detail.updates, detail.objects].find(
+    Array.isArray,
+  ) as unknown[] | undefined;
+  if (item.kind === "issue_event") {
+    const to =
+      detail.to == null
+        ? ""
+        : typeof detail.to === "string"
+          ? detail.to
+          : JSON.stringify(detail.to);
+    const note = typeof detail.note === "string" ? detail.note.trim() : "";
+    return [item.action, to && `변경값 ${to}`, note && `메모 ${note}`]
+      .filter(Boolean)
+      .join(" · ")
+      .slice(0, 160);
+  }
+  return `${detailType}${count ? ` · ${count.length}개 항목` : ""}`.slice(
+    0,
+    160,
+  );
+}
+
+export function drawingActivityProvenance(item: DrawingActivityItem) {
+  if (item.kind === "issue_event")
+    return `이슈 ${item.issueId.slice(0, 8)}`;
+  return item.provenance.originalOperationId
+    ? `${item.action} · 원본 작업 ${item.provenance.originalOperationId.slice(0, 8)}`
+    : `리비전 ${item.revisionId.slice(0, 8)}`;
+}
+
 export type DrawingWorkspaceShortcut =
   | { type: "copy" | "paste" | "duplicate" | "delete" | "undo" | "redo" }
   | { type: "move"; delta: { x: number; y: number } };
@@ -323,18 +384,18 @@ export function createDrawingWorkspaceBlockMutationAdapter({
   const selectionKind = drawingSelectionEntityKind(state, selectedIds);
   const canMutate = Boolean(
     canEdit &&
-      activeCanvasId &&
-      selectionKind === "block_instance" &&
-      selectedIds.length > 0 &&
-      selectedIds.every((id) => {
-        const instance = state.structure?.blockInstances[id];
-        const layer = instance ? state.layers[instance.layerId] : undefined;
-        return (
-          instance &&
-          layer?.canvasId === activeCanvasId &&
-          isEditableDrawingLayer(layer)
-        );
-      }),
+    activeCanvasId &&
+    selectionKind === "block_instance" &&
+    selectedIds.length > 0 &&
+    selectedIds.every((id) => {
+      const instance = state.structure?.blockInstances[id];
+      const layer = instance ? state.layers[instance.layerId] : undefined;
+      return (
+        instance &&
+        layer?.canvasId === activeCanvasId &&
+        isEditableDrawingLayer(layer)
+      );
+    }),
   );
   return {
     canMutate,
@@ -528,8 +589,14 @@ function drawingStateFromBootstrap(
     revisionId: graph.revision.id,
     pages: graph.pages as DrawingDocumentHydration["pages"],
     canvases: graph.canvases as DrawingDocumentHydration["canvases"],
-    layers: graph.layers as DrawingDocumentHydration["layers"],
-    objects: graph.objects as DrawingDocumentHydration["objects"],
+    layers: canonicalCheckpointEntities(graph.layers, [
+      "pageId",
+    ]) as DrawingDocumentHydration["layers"],
+    objects: canonicalCheckpointEntities(graph.objects, [
+      "lineageId",
+      "pageId",
+      "type",
+    ]) as DrawingDocumentHydration["objects"],
     styles: graph.styles as DrawingDocumentHydration["styles"],
     blocks: graph.blocks as DrawingDocumentHydration["blocks"],
     blockInstances:
@@ -542,11 +609,35 @@ function drawingStateFromBootstrap(
   });
 }
 
+export function canonicalCheckpointEntities(values: unknown[], omitted: string[]) {
+  return values.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return value;
+    const entity = { ...(value as Record<string, unknown>) };
+    for (const field of omitted) delete entity[field];
+    return entity;
+  });
+}
+
 type Props = {
   actionError?: string | null;
   activityPage?: { items: DrawingActivityItem[]; nextCursor: string | null };
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
+  assignees?: DrawingAssignee[];
+  collaborationRoom?: {
+    issues: Array<{ id: string; title: string; status: string }>;
+    anchors: DrawingAnchorRow[];
+    comments: Array<{
+      id: string;
+      issue_id: string;
+      author_id: string;
+      body: string;
+      created_at: string;
+    }>;
+    mentions: Array<{ comment_id: string; user_id: string }>;
+    canvasRegionAnchors: DrawingCanvasRegionAnchorRow[];
+  };
   projectId: string;
   previewMode?: boolean;
   realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
@@ -567,8 +658,10 @@ type Props = {
 export default function DrawingWorkspaceClient({
   actionError,
   activityPage,
+  assignees = [],
   capability,
   currentUserId,
+  collaborationRoom,
   projectId,
   previewMode = false,
   realtimeAdapter,
@@ -593,6 +686,9 @@ export default function DrawingWorkspaceClient({
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState(
+    collaborationRoom?.issues[0]?.id ?? "",
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const semanticBlockSelectionRef = useRef<Set<string>>(new Set());
@@ -1389,7 +1485,7 @@ export default function DrawingWorkspaceClient({
   }, [transient.selectedIds]);
 
   const commitApplied = useCallback(
-    (applied: AppliedDrawingCommand) => {
+    async (applied: AppliedDrawingCommand) => {
       const lockConflict = drawingRecordedOperationSoftLockConflict(
         applied.operation,
         awarenessLockPeers,
@@ -1397,7 +1493,7 @@ export default function DrawingWorkspaceClient({
       if (lockConflict) {
         reportLockConflict(lockConflict);
         setAwarenessSoftLock(null);
-        return;
+        return false;
       }
       if (
         reviewFrozenRef.current ||
@@ -1409,10 +1505,17 @@ export default function DrawingWorkspaceClient({
           effectiveRevisionStatus,
         )
       )
-        return;
-      void collaborationCommandRef.current
-        .applyRecorded(applied)
-        .catch(markStorageFailed);
+        return false;
+      try {
+        await persistDrawingRecordedOperation(
+          collaborationCommandRef.current,
+          applied,
+        );
+        return true;
+      } catch (error) {
+        markStorageFailed();
+        throw error;
+      }
     },
     [
       authority.canWrite,
@@ -1465,7 +1568,7 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const revertOperation = useCallback(
-    (operationId: string) => {
+    async (operationId: string) => {
       try {
         const reverted = revertDrawingOperation(
           drawingState,
@@ -1476,8 +1579,9 @@ export default function DrawingWorkspaceClient({
           setHistoryStatus("후속 변경이 있어 안전하게 되돌릴 수 없습니다.");
           return;
         }
-        commitApplied(reverted);
-        setHistoryStatus("되돌리기 작업을 저장 대기열에 추가했습니다.");
+        if (await commitApplied(reverted))
+          setHistoryStatus("되돌리기 작업을 안전하게 저장했습니다.");
+        else setHistoryStatus("현재 상태에서는 작업을 되돌릴 수 없습니다.");
       } catch (error) {
         setHistoryStatus(
           error instanceof Error ? error.message : "작업을 되돌릴 수 없습니다.",
@@ -1485,6 +1589,89 @@ export default function DrawingWorkspaceClient({
       }
     },
     [commitApplied, currentUserId, drawingState],
+  );
+  const restoreCheckpoint = useCallback(
+    async (checkpoint: { id: string; canonicalJson: unknown }) => {
+      const bridge = collaborationCommandRef.current;
+      if (
+        reviewFrozenRef.current ||
+        !authority.canWrite ||
+        !outboxReady ||
+        !bridge ||
+        !canPersistDrawingMutation(
+          effectiveCapability,
+          persistenceState,
+          effectiveRevisionStatus,
+        )
+      ) {
+        setHistoryStatus("현재 상태에서는 체크포인트를 복원할 수 없습니다.");
+        return;
+      }
+      try {
+        const graph =
+          checkpoint.canonicalJson as DrawingWorkspaceCollaborationBootstrap["canonicalJson"];
+        const target = hydrateDrawingDocumentState({
+          revisionId: revision.id,
+          pages: graph.pages as DrawingDocumentHydration["pages"],
+          canvases: graph.canvases as DrawingDocumentHydration["canvases"],
+          layers: canonicalCheckpointEntities(graph.layers, [
+            "pageId",
+          ]) as DrawingDocumentHydration["layers"],
+          objects: canonicalCheckpointEntities(graph.objects, [
+            "lineageId",
+            "pageId",
+            "type",
+          ]) as DrawingDocumentHydration["objects"],
+          styles: graph.styles as DrawingDocumentHydration["styles"],
+          blocks: graph.blocks as DrawingDocumentHydration["blocks"],
+          blockInstances:
+            graph.blockInstances as DrawingDocumentHydration["blockInstances"],
+          propertySchemas:
+            graph.propertySchemas as DrawingDocumentHydration["propertySchemas"],
+          propertyValues:
+            graph.propertyValues as DrawingDocumentHydration["propertyValues"],
+          tables: graph.tables as DrawingDocumentHydration["tables"],
+        });
+        const command = createDrawingCheckpointRestoreCommand(
+          drawingStateRef.current,
+          target,
+          currentUserId,
+          checkpoint.id,
+        );
+        const lockConflict = drawingCommandSoftLockConflict(
+          command,
+          awarenessLockPeers,
+        );
+        if (lockConflict) {
+          reportLockConflict(lockConflict);
+          setAwarenessSoftLock(null);
+          setHistoryStatus(
+            "다른 사용자가 편집 중인 객체가 있어 복원하지 않았습니다.",
+          );
+          return;
+        }
+        await bridge.applyCommand(command);
+        setHistoryStatus("체크포인트 복원 작업을 안전하게 저장했습니다.");
+      } catch (error) {
+        setHistoryStatus(
+          error instanceof Error
+            ? error.message
+            : "체크포인트를 복원하지 못했습니다.",
+        );
+      }
+    },
+    [
+      authority.canWrite,
+      awarenessLockPeers,
+      currentUserId,
+      effectiveCapability,
+      effectiveRevisionStatus,
+      outboxReady,
+      persistenceState,
+      reportLockConflict,
+      revision.id,
+      setAwarenessSoftLock,
+    ],
   );
   const blockMutationAdapter = useMemo(
     () =>
@@ -1521,7 +1708,7 @@ export default function DrawingWorkspaceClient({
       return;
     const result = undoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
-    commitApplied(result);
+    void commitApplied(result).catch(markStorageFailed);
   }, [
     authority.canWrite,
     commitApplied,
@@ -1545,7 +1732,7 @@ export default function DrawingWorkspaceClient({
       return;
     const result = redoDrawingCommand(drawingStateRef.current, currentUserId);
     if (!result || "kind" in result) return;
-    commitApplied(result);
+    void commitApplied(result).catch(markStorageFailed);
   }, [
     authority.canWrite,
     commitApplied,
@@ -1554,6 +1741,7 @@ export default function DrawingWorkspaceClient({
     persistenceState,
     effectiveCapability,
     effectiveRevisionStatus,
+    markStorageFailed,
   ]);
 
   const copySelection = useCallback(() => {
@@ -2179,6 +2367,282 @@ export default function DrawingWorkspaceClient({
                 객체 또는 캔버스 영역을 선택한 뒤 이슈에서 댓글과 명시적 멘션을
                 연결합니다.
               </p>
+              {collaborationRoom?.issues.length ? (
+                <>
+                  <label
+                    className="block text-xs font-semibold"
+                    htmlFor="workspace-issue-target"
+                  >
+                    연결할 이슈
+                  </label>
+                  <select
+                    className="min-h-10 w-full rounded-md border border-white/20 bg-slate-950 px-2"
+                    id="workspace-issue-target"
+                    name="issue_id"
+                    onChange={(event) => setSelectedIssueId(event.target.value)}
+                    value={selectedIssueId}
+                  >
+                    {collaborationRoom.issues.map((issue) => (
+                      <option key={issue.id} value={issue.id}>
+                        {issue.title} · {issue.status}
+                      </option>
+                    ))}
+                  </select>
+
+                  {baseCanEdit &&
+                  transient.selectedIds.find(
+                    (id) => drawingState.objects[id],
+                  ) ? (
+                    <Form method="post">
+                      <input name="intent" type="hidden" value="link_issue" />
+                      <input
+                        name="issue_id"
+                        type="hidden"
+                        value={selectedIssueId}
+                      />
+                      <input
+                        name="object_id"
+                        type="hidden"
+                        value={transient.selectedIds.find(
+                          (id) => drawingState.objects[id],
+                        )}
+                      />
+                      <button
+                        className="min-h-10 w-full rounded-md border border-white/20 px-3 text-xs font-semibold"
+                        type="submit"
+                      >
+                        선택 객체를 이슈에 연결
+                      </button>
+                    </Form>
+                  ) : (
+                    <p className="rounded-md bg-white/5 p-2 text-xs text-slate-400">
+                      캔버스에서 객체를 선택하면 현재 이슈에 연결할 수 있습니다.
+                    </p>
+                  )}
+
+                  {effectiveCapability !== "viewer" ? (
+                    <>
+                      <Form
+                        className="space-y-2 rounded-md border border-white/10 p-2"
+                        method="post"
+                        onSubmit={(event) => {
+                          const input =
+                            event.currentTarget.elements.namedItem(
+                              "comment_id",
+                            );
+                          if (input instanceof HTMLInputElement)
+                            input.value = crypto.randomUUID();
+                        }}
+                      >
+                        <input name="intent" type="hidden" value="comment" />
+                        <input
+                          name="issue_id"
+                          type="hidden"
+                          value={selectedIssueId}
+                        />
+                        <input name="comment_id" type="hidden" />
+                        <label
+                          className="block text-xs font-semibold"
+                          htmlFor="workspace-comment-body"
+                        >
+                          댓글
+                        </label>
+                        <textarea
+                          className="min-h-20 w-full rounded-md border border-white/20 bg-slate-950 p-2"
+                          id="workspace-comment-body"
+                          name="body"
+                          required
+                        />
+                        <label
+                          className="block text-xs font-semibold"
+                          htmlFor="workspace-comment-mentions"
+                        >
+                          멘션할 멤버
+                        </label>
+                        <select
+                          className="min-h-20 w-full rounded-md border border-white/20 bg-slate-950 p-2"
+                          id="workspace-comment-mentions"
+                          multiple
+                          name="mentioned_user_ids"
+                        >
+                          {assignees
+                            .filter(
+                              (assignee) => assignee.userId !== currentUserId,
+                            )
+                            .map((assignee) => (
+                              <option
+                                key={assignee.userId}
+                                value={assignee.userId}
+                              >
+                                {assignee.role} · {assignee.userId.slice(0, 8)}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          className="min-h-10 w-full rounded-md bg-indigo-500 px-3 text-xs font-bold text-white"
+                          type="submit"
+                        >
+                          댓글 등록
+                        </button>
+                      </Form>
+
+                      <Form
+                        className="grid grid-cols-2 gap-2 rounded-md border border-white/10 p-2"
+                        method="post"
+                        onSubmit={(event) => {
+                          const input =
+                            event.currentTarget.elements.namedItem("anchor_id");
+                          if (input instanceof HTMLInputElement)
+                            input.value = crypto.randomUUID();
+                        }}
+                      >
+                        <input
+                          name="intent"
+                          type="hidden"
+                          value="add_canvas_region_anchor"
+                        />
+                        <input
+                          name="issue_id"
+                          type="hidden"
+                          value={selectedIssueId}
+                        />
+                        <input name="anchor_id" type="hidden" />
+                        <input
+                          name="revision_id"
+                          type="hidden"
+                          value={revision.id}
+                        />
+                        <input
+                          name="page_id"
+                          type="hidden"
+                          value={drawingState.activePageId ?? ""}
+                        />
+                        <input
+                          name="canvas_id"
+                          type="hidden"
+                          value={drawingState.activeCanvasId ?? ""}
+                        />
+                        {(
+                          ["x_mm", "y_mm", "width_mm", "height_mm"] as const
+                        ).map((name) => (
+                          <label className="text-xs" key={name}>
+                            {name}
+                            <input
+                              className="mt-1 min-h-10 w-full rounded-md border border-white/20 bg-slate-950 px-2"
+                              name={name}
+                              required
+                              step="any"
+                              type="number"
+                              min={
+                                name === "width_mm" || name === "height_mm"
+                                  ? "0.000001"
+                                  : undefined
+                              }
+                            />
+                          </label>
+                        ))}
+                        <label className="col-span-2 text-xs">
+                          영역 설명
+                          <input
+                            className="mt-1 min-h-10 w-full rounded-md border border-white/20 bg-slate-950 px-2"
+                            maxLength={240}
+                            name="label"
+                          />
+                        </label>
+                        <button
+                          className="col-span-2 min-h-10 rounded-md border border-white/20 px-3 text-xs font-semibold"
+                          type="submit"
+                        >
+                          현재 canvas 영역 연결
+                        </button>
+                      </Form>
+                    </>
+                  ) : null}
+
+                  <ol className="space-y-2" aria-label="이슈 댓글">
+                    {collaborationRoom.comments
+                      .filter((comment) => comment.issue_id === selectedIssueId)
+                      .map((comment) => (
+                        <li
+                          className="rounded-md bg-white/5 p-2 text-xs"
+                          key={comment.id}
+                        >
+                          <p className="whitespace-pre-wrap">{comment.body}</p>
+                          <p className="mt-1 text-slate-500">
+                            {comment.author_id.slice(0, 8)} ·{" "}
+                            {comment.created_at}
+                          </p>
+                          {collaborationRoom.mentions.some(
+                            (mention) => mention.comment_id === comment.id,
+                          ) ? (
+                            <p className="mt-1 text-indigo-300">
+                              멘션 ·{" "}
+                              {collaborationRoom.mentions
+                                .filter(
+                                  (mention) =>
+                                    mention.comment_id === comment.id,
+                                )
+                                .map((mention) => mention.user_id.slice(0, 8))
+                                .join(", ")}
+                            </p>
+                          ) : null}
+                        </li>
+                      ))}
+                  </ol>
+                  <ol className="space-y-2" aria-label="연결된 원본 객체 근거">
+                    {collaborationRoom.anchors
+                      .filter(
+                        (anchor) =>
+                          anchor.issue_id === selectedIssueId && anchor.active,
+                      )
+                      .map((anchor) => (
+                        <li
+                          className="rounded-md border border-white/10 p-2 text-xs"
+                          key={anchor.id}
+                        >
+                          {anchor.label ||
+                            (anchor.anchor_kind === "ifc_element"
+                              ? "IFC 요소"
+                              : "PDF 영역")}
+                        </li>
+                      ))}
+                  </ol>
+                  <ol
+                    className="space-y-2"
+                    aria-label="이슈에 연결된 도면 객체"
+                  >
+                    {revision.issueLinks
+                      .filter((link) => link.issue_id === selectedIssueId)
+                      .map((link) => (
+                        <li
+                          className="rounded-md border border-white/10 p-2 text-xs"
+                          key={link.id}
+                        >
+                          {drawingState.objects[link.object_id]?.name ??
+                            link.object_id}
+                        </li>
+                      ))}
+                  </ol>
+                  <ol className="space-y-2" aria-label="연결된 canvas 영역">
+                    {collaborationRoom.canvasRegionAnchors
+                      .filter((anchor) => anchor.issue_id === selectedIssueId)
+                      .map((anchor) => (
+                        <li
+                          className="rounded-md border border-white/10 p-2 text-xs"
+                          key={anchor.id}
+                        >
+                          {anchor.label || "영역"} · x {anchor.x_mm}, y{" "}
+                          {anchor.y_mm}, {anchor.width_mm} × {anchor.height_mm}{" "}
+                          mm
+                        </li>
+                      ))}
+                  </ol>
+                </>
+              ) : (
+                <p className="rounded-md bg-white/5 p-2 text-xs text-slate-400">
+                  연결할 프로젝트 이슈가 없습니다.
+                </p>
+              )}
               <Link
                 className="inline-flex min-h-10 items-center rounded-md border border-white/20 px-3 font-semibold hover:bg-white/10"
                 to={`/projects/${projectId}/drawings/${file.id}`}
@@ -2217,7 +2681,8 @@ export default function DrawingWorkspaceClient({
                   {historyStatus}
                 </p>
               ) : null}
-              {effectiveRevisionStatus === "approved" && authority.canWrite ? (
+              {effectiveRevisionStatus === "approved" &&
+              ["admin", "editor", "reviewer"].includes(effectiveCapability) ? (
                 <Form
                   method="post"
                   className="rounded-md border border-indigo-400/30 p-2"
@@ -2254,6 +2719,26 @@ export default function DrawingWorkspaceClient({
                   </button>
                 </Form>
               ) : null}
+              {effectiveRevisionStatus === "draft" &&
+              revision.checkpoints.length ? (
+                <section
+                  aria-label="체크포인트 복원"
+                  className="space-y-2 rounded-md border border-white/10 p-2"
+                >
+                  <h3 className="text-xs font-bold">검토 체크포인트</h3>
+                  {revision.checkpoints.map((checkpoint) => (
+                    <button
+                      className="min-h-10 w-full rounded-md border border-white/20 px-2 text-left text-xs"
+                      key={checkpoint.id}
+                      onClick={() => void restoreCheckpoint(checkpoint)}
+                      type="button"
+                    >
+                      {new Date(checkpoint.createdAt).toLocaleString("ko-KR")}{" "}
+                      상태로 복원
+                    </button>
+                  ))}
+                </section>
+              ) : null}
               <ol className="space-y-2" reversed>
                 {(
                   activityPage?.items ??
@@ -2262,6 +2747,7 @@ export default function DrawingWorkspaceClient({
                     .reverse()
                     .map((operation) => ({
                       id: operation.clientOperationId,
+                      clientOperationId: operation.clientOperationId,
                       action: operation.type,
                       actorId: operation.actorId,
                       createdAt: operation.createdAt,
@@ -2269,6 +2755,7 @@ export default function DrawingWorkspaceClient({
                 ).map((operation) => (
                   <li
                     className="rounded-md border border-white/10 p-2"
+                    id={`history-${operation.id}`}
                     key={operation.id}
                   >
                     <p className="font-semibold">{operation.action}</p>
@@ -2276,15 +2763,34 @@ export default function DrawingWorkspaceClient({
                       {operation.actorId?.slice(0, 8) ?? "system"} ·{" "}
                       {operation.createdAt}
                     </p>
+                    {"detail" in operation ? (
+                      <>
+                        <p className="mt-1 text-xs text-slate-300">
+                          변경 내용 · {drawingActivityDescription(operation)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          근거 · {drawingActivityProvenance(operation)}
+                        </p>
+                      </>
+                    ) : null}
                     {drawingState.operations.some(
                       (candidate) =>
-                        candidate.clientOperationId === operation.id &&
+                        candidate.clientOperationId ===
+                          ("clientOperationId" in operation
+                            ? operation.clientOperationId
+                            : operation.id) &&
                         candidate.actorId === currentUserId &&
                         candidate.undoable,
                     ) ? (
                       <button
                         className="mt-2 min-h-9 rounded border border-white/20 px-2 text-xs font-semibold"
-                        onClick={() => revertOperation(operation.id)}
+                        onClick={() =>
+                          void revertOperation(
+                            "clientOperationId" in operation
+                              ? operation.clientOperationId
+                              : operation.id,
+                          )
+                        }
                         type="button"
                       >
                         이 작업 되돌리기
@@ -2302,7 +2808,11 @@ export default function DrawingWorkspaceClient({
               {activityPage?.nextCursor ? (
                 <Link
                   className="inline-flex min-h-10 items-center text-xs font-semibold text-indigo-300 underline underline-offset-4"
-                  to={`?historyCursor=${encodeURIComponent(activityPage.nextCursor)}`}
+                  to={drawingHistoryPageHref(
+                    drawingDocument.id,
+                    activityPage.nextCursor,
+                    activityPage.items.at(-1)?.id ?? revision.id,
+                  )}
                 >
                   이전 이력 더 보기
                 </Link>

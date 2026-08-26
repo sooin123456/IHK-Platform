@@ -738,6 +738,11 @@ export type DrawingWorkspace = {
             subjectVersion: number;
             snapshotSha256: string;
           } | null;
+          checkpoints: Array<{
+            id: string;
+            createdAt: string;
+            canonicalJson: Json;
+          }>;
         };
       })
     | null;
@@ -1700,6 +1705,7 @@ export async function loadDrawingWorkspace(
       links,
       templateCandidates,
       reviewEvidence,
+      checkpoints,
     ] = await Promise.all([
       loadAllDrawingRows(client, {
         table: "lukas_drawing_pages",
@@ -1809,6 +1815,15 @@ export async function loadDrawingWorkspace(
       }),
       loadDrawingTemplateCandidates(client, projectId),
       loadReviewEvidence(client, projectId, revision),
+      loadAllDrawingRows<DrawingSnapshotRow>(client, {
+        table: "lukas_drawing_snapshots",
+        projectId,
+        revisionId: revision.id,
+        order: [
+          { column: "created_at", direction: "desc" },
+          { column: "id", direction: "asc" },
+        ],
+      }),
     ]);
     const p2 = parseP2Workspace(
       projectId,
@@ -1843,6 +1858,11 @@ export async function loadDrawingWorkspace(
               objectIds.has(link.object_id) && issueIds.has(link.issue_id),
           ),
           reviewEvidence,
+          checkpoints: checkpoints.map((checkpoint) => ({
+            id: checkpoint.id,
+            createdAt: checkpoint.created_at,
+            canonicalJson: checkpoint.canonical_json,
+          })),
         },
       },
     };
@@ -1972,6 +1992,15 @@ export async function loadDrawingWorkspace(
       };
     }
   }
+  const checkpoints = await loadAllDrawingRows<DrawingSnapshotRow>(client, {
+    table: "lukas_drawing_snapshots",
+    projectId,
+    revisionId: revision.id,
+    order: [
+      { column: "created_at", direction: "desc" },
+      { column: "id", direction: "asc" },
+    ],
+  });
   return {
     file: file as DrawingWorkspaceFile,
     templateCandidates: await loadDrawingTemplateCandidates(client, projectId),
@@ -1985,6 +2014,11 @@ export async function loadDrawingWorkspace(
         issues,
         issueLinks,
         reviewEvidence,
+        checkpoints: checkpoints.map((checkpoint) => ({
+          id: checkpoint.id,
+          createdAt: checkpoint.created_at,
+          canonicalJson: checkpoint.canonical_json,
+        })),
       },
     },
   };
@@ -2503,6 +2537,14 @@ function canReviewWorkspace(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "reviewer";
 }
 
+function canRestoreApprovedWorkspace(capability: DrawingWorkspaceCapability) {
+  return (
+    capability === "admin" ||
+    capability === "editor" ||
+    capability === "reviewer"
+  );
+}
+
 function currentWorkspaceRevisionId(workspace: DrawingWorkspace) {
   if (!workspace.document) throw new Error("먼저 도면 문서를 만들어야 합니다.");
   return workspace.document.revision.id;
@@ -2568,7 +2610,11 @@ export async function handleWorkspaceMutation({
       assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
       result = await recordDrawingRevisionDecision(client, mutation);
     } else {
-      if (!canEditWorkspace(capability))
+      if (
+        mutation.intent === "restore_approved_snapshot"
+          ? !canRestoreApprovedWorkspace(capability)
+          : !canEditWorkspace(capability)
+      )
         throw new Response("도면을 편집할 권한이 없습니다.", { status: 403 });
 
       if (mutation.intent === "create_document") {

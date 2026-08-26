@@ -654,6 +654,7 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
       },
     ],
     reviewEvidence: null,
+    checkpoints: [],
   };
   return {
     capability: "editor",
@@ -775,6 +776,64 @@ export function loader({ request }: Route.LoaderArgs) {
   const revision = fixture.workspace.document.revision;
   return {
     ...fixture,
+    assignees: [
+      { userId: ids.user, role: "estimator" },
+      { userId: previewAlternateUserId, role: "reviewer" },
+    ],
+    activityPage: {
+      items: [
+        {
+          kind: "operation" as const,
+          id: "00000000-0000-4000-8000-000000000098",
+          clientOperationId: "00000000-0000-4000-8000-000000000099",
+          revisionId: revision.id,
+          actorId: previewAlternateUserId,
+          action: "revert_operation",
+          detail: { type: "compound", actions: [{ type: "put_object" }] },
+          provenance: {
+            originalOperationId: "00000000-0000-4000-8000-000000000091",
+          },
+          createdAt,
+        },
+      ],
+      nextCursor: null,
+    },
+    collaborationRoom: {
+      issues: revision.issues,
+      anchors: [],
+      comments: [
+        {
+          id: "00000000-0000-4000-8000-000000000096",
+          issue_id: ids.issue,
+          author_id: previewAlternateUserId,
+          body: "창호 치수 근거를 확인해 주세요.",
+          created_at: createdAt,
+        },
+      ],
+      mentions: [
+        {
+          comment_id: "00000000-0000-4000-8000-000000000096",
+          user_id: ids.user,
+        },
+      ],
+      canvasRegionAnchors: [
+        {
+          id: "00000000-0000-4000-8000-000000000097",
+          issue_id: ids.issue,
+          revision_id: revision.id,
+          page_id: ids.pagePlan,
+          canvas_id: ids.canvasPlanPaper,
+          project_id: ids.project,
+          x_mm: 120,
+          y_mm: 80,
+          width_mm: 640,
+          height_mm: 320,
+          label: "창호 상세 검토 영역",
+          created_by: previewAlternateUserId,
+          created_at: createdAt,
+        },
+      ],
+    },
     collaborationBootstrap: bootstrapReadOnlyTest
       ? {
           canonicalJson: {

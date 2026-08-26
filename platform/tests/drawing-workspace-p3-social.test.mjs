@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
@@ -102,22 +103,30 @@ test("workspace tab order exposes collaboration and bounded history panels", () 
   );
 });
 
-test("activity history uses bounded independent keyset cursors", async () => {
+test("activity history is one bounded chronological composite-keyset page", async () => {
   const calls = [];
   const rows = {
-    lukas_drawing_operations: [
-      {
-        id: ids.operation,
+    lukas_drawing_operations: Array.from({ length: 11 }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+        client_operation_id: `00000000-0000-4000-9000-${String(100 + index).padStart(12, "0")}`,
         revision_id: ids.revision,
         actor_id: ids.actor,
         operation_type: "update_objects",
         forward: { type: "update_objects" },
         history_action: null,
         original_operation_id: null,
-        created_at: "2026-08-26T00:00:00.000Z",
-      },
-    ],
-    lukas_drawing_issue_events: [],
+        created_at: `2026-08-26T00:${String(40 - index).padStart(2, "0")}:00.000Z`,
+      })),
+    lukas_drawing_issue_events: Array.from({ length: 11 }, (_, index) => ({
+      id: `00000000-0000-4000-8000-${String(200 + index).padStart(12, "0")}`,
+      issue_id: ids.issue,
+      project_id: ids.project,
+      actor_id: ids.actor,
+      event_type: "comment_added",
+      to_value: {},
+      note: "",
+      created_at: `2026-08-26T00:${String(39 - index).padStart(2, "0")}:00.000Z`,
+    })),
   };
   const client = {
     from(table) {
@@ -129,8 +138,8 @@ test("activity history uses bounded independent keyset cursors", async () => {
           calls.push([table, "eq", column, value]);
           return query;
         },
-        gt(column, value) {
-          calls.push([table, "gt", column, value]);
+        or(value) {
+          calls.push([table, "or", value]);
           return query;
         },
         order() {
@@ -145,8 +154,9 @@ test("activity history uses bounded independent keyset cursors", async () => {
     },
   };
   const cursor = drawingHistory.encodeDrawingHistoryCursor({
-    operationId: ids.comment,
-    eventId: ids.canvas,
+    createdAt: "2026-08-26T00:45:00.000Z",
+    id: ids.comment,
+    kind: "operation",
   });
   const page = await drawingHistory.loadDrawingActivityPage(
     client,
@@ -154,28 +164,92 @@ test("activity history uses bounded independent keyset cursors", async () => {
     ids.revision,
     { cursor, limit: 10 },
   );
-  assert.equal(page.items.length, 1);
-  assert.ok(
-    calls.some(
-      (call) =>
-        call.join(":") === `lukas_drawing_operations:gt:id:${ids.comment}`,
-    ),
+  assert.equal(page.items.length, 10);
+  assert.equal(page.items[0].createdAt, "2026-08-26T00:40:00.000Z");
+  assert.equal(
+    page.items[0].clientOperationId,
+    rows.lukas_drawing_operations[0].client_operation_id,
   );
+  assert.ok(calls.some((call) => call[1] === "or"));
   assert.ok(
     calls.some(
       (call) => call.join(":") === "lukas_drawing_operations:limit:11",
     ),
   );
-  assert.ok(
-    calls.some(
-      (call) =>
-        call.join(":") === `lukas_drawing_issue_events:gt:id:${ids.canvas}`,
-    ),
-  );
+  assert.ok(page.nextCursor);
   await assert.rejects(
     drawingHistory.loadDrawingActivityPage(client, ids.project, ids.revision, {
       limit: 51,
     }),
+  );
+});
+
+test("history links preserve document scope and persistence rejection", async () => {
+  assert.equal(
+    drawingHistory.drawingHistoryPageHref(ids.project, ids.canvas, ids.comment),
+    `?document=${ids.project}&historyCursor=${ids.canvas}#history-${ids.comment}`,
+  );
+  await assert.rejects(
+    workspace.persistDrawingRecordedOperation(
+      {
+        applyRecorded: async () => {
+          throw new Error("outbox rejected");
+        },
+      },
+      {},
+    ),
+    /outbox rejected/,
+  );
+});
+
+test("activity detail and provenance stay bounded and human-readable", () => {
+  const item = {
+    kind: "operation",
+    id: ids.operation,
+    clientOperationId: ids.operation,
+    createdAt: "2026-08-26T00:00:00.000Z",
+    actorId: ids.actor,
+    revisionId: ids.revision,
+    action: "undo",
+    detail: { type: "restore_checkpoint", actions: Array(500).fill({}) },
+    provenance: {
+      historyAction: "undo",
+      originalOperationId: ids.comment,
+    },
+  };
+  assert.match(workspace.drawingActivityDescription(item), /500개 항목/);
+  assert.ok(workspace.drawingActivityDescription(item).length <= 160);
+  assert.match(workspace.drawingActivityProvenance(item), /원본 작업/);
+  const issueEvent = {
+    kind: "issue_event",
+    id: ids.comment,
+    createdAt: item.createdAt,
+    actorId: ids.actor,
+    issueId: ids.issue,
+    action: "status_changed",
+    detail: { to: "resolved", note: "현장 확인 완료" },
+    provenance: { projectId: ids.project },
+  };
+  assert.match(
+    workspace.drawingActivityDescription(issueEvent),
+    /resolved.*현장 확인 완료/,
+  );
+});
+
+test("workspace owns real target/comment and checkpoint restore controls", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /name="mentioned_user_ids"/);
+  assert.match(source, /value="add_canvas_region_anchor"/);
+  assert.match(source, /name="issue_id"/);
+  assert.match(source, /이슈에 연결된 도면 객체/);
+  assert.match(source, /연결된 canvas 영역/);
+  assert.match(source, /createDrawingCheckpointRestoreCommand/);
+  assert.doesNotMatch(
+    source,
+    /effectiveRevisionStatus === "approved" && authority\.canWrite/,
   );
 });
 
@@ -305,4 +379,41 @@ test("checkpoint restore emits one exact compound delta with current versions", 
   assert.equal(applied.state.objects[ids.comment].name, "Checkpoint");
   assert.equal(applied.state.objects[ids.comment].version, 2);
   assert.equal(applied.operation.forward.actions.length, 1);
+  assert.equal(applied.operation.undoable, false);
+  assert.equal(drawingCommands.undoDrawingCommand(applied.state, ids.actor), null);
+});
+
+test("checkpoint restore revives a modified tombstone into checkpoint content", () => {
+  const checkpoint = basicState();
+  const changed = drawingCommands.applyDrawingCommand(checkpoint, {
+    type: "update_objects",
+    actorId: ids.actor,
+    updates: [{ objectId: ids.comment, patch: { name: "Changed later" } }],
+  });
+  const deleted = drawingCommands.applyDrawingCommand(changed.state, {
+    type: "delete_objects",
+    actorId: ids.actor,
+    objectIds: [ids.comment],
+  });
+  const restored = drawingCommands.applyDrawingCommand(
+    deleted.state,
+    drawingCommands.createDrawingCheckpointRestoreCommand(
+      deleted.state,
+      checkpoint,
+      ids.actor,
+      ids.operation,
+    ),
+  );
+  assert.equal(restored.state.objects[ids.comment].name, "Before");
+  assert.equal(restored.operation.forward.actions[0].baseVersion, null);
+});
+
+test("checkpoint canonical graph removes database-only layer and object fields", () => {
+  assert.deepEqual(
+    workspace.canonicalCheckpointEntities(
+      [{ id: ids.operation, pageId: ids.issue, name: "Layer" }],
+      ["pageId"],
+    ),
+    [{ id: ids.operation, name: "Layer" }],
+  );
 });

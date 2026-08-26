@@ -238,6 +238,14 @@ const p3MentionsHistoryMigration = () =>
     ),
     "utf8",
   );
+const p3ActivityAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826025543_drawing_workspace_p3_activity_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -409,6 +417,15 @@ async function applyOperation(
   );
   return result.rows[0].result;
 }
+
+const applyStructure = (ids, baseVersions, actions, inverseActions) =>
+  applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    baseVersions,
+    { type: "mutate_structure", actions },
+    { type: "mutate_structure", actions: inverseActions },
+  );
 
 async function applyOperationWithId(
   revisionId,
@@ -598,6 +615,7 @@ before(async () => {
   await db.exec(await collaborationHistoryLineageMigration());
   await db.exec(await collaborationHistoryAuthorityMigration());
   await db.exec(await p3MentionsHistoryMigration());
+  await db.exec(await p3ActivityAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -8925,4 +8943,1059 @@ test("P3 approved checkpoint restore is an idempotent fresh child draft with lin
     [ids.revisionId],
   );
   assert.equal(parent.rows[0].status, "approved");
+});
+
+test("P3 reviewer can restore an approved checkpoint into a child draft", async () => {
+  const ids = await createDocument("P3 reviewer approved restore");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'approved','reviewer restore fixture'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  const result = await db.query(
+    "select public.lukas_drawing_restore_approved_snapshot($1,$2) result",
+    [ids.revisionId, randomUUID()],
+  );
+  assert.equal(result.rows[0].result.sourceRevisionId, ids.revisionId);
+  assert.equal(result.rows[0].result.status, "draft");
+});
+
+test("P3 approved restore locks the document before child sequence allocation", async () => {
+  const definition = await db.query(
+    `select pg_catalog.pg_get_functiondef(
+      'public.lukas_drawing_restore_approved_snapshot(uuid,uuid)'::regprocedure
+    ) body`,
+  );
+  assert.match(
+    definition.rows[0].body,
+    /lukas_drawing_documents[\s\S]+for update[\s\S]+lukas_drawing_restore_approved_snapshot_pre_document_lock/i,
+  );
+});
+
+test("P3 checkpoint restore rejects a valid arbitrary delta outside its canonical snapshot", async () => {
+  const ids = await createDocument("P3 authoritative checkpoint");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','continue editing'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const layer = await db.query(
+    `select id,canvas_id,name,sort_order,visible,locked,system_kind,version
+     from public.lukas_drawing_layers where id=$1`,
+    [ids.workLayerId],
+  );
+  const current = layer.rows[0];
+  const malicious = {
+    id: current.id,
+    canvasId: current.canvas_id,
+    name: "NOT IN CHECKPOINT",
+    sortOrder: current.sort_order,
+    visible: current.visible,
+    locked: current.locked,
+    systemKind: current.system_kind,
+    version: current.version,
+  };
+  const original = { ...malicious, name: current.name };
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+      )`,
+      [
+        ids.revisionId,
+        randomUUID(),
+        { [current.id]: current.version },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            { kind: "put_layer", entity: malicious, baseVersion: current.version },
+          ],
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            {
+              kind: "put_layer",
+              entity: original,
+              baseVersion: current.version + 1,
+            },
+          ],
+        },
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const unchanged = await db.query(
+    "select name from public.lukas_drawing_layers where id=$1",
+    [ids.workLayerId],
+  );
+  assert.equal(unchanged.rows[0].name, current.name);
+});
+
+test("P3 checkpoint restore applies an ordinary object change without block conversion", async () => {
+  const ids = await createDocument("P3 checkpoint ordinary object");
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  const canonicalTarget = snapshot.rows[0].canonical_json.objects.find(
+    (candidate) => candidate.id === object.id,
+  );
+  const {
+    lineageId: _lineageId,
+    pageId: _pageId,
+    type: _type,
+    ...target
+  } = canonicalTarget;
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','edit object then restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Changed later" } }],
+    },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: target.name } }],
+    },
+  );
+  const current = { ...target, name: "Changed later", version: 2 };
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+      )`,
+      [
+        ids.revisionId,
+        randomUUID(),
+        { [object.id]: 2 },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            {
+              kind: "put_object",
+              entity: { ...target, version: 2 },
+              baseVersion: 2,
+            },
+          ],
+          unexpected: true,
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            { kind: "put_object", entity: current, baseVersion: 3 },
+          ],
+        },
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [object.id]: 2 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_object",
+            entity: { ...target, version: 2 },
+            baseVersion: 2,
+          },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "put_object", entity: current, baseVersion: 3 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[object.id], 3);
+  const restored = await db.query(
+    "select name,version,status from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(restored.rows, [
+    { name: target.name, version: 3, status: "active" },
+  ]);
+});
+
+test("P3 checkpoint restore deletes an object added after the checkpoint", async () => {
+  const ids = await createDocument("P3 checkpoint later object");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','add object then restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  await addObject(ids, object);
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [object.id]: 1 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [{ kind: "delete_object", id: object.id, baseVersion: 1 }],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [{ kind: "put_object", entity: object, baseVersion: null }],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[object.id], null);
+  const deleted = await db.query(
+    "select status,version from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(deleted.rows, [{ status: "deleted", version: 2 }]);
+});
+
+test("P3 checkpoint restore combines a layer update with another structure collection", async () => {
+  const ids = await createDocument("P3 checkpoint mixed layer update");
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  const canonicalLayer = snapshot.rows[0].canonical_json.layers.find(
+    (layer) => layer.id === ids.workLayerId,
+  );
+  const { pageId: _pageId, ...targetLayer } = canonicalLayer;
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','mixed restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 1 },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { name: "Changed after checkpoint" },
+    },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { name: targetLayer.name },
+    },
+  );
+  const style = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Later style",
+    value: STYLE,
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [{ kind: "put_style", entity: style, baseVersion: null }],
+    [{ kind: "delete_style", id: style.id, baseVersion: 1 }],
+  );
+  const currentLayer = {
+    ...targetLayer,
+    name: "Changed after checkpoint",
+    version: 2,
+  };
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [ids.workLayerId]: 2, [style.id]: 1 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_layer",
+            entity: { ...targetLayer, version: 2 },
+            baseVersion: 2,
+          },
+          { kind: "delete_style", id: style.id, baseVersion: 1 },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "put_style", entity: style, baseVersion: null },
+          { kind: "put_layer", entity: currentLayer, baseVersion: 3 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[ids.workLayerId], 3);
+  const restored = await db.query(
+    `select l.name,l.version,
+      (select count(*)::int from public.lukas_drawing_styles s where s.id=$2) style_count
+     from public.lukas_drawing_layers l where l.id=$1`,
+    [ids.workLayerId, style.id],
+  );
+  assert.deepEqual(restored.rows, [
+    { name: targetLayer.name, version: 3, style_count: 0 },
+  ]);
+});
+
+test("P3 checkpoint restore revives a dependent canvas layer and object", async () => {
+  const ids = await createDocument("P3 checkpoint dependent object");
+  const canvas = {
+    id: randomUUID(),
+    pageId: ids.pageId,
+    name: "Checkpoint model",
+    spaceKind: "model",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: null,
+    sortOrder: 1,
+    version: 1,
+  };
+  const layer = {
+    id: randomUUID(),
+    name: "Checkpoint model work",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: canvas.id,
+    sortOrder: 0,
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      { kind: "put_layer", entity: layer, baseVersion: null },
+    ],
+    [
+      { kind: "delete_layer", id: layer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas.id, baseVersion: 1 },
+    ],
+  );
+  const object = { ...circleObject(randomUUID(), layer.id), styleId: null };
+  await addObject(ids, object);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','dependent restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "delete_objects",
+    { [object.id]: 1 },
+    { type: "delete_objects", objectIds: [object.id] },
+    { type: "add_objects", objects: [{ ...object, version: 3 }] },
+  );
+  await db.exec("reset role");
+  await db.query("delete from public.lukas_drawing_objects where id=$1", [
+    object.id,
+  ]);
+  await asActor(OWNER);
+  await applyStructure(
+    ids,
+    { [layer.id]: 1, [canvas.id]: 1 },
+    [
+      { kind: "delete_layer", id: layer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas.id, baseVersion: 1 },
+    ],
+    [
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      { kind: "put_layer", entity: layer, baseVersion: null },
+    ],
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      {},
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "put_canvas", entity: canvas, baseVersion: null },
+          { kind: "put_layer", entity: layer, baseVersion: null },
+          {
+            kind: "put_object",
+            entity: { ...object, version: 3 },
+            baseVersion: null,
+          },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "delete_object", id: object.id, baseVersion: 5 },
+          { kind: "delete_layer", id: layer.id, baseVersion: 3 },
+          { kind: "delete_canvas", id: canvas.id, baseVersion: 3 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[object.id], 5);
+  const restored = await db.query(
+    `select o.name,o.version,l.name layer_name,c.name canvas_name
+     from public.lukas_drawing_objects o
+     join public.lukas_drawing_layers l on l.id=o.layer_id
+     join public.lukas_drawing_canvases c on c.id=l.canvas_id
+     where o.id=$1`,
+    [object.id],
+  );
+  assert.deepEqual(restored.rows, [
+    {
+      name: object.name,
+      version: 5,
+      layer_name: layer.name,
+      canvas_name: canvas.name,
+    },
+  ]);
+});
+
+test("P3 checkpoint restore keeps objects on a checkpoint-locked hidden layer", async () => {
+  const ids = await createDocument("P3 checkpoint locked layer object");
+  await addCustomLayer(ids, "Editable fallback");
+  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  await addObject(ids, object);
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 1 },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { visible: false, locked: true },
+    },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { visible: true, locked: false },
+    },
+  );
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  const { pageId: _layerPageId, ...targetLayer } =
+    snapshot.rows[0].canonical_json.layers.find(
+      (layer) => layer.id === ids.workLayerId,
+    );
+  const {
+    lineageId: _lineageId,
+    pageId: _objectPageId,
+    type: _objectType,
+    ...targetObject
+  } = snapshot.rows[0].canonical_json.objects.find(
+    (candidate) => candidate.id === object.id,
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','locked layer restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [ids.workLayerId]: 2 },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { visible: true, locked: false },
+    },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { visible: false, locked: true },
+    },
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Changed unlocked" } }],
+    },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: object.name } }],
+    },
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [ids.workLayerId]: 3, [object.id]: 2 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_layer",
+            entity: { ...targetLayer, version: 3 },
+            baseVersion: 3,
+          },
+          {
+            kind: "put_object",
+            entity: { ...targetObject, version: 2 },
+            baseVersion: 2,
+          },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_object",
+            entity: { ...targetObject, name: "Changed unlocked", version: 2 },
+            baseVersion: 3,
+          },
+          {
+            kind: "put_layer",
+            entity: { ...targetLayer, visible: true, locked: false, version: 3 },
+            baseVersion: 4,
+          },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[object.id], 3);
+  const restored = await db.query(
+    `select o.name,l.visible,l.locked
+     from public.lukas_drawing_objects o
+     join public.lukas_drawing_layers l on l.id=o.layer_id
+     where o.id=$1`,
+    [object.id],
+  );
+  assert.deepEqual(restored.rows, [
+    { name: object.name, visible: false, locked: true },
+  ]);
+});
+
+test("P3 checkpoint restore stages a deleted canvas before moving its surviving layer", async () => {
+  const ids = await createDocument("P3 checkpoint moved layer canvas");
+  const canvas = {
+    id: randomUUID(),
+    pageId: ids.pageId,
+    name: "Checkpoint move canvas",
+    spaceKind: "model",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: null,
+    sortOrder: 1,
+    version: 1,
+  };
+  const layer = {
+    id: randomUUID(),
+    name: "Checkpoint movable layer",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: canvas.id,
+    sortOrder: 0,
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      { kind: "put_layer", entity: layer, baseVersion: null },
+    ],
+    [
+      { kind: "delete_layer", id: layer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas.id, baseVersion: 1 },
+    ],
+  );
+  const companionLayer = {
+    id: randomUUID(),
+    name: "Checkpoint canvas companion",
+    visible: true,
+    locked: false,
+    canvasId: canvas.id,
+    sortOrder: 1,
+    version: 1,
+  };
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [companionLayer.id]: 1 },
+    { type: "add_layer", layer: companionLayer },
+    {},
+  );
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','move layer then restore canvas'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const movedLayer = { ...layer, canvasId: ids.canvasId, version: 1 };
+  await applyStructure(
+    ids,
+    { [layer.id]: 1 },
+    [{ kind: "put_layer", entity: movedLayer, baseVersion: 1 }],
+    [
+      {
+        kind: "put_layer",
+        entity: layer,
+        baseVersion: 2,
+      },
+    ],
+  );
+  await applyStructure(
+    ids,
+    { [companionLayer.id]: 1, [canvas.id]: 1 },
+    [
+      { kind: "delete_layer", id: companionLayer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas.id, baseVersion: 1 },
+    ],
+    [
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      {
+        kind: "put_layer",
+        entity: { ...companionLayer, systemKind: "custom" },
+        baseVersion: null,
+      },
+    ],
+  );
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+      )`,
+      [
+        ids.revisionId,
+        randomUUID(),
+        { [layer.id]: 2 },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            { kind: "put_canvas", entity: canvas, baseVersion: null },
+            {
+              kind: "put_layer",
+              entity: { ...companionLayer, systemKind: "custom" },
+              baseVersion: null,
+              unexpected: true,
+            },
+            {
+              kind: "put_layer",
+              entity: { ...layer, version: 2 },
+              baseVersion: 2,
+            },
+          ],
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [
+            {
+              kind: "put_layer",
+              entity: { ...movedLayer, version: 2 },
+              baseVersion: 3,
+            },
+            {
+              kind: "delete_layer",
+              id: companionLayer.id,
+              baseVersion: 3,
+            },
+            { kind: "delete_canvas", id: canvas.id, baseVersion: 3 },
+          ],
+        },
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [layer.id]: 2 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "put_canvas", entity: canvas, baseVersion: null },
+          {
+            kind: "put_layer",
+            entity: { ...companionLayer, systemKind: "custom" },
+            baseVersion: null,
+          },
+          {
+            kind: "put_layer",
+            entity: { ...layer, version: 2 },
+            baseVersion: 2,
+          },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_layer",
+            entity: { ...movedLayer, version: 2 },
+            baseVersion: 3,
+          },
+          {
+            kind: "delete_layer",
+            id: companionLayer.id,
+            baseVersion: 3,
+          },
+          { kind: "delete_canvas", id: canvas.id, baseVersion: 3 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[canvas.id], 3);
+  const restored = await db.query(
+    `select l.canvas_id,c.version canvas_version,l.version layer_version
+     from public.lukas_drawing_layers l
+     join public.lukas_drawing_canvases c on c.id=l.canvas_id
+     where l.id=$1`,
+    [layer.id],
+  );
+  assert.deepEqual(restored.rows, [
+    { canvas_id: canvas.id, canvas_version: 3, layer_version: 3 },
+  ]);
+});
+
+test("P3 checkpoint restore revives older object content and removes later block state", async () => {
+  const ids = await createDocument("P3 checkpoint object tombstone");
+  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  await addObject(ids, object);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  const canonicalTarget = snapshot.rows[0].canonical_json.objects.find(
+    (candidate) => candidate.id === object.id,
+  );
+  const {
+    lineageId: _lineageId,
+    pageId: _pageId,
+    type: _type,
+    ...target
+  } = canonicalTarget;
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','convert then restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "update_objects",
+    { [object.id]: 1 },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: "Changed later" } }],
+    },
+    {
+      type: "update_objects",
+      updates: [{ objectId: object.id, patch: { name: target.name } }],
+    },
+  );
+  const changed = { ...target, name: "Changed later", version: 2 };
+  const block = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Later block",
+    primitives: [
+      {
+        localId: "local-a",
+        name: changed.name,
+        geometry: changed.geometry,
+        styleId: null,
+        style: changed.style,
+      },
+    ],
+    version: 1,
+  };
+  const instance = {
+    id: randomUUID(),
+    lineageId: randomUUID(),
+    blockId: block.id,
+    layerId: ids.workLayerId,
+    name: "Later instance",
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  instance.lineageId = instance.id;
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    { [object.id]: 2 },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_block", entity: block, baseVersion: null },
+        { kind: "put_block_instance", entity: instance, baseVersion: null },
+        { kind: "delete_object", id: object.id, baseVersion: 2 },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "put_object", entity: changed, baseVersion: null },
+        { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+        { kind: "delete_block", id: block.id, baseVersion: 1 },
+      ],
+    },
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [instance.id]: 1, [block.id]: 1 },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_object",
+            entity: { ...target, version: 2 },
+            baseVersion: null,
+          },
+          { kind: "delete_block_instance", id: instance.id, baseVersion: 1 },
+          { kind: "delete_block", id: block.id, baseVersion: 1 },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "put_block", entity: block, baseVersion: null },
+          { kind: "put_block_instance", entity: instance, baseVersion: null },
+          { kind: "delete_object", id: object.id, baseVersion: 4 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[object.id], 4);
+  const restored = await db.query(
+    "select name,version,status from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(restored.rows, [
+    { name: target.name, version: 4, status: "active" },
+  ]);
+});
+
+test("P3 checkpoint restore revives older non-object tombstone content", async () => {
+  const ids = await createDocument("P3 checkpoint style tombstone");
+  const style = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: "Checkpoint style",
+    value: STYLE,
+    version: 1,
+  };
+  await applyStructure(ids, {}, [
+    { kind: "put_style", entity: style, baseVersion: null },
+  ], [{ kind: "delete_style", id: style.id, baseVersion: 1 }]);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','change style then restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const changed = { ...style, name: "Changed style", version: 1 };
+  await applyStructure(
+    ids,
+    { [style.id]: 1 },
+    [{ kind: "put_style", entity: changed, baseVersion: 1 }],
+    [{ kind: "put_style", entity: style, baseVersion: 2 }],
+  );
+  await applyStructure(
+    ids,
+    { [style.id]: 2 },
+    [{ kind: "delete_style", id: style.id, baseVersion: 2 }],
+    [{ kind: "put_style", entity: { ...changed, version: 2 }, baseVersion: null }],
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      {},
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          {
+            kind: "put_style",
+            entity: { ...style, version: 2 },
+            baseVersion: null,
+          },
+        ],
+      },
+      {
+        type: "restore_checkpoint",
+        checkpointId: review.rows[0].result.snapshotId,
+        actions: [
+          { kind: "delete_style", id: style.id, baseVersion: 4 },
+        ],
+      },
+    ],
+  );
+  assert.equal(result.rows[0].result.resultVersions[style.id], 4);
+  const restored = await db.query(
+    "select name,version from public.lukas_drawing_styles where id=$1",
+    [style.id],
+  );
+  assert.deepEqual(restored.rows, [{ name: style.name, version: 4 }]);
 });

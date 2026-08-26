@@ -1272,7 +1272,9 @@ function reduceCommand(
         },
         resultVersions: applied.resultVersions,
         realizedVersions: applied.realizedVersions,
-        undoable: true,
+        // A checkpoint names one authoritative target graph; its inverse names
+        // the pre-restore graph and therefore cannot reuse that authority.
+        undoable: false,
         structure,
       };
     }
@@ -1808,9 +1810,9 @@ export function createDrawingCheckpointRestoreCommand(
       const entity = {
         ...clone(target),
         version: present
-          ? present.version + 1
+          ? present.version
           : tombstone?.collection === collection
-            ? tombstone.version + 2
+            ? tombstone.entity.version
             : 1,
       };
       const action = {
