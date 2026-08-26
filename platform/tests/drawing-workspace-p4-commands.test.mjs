@@ -7,7 +7,10 @@ import {
   createBlockFromSelection,
   worldObjectsToBlockPrimitives,
 } from "../app/lukas/lib/drawing-blocks.ts";
-import { DrawingPropertySchemaSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  DrawingGeometrySchema,
+  DrawingPropertySchemaSchema,
+} from "../app/lukas/lib/drawing-workspace.types.ts";
 import {
   applyDrawingStructureActions,
   validateDrawingStructureState,
@@ -26,12 +29,15 @@ const ids = Object.fromEntries(
     "otherLayer",
     "wall",
     "opening",
+    "openingB",
     "otherObject",
     "propertySchema",
     "propertyValue",
+    "propertyValueB",
     "table",
     "column",
     "row",
+    "rowB",
     "actor",
     "operation",
     "checkpoint",
@@ -470,6 +476,143 @@ test("semantic translation moves authored coordinates but never XY-translates an
   );
 });
 
+test("semantic command outputs stay on the exact six-decimal grid without drift", () => {
+  const diagonalWall = wall({
+    geometry: {
+      ...wall().geometry,
+      start: { x: 0.1, y: 0.1 },
+      end: { x: 1.1, y: 17.1 },
+    },
+  });
+  const diagonalOpening = opening({
+    geometry: {
+      ...opening().geometry,
+      offsetMillimeters: 8,
+      widthMillimeters: 1,
+    },
+  });
+  const initial = state([diagonalWall, diagonalOpening]);
+  const move = drawingCommands.moveDrawingSelection(
+    initial,
+    [ids.wall],
+    ids.actor,
+    { x: 0.2, y: 0.2 },
+  );
+  const moved = drawingCommands.applyDrawingCommand(initial, move);
+  assert.deepEqual(moved.state.objects[ids.wall].geometry.start, {
+    x: 0.3,
+    y: 0.3,
+  });
+  assert.deepEqual(moved.state.objects[ids.wall].geometry.end, {
+    x: 1.3,
+    y: 17.3,
+  });
+  assert.deepEqual(
+    drawingCommands.moveDrawingSelection(initial, [ids.wall], ids.actor, {
+      x: 0.2,
+      y: 0.2,
+    }),
+    move,
+  );
+
+  const translatable = [
+    {
+      type: "space",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0.1, y: 0.1 },
+        { x: 10.1, y: 0.1 },
+        { x: 0.1, y: 10.1 },
+      ],
+      number: "101",
+      finishes: { floor: null, wall: null, ceiling: null },
+    },
+    {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0.1, y: 0.1 },
+        { x: 10.1, y: 0.1 },
+        { x: 0.1, y: 10.1 },
+      ],
+    },
+    {
+      type: "grid",
+      semanticVersion: 1,
+      start: { x: 0.1, y: 0.1 },
+      end: { x: 10.1, y: 0.1 },
+    },
+    {
+      type: "arc",
+      semanticVersion: 1,
+      center: { x: 0.1, y: 0.1 },
+      radius: 10,
+      startAngleDegrees: 0.1,
+      sweepAngleDegrees: 90.2,
+    },
+  ];
+  for (const geometry of translatable) {
+    const semanticObject = wall({
+      id: ids.otherObject,
+      name: geometry.type,
+      geometry,
+    });
+    const objectState = state([semanticObject]);
+    const command = drawingCommands.moveDrawingSelection(
+      objectState,
+      [semanticObject.id],
+      ids.actor,
+      { x: 0.2, y: 0.2 },
+    );
+    const applied = drawingCommands.applyDrawingCommand(objectState, command);
+    assert.equal(
+      DrawingGeometrySchema.safeParse(
+        applied.state.objects[semanticObject.id].geometry,
+      ).success,
+      true,
+      geometry.type,
+    );
+  }
+
+  let roundTrip = diagonalWall.geometry;
+  for (let index = 0; index < 100; index += 1) {
+    roundTrip = drawingCommands.translateDrawingGeometry(roundTrip, {
+      x: 0.2,
+      y: 0.2,
+    });
+    roundTrip = drawingCommands.translateDrawingGeometry(roundTrip, {
+      x: -0.2,
+      y: -0.2,
+    });
+  }
+  assert.deepEqual(roundTrip, diagonalWall.geometry);
+
+  const farEnd = drawingCommands.moveDrawingOpeningToPoint(
+    initial,
+    ids.opening,
+    ids.actor,
+    { x: 100, y: 100 },
+  );
+  assert.equal(farEnd.updates[0].patch.geometry.offsetMillimeters, 16.529386);
+  assert.equal(
+    DrawingGeometrySchema.safeParse(farEnd.updates[0].patch.geometry).success,
+    true,
+  );
+  assert.doesNotThrow(() =>
+    drawingCommands.applyDrawingCommand(initial, farEnd),
+  );
+  const nearEnd = drawingCommands.moveDrawingOpeningToPoint(
+    initial,
+    ids.opening,
+    ids.actor,
+    { x: -100, y: -100 },
+  );
+  assert.equal(nearEnd.updates[0].patch.geometry.offsetMillimeters, 0.5);
+  assert.doesNotThrow(() =>
+    drawingCommands.applyDrawingCommand(initial, nearEnd),
+  );
+});
+
 test("host walls require the explicit opening-first reference-aware delete command", () => {
   const references = referenceFixtures();
   const initial = state([wall(), opening()], {
@@ -565,6 +708,192 @@ test("host walls require the explicit opening-first reference-aware delete comma
   );
 });
 
+test("wall shrink updates valid dependents and deletes every invalid opening atomically", () => {
+  const openingB = opening({
+    id: ids.openingB,
+    name: "D-02",
+    geometry: {
+      ...opening().geometry,
+      offsetMillimeters: 850,
+      widthMillimeters: 200,
+    },
+  });
+  const references = referenceFixtures();
+  references.propertyValues[ids.propertyValueB] = {
+    ...references.propertyValues[ids.propertyValue],
+    id: ids.propertyValueB,
+    objectId: ids.openingB,
+    value: "D-02",
+  };
+  references.tables[ids.table] = {
+    ...references.tables[ids.table],
+    rows: [
+      ...references.tables[ids.table].rows,
+      {
+        id: ids.rowB,
+        objectId: ids.openingB,
+        blockInstanceId: null,
+        cells: {},
+      },
+    ],
+  };
+  const initial = state([wall(), opening(), openingB], {
+    structure: {
+      ...structure([wall(), opening(), openingB]),
+      ...references,
+    },
+  });
+  const shrunkenWall = {
+    ...wall().geometry,
+    end: { x: 700, y: 0 },
+  };
+  const movedOpening = {
+    ...opening().geometry,
+    offsetMillimeters: 400,
+  };
+  const command =
+    drawingCommands.updateDrawingObjectsWithOpeningDeletionsCommand(
+      initial,
+      ids.actor,
+      [
+        {
+          objectId: ids.wall,
+          baseVersion: 1,
+          patch: { geometry: shrunkenWall },
+        },
+        {
+          objectId: ids.opening,
+          baseVersion: 1,
+          patch: { geometry: movedOpening },
+        },
+      ],
+      [ids.openingB],
+    );
+  assert.equal(command.type, "mutate_objects_with_references");
+  assert.equal(command.objectAction, "delete");
+  assert.deepEqual(
+    command.objects.map((object) => object.id),
+    [ids.openingB],
+  );
+  assert.deepEqual(command.actions, [
+    {
+      kind: "delete_property_value",
+      id: ids.propertyValueB,
+      baseVersion: 1,
+    },
+    {
+      kind: "put_table",
+      entity: {
+        ...references.tables[ids.table],
+        rows: [references.tables[ids.table].rows[0]],
+      },
+      baseVersion: 1,
+    },
+    {
+      kind: "put_object",
+      entity: { ...wall(), geometry: shrunkenWall },
+      baseVersion: 1,
+    },
+    {
+      kind: "put_object",
+      entity: { ...opening(), geometry: movedOpening },
+      baseVersion: 1,
+    },
+  ]);
+
+  const applied = drawingCommands.applyDrawingCommand(
+    initial,
+    command,
+    environment(),
+  );
+  assert.equal(applied.state.objects[ids.wall].geometry.end.x, 700);
+  assert.equal(
+    applied.state.objects[ids.opening].geometry.offsetMillimeters,
+    400,
+  );
+  assert.equal(applied.state.objects[ids.openingB], undefined);
+  assert.equal(
+    applied.state.structure.propertyValues[ids.propertyValueB],
+    undefined,
+  );
+  assert.deepEqual(applied.state.structure.tables[ids.table].rows, [
+    references.tables[ids.table].rows[0],
+  ]);
+
+  const undone = drawingCommands.undoDrawingCommand(
+    applied.state,
+    ids.actor,
+    environment(),
+  );
+  assert.equal(undone.kind, undefined);
+  assert.equal(undone.state.objects[ids.wall].geometry.end.x, 1000);
+  assert.equal(
+    undone.state.objects[ids.opening].geometry.offsetMillimeters,
+    500,
+  );
+  assert.equal(
+    undone.state.objects[ids.openingB].geometry.offsetMillimeters,
+    850,
+  );
+  assert.equal(
+    undone.state.structure.propertyValues[ids.propertyValueB].objectId,
+    ids.openingB,
+  );
+  assert.deepEqual(
+    undone.state.structure.tables[ids.table].rows.map((row) => row.objectId),
+    [ids.opening, ids.openingB],
+  );
+
+  const redone = drawingCommands.redoDrawingCommand(
+    undone.state,
+    ids.actor,
+    environment(),
+  );
+  assert.equal(redone.kind, undefined);
+  assert.equal(redone.state.objects[ids.openingB], undefined);
+  const reverted = drawingCommands.revertDrawingOperation(
+    redone.state,
+    ids.actor,
+    applied.operation.clientOperationId,
+    environment(),
+  );
+  assert.equal(reverted.kind, undefined);
+  assert.equal(reverted.state.objects[ids.wall].geometry.end.x, 1000);
+  assert.equal(
+    reverted.state.objects[ids.openingB].geometry.offsetMillimeters,
+    850,
+  );
+
+  const concurrent = drawingCommands.applyDrawingCommand(initial, {
+    type: "update_objects",
+    actorId: ids.actor,
+    updates: [
+      {
+        objectId: ids.wall,
+        baseVersion: 1,
+        patch: { name: "concurrently changed" },
+      },
+    ],
+  });
+  assert.throws(() =>
+    drawingCommands.applyDrawingCommand(concurrent.state, command),
+  );
+  assert.throws(() =>
+    drawingCommands.updateDrawingObjectsWithOpeningDeletionsCommand(
+      initial,
+      ids.actor,
+      [
+        {
+          objectId: ids.wall,
+          baseVersion: 1,
+          patch: { geometry: shrunkenWall },
+        },
+      ],
+      [],
+    ),
+  );
+});
+
 test("checkpoint restore accepts opening-before-wall actions only when its final graph is valid", () => {
   const current = state();
   const checkpoint = state([opening(), wall()]);
@@ -625,13 +954,12 @@ test("clipboard preallocates IDs, remaps copied hosts, and validates retained ho
   const openingOnly = drawingCommands.copyDrawingSelection(initial, [
     ids.opening,
   ]);
-  const implicitSameRevision = drawingCommands.pasteDrawingClipboard(
-    openingOnly,
-    ids.actor,
-    () => ids.openingCopy,
-  );
-  assert.doesNotThrow(() =>
-    drawingCommands.applyDrawingCommand(initial, implicitSameRevision),
+  assert.throws(() =>
+    drawingCommands.pasteDrawingClipboard(
+      openingOnly,
+      ids.actor,
+      () => ids.openingCopy,
+    ),
   );
   const retained = drawingCommands.pasteDrawingClipboard(
     openingOnly,
@@ -657,6 +985,21 @@ test("clipboard preallocates IDs, remaps copied hosts, and validates retained ho
       ids.actor,
       () => ids.openingCopy,
       state([wall()], { revisionId: ids.otherRevision }),
+    ),
+  );
+  assert.throws(() =>
+    drawingCommands.pasteDrawingClipboard(
+      openingOnly,
+      ids.actor,
+      () => ids.openingCopy,
+      state([wall({ layerId: ids.otherLayer })]),
+    ),
+  );
+  assert.doesNotThrow(() =>
+    drawingCommands.pasteDrawingClipboard(
+      drawingCommands.copyDrawingSelection(initial, [ids.wall]),
+      ids.actor,
+      () => ids.newWall,
     ),
   );
 });

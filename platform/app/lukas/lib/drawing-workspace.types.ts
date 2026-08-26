@@ -1,13 +1,16 @@
 import { z } from "zod";
 
-import { isSimpleDrawingBoundary } from "./drawing-semantic-geometry.ts";
+import {
+  DRAWING_SEMANTIC_ABSOLUTE_MAX,
+  drawingSemanticScaledInteger,
+  isSimpleDrawingBoundary,
+} from "./drawing-semantic-geometry.ts";
 
 export type Point = { x: number; y: number };
 export type Bounds = { x: number; y: number; width: number; height: number };
 export type Viewport = { x: number; y: number; zoom: number };
 
 const SHARED_NUMERIC_ABSOLUTE_MAX = 999_999_999_999;
-const P4_NUMERIC_ABSOLUTE_MAX = 9_000_000_000;
 const SHARED_INTEGER_MAX = 2_147_483_647;
 const Finite = z
   .number()
@@ -145,11 +148,11 @@ export const DrawingPrimitiveGeometrySchema =
 
 const P4Finite = z
   .number()
-  .min(-P4_NUMERIC_ABSOLUTE_MAX)
-  .max(P4_NUMERIC_ABSOLUTE_MAX)
+  .min(-DRAWING_SEMANTIC_ABSOLUTE_MAX)
+  .max(DRAWING_SEMANTIC_ABSOLUTE_MAX)
   .refine(Number.isFinite, "유한한 숫자여야 합니다.")
   .refine(
-    (value) => Number.isSafeInteger(value * 1_000_000),
+    (value) => drawingSemanticScaledInteger(value) !== null,
     "소수점 이하 여섯 자리 이하여야 합니다.",
   );
 const P4Positive = P4Finite.refine((value) => value > 0, "0보다 커야 합니다.");

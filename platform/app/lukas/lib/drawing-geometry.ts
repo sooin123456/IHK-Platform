@@ -6,7 +6,10 @@ import type {
   Point,
   Viewport,
 } from "./drawing-workspace.types.ts";
-import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
+import {
+  drawingSemanticScaledInteger,
+  resolveDrawingOpening,
+} from "./drawing-semantic-geometry.ts";
 
 type SnapOptions = {
   gridSize: number;
@@ -63,10 +66,10 @@ const MICRODEGREES_PER_DEGREE = 1_000_000;
 const FULL_TURN_MICRODEGREES = 360_000_000n;
 
 function toMicrodegrees(value: number): bigint {
-  const scaled = value * MICRODEGREES_PER_DEGREE;
-  if (!Number.isSafeInteger(scaled))
+  const scaled = drawingSemanticScaledInteger(value);
+  if (scaled === null)
     throw new RangeError("Arc angles must be validated six-decimal numbers.");
-  return BigInt(scaled);
+  return scaled;
 }
 
 function normalizeMicrodegrees(value: bigint): bigint {

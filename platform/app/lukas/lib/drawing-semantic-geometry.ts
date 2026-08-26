@@ -5,7 +5,9 @@ import type {
   Point,
 } from "./drawing-workspace.types.ts";
 
-const DRAWING_SEMANTIC_SCALE = 1_000_000;
+export const DRAWING_SEMANTIC_SCALE = 1_000_000;
+export const DRAWING_SEMANTIC_ABSOLUTE_MAX = 9_000_000_000;
+const DRAWING_SEMANTIC_SCALE_BIGINT = BigInt(DRAWING_SEMANTIC_SCALE);
 
 export class DrawingSemanticGeometryError extends Error {
   constructor(message: string) {
@@ -18,17 +20,77 @@ function pointEquals(left: Point, right: Point): boolean {
   return left.x === right.x && left.y === right.y;
 }
 
-function scaledCoordinate(value: number): bigint | null {
+/** Converts one exact decimal-grid number without a binary multiplication check. */
+export function drawingSemanticScaledInteger(value: number): bigint | null {
   if (!Number.isFinite(value)) return null;
-  const scaled = value * DRAWING_SEMANTIC_SCALE;
-  return Number.isSafeInteger(scaled) ? BigInt(scaled) : null;
+  const match = value
+    .toString()
+    .match(/^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i);
+  if (!match) return null;
+  const coefficient = BigInt(`${match[2]}${match[3] ?? ""}`);
+  const decimalPlaces = (match[3]?.length ?? 0) - Number(match[4] ?? 0);
+  let magnitude: bigint;
+  if (decimalPlaces <= 6) {
+    magnitude = coefficient * 10n ** BigInt(6 - decimalPlaces);
+  } else {
+    const divisor = 10n ** BigInt(decimalPlaces - 6);
+    if (coefficient % divisor !== 0n) return null;
+    magnitude = coefficient / divisor;
+  }
+  const scaled = match[1] === "-" ? -magnitude : magnitude;
+  return scaled <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    scaled >= BigInt(Number.MIN_SAFE_INTEGER)
+    ? scaled
+    : null;
+}
+
+/** Quantizes a derived semantic value once onto the six-decimal grid. */
+export function normalizeDrawingSemanticNumber(value: number): number {
+  if (!Number.isFinite(value))
+    throw new DrawingSemanticGeometryError(
+      "Semantic geometry requires finite numeric output.",
+    );
+  const magnitude = Math.round(Math.abs(value) * DRAWING_SEMANTIC_SCALE);
+  if (!Number.isSafeInteger(magnitude))
+    throw new DrawingSemanticGeometryError(
+      "Semantic geometry exceeds the exact six-decimal range.",
+    );
+  const scaled = value < 0 ? -magnitude : magnitude;
+  return Number(BigInt(scaled)) / DRAWING_SEMANTIC_SCALE;
+}
+
+/** Adds authored and pointer values in fixed point so repeated moves do not drift. */
+export function addDrawingSemanticNumbers(
+  authored: number,
+  delta: number,
+): number {
+  const authoredScaled = drawingSemanticScaledInteger(authored);
+  if (authoredScaled === null)
+    throw new DrawingSemanticGeometryError(
+      "Authored semantic geometry must use the six-decimal grid.",
+    );
+  const normalizedDelta = normalizeDrawingSemanticNumber(delta);
+  const deltaScaled = drawingSemanticScaledInteger(normalizedDelta);
+  if (deltaScaled === null)
+    throw new DrawingSemanticGeometryError(
+      "Semantic translation must use the six-decimal grid.",
+    );
+  const result = authoredScaled + deltaScaled;
+  if (
+    result > BigInt(Number.MAX_SAFE_INTEGER) ||
+    result < BigInt(Number.MIN_SAFE_INTEGER)
+  )
+    throw new DrawingSemanticGeometryError(
+      "Semantic translation exceeds the exact six-decimal range.",
+    );
+  return Number(result) / Number(DRAWING_SEMANTIC_SCALE_BIGINT);
 }
 
 type IntegerPoint = { x: bigint; y: bigint };
 
 function integerPoint(point: Point): IntegerPoint | null {
-  const x = scaledCoordinate(point.x);
-  const y = scaledCoordinate(point.y);
+  const x = drawingSemanticScaledInteger(point.x);
+  const y = drawingSemanticScaledInteger(point.y);
   return x === null || y === null ? null : { x, y };
 }
 
@@ -197,8 +259,8 @@ export function resolveDrawingOpening(
   const halfWidth = opening.widthMillimeters / 2;
   const integerStart = integerPoint(host.geometry.start);
   const integerEnd = integerPoint(host.geometry.end);
-  const integerOffset = scaledCoordinate(opening.offsetMillimeters);
-  const integerWidth = scaledCoordinate(opening.widthMillimeters);
+  const integerOffset = drawingSemanticScaledInteger(opening.offsetMillimeters);
+  const integerWidth = drawingSemanticScaledInteger(opening.widthMillimeters);
   if (
     !integerStart ||
     !integerEnd ||
@@ -221,9 +283,13 @@ export function resolveDrawingOpening(
     throw new DrawingSemanticGeometryError(
       "Opening clear width must fit inside its host wall.",
     );
-  const integerSill = scaledCoordinate(opening.sillHeightMillimeters);
-  const integerHeight = scaledCoordinate(opening.heightMillimeters);
-  const integerWallHeight = scaledCoordinate(host.geometry.heightMillimeters);
+  const integerSill = drawingSemanticScaledInteger(
+    opening.sillHeightMillimeters,
+  );
+  const integerHeight = drawingSemanticScaledInteger(opening.heightMillimeters);
+  const integerWallHeight = drawingSemanticScaledInteger(
+    host.geometry.heightMillimeters,
+  );
   if (
     opening.openingKind === "window" &&
     (integerSill === null ||

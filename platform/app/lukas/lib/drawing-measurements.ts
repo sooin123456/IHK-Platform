@@ -1,4 +1,7 @@
-import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
+import {
+  drawingSemanticScaledInteger,
+  resolveDrawingOpening,
+} from "./drawing-semantic-geometry.ts";
 import type { DrawingObject, Point } from "./drawing-workspace.types.ts";
 
 export const DRAWING_MEASUREMENT_RULE_VERSION = "P4_MEASUREMENT_V1" as const;
@@ -20,12 +23,12 @@ export type DrawingMeasurementUnit =
   "millimeters" | "meters" | "squareMillimeters" | "squareMeters" | "count";
 
 function toMicromillimeters(value: number): bigint {
-  const scaled = value * Number(MICROMILLIMETERS_PER_MILLIMETER);
-  if (!Number.isSafeInteger(scaled))
+  const scaled = drawingSemanticScaledInteger(value);
+  if (scaled === null)
     throw new RangeError(
       "Drawing measurement values must be validated six-decimal numbers.",
     );
-  return BigInt(scaled);
+  return scaled;
 }
 
 function integerSquareRoot(value: bigint): bigint {

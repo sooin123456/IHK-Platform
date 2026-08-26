@@ -1853,14 +1853,19 @@ export default function DrawingWorkspaceClient({
       })
     )
       return false;
-    const command = pasteDrawingClipboard(clipboardRef.current, currentUserId);
+    const command = pasteDrawingClipboard(
+      clipboardRef.current,
+      currentUserId,
+      undefined,
+      activeDrawingState,
+    );
     if (!command) return false;
     applyCommand(command);
     setAuthorizedSelection(command.objects.map((object) => object.id));
     setClipboardError(null);
     return true;
   }, [
-    activeDrawingState.layers,
+    activeDrawingState,
     applyCommand,
     currentUserId,
     drawingState,

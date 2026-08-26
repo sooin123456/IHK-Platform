@@ -1057,7 +1057,11 @@ export function resolveDrawingStyle(
 export function applyDrawingStructureActions(
   state: DrawingStructureState,
   inputActions: DrawingStructureAction[],
-  options: { allowCheckpointRestore?: boolean } = {},
+  options: {
+    allowCheckpointRestore?: boolean;
+    allowReferenceAwareObjectMutation?: boolean;
+    deferSemanticReferenceValidation?: boolean;
+  } = {},
 ): AppliedDrawingStructureActions {
   const actions = inputActions.map(
     (action) =>
@@ -1070,7 +1074,11 @@ export function applyDrawingStructureActions(
       "A structure operation requires at least one action.",
     );
   }
-  if (!options.allowCheckpointRestore) validateObjectCompound(state, actions);
+  if (
+    !options.allowCheckpointRestore &&
+    !options.allowReferenceAwareObjectMutation
+  )
+    validateObjectCompound(state, actions);
   validateActionBases(state, actions);
   const protectedDefaultCanvasIds = new Set(
     Object.values(state.canvases)
@@ -1166,7 +1174,8 @@ export function applyDrawingStructureActions(
     );
   }
   validateFinalCanvasInvariant(next);
-  validateDrawingSemanticReferences(next);
+  if (!options.deferSemanticReferenceValidation)
+    validateDrawingSemanticReferences(next);
   return {
     state: next,
     inverse,
