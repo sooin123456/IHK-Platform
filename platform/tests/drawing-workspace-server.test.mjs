@@ -586,6 +586,87 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
   );
 });
 
+test("P4 measurement evidence derives only from the authorized transactional checkpoint", () => {
+  assert.equal(
+    typeof workspaceServer.deriveAuthorizedDrawingMeasurementEvidence,
+    "function",
+  );
+  const wall = p4Object(
+    p4FixtureIds.wall,
+    ids.workLayer,
+    validP4Geometries[0],
+    "W-01",
+  );
+  const opening = p4Object(
+    p4FixtureIds.opening,
+    ids.workLayer,
+    validP4Geometries[1],
+    "D-01",
+  );
+  const bootstrap = {
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.document,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources: [],
+      pages: [],
+      canvases: [],
+      layers: [],
+      objects: [opening, wall].map((object) => ({
+        ...object,
+        lineageId: object.id,
+        pageId: ids.page,
+        type: object.geometry.type,
+      })),
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [],
+      operationSequence: 17,
+    },
+    operationSequence: 17,
+    schemaVersion: 2,
+    sha256: sourceSha,
+    revisionStatus: "draft",
+    capability: "viewer",
+    canWrite: false,
+    recentOutcomes: [],
+  };
+  const evidence =
+    workspaceServer.deriveAuthorizedDrawingMeasurementEvidence(bootstrap);
+  assert.equal(evidence.revisionId, ids.revision);
+  assert.equal(evidence.operationCheckpoint, 17);
+  assert.equal(evidence.ruleVersion, "P4_MEASUREMENT_V1");
+  assert.deepEqual(evidence.objectIds, [opening.id, wall.id].sort());
+  assert.equal(evidence.measurements[opening.id].measurement.count, "1");
+
+  assert.throws(
+    () =>
+      workspaceServer.deriveAuthorizedDrawingMeasurementEvidence({
+        ...bootstrap,
+        operationSequence: 18,
+      }),
+    /checkpoint|operation sequence|inconsistent/i,
+  );
+  const clientMeasurement = new FormData();
+  clientMeasurement.set("intent", "measurement_evidence");
+  clientMeasurement.set("revision_id", ids.revision);
+  clientMeasurement.set("object_id", opening.id);
+  clientMeasurement.set("length_millimeters", "999999");
+  assert.throws(
+    () => parseWorkspaceMutation(clientMeasurement),
+    /지원하지|intent|invalid|expected/i,
+  );
+});
+
 test("P2 blank canvases do not sign an undefined legacy background and select the authoritative default canvas", async () => {
   const client = queryClient({
     lukas_qto_files: {

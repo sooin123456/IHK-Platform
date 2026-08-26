@@ -392,13 +392,24 @@ test("table commands reject incompatible target rows and duplicate column or row
     },
     {
       rows: [
-        { id: secondRowId, objectId: ids.objectA, blockInstanceId: null, cells: {} },
-        { id: secondRowId, objectId: ids.objectB, blockInstanceId: null, cells: {} },
+        {
+          id: secondRowId,
+          objectId: ids.objectA,
+          blockInstanceId: null,
+          cells: {},
+        },
+        {
+          id: secondRowId,
+          objectId: ids.objectB,
+          blockInstanceId: null,
+          cells: {},
+        },
       ],
     },
   ]) {
     assert.throws(
-      () => tables.updateDrawingTableCommand(current, ids.actor, ids.table, patch),
+      () =>
+        tables.updateDrawingTableCommand(current, ids.actor, ids.table, patch),
       /unique|duplicate|고유/i,
     );
   }
@@ -553,6 +564,14 @@ after(() => vite.close());
 const tableComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-tables-panel.tsx")
   .catch(() => ({}));
+const semanticTableComponents = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-semantic-schedules-panel.tsx")
+  .catch(() => ({}));
+const semanticInspectorComponents = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-semantic-inspector.tsx")
+  .catch(() => ({}));
+const semanticSchedules =
+  await import("../app/lukas/lib/drawing-semantic-schedules.ts");
 
 test("schedule panel renders semantic read-only DOM and native labeled editor cells", () => {
   assert.equal(typeof tableComponents.DrawingTablesPanel, "function");
@@ -620,4 +639,129 @@ test("schedule panel renders semantic read-only DOM and native labeled editor ce
   assert.match(editor, /type="number"/);
   assert.match(editor, /Schedule 저장/);
   assert.doesNotMatch(editor, /formula|수식|XLSX/i);
+});
+
+test("semantic schedules render read-only preview versus checkpoint-bound server evidence", () => {
+  assert.equal(
+    typeof semanticTableComponents.DrawingSemanticSchedulesPanel,
+    "function",
+  );
+  const room = {
+    id: "10000000-0000-4000-8000-000000000090",
+    name: "Meeting room",
+    layerId: ids.layer,
+    geometry: {
+      type: "space",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 2_000, y: 0 },
+        { x: 2_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+      number: "201",
+      finishes: { floor: "Tile", wall: "Paint", ceiling: null },
+    },
+    styleId: null,
+    style,
+    version: 1,
+  };
+  const semanticState = {
+    revisionId: ids.revision,
+    objects: { [room.id]: room },
+    layers: {},
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    revisionId: ids.revision,
+    operationCheckpoint: 9,
+    state: semanticState,
+  });
+  const render = (operationCheckpoint, hasUnconfirmedChanges = false) =>
+    renderToStaticMarkup(
+      createElement(semanticTableComponents.DrawingSemanticSchedulesPanel, {
+        evidence,
+        hasUnconfirmedChanges,
+        operationCheckpoint,
+        state: semanticState,
+      }),
+    );
+  const confirmed = render(9);
+  for (const label of [
+    "건축 Schedule",
+    "Room schedule",
+    "Door schedule",
+    "Finish schedule",
+    "서버 증거",
+    "P4_MEASUREMENT_V1",
+    "체크포인트 9",
+    "Postgres 권한 확인 로드",
+    "Meeting room",
+    "2 m²",
+    "원본 수정 · 속성 검사기",
+  ])
+    assert.match(confirmed, new RegExp(label));
+  assert.equal((confirmed.match(/<table/g) ?? []).length, 3);
+  assert.doesNotMatch(confirmed, /<form|<input|<select|<button/);
+
+  const stale = render(10, true);
+  assert.match(stale, /미리보기/);
+  assert.match(stale, /오래됨|미확정|일치하지/);
+  assert.doesNotMatch(stale, /Room schedule · 서버 증거/);
+});
+
+test("semantic inspector confirms only matching server object evidence", () => {
+  assert.equal(
+    typeof semanticInspectorComponents.DrawingSemanticInspector,
+    "function",
+  );
+  const wall = {
+    id: "10000000-0000-4000-8000-000000000091",
+    name: "Wall evidence",
+    layerId: ids.layer,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 3_000, y: 4_000 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3_000,
+    },
+    styleId: null,
+    style,
+    version: 1,
+  };
+  const semanticState = {
+    revisionId: ids.revision,
+    objects: { [wall.id]: wall },
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    revisionId: ids.revision,
+    operationCheckpoint: 11,
+    state: semanticState,
+  });
+  const render = (operationCheckpoint) =>
+    renderToStaticMarkup(
+      createElement(semanticInspectorComponents.DrawingSemanticInspector, {
+        actorId: ids.actor,
+        canEdit: false,
+        evidence,
+        hasUnconfirmedChanges: false,
+        object: wall,
+        onCommand() {},
+        operationCheckpoint,
+        state: semanticState,
+      }),
+    );
+  const confirmed = render(11);
+  assert.match(confirmed, /서버 계산 · V1/);
+  assert.match(confirmed, /확정 · 5000 mm/);
+  assert.match(confirmed, /P4_MEASUREMENT_V1/);
+  assert.match(confirmed, /체크포인트 11/);
+  assert.match(confirmed, /Postgres 권한 확인 로드/);
+  const stale = render(12);
+  assert.match(stale, /오래됨|미확정|일치하지/);
+  assert.doesNotMatch(stale, /확정 · 5000 mm/);
 });

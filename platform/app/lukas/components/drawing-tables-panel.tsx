@@ -21,6 +21,8 @@ import type {
   DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import type { DrawingTable } from "~/lukas/lib/drawing-workspace.types";
+import type { DrawingServerMeasurementEvidence } from "~/lukas/lib/drawing-semantic-schedules";
+import { DrawingSemanticSchedulesPanel } from "./drawing-semantic-schedules-panel";
 
 type Props = {
   actorId: string;
@@ -28,6 +30,9 @@ type Props = {
   onCommand: (command: DrawingCommand) => void;
   selectedIds: string[];
   state: DrawingDocumentState;
+  evidence?: DrawingServerMeasurementEvidence | null;
+  hasUnconfirmedChanges?: boolean;
+  operationCheckpoint?: number | null;
 };
 
 function message(error: unknown) {
@@ -211,7 +216,16 @@ function ScheduleTable({
 
 /** Simple schedules resolve canonical maps directly into semantic DOM tables. */
 export function DrawingTablesPanel(props: Props) {
-  const { actorId, canEdit, onCommand, selectedIds, state } = props;
+  const {
+    actorId,
+    canEdit,
+    evidence,
+    hasUnconfirmedChanges = false,
+    onCommand,
+    operationCheckpoint = null,
+    selectedIds,
+    state,
+  } = props;
   const [error, setError] = useState<string | null>(null);
   const structure = state.structure;
   if (
@@ -278,8 +292,17 @@ export function DrawingTablesPanel(props: Props) {
       aria-labelledby="drawing-tables-title"
       className="mt-6 border-t border-white/10 pt-6"
     >
-      <h2 className="text-sm font-bold" id="drawing-tables-title">
-        Schedule
+      <DrawingSemanticSchedulesPanel
+        evidence={evidence}
+        hasUnconfirmedChanges={hasUnconfirmedChanges}
+        operationCheckpoint={operationCheckpoint}
+        state={state}
+      />
+      <h2
+        className="mt-6 border-t border-white/10 pt-6 text-sm font-bold"
+        id="drawing-tables-title"
+      >
+        사용자 정의 Schedule
       </h2>
       {canEdit ? (
         <form

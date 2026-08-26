@@ -17,6 +17,7 @@ import {
 import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
   handleWorkspaceMutation,
+  deriveAuthorizedDrawingMeasurementEvidence,
   drawingTemplateCloneLocation,
   drawingTemplateWorkspaceLocation,
   loadDrawingWorkspace,
@@ -74,6 +75,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         workspace.document.revision.id,
       )
     : null;
+  const measurementEvidence = collaborationBootstrap
+    ? deriveAuthorizedDrawingMeasurementEvidence(collaborationBootstrap)
+    : null;
   const activityPage = workspace.document
     ? await loadDrawingActivityPage(
         client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
@@ -93,6 +97,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       currentUserId: user.id,
       capability: collaborationBootstrap?.capability ?? capability,
       collaborationBootstrap,
+      measurementEvidence,
       activityPage,
       collaborationRoom,
       assignees,
@@ -199,6 +204,7 @@ export default function DrawingWorkspaceScreen({
         assignees={loaderData.assignees}
         collaborationRoom={loaderData.collaborationRoom}
         currentUserId={loaderData.currentUserId}
+        measurementEvidence={loaderData.measurementEvidence}
         projectId={project.id}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceUrl={loaderData.sourceUrl}

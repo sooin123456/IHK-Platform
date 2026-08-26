@@ -1,0 +1,152 @@
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/core/components/ui/table";
+import type { DrawingDocumentState } from "~/lukas/lib/drawing-commands";
+import {
+  resolveDrawingSemanticSchedule,
+  resolveDrawingServerEvidenceStatus,
+  type DrawingSemanticSchedule,
+  type DrawingSemanticScheduleKind,
+  type DrawingServerMeasurementEvidence,
+} from "~/lukas/lib/drawing-semantic-schedules";
+
+type Props = {
+  evidence?: DrawingServerMeasurementEvidence | null;
+  hasUnconfirmedChanges: boolean;
+  operationCheckpoint: number | null;
+  state: DrawingDocumentState;
+};
+
+const scheduleKinds: DrawingSemanticScheduleKind[] = ["room", "door", "finish"];
+
+function semanticObjectIds(state: DrawingDocumentState) {
+  return Object.values(state.objects)
+    .filter((object) => "semanticVersion" in object.geometry)
+    .map((object) => object.id);
+}
+
+function SemanticScheduleTable({
+  schedule,
+  source,
+}: {
+  schedule: DrawingSemanticSchedule;
+  source: "서버 증거" | "미리보기";
+}) {
+  return (
+    <section
+      aria-label={`${schedule.caption} · ${source}`}
+      className="mt-4 rounded-md border border-white/10 p-2"
+    >
+      <Table aria-label={`${schedule.caption} · ${source}`}>
+        <TableCaption>
+          {schedule.caption} · {source}
+        </TableCaption>
+        <TableHeader>
+          <TableRow>
+            {schedule.columns.map((column) => (
+              <TableHead key={column.key} scope="col">
+                {column.label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {schedule.rows.map((row) => (
+            <TableRow key={row.objectId}>
+              {schedule.columns.map((column) => (
+                <TableCell key={column.key}>{row.cells[column.key]}</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+        <TableFooter>
+          <TableRow>
+            {schedule.columns.map((column, index) => (
+              <TableCell key={column.key}>
+                {index === 0
+                  ? schedule.totals.label
+                  : schedule.totals.cells[column.key]}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableFooter>
+      </Table>
+    </section>
+  );
+}
+
+export function DrawingSemanticSchedulesPanel({
+  evidence,
+  hasUnconfirmedChanges,
+  operationCheckpoint,
+  state,
+}: Props) {
+  const status = resolveDrawingServerEvidenceStatus(evidence, {
+    revisionId: state.revisionId,
+    operationCheckpoint,
+    objectIds: semanticObjectIds(state),
+    hasUnconfirmedChanges,
+  });
+  const confirmed = status.status === "confirmed" && evidence;
+  const schedules = confirmed
+    ? evidence.schedules
+    : Object.fromEntries(
+        scheduleKinds.map((kind) => [
+          kind,
+          resolveDrawingSemanticSchedule(kind, state),
+        ]),
+      );
+  const source = confirmed ? "서버 증거" : "미리보기";
+
+  return (
+    <section aria-labelledby="drawing-semantic-schedules-title">
+      <h2 className="text-sm font-bold" id="drawing-semantic-schedules-title">
+        건축 Schedule
+      </h2>
+      <div className="mt-3 grid gap-2 rounded-md bg-white/5 p-3 text-xs">
+        <p>
+          <span className="font-semibold text-slate-200">
+            Schedule 미리보기
+          </span>
+          <span className="ml-2 text-slate-400">
+            현재 revision 전체 객체에서 브라우저가 파생하며 확정 근거가
+            아닙니다.
+          </span>
+        </p>
+        {confirmed ? (
+          <p className="text-emerald-200" role="status">
+            <span className="font-semibold">서버 증거</span> ·{" "}
+            {evidence.ruleVersion}
+            {" · "}체크포인트 {evidence.operationCheckpoint} · Postgres 권한
+            확인 로드 · revision {evidence.revisionId}
+          </p>
+        ) : evidence ? (
+          <p className="text-amber-200" role="status">
+            서버 증거 오래됨 · 현재 revision/checkpoint/object lineage와
+            일치하지 않아 미확정입니다. {evidence.ruleVersion} · 체크포인트{" "}
+            {evidence.operationCheckpoint} · Postgres 권한 확인 로드
+          </p>
+        ) : (
+          <p className="text-amber-200" role="status">
+            서버 증거 없음 · 미리보기만 표시합니다.
+          </p>
+        )}
+        <p className="text-slate-400">원본 수정 · 속성 검사기</p>
+      </div>
+      {scheduleKinds.map((kind) => (
+        <SemanticScheduleTable
+          key={kind}
+          schedule={schedules[kind]}
+          source={source}
+        />
+      ))}
+    </section>
+  );
+}

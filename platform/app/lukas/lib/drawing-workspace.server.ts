@@ -27,6 +27,10 @@ import {
   DrawingTableSchema,
 } from "./drawing-workspace.types.ts";
 import { validateDrawingSemanticReferences } from "./drawing-structure.ts";
+import {
+  deriveDrawingServerMeasurementEvidence,
+  type DrawingServerMeasurementEvidence,
+} from "./drawing-semantic-schedules.ts";
 import type {
   DrawingBlockInstance,
   DrawingBlock,
@@ -861,6 +865,72 @@ const DrawingWorkspaceCollaborationBootstrapSchema = z
 export type DrawingWorkspaceCollaborationBootstrap = z.infer<
   typeof DrawingWorkspaceCollaborationBootstrapSchema
 >;
+
+const AuthorizedMeasurementObjectSchema = z
+  .object({
+    id: Uuid,
+    lineageId: Uuid,
+    pageId: Uuid,
+    layerId: Uuid,
+    name: DrawingObjectNameSchema,
+    type: z.enum([
+      "line",
+      "polyline",
+      "rectangle",
+      "circle",
+      "text",
+      "dimension",
+      "wall",
+      "opening",
+      "space",
+      "area",
+      "grid",
+      "arc",
+    ]),
+    geometry: z.unknown(),
+    styleId: Uuid.nullable(),
+    style: DrawingStyleOverrideSchema,
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+/** Derives evidence only from the already-authorized transactional bootstrap. */
+export function deriveAuthorizedDrawingMeasurementEvidence(
+  bootstrap: DrawingWorkspaceCollaborationBootstrap,
+): DrawingServerMeasurementEvidence {
+  if (bootstrap.operationSequence !== bootstrap.canonicalJson.operationSequence)
+    throw new Error(
+      "Drawing measurement operation checkpoint is inconsistent.",
+    );
+  const objects = bootstrap.canonicalJson.objects.map((input) => {
+    const canonical = AuthorizedMeasurementObjectSchema.parse(input);
+    const object = DrawingObjectSchema.parse({
+      id: canonical.id,
+      name: canonical.name,
+      layerId: canonical.layerId,
+      geometry: canonical.geometry,
+      styleId: canonical.styleId,
+      style: canonical.style,
+      version: canonical.version,
+    });
+    if (object.geometry.type !== canonical.type)
+      throw new Error("Drawing measurement object type is inconsistent.");
+    return object;
+  });
+  const objectMap = Object.fromEntries(
+    objects.map((object) => [object.id, object]),
+  );
+  if (Object.keys(objectMap).length !== objects.length)
+    throw new Error("Drawing measurement object IDs are inconsistent.");
+  return deriveDrawingServerMeasurementEvidence({
+    revisionId: bootstrap.canonicalJson.revision.id,
+    operationCheckpoint: bootstrap.operationSequence,
+    state: {
+      revisionId: bootstrap.canonicalJson.revision.id,
+      objects: objectMap,
+    },
+  });
+}
 
 /** Loads graph, checkpoint, capability, and outcomes from one database snapshot. */
 export async function loadDrawingWorkspaceCollaborationBootstrap(

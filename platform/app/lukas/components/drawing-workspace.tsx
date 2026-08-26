@@ -106,6 +106,7 @@ import type {
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
+import type { DrawingServerMeasurementEvidence } from "~/lukas/lib/drawing-semantic-schedules";
 import type { DrawingActivityItem } from "~/lukas/lib/drawing-history.server";
 import type {
   DrawingAssignee,
@@ -677,6 +678,7 @@ type Props = {
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
   collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
   collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
+  measurementEvidence?: DrawingServerMeasurementEvidence | null;
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -698,6 +700,7 @@ export default function DrawingWorkspaceClient({
   collaborationBootstrap,
   collaborationConnectionFactory = openDrawingCollaborationConnection,
   collaborationPersistenceFactory = openDrawingYjsPersistence,
+  measurementEvidence,
   roomUrl,
   sourceUrl,
   workspace,
@@ -2978,7 +2981,12 @@ export default function DrawingWorkspaceClient({
             <DrawingTablesPanel
               actorId={currentUserId}
               canEdit={baseCanEdit}
+              evidence={measurementEvidence}
+              hasUnconfirmedChanges={drawingState.operations.length > 0}
               onCommand={applyCommand}
+              operationCheckpoint={
+                collaborationBootstrap?.operationSequence ?? null
+              }
               selectedIds={transient.selectedIds}
               state={drawingState}
             />
@@ -3472,10 +3480,15 @@ export default function DrawingWorkspaceClient({
               selectedIds: transient.selectedIds,
               status: effectiveRevisionStatus,
             })}
+            evidence={measurementEvidence}
+            hasUnconfirmedChanges={drawingState.operations.length > 0}
             issueLinks={revision.issueLinks}
             issues={revision.issues}
             onCommand={applyCommand}
             onSoftLockChange={setAwarenessSoftLock}
+            operationCheckpoint={
+              collaborationBootstrap?.operationSequence ?? null
+            }
             selectedIds={transient.selectedIds}
             state={activeDrawingState}
           />

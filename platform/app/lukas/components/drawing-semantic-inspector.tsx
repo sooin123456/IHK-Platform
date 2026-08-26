@@ -9,6 +9,10 @@ import {
   measureDrawingObject,
 } from "~/lukas/lib/drawing-measurements";
 import {
+  resolveDrawingServerEvidenceStatus,
+  type DrawingServerMeasurementEvidence,
+} from "~/lukas/lib/drawing-semantic-schedules";
+import {
   DrawingGeometrySchema,
   type DrawingObject,
   type DrawingSemanticGeometry,
@@ -19,7 +23,10 @@ type Props = {
   canEdit: boolean;
   object: DrawingObject & { geometry: DrawingSemanticGeometry };
   onCommand: (command: DrawingCommand) => void;
-  state: Pick<DrawingDocumentState, "objects">;
+  state: Pick<DrawingDocumentState, "revisionId" | "objects">;
+  evidence?: DrawingServerMeasurementEvidence | null;
+  operationCheckpoint?: number | null;
+  hasUnconfirmedChanges?: boolean;
 };
 
 const inputClass =
@@ -37,8 +44,11 @@ function optionalText(data: FormData, name: string) {
 export function DrawingSemanticInspector({
   actorId,
   canEdit,
+  evidence,
+  hasUnconfirmedChanges = false,
   object,
   onCommand,
+  operationCheckpoint = null,
   state,
 }: Props) {
   const dirtyFields = useRef(new Set<string>());
@@ -50,6 +60,18 @@ export function DrawingSemanticInspector({
       return null;
     }
   }, [object, state.objects]);
+  const serverStatus = resolveDrawingServerEvidenceStatus(evidence, {
+    revisionId: state.revisionId,
+    operationCheckpoint,
+    objectIds: Object.values(state.objects)
+      .filter((candidate) => "semanticVersion" in candidate.geometry)
+      .map((candidate) => candidate.id),
+    hasUnconfirmedChanges,
+  });
+  const serverMeasurement =
+    serverStatus.status === "confirmed"
+      ? evidence?.measurements[object.id]?.measurement
+      : null;
 
   function dirty(name: string) {
     dirtyFields.current.add(name);
@@ -143,9 +165,38 @@ export function DrawingSemanticInspector({
         </div>
         <div>
           <dt className="font-semibold text-slate-300">서버 계산 · V1</dt>
-          <dd className="mt-1 text-amber-200">
-            서버 증거를 불러오기 전이며 미리보기 값은 확정값이 아닙니다.
-          </dd>
+          {serverMeasurement && evidence ? (
+            <dd className="mt-1 text-emerald-200">
+              확정 ·{" "}
+              {[
+                formatDrawingMeasurement(serverMeasurement, "millimeters"),
+                formatDrawingMeasurement(serverMeasurement, "squareMeters"),
+                `수량 ${serverMeasurement.count}`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              <span className="mt-1 block text-[11px] text-slate-400">
+                {evidence.ruleVersion} · 체크포인트{" "}
+                {evidence.operationCheckpoint}
+                {" · "}Postgres 권한 확인 로드 · revision {evidence.revisionId}
+                {" · "}객체 {object.id}
+              </span>
+            </dd>
+          ) : evidence ? (
+            <dd className="mt-1 text-amber-200">
+              서버 증거 오래됨 · 현재 revision/checkpoint/object lineage와
+              일치하지 않아 미확정입니다.
+              <span className="mt-1 block text-[11px] text-slate-400">
+                {evidence.ruleVersion} · 체크포인트{" "}
+                {evidence.operationCheckpoint}
+                {" · "}Postgres 권한 확인 로드
+              </span>
+            </dd>
+          ) : (
+            <dd className="mt-1 text-amber-200">
+              서버 증거를 불러오기 전이며 미리보기 값은 확정값이 아닙니다.
+            </dd>
+          )}
         </div>
       </dl>
 
