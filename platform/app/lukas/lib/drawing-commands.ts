@@ -13,6 +13,7 @@ import type {
 import {
   applyDrawingStructureActions,
   resolveDrawingStyle,
+  validateDrawingSemanticReferences as validateStructureSemanticReferences,
   validateDrawingStructureState,
   type AppliedDrawingStructureActions,
   type DrawingStructureState,
@@ -33,6 +34,11 @@ import {
   DrawingStructureLayerSchema,
   DrawingStyleDefinitionSchema,
 } from "./drawing-workspace.types.ts";
+import {
+  projectPointToDrawingWall,
+  resolveDrawingOpening,
+} from "./drawing-semantic-geometry.ts";
+import { drawingTargetReferenceCleanupActions } from "./drawing-properties.ts";
 
 export type ObjectPatch = Partial<
   Pick<DrawingObject, "name" | "layerId" | "geometry">
@@ -744,6 +750,18 @@ export class LockedDrawingLayerError extends DrawingCommandError {
   }
 }
 
+/** Command-facing semantic graph validation preserving command-domain errors. */
+export function validateDrawingSemanticReferences(
+  state: Pick<DrawingDocumentState, "objects" | "layers">,
+): void {
+  try {
+    validateStructureSemanticReferences(state);
+  } catch (error) {
+    if (error instanceof Error) throw new DrawingCommandError(error.message);
+    throw error;
+  }
+}
+
 type Reduction = {
   objects: Record<string, DrawingObject>;
   layers: Record<string, DrawingLayer>;
@@ -763,6 +781,7 @@ type CommandHistoryMetadata = {
 
 type ReductionOptions = {
   restoreBaseVersions?: Record<string, number>;
+  allowHostedWallDelete?: boolean;
 };
 
 function clone<T>(value: T): T {
@@ -998,6 +1017,21 @@ function reduceCommand(
       };
     }
     case "delete_objects": {
+      if (!options.allowHostedWallDelete) {
+        const hostedWallIds = new Set(
+          Object.values(state.objects).flatMap((object) =>
+            object.geometry.type === "opening"
+              ? [object.geometry.hostWallId]
+              : [],
+          ),
+        );
+        const wallId = command.objectIds.find((id) => hostedWallIds.has(id));
+        if (wallId) {
+          throw new DrawingCommandError(
+            `Hosted wall ${wallId} requires explicit compound deletion.`,
+          );
+        }
+      }
       const deleted: DrawingObject[] = [];
       const objectIds = new Set<string>();
       for (const objectId of command.objectIds) {
@@ -1171,6 +1205,26 @@ function reduceCommand(
         ...clone(state.structure),
       };
       if (command.objectAction === "delete") {
+        for (const [index, snapshot] of inputObjects.entries()) {
+          if (snapshot.geometry.type !== "wall") continue;
+          const hosted = Object.values(state.objects).filter(
+            (object) =>
+              object.geometry.type === "opening" &&
+              object.geometry.hostWallId === snapshot.id,
+          );
+          if (
+            hosted.some((opening) => {
+              const openingIndex = inputObjects.findIndex(
+                (candidate) => candidate.id === opening.id,
+              );
+              return openingIndex < 0 || openingIndex >= index;
+            })
+          ) {
+            throw new DrawingCommandError(
+              `Hosted openings must precede wall ${snapshot.id} in compound deletion.`,
+            );
+          }
+        }
         for (const snapshot of inputObjects) {
           const current = requireObject(objects, snapshot.id);
           const canonicalCurrent = DrawingObjectSchema.parse(clone(current));
@@ -1289,6 +1343,10 @@ function appendOperation(
   options: ReductionOptions = {},
 ): AppliedDrawingCommand {
   const reduced = reduceCommand(state, command, options);
+  validateDrawingSemanticReferences({
+    objects: reduced.objects,
+    layers: reduced.layers,
+  });
   const operation: DrawingRecordedOperation = {
     clientOperationId: environment.createId?.() ?? crypto.randomUUID(),
     revisionId: state.revisionId,
@@ -1619,7 +1677,7 @@ export function createDrawingDocumentState({
       "Drawing structure objects and layers must match the canonical document state.",
     );
   }
-  return {
+  const document: DrawingDocumentState = {
     revisionId,
     objects: canonicalObjects,
     layers: canonicalLayers,
@@ -1634,6 +1692,8 @@ export function createDrawingDocumentState({
         }
       : undefined,
   };
+  validateDrawingSemanticReferences(document);
+  return document;
 }
 
 /** Applies a new command and appends its recorded operation without mutating state. */
@@ -1699,8 +1759,15 @@ export function undoDrawingCommand(
     payload.type === "add_objects" ||
       (payload.type === "mutate_objects_with_references" &&
         payload.objectAction === "restore")
-      ? { restoreBaseVersions: latestApplied.realizedVersions }
-      : {},
+      ? {
+          restoreBaseVersions: latestApplied.realizedVersions,
+          allowHostedWallDelete: original.forward.type === "add_objects",
+        }
+      : {
+          allowHostedWallDelete:
+            payload.type === "delete_objects" &&
+            original.forward.type === "add_objects",
+        },
   );
   return {
     ...applied,
@@ -1831,7 +1898,23 @@ export function createDrawingCheckpointRestoreCommand(
       } as DrawingStructureAction);
     }
   }
-  const actions = [...additions, ...updates, ...deletions.reverse()];
+  const reversedDeletions = deletions.reverse();
+  const objectDeletions = reversedDeletions
+    .filter((action) => action.kind === "delete_object")
+    .sort((left, right) => {
+      const priority = (id: string) => {
+        const type = current.objects[id]?.geometry.type;
+        return type === "opening" ? 0 : type === "wall" ? 2 : 1;
+      };
+      return priority(left.id) - priority(right.id);
+    });
+  let objectDeletionIndex = 0;
+  const orderedDeletions = reversedDeletions.map((action) =>
+    action.kind === "delete_object"
+      ? objectDeletions[objectDeletionIndex++]
+      : action,
+  );
+  const actions = [...additions, ...updates, ...orderedDeletions];
   if (actions.length === 0)
     throw new DrawingCommandError(
       "Drawing checkpoint already matches current state.",
@@ -1894,9 +1977,11 @@ export function redoDrawingCommand(
 }
 
 export type DrawingClipboard = {
+  sourceRevisionId?: string;
   items: Array<
     Pick<DrawingObject, "name" | "layerId" | "geometry"> & {
       style: DrawingStyle;
+      sourceObjectId?: string;
     }
   >;
 };
@@ -1943,11 +2028,24 @@ export function translateDrawingGeometry(
         end: point(geometry.end),
       };
     case "wall":
-    case "opening":
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+      };
     case "space":
+      return { ...geometry, boundary: geometry.boundary.map(point) };
     case "area":
+      return { ...geometry, boundary: geometry.boundary.map(point) };
     case "grid":
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+      };
     case "arc":
+      return { ...geometry, center: point(geometry.center) };
+    case "opening":
       throw new DrawingCommandError(
         "Semantic geometry requires a host-aware move command.",
       );
@@ -1995,6 +2093,50 @@ export function moveDrawingSnapshots(
     : null;
 }
 
+/** Projects one opening drag onto its unchanged host and updates only its offset. */
+export function moveDrawingOpeningToPoint(
+  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  openingId: string,
+  actorId: string,
+  pointer: Point,
+): Extract<DrawingCommand, { type: "update_objects" }> {
+  const opening = mutableDrawingObject(state, openingId);
+  if (!opening || opening.geometry.type !== "opening") {
+    throw new DrawingCommandError(
+      `Drawing opening ${openingId} requires a visible unlocked layer.`,
+    );
+  }
+  const resolved = resolveDrawingOpening(opening.geometry, state.objects);
+  const projection = projectPointToDrawingWall(pointer, resolved.host.geometry);
+  const scale = 1_000_000;
+  const halfWidth = opening.geometry.widthMillimeters / 2;
+  const hostLength = Math.hypot(
+    resolved.host.geometry.end.x - resolved.host.geometry.start.x,
+    resolved.host.geometry.end.y - resolved.host.geometry.start.y,
+  );
+  const minimumOffset = Math.ceil(halfWidth * scale) / scale;
+  const maximumOffset = Math.floor((hostLength - halfWidth) * scale) / scale;
+  const projectedOffset =
+    Math.round(projection.offsetMillimeters * scale) / scale;
+  const offsetMillimeters = Math.min(
+    maximumOffset,
+    Math.max(minimumOffset, projectedOffset),
+  );
+  return {
+    type: "update_objects",
+    actorId,
+    updates: [
+      {
+        objectId: opening.id,
+        baseVersion: opening.version,
+        patch: {
+          geometry: { ...clone(opening.geometry), offsetMillimeters },
+        },
+      },
+    ],
+  };
+}
+
 /** Creates a delete command only for visible, unlocked selected objects. */
 export function deleteDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
@@ -2009,34 +2151,89 @@ export function deleteDrawingSelection(
     : null;
 }
 
+/** Deletes one host wall, its openings, and every P2 reference as one undoable batch. */
+export function deleteDrawingWallWithOpeningsCommand(
+  state: DrawingDocumentState,
+  actorId: string,
+  wallId: string,
+): Extract<DrawingCommand, { type: "mutate_objects_with_references" }> {
+  if (!state.structure) {
+    throw new DrawingCommandError(
+      "Hosted wall deletion requires canonical structure state.",
+    );
+  }
+  validateDrawingSemanticReferences(state);
+  const wallObject = mutableDrawingObject(state, wallId);
+  if (!wallObject || wallObject.geometry.type !== "wall") {
+    throw new DrawingCommandError(
+      `Drawing wall ${wallId} requires a visible unlocked layer.`,
+    );
+  }
+  const openings = Object.values(state.objects)
+    .filter(
+      (object) =>
+        object.geometry.type === "opening" &&
+        object.geometry.hostWallId === wallId,
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (openings.some((opening) => !mutableDrawingObject(state, opening.id))) {
+    throw new DrawingCommandError(
+      "Hosted openings require visible unlocked layers for compound deletion.",
+    );
+  }
+  const objects = [...openings, wallObject].map((object) => clone(object));
+  return {
+    type: "mutate_objects_with_references",
+    actorId,
+    objectAction: "delete",
+    objects,
+    actions: drawingTargetReferenceCleanupActions(
+      state,
+      objects.map((object) => object.id),
+    ),
+  };
+}
+
 /** Copies only portable authored fields, excluding identity and provenance. */
 export function copyDrawingSelection(
-  state: Pick<DrawingDocumentState, "layers" | "objects">,
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "objects">,
   selectedIds: string[],
   resolveStyle:
     ((object: DrawingObject) => DrawingStyle) | undefined = undefined,
 ): DrawingClipboard {
+  const items = [...new Set(selectedIds)].flatMap((objectId) => {
+    const object = mutableDrawingObject(state, objectId);
+    if (object?.styleId && !resolveStyle) {
+      throw new DrawingCommandError(
+        "Copying a referenced style requires an explicit style resolver.",
+      );
+    }
+    return object
+      ? [
+          clone({
+            name: object.name,
+            layerId: object.layerId,
+            geometry: object.geometry,
+            style: object.styleId
+              ? DrawingStyleSchema.parse(resolveStyle!(object))
+              : DrawingStyleSchema.parse(object.style),
+            ...(object.geometry.type === "line" ||
+            object.geometry.type === "polyline" ||
+            object.geometry.type === "rectangle" ||
+            object.geometry.type === "circle" ||
+            object.geometry.type === "text" ||
+            object.geometry.type === "dimension"
+              ? {}
+              : { sourceObjectId: object.id }),
+          }),
+        ]
+      : [];
+  });
   return {
-    items: [...new Set(selectedIds)].flatMap((objectId) => {
-      const object = mutableDrawingObject(state, objectId);
-      if (object?.styleId && !resolveStyle) {
-        throw new DrawingCommandError(
-          "Copying a referenced style requires an explicit style resolver.",
-        );
-      }
-      return object
-        ? [
-            clone({
-              name: object.name,
-              layerId: object.layerId,
-              geometry: object.geometry,
-              style: object.styleId
-                ? DrawingStyleSchema.parse(resolveStyle!(object))
-                : DrawingStyleSchema.parse(object.style),
-            }),
-          ]
-        : [];
-    }),
+    ...(items.some((item) => item.sourceObjectId)
+      ? { sourceRevisionId: state.revisionId }
+      : {}),
+    items,
   };
 }
 
@@ -2045,16 +2242,63 @@ export function pasteDrawingClipboard(
   clipboard: DrawingClipboard,
   actorId: string,
   createId: () => string = () => crypto.randomUUID(),
+  targetState?: Pick<DrawingDocumentState, "revisionId" | "objects" | "layers">,
 ): Extract<DrawingCommand, { type: "add_objects" }> | null {
   if (clipboard.items.length === 0) return null;
-  const objects: DrawingObject[] = clipboard.items.map((item) => ({
-    id: createId(),
+  const allocatedIds = clipboard.items.map(() => createId());
+  if (new Set(allocatedIds).size !== allocatedIds.length) {
+    throw new DrawingCommandError("Clipboard paste IDs must be unique.");
+  }
+  const remappedIds = new Map<string, string>();
+  clipboard.items.forEach((item, index) => {
+    if (item.sourceObjectId)
+      remappedIds.set(item.sourceObjectId, allocatedIds[index]);
+  });
+  const retainedOpeningHost = clipboard.items.some(
+    (item) =>
+      item.geometry.type === "opening" &&
+      !remappedIds.has(item.geometry.hostWallId),
+  );
+  if (
+    retainedOpeningHost &&
+    targetState &&
+    clipboard.sourceRevisionId !== targetState?.revisionId
+  ) {
+    throw new DrawingCommandError(
+      "An opening-only clipboard may be pasted only into its source revision.",
+    );
+  }
+  const objects: DrawingObject[] = clipboard.items.map((item, index) => ({
+    id: allocatedIds[index],
     name: item.name,
     layerId: item.layerId,
-    geometry: translateDrawingGeometry(item.geometry, { x: 20, y: 20 }),
+    geometry:
+      item.geometry.type === "opening"
+        ? {
+            ...clone(item.geometry),
+            hostWallId:
+              remappedIds.get(item.geometry.hostWallId) ??
+              item.geometry.hostWallId,
+          }
+        : translateDrawingGeometry(item.geometry, { x: 20, y: 20 }),
     style: clone(item.style),
     version: 1,
   }));
+  if (targetState) {
+    const candidateObjects = { ...targetState.objects };
+    for (const object of objects) {
+      if (candidateObjects[object.id]) {
+        throw new DrawingCommandError(
+          `Drawing object ${object.id} already exists.`,
+        );
+      }
+      candidateObjects[object.id] = object;
+    }
+    validateDrawingSemanticReferences({
+      objects: candidateObjects,
+      layers: targetState.layers,
+    });
+  }
   return { type: "add_objects", actorId, objects };
 }
 

@@ -366,6 +366,22 @@ export function deleteDrawingObjectsWithReferencesCommand(
     throw new DrawingStructureError(
       "Drawing object deletion targets must be nonempty and unique.",
     );
+  const hostedWallId = orderedIds.find((id) => {
+    const target = state.objects[id];
+    return (
+      target?.geometry.type === "wall" &&
+      Object.values(state.objects).some(
+        (object) =>
+          object.geometry.type === "opening" &&
+          object.geometry.hostWallId === id,
+      )
+    );
+  });
+  if (hostedWallId) {
+    throw new DrawingStructureError(
+      `Hosted wall ${hostedWallId} requires the explicit wall deletion command.`,
+    );
+  }
   const objects = orderedIds.map((id) => {
     const object = state.objects[id];
     const layer = object ? state.structure.layers[object.layerId] : undefined;

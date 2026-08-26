@@ -21,6 +21,10 @@ import {
   DrawingStructureActionSchema,
   DrawingStyleSchema,
 } from "./drawing-workspace.types.ts";
+import {
+  DrawingSemanticGeometryError,
+  resolveDrawingOpening,
+} from "./drawing-semantic-geometry.ts";
 
 export type DrawingStructureState = {
   revisionId: string;
@@ -693,6 +697,42 @@ function validateReferences(state: DrawingStructureState): void {
   }
 }
 
+/** Validates hosted semantic references against one completed candidate graph. */
+export function validateDrawingSemanticReferences(
+  state: Pick<DrawingStructureState, "objects" | "layers">,
+): void {
+  for (const opening of Object.values(state.objects)) {
+    if (opening.geometry.type !== "opening") continue;
+    const host = state.objects[opening.geometry.hostWallId];
+    const openingLayer = state.layers[opening.layerId];
+    const hostLayer = host ? state.layers[host.layerId] : undefined;
+    if (!openingLayer || !hostLayer) {
+      throw new DrawingStructureError(
+        `Opening ${opening.id} requires active opening and host layers.`,
+      );
+    }
+    if (
+      !openingLayer.canvasId ||
+      !hostLayer.canvasId ||
+      openingLayer.canvasId !== hostLayer.canvasId
+    ) {
+      throw new DrawingStructureError(
+        `Opening ${opening.id} and its host wall must share a canvas.`,
+      );
+    }
+    try {
+      resolveDrawingOpening(opening.geometry, state.objects);
+    } catch (error) {
+      if (error instanceof DrawingSemanticGeometryError) {
+        throw new DrawingStructureError(
+          `Opening ${opening.id} is invalid: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  }
+}
+
 function validateFinalCanvasInvariant(state: DrawingStructureState): void {
   if (Object.keys(state.pages).length === 0) {
     throw new DrawingStructureError(
@@ -769,6 +809,7 @@ export function validateDrawingStructureState(
     ids.add(id);
   }
   validateReferences(state);
+  validateDrawingSemanticReferences(state);
   validateFinalCanvasInvariant(state);
 }
 
@@ -1125,6 +1166,7 @@ export function applyDrawingStructureActions(
     );
   }
   validateFinalCanvasInvariant(next);
+  validateDrawingSemanticReferences(next);
   return {
     state: next,
     inverse,

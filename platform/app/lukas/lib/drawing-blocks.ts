@@ -145,6 +145,11 @@ export function worldObjectsToBlockPrimitives(
         "A block selection cannot contain duplicate objects.",
       );
     seen.add(object.id);
+    if (!DrawingPrimitiveGeometrySchema.safeParse(object.geometry).success) {
+      throw new DrawingBlockError(
+        "Semantic drawing objects cannot become block primitives.",
+      );
+    }
   }
   const bounds = ordered.map((object) => geometryBounds(object.geometry));
   const origin = {

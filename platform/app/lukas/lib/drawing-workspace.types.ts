@@ -542,6 +542,12 @@ const DrawingPropertyAppliesToSchema = z.enum([
   "circle",
   "text",
   "dimension",
+  "wall",
+  "opening",
+  "space",
+  "area",
+  "grid",
+  "arc",
   "block_instance",
 ]);
 
