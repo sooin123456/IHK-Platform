@@ -491,7 +491,7 @@ test("P4 hosted evidence follows semantic identity across deterministic UUID and
   }
 });
 
-test("P4 hosted evidence rejects wrong missing duplicate type-swapped and stale semantic entries", async () => {
+test("P4 hosted evidence rejects wrong missing duplicate type-swapped and stale semantic entries", async (t) => {
   const {
     assertDrawingP4HostedServerEvidence,
     buildDrawingP4ProductionObjects,
@@ -574,6 +574,116 @@ test("P4 hosted evidence rejects wrong missing duplicate type-swapped and stale 
 
   for (const mutation of mutations)
     assert.throws(() => assertDrawingP4HostedServerEvidence(mutation));
+
+  const exactStructureMutations = [];
+
+  const orphanMeasurement = structuredClone(input);
+  orphanMeasurement.evidence.measurements[
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ] = structuredClone(orphanMeasurement.evidence.measurements[byType.wall.id]);
+  exactStructureMutations.push([
+    "orphan measurement with a duplicate embedded object ID",
+    orphanMeasurement,
+  ]);
+
+  const wrongRoomTotal = structuredClone(input);
+  wrongRoomTotal.evidence.schedules.room.totals.cells.count = "999";
+  exactStructureMutations.push(["wrong Room total", wrongRoomTotal]);
+
+  const wrongDoorCaption = structuredClone(input);
+  wrongDoorCaption.evidence.schedules.door.caption = "Window schedule";
+  exactStructureMutations.push(["wrong Door caption", wrongDoorCaption]);
+
+  const missingFinishColumn = structuredClone(input);
+  missingFinishColumn.evidence.schedules.finish.columns.splice(2, 1);
+  exactStructureMutations.push(["missing Finish column", missingFinishColumn]);
+
+  const extraSchedule = structuredClone(input);
+  extraSchedule.evidence.schedules.window = structuredClone(
+    extraSchedule.evidence.schedules.door,
+  );
+  exactStructureMutations.push(["extra schedule category", extraSchedule]);
+
+  const missingScheduleCategory = structuredClone(input);
+  delete missingScheduleCategory.evidence.schedules.finish;
+  exactStructureMutations.push([
+    "missing schedule category",
+    missingScheduleCategory,
+  ]);
+
+  const reorderedColumns = structuredClone(input);
+  reorderedColumns.evidence.schedules.room.columns.reverse();
+  exactStructureMutations.push(["reordered Room columns", reorderedColumns]);
+
+  const duplicateColumn = structuredClone(input);
+  duplicateColumn.evidence.schedules.door.columns.push(
+    structuredClone(duplicateColumn.evidence.schedules.door.columns[0]),
+  );
+  exactStructureMutations.push(["duplicate Door column", duplicateColumn]);
+
+  const missingCell = structuredClone(input);
+  delete missingCell.evidence.schedules.room.rows[0].cells.count;
+  exactStructureMutations.push(["missing Room cell", missingCell]);
+
+  const reorderedCells = structuredClone(input);
+  const roomCells = reorderedCells.evidence.schedules.room.rows[0].cells;
+  reorderedCells.evidence.schedules.room.rows[0].cells = {
+    count: roomCells.count,
+    area: roomCells.area,
+    name: roomCells.name,
+    number: roomCells.number,
+  };
+  exactStructureMutations.push(["reordered Room cells", reorderedCells]);
+
+  const extraCell = structuredClone(input);
+  extraCell.evidence.schedules.finish.rows[0].cells.extra = "orphan";
+  exactStructureMutations.push(["extra Finish cell", extraCell]);
+
+  const extraScheduleField = structuredClone(input);
+  extraScheduleField.evidence.schedules.room.authority = "client";
+  exactStructureMutations.push([
+    "extra Room schedule field",
+    extraScheduleField,
+  ]);
+
+  const extraMeasurementField = structuredClone(input);
+  extraMeasurementField.evidence.measurements[byType.wall.id].semanticType =
+    "wall";
+  exactStructureMutations.push([
+    "extra measurement item field",
+    extraMeasurementField,
+  ]);
+
+  const extraEvidenceField = structuredClone(input);
+  extraEvidenceField.evidence.clientConfirmed = true;
+  exactStructureMutations.push([
+    "extra evidence top-level field",
+    extraEvidenceField,
+  ]);
+
+  const reorderedLineage = structuredClone(input);
+  reorderedLineage.evidence.objectLineage.reverse();
+  exactStructureMutations.push(["reordered object lineage", reorderedLineage]);
+
+  const duplicateLineage = structuredClone(input);
+  duplicateLineage.evidence.objectLineage.push(
+    structuredClone(duplicateLineage.evidence.objectLineage[0]),
+  );
+  exactStructureMutations.push(["duplicate object lineage", duplicateLineage]);
+
+  const wrongMeasurementCount = structuredClone(input);
+  wrongMeasurementCount.evidence.measurements[
+    byType.opening.id
+  ].measurement.count = "2";
+  exactStructureMutations.push([
+    "wrong measurement count",
+    wrongMeasurementCount,
+  ]);
+
+  for (const [label, mutation] of exactStructureMutations)
+    await t.test(label, () =>
+      assert.throws(() => assertDrawingP4HostedServerEvidence(mutation)),
+    );
 });
 
 test("P4 release runner disables inherited pagers and exits in a pseudo-TTY without input", () => {

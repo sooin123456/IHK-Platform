@@ -112,7 +112,12 @@ export function DrawingSemanticSchedulesPanel({
   const source = confirmed ? "서버 증거" : "미리보기";
 
   return (
-    <section aria-labelledby="drawing-semantic-schedules-title">
+    <section
+      aria-labelledby="drawing-semantic-schedules-title"
+      data-drawing-server-evidence={
+        confirmed ? JSON.stringify(evidence) : undefined
+      }
+    >
       <h2 className="text-sm font-bold" id="drawing-semantic-schedules-title">
         건축 Schedule
       </h2>

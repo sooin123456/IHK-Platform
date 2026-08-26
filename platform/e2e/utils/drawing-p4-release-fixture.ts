@@ -32,6 +32,23 @@ export function assertDrawingP4HostedServerEvidence({
     throw new Error("P4 hosted measurement evidence is stale");
   if (evidence.ruleVersion !== "P4_MEASUREMENT_V1")
     throw new Error("P4 hosted measurement rule is not V1");
+  exact(
+    Object.keys(evidence).sort(),
+    [
+      "documentId",
+      "measurements",
+      "objectFingerprints",
+      "objectIds",
+      "objectLineage",
+      "operationCheckpoint",
+      "revisionId",
+      "revisionVersion",
+      "ruleVersion",
+      "schedules",
+      "snapshotSha256",
+    ],
+    "evidence keys",
+  );
 
   const objectOfType = (
     label: string,
@@ -70,6 +87,16 @@ export function assertDrawingP4HostedServerEvidence({
       objectVersion: version,
     })),
     "object lineage",
+  );
+  exact(
+    Object.keys(evidence.objectFingerprints).sort(),
+    sortedObjects.map(({ id }) => id),
+    "object fingerprint IDs",
+  );
+  exact(
+    Object.keys(evidence.measurements).sort(),
+    sortedObjects.map(({ id }) => id),
+    "measurement IDs",
   );
 
   const exactMeasurements = new Map([
@@ -116,73 +143,128 @@ export function assertDrawingP4HostedServerEvidence({
   ]);
   sortedObjects.forEach((object) => {
     const item = evidence.measurements[object.id];
-    if (
-      !item ||
-      item.documentId !== evidence.documentId ||
-      item.revisionId !== evidence.revisionId ||
-      item.revisionVersion !== evidence.revisionVersion ||
-      item.snapshotSha256 !== evidence.snapshotSha256 ||
-      item.operationCheckpoint !== evidence.operationCheckpoint ||
-      item.objectId !== object.id ||
-      item.objectVersion !== object.version ||
-      item.ruleVersion !== "P4_MEASUREMENT_V1"
-    )
-      throw new Error("P4 hosted measurement item lineage is not exact");
     exact(
-      item.measurement,
+      item,
       {
+        documentId: evidence.documentId,
+        revisionId: evidence.revisionId,
+        revisionVersion: evidence.revisionVersion,
+        snapshotSha256: evidence.snapshotSha256,
+        operationCheckpoint: evidence.operationCheckpoint,
+        objectId: object.id,
+        objectVersion: object.version,
+        objectFingerprint: evidence.objectFingerprints[object.id],
         ruleVersion: "P4_MEASUREMENT_V1",
-        ...exactMeasurements.get(object.id),
+        measurement: {
+          ruleVersion: "P4_MEASUREMENT_V1",
+          ...exactMeasurements.get(object.id),
+        },
       },
-      `${object.geometry.type} measurement`,
+      `${object.geometry.type} measurement item`,
     );
   });
 
   exact(
-    evidence.schedules.room.rows,
-    [
-      {
-        objectId: semanticObjects.space.id,
-        cells: {
-          number: "P4-101",
-          name: "P4 hosted room",
-          area: "0.024 m²",
-          count: "1",
+    Object.keys(evidence.schedules).sort(),
+    ["door", "finish", "room"],
+    "schedule categories",
+  );
+  exact(
+    evidence.schedules.room,
+    {
+      kind: "room",
+      caption: "Room schedule",
+      columns: [
+        { key: "number", label: "공간 번호" },
+        { key: "name", label: "공간 이름" },
+        { key: "area", label: "면적" },
+        { key: "count", label: "수량" },
+      ],
+      rows: [
+        {
+          objectId: semanticObjects.space.id,
+          cells: {
+            number: "P4-101",
+            name: "P4 hosted room",
+            area: "0.024 m²",
+            count: "1",
+          },
         },
+      ],
+      totals: {
+        label: "합계",
+        cells: { number: "", name: "", area: "0.024 m²", count: "1" },
       },
-    ],
+    },
     "room schedule",
   );
   exact(
-    evidence.schedules.door.rows,
-    [
-      {
-        objectId: semanticObjects.opening.id,
-        cells: {
-          mark: "P4 hosted door",
-          width: "90 mm",
-          height: "2100 mm",
-          count: "1",
+    evidence.schedules.door,
+    {
+      kind: "door",
+      caption: "Door schedule",
+      columns: [
+        { key: "mark", label: "문 마크" },
+        { key: "width", label: "너비" },
+        { key: "height", label: "높이" },
+        { key: "count", label: "수량" },
+      ],
+      rows: [
+        {
+          objectId: semanticObjects.opening.id,
+          cells: {
+            mark: "P4 hosted door",
+            width: "90 mm",
+            height: "2100 mm",
+            count: "1",
+          },
         },
+      ],
+      totals: {
+        label: "합계",
+        cells: { mark: "", width: "", height: "", count: "1" },
       },
-    ],
+    },
     "door schedule",
   );
   exact(
-    evidence.schedules.finish.rows,
-    [
-      {
-        objectId: semanticObjects.space.id,
+    evidence.schedules.finish,
+    {
+      kind: "finish",
+      caption: "Finish schedule",
+      columns: [
+        { key: "number", label: "공간 번호" },
+        { key: "name", label: "공간 이름" },
+        { key: "floor", label: "바닥 마감" },
+        { key: "wall", label: "벽 마감" },
+        { key: "ceiling", label: "천장 마감" },
+        { key: "area", label: "면적" },
+      ],
+      rows: [
+        {
+          objectId: semanticObjects.space.id,
+          cells: {
+            number: "P4-101",
+            name: "P4 hosted room",
+            floor: "tile",
+            wall: "paint",
+            ceiling: "acoustic",
+            area: "0.024 m²",
+          },
+        },
+      ],
+      totals: {
+        label: "합계",
         cells: {
-          number: "P4-101",
-          name: "P4 hosted room",
-          floor: "tile",
-          wall: "paint",
-          ceiling: "acoustic",
+          number: "",
+          name: "",
+          floor: "",
+          wall: "",
+          ceiling: "",
           area: "0.024 m²",
         },
       },
-    ],
+    },
     "finish schedule",
   );
   return evidence;

@@ -164,6 +164,20 @@ test.describe.serial("P4 hosted semantic authority", () => {
     ).toHaveText(
       `서버 증거 · P4_MEASUREMENT_V1 · 체크포인트 ${lineage.operationCheckpoint} · Postgres 권한 확인 로드 · revision ${lineage.revisionId}`,
     );
+    const serializedLoaderEvidence = await page
+      .locator("[data-drawing-server-evidence]")
+      .getAttribute("data-drawing-server-evidence");
+    expect(serializedLoaderEvidence).not.toBeNull();
+    const loaderEvidence = JSON.parse(
+      serializedLoaderEvidence!,
+    ) as typeof evidence;
+    expect(loaderEvidence).toEqual(evidence);
+    assertDrawingP4HostedServerEvidence({
+      evidence: loaderEvidence,
+      evidenceError: null,
+      current: drawingMeasurementEvidenceCurrent(lineage, state, false),
+      objects,
+    });
     await expect(
       page.getByRole("table", { name: "Room schedule · 서버 증거" }),
     ).toContainText("P4-101 P4 hosted room 0.024 m² 1");

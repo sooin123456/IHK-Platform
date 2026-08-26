@@ -806,12 +806,14 @@ test("semantic schedules render read-only preview versus checkpoint-bound server
   ])
     assert.match(confirmed, new RegExp(label));
   assert.equal((confirmed.match(/<table/g) ?? []).length, 3);
+  assert.match(confirmed, /data-drawing-server-evidence=/);
   assert.doesNotMatch(confirmed, /<form|<input|<select|<button/);
 
   const stale = render(10, true);
   assert.match(stale, /미리보기/);
   assert.match(stale, /오래됨|미확정|일치하지/);
   assert.doesNotMatch(stale, /Room schedule · 서버 증거/);
+  assert.doesNotMatch(stale, /data-drawing-server-evidence=/);
 });
 
 test("semantic inspector confirms only matching server object evidence", () => {
