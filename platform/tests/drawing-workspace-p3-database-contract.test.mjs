@@ -58,6 +58,13 @@ const crossInstanceFreezeLeaseMigration = await readFile(
   ),
   "utf8",
 );
+const preloadStoreFenceMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260826073708_drawing_workspace_p3_preload_store_fence.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(
@@ -395,4 +402,43 @@ test("P3 cross-instance freeze lease is private, bounded, and owner-fenced", () 
     /revoke all on function private\.lukas_drawing_collaboration_begin_freeze\(uuid,uuid,uuid,bytea,bigint\) from lukas_drawing_collaboration/i,
   );
   assert.doesNotMatch(crossInstanceFreezeLeaseMigration, /\brealtime\./i);
+});
+
+test("P3 preload lease fences every generic store under the revision lock", () => {
+  const normalized = preloadStoreFenceMigration
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")");
+  assert.match(
+    preloadStoreFenceMigration,
+    /lukas_drawing_collaboration_assert_store_unleased/i,
+  );
+  assert.match(
+    preloadStoreFenceMigration,
+    /lease_expires_at\s*>\s*pg_catalog\.clock_timestamp\(\)[\s\S]*errcode='P3F03'/i,
+  );
+  assert.match(
+    preloadStoreFenceMigration,
+    /from public\.lukas_drawing_revisions[\s\S]*for update;[\s\S]*assert_store_unleased/i,
+  );
+  for (const signature of [
+    "lukas_drawing_collaboration_store_state\\(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text\\)",
+    "lukas_drawing_collaboration_service_store_state\\(uuid,uuid,smallint,bytea,bigint,bigint,text\\)",
+  ]) {
+    assert.match(
+      normalized,
+      new RegExp(
+        `revoke all on function private\\.${signature} from public,anon,authenticated,service_role`,
+        "i",
+      ),
+    );
+    assert.match(
+      normalized,
+      new RegExp(
+        `grant execute on function private\\.${signature} to lukas_drawing_collaboration`,
+        "i",
+      ),
+    );
+  }
+  assert.doesNotMatch(preloadStoreFenceMigration, /\brealtime\./i);
 });

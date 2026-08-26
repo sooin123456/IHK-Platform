@@ -278,6 +278,14 @@ const p3CrossInstanceFreezeLeaseMigration = () =>
     ),
     "utf8",
   );
+const p3PreloadStoreFenceMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826073708_drawing_workspace_p3_preload_store_fence.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -666,6 +674,7 @@ before(async () => {
   await db.exec(await p3ReviewFreezeMigration());
   await db.exec(await p3ReviewRejectionRecoveryMigration());
   await db.exec(await p3CrossInstanceFreezeLeaseMigration());
+  await db.exec(await p3PreloadStoreFenceMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -2146,6 +2155,159 @@ test("P3 cross-instance lease admits one owner and fences stale takeover", async
   );
   assert.equal(completed.rows[0].result.state, "frozen");
   await db.exec("reset role");
+});
+
+test("P3 preload lease fences every generic state store before detached freeze begins", async () => {
+  const ids = await createDocument("P3 preload store fence");
+  const requestId = randomUUID();
+  const ownerToken = randomUUID();
+  const detachedBytes = Buffer.from([11, 12, 13]);
+  const detachedSha = createHash("sha256").update(detachedBytes).digest("hex");
+
+  await db.exec("reset role");
+  const privileges = await db.query(`select
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') user_store,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') service_store,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state_unfenced(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') user_unfenced,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_service_store_state_unfenced(uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') service_unfenced,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint)','execute') legacy_store,
+    has_function_privilege('lukas_drawing_collaboration','private.lukas_drawing_collaboration_assert_store_unleased(uuid,uuid)','execute') fence_helper,
+    has_function_privilege('service_role','private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text)','execute') data_api_store`);
+  assert.deepEqual(privileges.rows[0], {
+    user_store: true,
+    service_store: true,
+    user_unfenced: false,
+    service_unfenced: false,
+    legacy_store: false,
+    fence_helper: false,
+    data_api_store: false,
+  });
+
+  await db.exec("set role lukas_drawing_collaboration");
+  const initial = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,0::bigint,null)",
+    [OWNER, PROJECT, ids.revisionId, detachedBytes],
+  );
+  assert.equal(initial.rows[0].store_generation, 1);
+  await db.query(
+    "select private.lukas_drawing_collaboration_acquire_freeze_lease($1,$2,$3,$4,30,null,null)",
+    [PROJECT, ids.revisionId, requestId, ownerToken],
+  );
+
+  for (const runStore of [
+    () =>
+      db.query(
+        "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,1::bigint,$5)",
+        [OWNER, PROJECT, ids.revisionId, Buffer.from([21]), detachedSha],
+      ),
+    () =>
+      db.query(
+        "select * from private.lukas_drawing_collaboration_service_store_state($1,$2,1::smallint,$3::bytea,0::bigint,1::bigint,$4)",
+        [PROJECT, ids.revisionId, Buffer.from([22]), detachedSha],
+      ),
+  ]) {
+    await assert.rejects(runStore(), (error) => error.code === "P3F03");
+  }
+  await db.exec("reset role");
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint)",
+      [OWNER, PROJECT, ids.revisionId, Buffer.from([23])],
+    ),
+    (error) => error.code === "P3F03",
+  );
+
+  const unchanged = await db.query(
+    "select yjs_state,yjs_sha256,store_generation from private.lukas_drawing_collaboration_states where revision_id=$1",
+    [ids.revisionId],
+  );
+  assert.deepEqual([...unchanged.rows[0].yjs_state], [...detachedBytes]);
+  assert.equal(unchanged.rows[0].yjs_sha256, detachedSha);
+  assert.equal(unchanged.rows[0].store_generation, 1);
+
+  await db.exec("set role lukas_drawing_collaboration");
+  await db.query(
+    "select private.lukas_drawing_collaboration_acquire_freeze_lease($1,$2,$3,$4,30,$5::bytea,0)",
+    [PROJECT, ids.revisionId, requestId, ownerToken, detachedBytes],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,0,$5)",
+    [PROJECT, ids.revisionId, requestId, detachedBytes, ownerToken],
+  );
+  const manifest = [];
+  const manifestSha = createHash("sha256")
+    .update(JSON.stringify(manifest))
+    .digest("hex");
+  await db.query(
+    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,0,0,'AQ==','[]'::jsonb,$7)",
+    [
+      PROJECT,
+      ids.revisionId,
+      requestId,
+      detachedBytes,
+      manifest,
+      manifestSha,
+      ownerToken,
+    ],
+  );
+  await db.exec("reset role");
+  const frozen = await db.query(
+    "select yjs_state,yjs_sha256,store_generation,frozen_yjs_state_vector,freeze_state from private.lukas_drawing_collaboration_states where revision_id=$1",
+    [ids.revisionId],
+  );
+  assert.deepEqual([...frozen.rows[0].yjs_state], [...detachedBytes]);
+  assert.equal(frozen.rows[0].yjs_sha256, detachedSha);
+  assert.equal(frozen.rows[0].store_generation, 3);
+  assert.equal(frozen.rows[0].frozen_yjs_state_vector, "AQ==");
+  assert.equal(frozen.rows[0].freeze_state, "frozen");
+});
+
+test("P3 preload lease fences absent-state initialization and expired preload is cleaned", async () => {
+  const fenced = await createDocument("P3 absent preload fence");
+  const requestId = randomUUID();
+  const ownerToken = randomUUID();
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await db.query(
+    "select private.lukas_drawing_collaboration_acquire_freeze_lease($1,$2,$3,$4,30,null,null)",
+    [PROJECT, fenced.revisionId, requestId, ownerToken],
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,0::bigint,null)",
+      [OWNER, PROJECT, fenced.revisionId, Buffer.from([31])],
+    ),
+    (error) => error.code === "P3F03",
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_service_store_state($1,$2,1::smallint,$3::bytea,0::bigint,0::bigint,null)",
+      [PROJECT, fenced.revisionId, Buffer.from([32])],
+    ),
+    (error) => error.code === "P3F03",
+  );
+  await db.exec("reset role");
+  const absent = await db.query(
+    "select count(*)::int count from private.lukas_drawing_collaboration_states where revision_id=$1",
+    [fenced.revisionId],
+  );
+  assert.equal(absent.rows[0].count, 0);
+
+  await db.query(
+    "update private.lukas_drawing_collaboration_freeze_leases set lease_expires_at=clock_timestamp()-interval '1 second' where revision_id=$1",
+    [fenced.revisionId],
+  );
+  await db.exec("set role lukas_drawing_collaboration");
+  const stored = await db.query(
+    "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,0::bigint,null)",
+    [OWNER, PROJECT, fenced.revisionId, Buffer.from([33])],
+  );
+  assert.equal(stored.rows[0].store_generation, 1);
+  await db.exec("reset role");
+  const cleaned = await db.query(
+    "select count(*)::int count from private.lukas_drawing_collaboration_freeze_leases where revision_id=$1",
+    [fenced.revisionId],
+  );
+  assert.equal(cleaned.rows[0].count, 0);
 });
 
 test("P2 navigation persists exact layer-only reorder and inverse through the RPC", async () => {

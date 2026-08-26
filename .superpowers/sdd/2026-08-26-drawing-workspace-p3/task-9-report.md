@@ -91,6 +91,25 @@ Final cross-instance lease verification:
 - `git diff --check`: passed.
 - Final independent read-only rereview found no remaining critical or important issue after the preload, foreign-sync and same-request preparation/owner handoff races were covered.
 
+## Preload store-fence follow-up
+
+- Generated the forward-only Supabase CLI migration `20260826073708_drawing_workspace_p3_preload_store_fence.sql`; the committed `20260826063603` lease migration remains byte-unchanged.
+- Every generic collaboration-state store now locks the revision first, then checks and locks the persisted lease (and state when present). A live preload lease rejects exact-generation user stores, service stores, queued/debounced late stores, the legacy overload, and absent-row initialization before any byte, SHA or generation mutation.
+- Existing `freezing`/`frozen` stores retain the stable immutable-freeze `P3F02` contract; active or absent preload fencing uses the busy-owner `P3F03` contract. An expired preload lease is removed deterministically and stale owner metadata is cleared only for active/released state before ordinary storage resumes.
+- The original store implementations were retained as private unfenced delegates. Execution is revoked from the dedicated collaboration role and every Data API role; only the fenced canonical signatures are granted to the dedicated role. Owner-bound begin/complete/release paths continue to use their owner-token functions rather than a generic-store bypass.
+- Runtime evidence covers lease acquisition with a persisted state and with no state row, late canonical/service/legacy stores, expired cleanup, exact detached bytes and generation through begin/complete, bounded state-vector evidence, and privilege boundaries.
+
+Final preload store-fence verification:
+
+- `npm run test:drawing-workspace`: 493 tests, 492 passed, 1 existing environment-dependent test skipped, 0 failed.
+- Full PGlite runtime and P3 migration-contract suites: 132 passed, 0 failed.
+- Focused collaboration service/freeze suites: 57 passed, 0 failed.
+- `npm run typecheck`, `npm run typecheck:collaboration`, and `npm run build`: passed; only the previously documented build warnings were emitted.
+- Fresh Chromium review-freeze selection: 1 passed, 0 failed. The local preview was supplied non-secret dummy browser-safe Supabase settings because the root loader intentionally fails closed when they are absent; it made no Supabase request.
+- `git diff --check`: passed.
+- Final independent read-only review found no critical or important issue; its contract suite passed 11/11 and preload runtime selection passed 2/2.
+- `supabase db diff --local` remains unavailable because Docker Desktop is not installed; the CLI stopped before creating its shadow database.
+
 ## Production gates not claimed
 
 - The migration was executed from a clean PGlite database, not applied to a hosted Supabase project.
