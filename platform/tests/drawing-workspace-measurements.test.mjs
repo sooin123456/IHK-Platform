@@ -148,6 +148,23 @@ test("half-square-millimeter area is retained exactly", () => {
   assert.equal(halfQuantum.areaSquareMillimeters, "0.000001");
 });
 
+test("polygon perimeter preserves edge magnitudes and rounds only the final sum", () => {
+  requireKernel();
+  const measurement = measureDrawingObject(
+    object("00000000-0000-4000-8000-000000000211", {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 0.000001, y: 0 },
+        { x: 0.000002, y: 0.000001 },
+      ],
+    }),
+    objects,
+  );
+  assert.equal(measurement.lengthMillimeters, "0.000005");
+});
+
 test("90, 180, and 360 degree arcs use the fixed V1 PI rational", () => {
   requireKernel();
   const expected = new Map([

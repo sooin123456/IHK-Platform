@@ -64,14 +64,38 @@ function distanceMicromillimeters(first: Point, second: Point): bigint {
   return roundedSquareRoot(deltaX * deltaX + deltaY * deltaY);
 }
 
+function squaredDistanceMicromillimeters(first: Point, second: Point): bigint {
+  const deltaX = toMicromillimeters(second.x) - toMicromillimeters(first.x);
+  const deltaY = toMicromillimeters(second.y) - toMicromillimeters(first.y);
+  return deltaX * deltaX + deltaY * deltaY;
+}
+
+function positiveHalfAwayBucket(numerator: bigint, denominator: bigint) {
+  return (numerator * 2n + denominator) / (denominator * 2n);
+}
+
 function boundaryPerimeterMicromillimeters(points: readonly Point[]): bigint {
-  let perimeter = 0n;
-  for (let index = 0; index < points.length; index += 1)
-    perimeter += distanceMicromillimeters(
-      points[index],
-      points[(index + 1) % points.length],
-    );
-  return perimeter;
+  const squaredEdges = points.map((point, index) =>
+    squaredDistanceMicromillimeters(point, points[(index + 1) % points.length]),
+  );
+  // Each scaled integer root is a lower bound with error below one scaled
+  // unit. Increase precision until the summed lower/upper error interval is
+  // wholly inside one final micromillimetre rounding bucket.
+  for (let precision = 1_000_000n; ; precision *= 1_000_000n) {
+    let lowerBound = 0n;
+    let uncertainty = 0n;
+    for (const squaredEdge of squaredEdges) {
+      const scaledSquare = squaredEdge * precision * precision;
+      const root = integerSquareRoot(scaledSquare);
+      lowerBound += root;
+      if (root * root !== scaledSquare) uncertainty += 1n;
+    }
+    if (
+      positiveHalfAwayBucket(lowerBound, precision) ===
+      positiveHalfAwayBucket(lowerBound + uncertainty, precision)
+    )
+      return roundHalfAwayFromZero(lowerBound, precision);
+  }
 }
 
 function boundaryAreaMicroSquareMillimeters(points: readonly Point[]): bigint {

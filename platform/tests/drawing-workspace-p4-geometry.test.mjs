@@ -157,7 +157,7 @@ test("walls, grids, openings, and arcs enforce their semantic invariants", () =>
   );
 });
 
-test("polygon boundaries reject closing duplicates, adjacent duplicates, zero area, crossings, and 4097 points", () => {
+test("polygon boundaries reject closing duplicates, adjacent duplicates, and zero area", () => {
   assert.equal(typeof isSimpleDrawingBoundary, "function");
   const invalidBoundaries = [
     [...space.boundary, space.boundary[0]],
@@ -167,16 +167,6 @@ test("polygon boundaries reject closing duplicates, adjacent duplicates, zero ar
       { x: 1, y: 0 },
       { x: 2, y: 0 },
     ],
-    [
-      { x: 0, y: 0 },
-      { x: 10, y: 10 },
-      { x: 0, y: 10 },
-      { x: 10, y: 0 },
-    ],
-    Array.from({ length: 4097 }, (_, index) => ({
-      x: Math.cos((index / 4097) * Math.PI * 2) * 1000,
-      y: Math.sin((index / 4097) * Math.PI * 2) * 1000,
-    })),
   ];
   for (const boundary of invalidBoundaries) {
     assert.equal(
@@ -186,7 +176,44 @@ test("polygon boundaries reject closing duplicates, adjacent duplicates, zero ar
   }
 
   assert.equal(isSimpleDrawingBoundary(space.boundary), true);
-  assert.equal(isSimpleDrawingBoundary(invalidBoundaries[3]), false);
+});
+
+test("a self-intersecting non-zero-area boundary is rejected by segment intersection", () => {
+  // Doubled signed area is 12, and all points/edges are otherwise valid.
+  const crossingBoundary = [
+    { x: 0, y: 3 },
+    { x: 2, y: 0 },
+    { x: 4, y: 3 },
+    { x: 0, y: 1 },
+    { x: 4, y: 1 },
+  ];
+  assert.equal(isSimpleDrawingBoundary(crossingBoundary), false);
+  assert.equal(
+    DrawingGeometrySchema.safeParse({ ...area, boundary: crossingBoundary })
+      .success,
+    false,
+  );
+});
+
+test("an otherwise valid integer simple boundary rejects its 4097th point", () => {
+  const boundary = [
+    ...Array.from({ length: 2049 }, (_, x) => ({ x, y: 0 })),
+    ...Array.from({ length: 2048 }, (_, index) => ({
+      x: 2047 - index,
+      y: 1,
+    })),
+  ];
+  assert.equal(boundary.length, 4097);
+  assert.equal(
+    boundary.every(
+      (point) => Number.isInteger(point.x) && Number.isInteger(point.y),
+    ),
+    true,
+  );
+  assert.equal(
+    DrawingGeometrySchema.safeParse({ ...area, boundary }).success,
+    false,
+  );
 });
 
 test("blocks remain restricted to the original six primitive geometries", () => {
@@ -251,6 +278,77 @@ test("opening resolution rejects missing, non-wall, out-of-wall, and over-height
       },
       objects,
     ),
+  );
+});
+
+test("opening resolution accepts exact six-decimal fit and window-height boundaries", () => {
+  const decimalWall = DrawingGeometrySchema.parse({
+    ...wall,
+    end: { x: 0.3, y: 0 },
+    heightMillimeters: 0.3,
+  });
+  const decimalObjects = {
+    [HOST_ID]: { ...hostObject, geometry: decimalWall },
+  };
+  const exactWidthFit = DrawingGeometrySchema.parse({
+    ...opening,
+    offsetMillimeters: 0.2,
+    widthMillimeters: 0.2,
+    heightMillimeters: 0.1,
+  });
+  assert.doesNotThrow(() =>
+    resolveDrawingOpening(exactWidthFit, decimalObjects),
+  );
+
+  const exactWindowHeight = DrawingGeometrySchema.parse({
+    ...opening,
+    offsetMillimeters: 0.15,
+    widthMillimeters: 0.1,
+    heightMillimeters: 0.2,
+    sillHeightMillimeters: 0.1,
+    openingKind: "window",
+  });
+  assert.doesNotThrow(() =>
+    resolveDrawingOpening(exactWindowHeight, decimalObjects),
+  );
+});
+
+test("large equivalent arc angles have exact cardinal snap points and bounds", () => {
+  const largeArc = DrawingGeometrySchema.parse({
+    type: "arc",
+    semanticVersion: 1,
+    center: { x: 0, y: 0 },
+    radius: 9_000_000_000,
+    startAngleDegrees: 9_000_000_000,
+    sweepAngleDegrees: 90,
+  });
+  assert.deepEqual(geometrySnapPoints(largeArc), [
+    { x: 0, y: 0 },
+    { x: 9_000_000_000, y: 0 },
+    { x: 0, y: 9_000_000_000 },
+  ]);
+  assert.deepEqual(geometryBounds(largeArc), {
+    x: 0,
+    y: 0,
+    width: 9_000_000_000,
+    height: 9_000_000_000,
+  });
+
+  const largeTinySweep = DrawingGeometrySchema.parse({
+    ...largeArc,
+    sweepAngleDegrees: 0.000001,
+  });
+  const normalizedTinySweep = DrawingGeometrySchema.parse({
+    ...largeTinySweep,
+    startAngleDegrees: 0,
+  });
+  assert.deepEqual(
+    geometrySnapPoints(largeTinySweep),
+    geometrySnapPoints(normalizedTinySweep),
+  );
+  assert.deepEqual(
+    geometryBounds(largeTinySweep),
+    geometryBounds(normalizedTinySweep),
   );
 });
 

@@ -12,6 +12,7 @@ import {
   exportDrawingPng,
   exportDrawingSvg,
 } from "../app/lukas/lib/drawing-export.ts";
+import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000001000",
@@ -517,6 +518,88 @@ test("PNG export has deterministic 1x, 2x, and 4x dimensions", async () => {
     });
     assert.deepEqual([canvas.width, canvas.height], dimensions);
     assert.equal(blob.type, "image/png");
+  }
+});
+
+test("PNG and PDF export fail closed for every pre-Task-6 semantic geometry", async () => {
+  const semanticGeometries = [
+    {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 0 },
+      thicknessMillimeters: 1,
+      heightMillimeters: 3,
+    },
+    {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: "00000000-0000-4000-8000-000000001099",
+      offsetMillimeters: 5,
+      widthMillimeters: 2,
+      heightMillimeters: 2,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    {
+      type: "space",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 0, y: 10 },
+      ],
+      number: "101",
+      finishes: { floor: null, wall: null, ceiling: null },
+    },
+    {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 0, y: 10 },
+      ],
+    },
+    {
+      type: "grid",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 0 },
+    },
+    {
+      type: "arc",
+      semanticVersion: 1,
+      center: { x: 0, y: 0 },
+      radius: 10,
+      startAngleDegrees: 0,
+      sweepAngleDegrees: 90,
+    },
+  ];
+
+  for (const candidate of semanticGeometries) {
+    const geometry = DrawingGeometrySchema.parse(candidate);
+    const document = exportFixture();
+    document.structure.objects[ids.objectSecond].geometry = geometry;
+    await assert.rejects(
+      exportDrawingPng(document, ids.canvasSecond, {
+        canvasFactory: () => fakeCanvas(),
+        scale: 1,
+      }),
+      /Semantic geometry export is not available/i,
+      `PNG ${geometry.type}`,
+    );
+    await assert.rejects(
+      exportDrawingPdf(document, {
+        canvasFactory: () => fakeCanvas(),
+        canvasIds: [ids.canvasSecond],
+        createdAt: "2026-08-26T00:00:00.000Z",
+        scale: 1,
+        title: "Semantic rejection",
+      }),
+      /Semantic geometry export is not available/i,
+      `PDF ${geometry.type}`,
+    );
   }
 });
 

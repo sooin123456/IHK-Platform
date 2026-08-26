@@ -195,17 +195,41 @@ export function resolveDrawingOpening(
   const deltaY = host.geometry.end.y - host.geometry.start.y;
   const hostLength = Math.hypot(deltaX, deltaY);
   const halfWidth = opening.widthMillimeters / 2;
+  const integerStart = integerPoint(host.geometry.start);
+  const integerEnd = integerPoint(host.geometry.end);
+  const integerOffset = scaledCoordinate(opening.offsetMillimeters);
+  const integerWidth = scaledCoordinate(opening.widthMillimeters);
   if (
-    opening.offsetMillimeters - halfWidth < 0 ||
-    opening.offsetMillimeters + halfWidth > hostLength
+    !integerStart ||
+    !integerEnd ||
+    integerOffset === null ||
+    integerWidth === null
+  )
+    throw new DrawingSemanticGeometryError(
+      "Opening fit requires validated fixed-point geometry.",
+    );
+  const integerDeltaX = integerEnd.x - integerStart.x;
+  const integerDeltaY = integerEnd.y - integerStart.y;
+  const squaredHostLength =
+    integerDeltaX * integerDeltaX + integerDeltaY * integerDeltaY;
+  const doubledLowerOffset = integerOffset * 2n - integerWidth;
+  const doubledUpperOffset = integerOffset * 2n + integerWidth;
+  if (
+    doubledLowerOffset < 0n ||
+    doubledUpperOffset * doubledUpperOffset > squaredHostLength * 4n
   )
     throw new DrawingSemanticGeometryError(
       "Opening clear width must fit inside its host wall.",
     );
+  const integerSill = scaledCoordinate(opening.sillHeightMillimeters);
+  const integerHeight = scaledCoordinate(opening.heightMillimeters);
+  const integerWallHeight = scaledCoordinate(host.geometry.heightMillimeters);
   if (
     opening.openingKind === "window" &&
-    opening.sillHeightMillimeters + opening.heightMillimeters >
-      host.geometry.heightMillimeters
+    (integerSill === null ||
+      integerHeight === null ||
+      integerWallHeight === null ||
+      integerSill + integerHeight > integerWallHeight)
   )
     throw new DrawingSemanticGeometryError(
       "Window sill and height must fit below the host wall height.",

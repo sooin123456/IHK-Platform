@@ -63,7 +63,16 @@ function arcPoint(
   geometry: Extract<DrawingGeometry, { type: "arc" }>,
   angleDegrees: number,
 ): Point {
-  const radians = (angleDegrees * Math.PI) / 180;
+  const normalized = normalizedDegrees(angleDegrees);
+  if (normalized === 0)
+    return { x: geometry.center.x + geometry.radius, y: geometry.center.y };
+  if (normalized === 90)
+    return { x: geometry.center.x, y: geometry.center.y + geometry.radius };
+  if (normalized === 180)
+    return { x: geometry.center.x - geometry.radius, y: geometry.center.y };
+  if (normalized === 270)
+    return { x: geometry.center.x, y: geometry.center.y - geometry.radius };
+  const radians = (normalized * Math.PI) / 180;
   return {
     x: geometry.center.x + geometry.radius * Math.cos(radians),
     y: geometry.center.y + geometry.radius * Math.sin(radians),
@@ -71,7 +80,20 @@ function arcPoint(
 }
 
 function normalizedDegrees(value: number): number {
-  return ((value % 360) + 360) % 360;
+  const scaled = value * 1_000_000;
+  if (!Number.isSafeInteger(scaled))
+    throw new RangeError("Arc angles must be validated six-decimal numbers.");
+  const fullTurn = 360_000_000n;
+  const remainder = BigInt(scaled) % fullTurn;
+  return Number(remainder < 0n ? remainder + fullTurn : remainder) / 1_000_000;
+}
+
+function arcEndAngle(
+  geometry: Extract<DrawingGeometry, { type: "arc" }>,
+): number {
+  return (
+    normalizedDegrees(geometry.startAngleDegrees) + geometry.sweepAngleDegrees
+  );
 }
 
 function arcContainsAngle(
@@ -79,17 +101,19 @@ function arcContainsAngle(
   angleDegrees: number,
 ): boolean {
   if (Math.abs(geometry.sweepAngleDegrees) === 360) return true;
+  const start = normalizedDegrees(geometry.startAngleDegrees);
+  const angle = normalizedDegrees(angleDegrees);
   const travelled =
     geometry.sweepAngleDegrees > 0
-      ? normalizedDegrees(angleDegrees - geometry.startAngleDegrees)
-      : normalizedDegrees(geometry.startAngleDegrees - angleDegrees);
+      ? normalizedDegrees(angle - start)
+      : normalizedDegrees(start - angle);
   return travelled <= Math.abs(geometry.sweepAngleDegrees);
 }
 
 function arcBounds(geometry: Extract<DrawingGeometry, { type: "arc" }>) {
   const points = [
     arcPoint(geometry, geometry.startAngleDegrees),
-    arcPoint(geometry, geometry.startAngleDegrees + geometry.sweepAngleDegrees),
+    arcPoint(geometry, arcEndAngle(geometry)),
     ...[0, 90, 180, 270]
       .filter((angle) => arcContainsAngle(geometry, angle))
       .map((angle) => arcPoint(geometry, angle)),
@@ -134,10 +158,7 @@ export function geometrySnapPoints(
       return [
         geometry.center,
         arcPoint(geometry, geometry.startAngleDegrees),
-        arcPoint(
-          geometry,
-          geometry.startAngleDegrees + geometry.sweepAngleDegrees,
-        ),
+        arcPoint(geometry, arcEndAngle(geometry)),
       ];
     case "opening": {
       const resolved = resolveDrawingOpening(geometry, objects ?? {});

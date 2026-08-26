@@ -228,6 +228,45 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
+function isSemanticGeometry(geometry: DrawingGeometry): boolean {
+  switch (geometry.type) {
+    case "wall":
+    case "opening":
+    case "space":
+    case "area":
+    case "grid":
+    case "arc":
+      return true;
+    case "line":
+    case "polyline":
+    case "rectangle":
+    case "circle":
+    case "text":
+    case "dimension":
+      return false;
+  }
+}
+
+function rejectSemanticGeometryExport(
+  documentState: DrawingDocumentState,
+  canvasId: string,
+): void {
+  const structure = documentState.structure;
+  if (!structure) return;
+  const semanticObject = Object.values(structure.objects).find((object) => {
+    const layer = structure.layers[object.layerId];
+    return (
+      layer?.canvasId === canvasId &&
+      layer.visible &&
+      isSemanticGeometry(object.geometry)
+    );
+  });
+  if (semanticObject)
+    throw new DrawingExportError(
+      "Semantic geometry export is not available in this adapter.",
+    );
+}
+
 function svgStroke(style: DrawingStyle) {
   return `fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"`;
 }
@@ -375,6 +414,7 @@ export function exportDrawingSvg(
   document: DrawingDocumentState,
   canvasId: string,
 ): string {
+  rejectSemanticGeometryExport(document, canvasId);
   const traversal = collectExportPrimitives(document, canvasId);
   const { canvas } = traversal;
   const width = exportNumber(canvas.widthMillimeters);
@@ -544,6 +584,15 @@ function paintGeometry(
       );
       break;
     }
+    case "wall":
+    case "opening":
+    case "space":
+    case "area":
+    case "grid":
+    case "arc":
+      throw new DrawingExportError(
+        "Semantic geometry export is not available in this adapter.",
+      );
   }
   context.restore();
 }
@@ -594,6 +643,7 @@ export async function exportDrawingPng(
   throwIfExportAborted(options.signal);
   if (options.scale !== 1 && options.scale !== 2 && options.scale !== 4)
     throw new DrawingExportError("PNG scale must be 1x, 2x, or 4x.");
+  rejectSemanticGeometryExport(documentState, canvasId);
   const traversal = collectExportPrimitives(documentState, canvasId);
   const background = requireExportBackground(
     traversal.canvas,
@@ -697,6 +747,9 @@ export async function exportDrawingPdf(
     throw new DrawingExportError("PDF metadata date is invalid.");
   const title = options.title.trim();
   if (!title) throw new DrawingExportError("PDF title is required.");
+  const canvases = exportCanvases(documentState, options.canvasIds);
+  for (const canvas of canvases)
+    rejectSemanticGeometryExport(documentState, canvas.id);
   const { PDFDocument } = await import("pdf-lib");
   throwIfExportAborted(options.signal);
   const pdf = await PDFDocument.create({ updateMetadata: false });
@@ -708,7 +761,7 @@ export async function exportDrawingPdf(
   pdf.setCreationDate(createdAt);
   pdf.setModificationDate(createdAt);
 
-  for (const canvas of exportCanvases(documentState, options.canvasIds)) {
+  for (const canvas of canvases) {
     throwIfExportAborted(options.signal);
     const background = await abortable(
       options.getBackground?.(structuredClone(canvas), options.signal) ??
