@@ -1584,7 +1584,7 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
                 : sample({ canvas, context }, 60, 27, 80, 40),
             hostedCut:
               pageNumber === 2
-                ? sample({ canvas, context }, 40, 35.5, 80, 40)
+                ? sample({ canvas, context }, 40, 36.5, 80, 40)
                 : null,
           });
           rendered.cleanup();
@@ -1636,12 +1636,12 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
               .querySelector("clipPath rect")
               ?.getAttribute("width"),
             marker: sample(svgDecoded, 60, 27, 80, 40),
-            hostedCut: sample(svgDecoded, 40, 35.5, 80, 40),
+            hostedCut: sample(svgDecoded, 40, 36.5, 80, 40),
             parserErrors: parsedSvg.querySelectorAll("parsererror").length,
             rightOfTextClip: sample(svgDecoded, 30, 8, 80, 40),
           },
           textPixels: {
-            hostedCut: sample(second, 40, 35.5, 80, 40),
+            hostedCut: sample(second, 40, 36.5, 80, 40),
             pngFirstLineInk: inkCount(
               second,
               { x: 2, y: 2, width: 20, height: 11 },
@@ -1710,8 +1710,11 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
     assert.ok(result.textPixels.svgFirstLineInk > 5);
     assert.ok(result.textPixels.svgSecondLineInk > 5);
     assert.deepEqual(result.svg.marker, [255, 0, 255, 255]);
-    assert.deepEqual(result.svg.hostedCut, [255, 255, 255, 255]);
-    assert.deepEqual(result.textPixels.hostedCut, [255, 255, 255, 255]);
+    const assertHostedCut = (pixel) =>
+      assert.deepEqual(pixel, [255, 255, 255, 255]);
+    assertHostedCut(result.svg.hostedCut);
+    assertHostedCut(result.textPixels.hostedCut);
+    assert.throws(() => assertHostedCut([0, 0, 0, 255]));
     const assertPageEvidence = (pages) => {
       assert.equal(pages.length, 2);
       assert.ok(Math.abs(pages[0].canvasSize.width - 400) < 0.01);

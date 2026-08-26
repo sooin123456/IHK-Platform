@@ -99,6 +99,30 @@ test("P2 local drawing preview loader allows only development loopback", async (
   process.env.NODE_ENV = "development";
 });
 
+test("P4 vertical preview exposes only mounted-workspace test instrumentation", async () => {
+  const loaded = await preview.loader({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?verticalTest=1",
+    ),
+    params: {},
+  });
+  assert.equal(loaded.verticalTest, true);
+
+  const source = await readFile(
+    new URL(
+      "../app/lukas/screens/local-drawing-workspace-preview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /aria-label="P4 mounted workspace snapshot"/);
+  assert.match(source, /previewHarness=.*verticalPreviewHarness/s);
+  assert.doesNotMatch(
+    source,
+    /applyDrawingCommand|hydrateDrawingDocumentState/,
+  );
+});
+
 test("P2 preview fixture is a strict, hydrated P2 graph", () => {
   const fixture = preview.localDrawingWorkspacePreviewFixture();
   assert.doesNotThrow(() =>
@@ -138,11 +162,13 @@ test("P4 preview is visibly populated with canonical hosted objects and schedule
   assert.equal(walls.length, 2);
   assert.ok(
     walls.some((wall, index) =>
-      walls.slice(index + 1).some(
-        (other) =>
-          wall.geometry.end.x === other.geometry.start.x &&
-          wall.geometry.end.y === other.geometry.start.y,
-      ),
+      walls
+        .slice(index + 1)
+        .some(
+          (other) =>
+            wall.geometry.end.x === other.geometry.start.x &&
+            wall.geometry.end.y === other.geometry.start.y,
+        ),
     ),
   );
   const openings = semantic.filter(

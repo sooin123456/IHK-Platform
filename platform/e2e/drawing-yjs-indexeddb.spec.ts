@@ -163,7 +163,7 @@ function authoritativeActiveAndFreeze(revisionId: string) {
   return { initialUpdate, freezeUpdate };
 }
 
-test("offline command bridge recovers 100 ordered outbox and Yjs operations before reconnect ack", async ({
+test("offline command bridge recovers 100 ordered operations and stops at the real action-ack boundary", async ({
   context,
   page,
 }) => {
@@ -394,7 +394,7 @@ test("offline command bridge recovers 100 ordered outbox and Yjs operations befo
       applyRequests.push(request.url());
   });
   await context.setOffline(false);
-  const converged = await page.evaluate(
+  const actionAcknowledged = await page.evaluate(
     async ({ initialUpdate, fixtureIds }) => {
       const persistencePath =
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
@@ -465,21 +465,6 @@ test("offline command bridge recovers 100 ordered outbox and Yjs operations befo
           context?.signal,
         ),
       );
-      const operations = adapter.operations();
-      document.transact(() => {
-        const statuses = document.getMap("operationStatus");
-        operations.forEach((operation: any, index: number) => {
-          const objectId = `00000000-0000-4000-8000-${String(
-            index + 900,
-          ).padStart(12, "0")}`;
-          statuses.set(operation.clientOperationId, {
-            operationId: operation.clientOperationId,
-            status: "acked",
-            authoritativeSequence: index + 1,
-            resultVersions: { [objectId]: 1 },
-          });
-        });
-      });
       await handle.flush();
       const snapshot = adapter.getSnapshot();
       const result = {
@@ -487,8 +472,12 @@ test("offline command bridge recovers 100 ordered outbox and Yjs operations befo
         outboxIds: (await outbox.entries()).map(
           (entry: any) => entry.operation.clientOperationId,
         ),
+        operationIds: adapter
+          .operations()
+          .map((operation: any) => operation.clientOperationId),
         pendingIds: snapshot.pendingOperationIds,
         objectIds: Object.keys(snapshot.state.objects),
+        statusIds: Array.from(document.getMap("operationStatus").keys()),
       };
       outbox.dispose();
       adapter.dispose();
@@ -501,10 +490,12 @@ test("offline command bridge recovers 100 ordered outbox and Yjs operations befo
       fixtureIds: ids,
     },
   );
-  expect(converged.online).toBe(true);
-  expect(converged.outboxIds).toEqual([]);
-  expect(converged.pendingIds).toEqual([]);
-  expect(converged.objectIds).toEqual(written.expectedObjectIds);
+  expect(actionAcknowledged.online).toBe(true);
+  expect(actionAcknowledged.outboxIds).toEqual([]);
+  expect(actionAcknowledged.operationIds).toEqual(written.expectedOperationIds);
+  expect(actionAcknowledged.pendingIds).toEqual(written.expectedOperationIds);
+  expect(actionAcknowledged.objectIds).toEqual(written.expectedObjectIds);
+  expect(actionAcknowledged.statusIds).toEqual([]);
   expect(applyRequests).toHaveLength(100);
 });
 

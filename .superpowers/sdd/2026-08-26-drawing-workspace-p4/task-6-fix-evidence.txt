@@ -1,4 +1,7 @@
 P4 Task 6 review-fix evidence — 2026-08-27 Asia/Seoul
+CORRECTION: task-6-fix2-evidence.txt is the current evidence authority. The
+earlier detached vertical and locally injected provider convergence claim are
+superseded.
 Base: 0c62ff150812081c1b71edf6584b465a6924a362
 
 node --test tests/drawing-workspace-export.test.mjs tests/drawing-workspace-p3-social.test.mjs tests/local-drawing-workspace-preview.test.mjs
@@ -25,7 +28,8 @@ E2E_BASE_URL=http://127.0.0.1:4000 npx playwright test e2e/drawing-workspace-p4.
   - changed restore semantic objects/geometry/refs/schedules/SVG equality
   - PDF parse plus real PDF.js non-white render
   - real Chromium offline, 100 bridge/outbox/Yjs/IDB operations,
-    close/reopen exact order, 100 action acknowledgements, convergence
+    close/reopen exact order, 100 action acknowledgements, outbox empty
+  - provider-authoritative status projection/convergence: UNEXECUTED
 
 git diff --check
   PASS
@@ -34,19 +38,16 @@ SHA-256 samples/sample.ifc
   30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93
 SHA-256 durable representative source PDF
   4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326
-SHA-256 task-6-desktop.png
-  ddc1f63eac4ed52b4165537224d2de5fdc59c55594b6debc08d931c936e56984
-SHA-256 task-6-tablet.png
-  09534b41571556a689a917f19a51e7d2cecc76b09ea1c0f0c492624879815713
-SHA-256 task-6-fix-integrated.png
-  343df374e9a278917969297cb907b6511851da8c20f8c564316626698afc7e10
-
 Durable source PDF path:
   .superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf
 Durable screenshots:
   .superpowers/sdd/2026-08-26-drawing-workspace-p4/task-6-desktop.png
   .superpowers/sdd/2026-08-26-drawing-workspace-p4/task-6-tablet.png
   .superpowers/sdd/2026-08-26-drawing-workspace-p4/task-6-fix-integrated.png
+
+Current fix2 screenshots, dimensions, sizes, and inspected state are recorded
+in task-6-fix2-evidence.txt; historical screenshot hashes are intentionally not
+promoted as current evidence.
 
 PRODUCTION UNEXECUTED: no production PostgreSQL concurrency, hosted
 collaboration, deployment, or latency evidence is claimed.

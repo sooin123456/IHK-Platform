@@ -678,6 +678,16 @@ type Props = {
   previewHarness?: {
     onInvalidate?: () => void;
     onSoftLockChange?: (entityId: string | null) => void;
+    onStateChange?: (snapshot: {
+      activeCanvasId: string | null;
+      layers: DrawingDocumentState["layers"];
+      objects: DrawingDocumentState["objects"];
+      operationIds: string[];
+      redoIds: string[];
+      selectedIds: string[];
+      undoIds: string[];
+    }) => void;
+    verticalTest?: boolean;
   };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
   collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
@@ -873,6 +883,7 @@ export default function DrawingWorkspaceClient({
   const [collaborationEditNotice, setCollaborationEditNotice] = useState<
     string | null
   >(null);
+  const [verticalTestStatus, setVerticalTestStatus] = useState("준비됨");
   const initializedPersistenceLifecycleKeyRef = useRef<string | null>(null);
   const drawingState = useSyncExternalStore(
     documentStore.subscribe,
@@ -894,6 +905,19 @@ export default function DrawingWorkspaceClient({
     semanticBlockSelectionRef.current.clear();
     setSelectedIds([]);
   }, [drawingState]);
+  useEffect(() => {
+    previewHarness?.onStateChange?.({
+      activeCanvasId: drawingState.activeCanvasId,
+      layers: drawingState.layers,
+      objects: drawingState.objects,
+      operationIds: drawingState.operations.map(
+        (operation) => operation.clientOperationId,
+      ),
+      redoIds: drawingState.redoStackByActor[currentUserId] ?? [],
+      selectedIds,
+      undoIds: drawingState.undoStackByActor[currentUserId] ?? [],
+    });
+  }, [currentUserId, drawingState, previewHarness, selectedIds]);
   const capabilityCanPersist = canPersistDrawingMutation(
     effectiveCapability,
     persistenceState,
@@ -1615,6 +1639,69 @@ export default function DrawingWorkspaceClient({
       setAwarenessSoftLock,
     ],
   );
+  const runVerticalInvalidShrink = useCallback(async () => {
+    const wall =
+      selectedIds
+        .map((id) => drawingStateRef.current.objects[id])
+        .find((object) => object?.geometry.type === "wall") ??
+      Object.values(drawingStateRef.current.objects).find(
+        (object) => object.geometry.type === "wall",
+      );
+    const bridge = collaborationCommandRef.current;
+    if (!wall || wall.geometry.type !== "wall" || !bridge) {
+      setVerticalTestStatus("축소 대상을 찾지 못함");
+      return;
+    }
+    try {
+      await bridge.applyCommand({
+        type: "update_objects",
+        actorId: currentUserId,
+        updates: [
+          {
+            objectId: wall.id,
+            baseVersion: wall.version,
+            patch: {
+              geometry: {
+                ...wall.geometry,
+                end: {
+                  x: wall.geometry.start.x + 10,
+                  y: wall.geometry.start.y,
+                },
+              },
+            },
+          },
+        ],
+      });
+      setVerticalTestStatus("잘못된 축소가 허용됨");
+    } catch (error) {
+      setVerticalTestStatus(
+        `잘못된 축소 거부됨 · ${error instanceof Error ? error.message : "검증 오류"}`,
+      );
+    }
+  }, [currentUserId, selectedIds]);
+  const runVerticalDirectMutation = useCallback(() => {
+    const wall = Object.values(drawingStateRef.current.objects).find(
+      (object) => object.geometry.type === "wall",
+    );
+    if (!wall) {
+      setVerticalTestStatus("직접 변경 대상을 찾지 못함");
+      return;
+    }
+    const accepted = applyCommand({
+      type: "update_objects",
+      actorId: currentUserId,
+      updates: [
+        {
+          objectId: wall.id,
+          baseVersion: wall.version,
+          patch: { name: `${wall.name} 직접 변경` },
+        },
+      ],
+    });
+    setVerticalTestStatus(
+      accepted ? "직접 변경 제출됨" : "직접 변경 권한 차단됨",
+    );
+  }, [applyCommand, currentUserId]);
   const revertOperation = useCallback(
     async (operationId: string) => {
       try {
@@ -2188,6 +2275,22 @@ export default function DrawingWorkspaceClient({
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
+      {previewHarness?.verticalTest ? (
+        <aside
+          aria-label="P4 mounted command controls"
+          className="fixed bottom-14 right-3 z-[60] flex gap-2 rounded-md bg-slate-950 p-2 text-xs"
+        >
+          <button onClick={() => void runVerticalInvalidShrink()} type="button">
+            P4 선택 벽 잘못 축소 시도
+          </button>
+          <button onClick={runVerticalDirectMutation} type="button">
+            P4 직접 변경 시도
+          </button>
+          <output aria-label="P4 mounted command result">
+            {verticalTestStatus}
+          </output>
+        </aside>
+      ) : null}
       <header className="flex min-h-14 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-2 py-1.5 sm:px-3">
         <Link
           aria-label="협업 도면실로 돌아가기"

@@ -40,6 +40,82 @@ async function exportBytes(page: Page, format: "SVG" | "PNG" | "PDF") {
   return bytes;
 }
 
+type MountedSnapshot = {
+  activeCanvasId: string | null;
+  layers: Record<string, any>;
+  objects: Record<string, any>;
+  operationIds: string[];
+  redoIds: string[];
+  selectedIds: string[];
+  undoIds: string[];
+};
+
+async function mountedSnapshot(page: Page) {
+  const output = page.getByLabel("P4 mounted workspace snapshot");
+  await expect(output).not.toHaveText("null");
+  return JSON.parse((await output.textContent()) ?? "null") as MountedSnapshot;
+}
+
+async function clientPointForWorld(
+  page: Page,
+  point: { x: number; y: number },
+) {
+  const surface = page.getByLabel(/도면 화면/);
+  const box = await surface.boundingBox();
+  if (!box) throw new Error("Drawing surface is not measurable.");
+  const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
+  const x =
+    Number(await surface.getAttribute("data-viewport-x")) + point.x * zoom;
+  const y =
+    Number(await surface.getAttribute("data-viewport-y")) + point.y * zoom;
+  return {
+    client: { x: box.x + x, y: box.y + y },
+    local: { x, y },
+  };
+}
+
+async function clickWorld(page: Page, point: { x: number; y: number }) {
+  const surface = page.getByLabel(/도면 화면/);
+  const position = await clientPointForWorld(page, point);
+  await surface.click({ position: position.local });
+  await page.waitForTimeout(120);
+}
+
+async function dragWorld(
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const start = await clientPointForWorld(page, from);
+  const end = await clientPointForWorld(page, to);
+  await page.mouse.move(start.client.x, start.client.y);
+  await page.mouse.down();
+  await page.mouse.move(end.client.x, end.client.y, { steps: 8 });
+  await page.mouse.up();
+}
+
+async function useSemanticTool(page: Page, name: string) {
+  await page.getByRole("button", { name: "건축 객체" }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}
+
+function semanticObjects(snapshot: MountedSnapshot) {
+  return Object.values(snapshot.objects).filter((object) =>
+    ["wall", "opening", "space", "area", "grid", "arc"].includes(
+      object.geometry.type,
+    ),
+  );
+}
+
+function semanticContent(snapshot: MountedSnapshot) {
+  return Object.fromEntries(
+    Object.entries(snapshot.objects).map(([id, object]) => {
+      const { version: _version, ...content } = object;
+      return [id, content];
+    }),
+  );
+}
+
 test("P4 populated preview exports every semantic object", async ({ page }) => {
   const ifcPath = path.resolve("../samples/sample.ifc");
   const ifcBefore = createHash("sha256")
@@ -113,429 +189,311 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openPreview(page);
-  const core = await page.evaluate(async () => {
-    const paths = {
-      awareness: "/app/lukas/lib/drawing-awareness.ts",
-      collaboration: "/app/lukas/lib/drawing-collaboration-client.ts",
-      commands: "/app/lukas/lib/drawing-commands.ts",
-      documentStore: "/app/lukas/lib/drawing-document-store.ts",
-      draft: "/app/lukas/lib/drawing-yjs-draft.ts",
-      drawingExport: "/app/lukas/lib/drawing-export.ts",
-      geometry: "/app/lukas/lib/drawing-semantic-geometry.ts",
-      persistence: "/app/lukas/lib/drawing-yjs-persistence.client.ts",
-      preview: "/app/lukas/screens/local-drawing-workspace-preview.tsx",
-      schedules: "/app/lukas/lib/drawing-semantic-schedules.ts",
-      tools: "/app/lukas/components/drawing-canvas.client.tsx",
-    };
-    const commands = await import(paths.commands);
-    const documentStore = await import(paths.documentStore);
-    const geometry = await import(paths.geometry);
-    const schedules = await import(paths.schedules);
-    const awareness = await import(paths.awareness);
-    const collaboration = await import(paths.collaboration);
-    const draft = await import(paths.draft);
-    const persistence = await import(paths.persistence);
-    const drawingExport = await import(paths.drawingExport);
-    const tools = await import(paths.tools);
-    const preview = await import(paths.preview);
-    const fixture = preview.localDrawingWorkspacePreviewFixture();
-    const revision = fixture.workspace.document.revision;
-    const actorId = fixture.currentUserId;
-    const layerId = revision.layers.find(
-      (layer: any) => layer.systemKind === "work" && !layer.locked,
-    ).id;
-    const activeCanvasId = revision.activeCanvasId;
-    let state = documentStore.hydrateDrawingDocumentState({
-      revisionId: revision.id,
-      pages: revision.pages,
-      canvases: revision.canvases,
-      layers: revision.layers,
-      objects: revision.objects,
-      styles: revision.styles,
-      blocks: revision.blocks,
-      blockInstances: revision.blockInstances,
-      propertySchemas: revision.propertySchemas,
-      propertyValues: revision.propertyValues,
-      tables: revision.tables,
-    });
-    const ids = Array.from(
-      { length: 6 },
-      (_, index) =>
-        `20000000-0000-4000-8000-${String(index + 501).padStart(12, "0")}`,
-    );
-    let operationIndex = 0;
-    const environment = () => ({
-      createId: () =>
-        `30000000-0000-4000-8000-${String(operationIndex++ + 601).padStart(
-          12,
-          "0",
-        )}`,
-      now: () =>
-        new Date(Date.UTC(2026, 7, 27) + operationIndex * 1000).toISOString(),
-    });
-    const apply = (command: any) => {
-      state = commands.applyDrawingCommand(state, command, environment()).state;
-    };
-    const snap = {
-      gridSize: 0,
-      objectCandidates: [],
-      tolerancePixels: 12,
-      zoom: 1,
-    };
-    const options = (objectId: string) => ({
-      actorId,
-      layerId,
-      objectId,
-      objects: state.objects,
-      repeatMode: false,
-      snap,
-    });
-    const context = (activeTool: string, objectId: string) => ({
-      activeTool,
-      actorId,
-      calibrationId: null,
-      canEdit: true,
-      layerId,
-      layers: state.layers,
-      objectId,
-      objects: state.objects,
-      repeatMode: false,
-      snap: { gridSize: 0, objectCandidates: [], tolerancePixels: 12 },
-      viewport: { x: 0, y: 0, zoom: 1 },
-    });
-    const down = (controller: any, point: any, toolContext: any) =>
-      tools.drawingToolEventTransition(
-        controller,
-        {
-          type: "pointer_down",
-          button: 0,
-          pointerId: 1,
-          screenPoint: point,
-          shiftKey: false,
-        },
-        toolContext,
-      );
-    const authoredTypes = [];
-    let result = tools.commitDrawingPoint(
-      tools.beginDrawingToolSession("wall", { x: 2000, y: 1000 }, snap),
-      { x: 5000, y: 1000 },
-      options(ids[0]),
-    );
-    authoredTypes.push(result.command.objects[0].geometry.type);
-    apply(result.command);
+  await openPreview(page, "?verticalTest=1");
+  const surface = page.getByLabel(/도면 화면/);
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "8",
+  );
+  const initial = await mountedSnapshot(page);
+  const initialSemantic = semanticContent(initial);
+  const initialIds = Object.keys(initial.objects);
+  const initialSvg = await exportBytes(page, "SVG");
+  await page.getByRole("tab", { name: "Schedule" }).click();
+  const initialSchedules = await Promise.all(
+    ["Room", "Door", "Finish"].map((name) =>
+      page
+        .getByRole("table", { name: new RegExp(`^${name} schedule`) })
+        .innerText(),
+    ),
+  );
 
-    let toolContext = context("opening", ids[1]);
-    result = down(
-      tools.createDrawingToolControllerState(toolContext),
-      { x: 3500, y: 1000 },
-      toolContext,
-    );
-    authoredTypes.push(result.command.objects[0].geometry.type);
-    apply(result.command);
-
-    for (const [tool, objectId, y] of [
-      ["space", ids[2], 1800],
-      ["area", ids[3], 3000],
-    ] as Array<[string, string, number]>) {
-      toolContext = context(tool, objectId);
-      let polygon = tools.createDrawingToolControllerState(toolContext);
-      for (const point of [
-        { x: 2000, y },
-        { x: 3200, y },
-        { x: 3200, y: y + 800 },
-        { x: 2000, y: y + 800 },
-      ])
-        polygon = down(polygon, point, toolContext).state;
-      result = tools.drawingToolEventTransition(
-        polygon,
-        { type: "key_down", key: "Enter" },
-        toolContext,
-      );
-      authoredTypes.push(result.command.objects[0].geometry.type);
-      apply(result.command);
-    }
-
-    result = tools.commitDrawingPoint(
-      tools.beginDrawingToolSession("grid", { x: 1800, y: 4500 }, snap),
-      { x: 5200, y: 4500 },
-      options(ids[4]),
-    );
-    authoredTypes.push(result.command.objects[0].geometry.type);
-    apply(result.command);
-
-    toolContext = context("arc", ids[5]);
-    let arc = down(
-      tools.createDrawingToolControllerState(toolContext),
-      { x: 4000, y: 3000 },
-      toolContext,
-    );
-    arc = down(arc.state, { x: 4400, y: 3000 }, toolContext);
-    result = down(arc.state, { x: 4000, y: 3400 }, toolContext);
-    authoredTypes.push(result.command.objects[0].geometry.type);
-    apply(result.command);
-
-    const baseline = structuredClone(state);
-    const baselineSchedules = ["room", "door", "finish"].map((kind) =>
-      schedules.resolveDrawingSemanticSchedule(kind, baseline),
-    );
-    const baselineSvg = drawingExport.exportDrawingSvg(
-      baseline,
-      activeCanvasId,
-    );
-
-    apply({
-      type: "update_objects",
-      actorId,
-      updates: [
-        {
-          objectId: ids[0],
-          baseVersion: state.objects[ids[0]].version,
-          patch: {
-            name: "Inspector edited wall",
-            geometry: {
-              ...state.objects[ids[0]].geometry,
-              thicknessMillimeters: 240,
-            },
-          },
-        },
-      ],
-    });
-    const beforeFollow = geometry.resolveDrawingOpening(
-      state.objects[ids[1]].geometry,
-      state.objects,
-    );
-    apply(
-      commands.moveDrawingSelection(state, [ids[0]], actorId, {
-        x: 125,
-        y: 75,
-      }),
-    );
-    const afterFollow = geometry.resolveDrawingOpening(
-      state.objects[ids[1]].geometry,
-      state.objects,
-    );
-    const followed = {
-      x: afterFollow.center.x - beforeFollow.center.x,
-      y: afterFollow.center.y - beforeFollow.center.y,
-    };
-    const offsetBeforeMove = state.objects[ids[1]].geometry.offsetMillimeters;
-    apply(
-      commands.moveDrawingOpeningToPoint(state, ids[1], actorId, {
-        x: 4200,
-        y: 1075,
-      }),
-    );
-    const offsetAfterMove = state.objects[ids[1]].geometry.offsetMillimeters;
-
-    let invalidShrinkRejected = false;
-    try {
-      commands.applyDrawingCommand(
-        state,
-        {
-          type: "update_objects",
-          actorId,
-          updates: [
-            {
-              objectId: ids[0],
-              baseVersion: state.objects[ids[0]].version,
-              patch: {
-                geometry: {
-                  ...state.objects[ids[0]].geometry,
-                  end: {
-                    x: state.objects[ids[0]].geometry.start.x + 500,
-                    y: state.objects[ids[0]].geometry.start.y,
-                  },
-                },
-              },
-            },
-          ],
-        },
-        environment(),
-      );
-    } catch {
-      invalidShrinkRejected = true;
-    }
-    const undone = commands.undoDrawingCommand(state, actorId, environment());
-    const undoOffset = undone.state.objects[ids[1]].geometry.offsetMillimeters;
-    const redone = commands.redoDrawingCommand(
-      undone.state,
-      actorId,
-      environment(),
-    );
-    state = redone.state;
-    const redoOffset = state.objects[ids[1]].geometry.offsetMillimeters;
-
-    const restoreCommand = commands.createDrawingCheckpointRestoreCommand(
-      state,
-      baseline,
-      actorId,
-      revision.checkpoints[0].id,
-    );
-    const lockConflict = awareness.drawingCommandSoftLockConflict(
-      restoreCommand,
-      [
-        {
-          clientId: 99,
-          user: { id: "peer", displayName: "Peer", color: "#f00" },
-          softLocks: [
-            {
-              entityId: ids[0],
-              leaseId: "peer-lock",
-              expiresAt: Date.now() + 5000,
-            },
-          ],
-        },
-      ],
-    );
-    state = commands.applyDrawingCommand(
-      state,
-      restoreCommand,
-      environment(),
-    ).state;
-    const withoutVersions = (objects: Record<string, any>) =>
-      Object.fromEntries(
-        Object.entries(objects).map(([id, object]) => {
-          const { version: _version, ...semantic } = object;
-          return [id, semantic];
-        }),
-      );
-    const restoredSchedules = ["room", "door", "finish"].map((kind) =>
-      schedules.resolveDrawingSemanticSchedule(kind, state),
-    );
-    const restoredSvg = drawingExport.exportDrawingSvg(state, activeCanvasId);
-
-    const locked = structuredClone(baseline);
-    locked.layers[layerId].locked = true;
-    locked.structure.layers[layerId].locked = true;
-    let layerLockRejected = false;
-    try {
-      commands.applyDrawingCommand(
-        locked,
-        {
-          type: "update_objects",
-          actorId,
-          updates: [
-            {
-              objectId: ids[0],
-              baseVersion: locked.objects[ids[0]].version,
-              patch: { name: "must reject" },
-            },
-          ],
-        },
-        environment(),
-      );
-    } catch {
-      layerLockRejected = true;
-    }
-
-    const yDocument = persistence.createDrawingYjsDocument();
-    const localBaseMeta = collaboration.initializeDrawingCollaborationDocument({
-      document: yDocument,
-      projectId: fixture.workspace.file.project_id,
-      revisionId: revision.id,
-      baseSnapshotSha256: "a".repeat(64),
-      baseOperationSequence: 0,
-    });
-    const viewer = draft.createDrawingDraftAdapter({
-      document: yDocument,
-      authoritativeState: baseline,
-      actorId,
-      authorization: "viewer",
-      frozen: false,
-      localBaseMeta,
-    });
-    let viewerDirectRejected = false;
-    try {
-      viewer.prepareLocal({
-        type: "delete_objects",
-        actorId,
-        objectIds: [ids[0]],
-      });
-    } catch {
-      viewerDirectRejected = true;
-    }
-    viewer.dispose();
-    yDocument.destroy();
-
-    return {
-      authoredTypes,
-      inspectorEdited:
-        state.objects[ids[0]].name === baseline.objects[ids[0]].name,
-      followed,
-      invalidShrinkRejected,
-      layerLockRejected,
-      lockConflict: Boolean(lockConflict),
-      offsetBeforeMove,
-      offsetAfterMove,
-      redoOffset,
-      restoreObjectsEqual:
-        JSON.stringify(withoutVersions(state.objects)) ===
-        JSON.stringify(withoutVersions(baseline.objects)),
-      restoreReferencesEqual:
-        state.objects[ids[1]].geometry.hostWallId ===
-        baseline.objects[ids[1]].geometry.hostWallId,
-      restoreSchedulesEqual:
-        JSON.stringify(restoredSchedules) === JSON.stringify(baselineSchedules),
-      restoreSvgEqual: restoredSvg === baselineSvg,
-      undoOffset,
-      viewerDirectRejected,
-    };
-  });
-
-  expect(core.authoredTypes).toEqual([
-    "wall",
-    "opening",
-    "space",
-    "area",
-    "grid",
-    "arc",
-  ]);
-  expect(core.followed).toEqual({ x: 125, y: 75 });
-  expect(core.offsetAfterMove).not.toBe(core.offsetBeforeMove);
-  expect(core.undoOffset).toBe(core.offsetBeforeMove);
-  expect(core.redoOffset).toBe(core.offsetAfterMove);
-  expect(core.invalidShrinkRejected).toBe(true);
-  expect(core.lockConflict).toBe(true);
-  expect(core.layerLockRejected).toBe(true);
-  expect(core.viewerDirectRejected).toBe(true);
-  expect(core.restoreObjectsEqual).toBe(true);
-  expect(core.restoreReferencesEqual).toBe(true);
-  expect(core.restoreSchedulesEqual).toBe(true);
-  expect(core.restoreSvgEqual).toBe(true);
-
-  await openPreview(page, "?reviewFreezeTest=1");
+  await openPreview(page, "?verticalTest=1&reviewFreezeTest=1");
   const review = page.getByRole("button", { name: "검토 요청" });
-  const click = review.click();
+  const reviewClick = review.click();
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeHidden();
-  await click;
+  await reviewClick;
   await expect(page.getByText("로컬 동결 실패 복구 시험")).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
+  await openPreview(page, "?verticalTest=1");
 
-  await openPreview(page);
+  await useSemanticTool(page, "벽 도구");
+  await clickWorld(page, { x: 100, y: 400 });
+  await clickWorld(page, { x: 1400, y: 400 });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "9",
+  );
 
-  const inspectorSurface = page.getByLabel(/도면 화면/);
+  await useSemanticTool(page, "개구부 도구");
+  await clickWorld(page, { x: 900, y: 400 });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "10",
+  );
+
+  for (const [tool, points, count] of [
+    [
+      "공간 도구",
+      [
+        { x: 100, y: 500 },
+        { x: 300, y: 500 },
+        { x: 300, y: 650 },
+        { x: 100, y: 650 },
+      ],
+      "11",
+    ],
+    [
+      "영역 도구",
+      [
+        { x: 400, y: 500 },
+        { x: 600, y: 500 },
+        { x: 600, y: 650 },
+        { x: 400, y: 650 },
+      ],
+      "12",
+    ],
+  ] as const) {
+    await useSemanticTool(page, tool);
+    for (const point of points) await clickWorld(page, point);
+    await page.keyboard.press("Enter");
+    await expect(surface).toHaveAttribute(
+      "data-rendered-semantic-object-count",
+      count,
+    );
+  }
+
+  await useSemanticTool(page, "그리드 도구");
+  await clickWorld(page, { x: 700, y: 550 });
+  await clickWorld(page, { x: 1400, y: 550 });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "13",
+  );
+
+  await useSemanticTool(page, "호 도구");
+  await clickWorld(page, { x: 1000, y: 700 });
+  await clickWorld(page, { x: 1100, y: 700 });
+  await clickWorld(page, { x: 1000, y: 800 });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "14",
+  );
+
+  const authored = await mountedSnapshot(page);
+  const authoredIds = Object.keys(authored.objects).filter(
+    (id) => !initialIds.includes(id),
+  );
+  expect(authoredIds).toHaveLength(6);
+  expect(
+    authoredIds.map((id) => authored.objects[id].geometry.type).sort(),
+  ).toEqual(["arc", "area", "grid", "opening", "space", "wall"]);
+  const wallId = authoredIds.find(
+    (id) => authored.objects[id].geometry.type === "wall",
+  )!;
+  const openingId = authoredIds.find(
+    (id) => authored.objects[id].geometry.type === "opening",
+  )!;
+  expect(authored.objects[openingId].geometry.hostWallId).toBe(wallId);
+
+  const beforeReload = {
+    objects: authored.objects,
+    objectIds: Object.keys(authored.objects),
+    operationIds: authored.operationIds,
+  };
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "14",
+  );
+  const reloaded = await mountedSnapshot(page);
+  expect(Object.keys(reloaded.objects)).toEqual(beforeReload.objectIds);
+  expect(reloaded.objects).toEqual(beforeReload.objects);
+  expect(reloaded.operationIds).toEqual(beforeReload.operationIds);
+
   await page.getByRole("button", { name: "선택 도구" }).click();
-  const zoom = Number(
-    await inspectorSurface.getAttribute("data-viewport-zoom"),
-  );
-  const viewportX = Number(
-    await inspectorSurface.getAttribute("data-viewport-x"),
-  );
-  const viewportY = Number(
-    await inspectorSurface.getAttribute("data-viewport-y"),
-  );
-  await inspectorSurface.click({
-    position: { x: viewportX + 500 * zoom, y: viewportY + 720 * zoom },
-  });
+  await clickWorld(page, { x: 300, y: 400 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([wallId]);
   await expect(page.getByLabel("벽 두께")).toBeVisible();
   await page.getByLabel("벽 두께").fill("240");
   await page.getByRole("button", { name: "건축 속성 적용" }).click();
-  await expect(page.getByLabel("벽 두께")).toHaveValue("240");
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry
+          .thicknessMillimeters,
+    )
+    .toBe(240);
+
+  const beforeWallMove = await mountedSnapshot(page);
+  const wallBefore = beforeWallMove.objects[wallId].geometry;
+  const openingBefore = beforeWallMove.objects[openingId].geometry;
+  await clickWorld(page, { x: 300, y: 400 });
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry.start.x,
+    )
+    .toBe(wallBefore.start.x + 10);
+  const afterWallMove = await mountedSnapshot(page);
+  const wallAfter = afterWallMove.objects[wallId].geometry;
+  const openingAfterWallMove = afterWallMove.objects[openingId].geometry;
+  expect(wallAfter.start.y).toBe(wallBefore.start.y + 10);
+  expect(openingAfterWallMove.hostWallId).toBe(wallId);
+  expect(openingAfterWallMove.offsetMillimeters).toBe(
+    openingBefore.offsetMillimeters,
+  );
+
+  const openingCenter = (snapshot: MountedSnapshot) => {
+    const opening = snapshot.objects[openingId].geometry;
+    const wall = snapshot.objects[opening.hostWallId].geometry;
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const length = Math.hypot(dx, dy);
+    return {
+      x: wall.start.x + (dx / length) * opening.offsetMillimeters,
+      y: wall.start.y + (dy / length) * opening.offsetMillimeters,
+    };
+  };
+  const followedCenter = openingCenter(afterWallMove);
+  await clickWorld(page, followedCenter);
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([openingId]);
+  const offsetBeforeOpeningMove =
+    afterWallMove.objects[openingId].geometry.offsetMillimeters;
+  await dragWorld(page, followedCenter, {
+    x: followedCenter.x + 100,
+    y: followedCenter.y,
+  });
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[openingId].geometry
+          .offsetMillimeters,
+    )
+    .not.toBe(offsetBeforeOpeningMove);
+  const offsetAfterOpeningMove = (await mountedSnapshot(page)).objects[
+    openingId
+  ].geometry.offsetMillimeters;
+
+  await page.getByRole("button", { name: "실행 취소" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[openingId].geometry
+          .offsetMillimeters,
+    )
+    .toBe(offsetBeforeOpeningMove);
+  await page.getByRole("button", { name: "다시 실행" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[openingId].geometry
+          .offsetMillimeters,
+    )
+    .toBe(offsetAfterOpeningMove);
+
+  await clickWorld(page, { x: 310, y: 410 });
+  const validWallGeometry = structuredClone(
+    (await mountedSnapshot(page)).objects[wallId].geometry,
+  );
+  await page.getByRole("button", { name: "P4 선택 벽 잘못 축소 시도" }).click();
+  await expect(page.getByLabel("P4 mounted command result")).toContainText(
+    "잘못된 축소 거부됨",
+  );
+  expect((await mountedSnapshot(page)).objects[wallId].geometry).toEqual(
+    validWallGeometry,
+  );
+
+  await openPreview(page, "?verticalTest=1&awarenessTest=1");
+  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+    "data-remote-selection-count",
+    "3",
+  );
+  const lockedDoorBefore = (await mountedSnapshot(page)).objects[
+    "00000000-0000-4000-8000-000000000101"
+  ].geometry.offsetMillimeters;
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 350, y: 720 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual(["00000000-0000-4000-8000-000000000101"]);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByLabel("공동 편집 작업 차단 안내")).toContainText(
+    "김도윤님이 D-101 편집 중",
+  );
+  expect(
+    (await mountedSnapshot(page)).objects[
+      "00000000-0000-4000-8000-000000000101"
+    ].geometry.offsetMillimeters,
+  ).toBe(lockedDoorBefore);
+
+  await openPreview(page, "?verticalTest=1&collaborationRetryTest=1");
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("local-failed");
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText(
+    "provider-failed",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");
+  await openPreview(page, "?verticalTest=1");
+  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "14",
+  );
+  expect(Object.keys((await mountedSnapshot(page)).objects)).toEqual(
+    beforeReload.objectIds,
+  );
+
+  await page.getByRole("tab", { name: "페이지·레이어" }).click();
+  const workLayerLock = page.getByLabel("레이어 잠금: 건축 작업");
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toBeVisible();
+  await page.waitForTimeout(250);
+  await workLayerLock.click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).layers[
+          "00000000-0000-4000-8000-000000000031"
+        ].locked,
+    )
+    .toBe(true);
+  const lockedWallGeometry = structuredClone(
+    (await mountedSnapshot(page)).objects[wallId].geometry,
+  );
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await dragWorld(page, { x: 310, y: 410 }, { x: 410, y: 410 });
+  expect((await mountedSnapshot(page)).objects[wallId].geometry).toEqual(
+    lockedWallGeometry,
+  );
+  await workLayerLock.click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).layers[
+          "00000000-0000-4000-8000-000000000031"
+        ].locked,
+    )
+    .toBe(false);
+
+  await page.screenshot({
+    path: path.join(artifactRoot, "task-6-fix2-integrated-authored.png"),
+    fullPage: true,
+  });
+
+  await openPreview(page, "?verticalTest=1");
 
   const pdf = await exportBytes(page, "PDF");
   const parsed = await PDFDocument.load(pdf);
@@ -596,32 +554,58 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   );
   expect(sourceRendered).toBeGreaterThan(0);
 
-  await openPreview(page, "?awarenessTest=1");
-  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
-    "data-remote-selection-count",
-    "3",
-  );
+  const changedBeforeRestore = await mountedSnapshot(page);
+  expect(semanticObjects(changedBeforeRestore)).toHaveLength(14);
+  await page.getByRole("tab", { name: "변경 이력" }).click();
+  await page.getByRole("button", { name: /상태로 복원/ }).click();
   await expect(
-    page.getByRole("status", { name: "객체 잠금 상태" }),
-  ).toContainText("김도윤님이 D-101 편집 중");
-
-  await openPreview(page, "?collaborationRetryTest=1");
-  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("local-failed");
-  await page.getByRole("button", { name: "다시 시도" }).click();
-  await expect(page.getByLabel("협업 재시도 상태")).toHaveText(
-    "provider-failed",
+    page.getByText("체크포인트 복원 작업을 안전하게 저장했습니다."),
+  ).toBeVisible();
+  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "8",
   );
-  await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");
+  const restored = await mountedSnapshot(page);
+  expect(semanticContent(restored)).toEqual(initialSemantic);
+  expect(
+    restored.objects["00000000-0000-4000-8000-000000000101"].geometry
+      .hostWallId,
+  ).toBe("00000000-0000-4000-8000-000000000100");
+  await page.getByRole("tab", { name: "Schedule" }).click();
+  const restoredSchedules = await Promise.all(
+    ["Room", "Door", "Finish"].map((name) =>
+      page
+        .getByRole("table", { name: new RegExp(`^${name} schedule`) })
+        .innerText(),
+    ),
+  );
+  expect(restoredSchedules).toEqual(initialSchedules);
+  expect(await exportBytes(page, "SVG")).toEqual(initialSvg);
 
-  await openPreview(page, "?bootstrapReadOnlyTest=1");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "8",
+  );
+  expect(semanticContent(await mountedSnapshot(page))).toEqual(initialSemantic);
+
+  await openPreview(page, "?verticalTest=1&bootstrapReadOnlyTest=1");
   await expect(page.getByRole("button", { name: "건축 객체" })).toBeHidden();
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
   ).toContainText("읽기 전용");
+  const beforeViewerAttempt = semanticContent(await mountedSnapshot(page));
+  await page.getByRole("button", { name: "P4 직접 변경 시도" }).click();
+  await expect(page.getByLabel("P4 mounted command result")).toHaveText(
+    "직접 변경 권한 차단됨",
+  );
+  expect(semanticContent(await mountedSnapshot(page))).toEqual(
+    beforeViewerAttempt,
+  );
 
   await page.screenshot({
-    path: path.join(artifactRoot, "task-6-fix-integrated.png"),
+    path: path.join(artifactRoot, "task-6-fix2-integrated-restored.png"),
     fullPage: true,
   });
   expect(

@@ -2,7 +2,7 @@
 
 Base: `0c62ff150812081c1b71edf6584b465a6924a362`
 
-Reviewed implementation: `2d76b44`
+Reviewed implementation: `2d76b44`, corrected by the fix2 evidence report.
 
 ## Review finding closure
 
@@ -11,12 +11,12 @@ Reviewed implementation: `2d76b44`
 `drawingCommandTargetIds` now sends `restore_checkpoint.actions` through the
 existing structural target resolver. The RED test reproduced the prior
 `Drawing recorded operation payload is invalid.` failure; GREEN asserts an
-affected peer soft lock is returned. The integrated browser vertical changes
-the graph, confirms the restore conflicts while its wall is peer-locked, then
-applies the same restore without that peer and compares semantic objects,
-geometry, opening host IDs, all three schedules, and SVG bytes with the captured
-baseline (versions are intentionally monotonic and excluded from semantic
-content equality).
+affected peer soft lock is returned. The fix2 mounted browser vertical changes
+the graph and restores through the UI, comparing semantic objects, geometry,
+opening host IDs, all three schedules, and SVG bytes with the captured baseline
+(versions are intentionally monotonic and excluded from semantic content
+equality). Peer-lock mutation rejection is exercised separately in that same
+workflow.
 
 ### C2 — hosted export order
 
@@ -35,9 +35,10 @@ real Yjs IndexedDB persistence. Outbox, Yjs operation order, pending order, and
 materialized object order are exact before and after closing/reopening every
 store. Reconnect performs 100 real local action POSTs, verifies the echoed ID
 inside each React Router wire response, lets `sendDrawingOperation` validate
-each decoded acknowledgement, empties the outbox, applies authoritative Yjs
-status acknowledgements, and verifies zero pending operations with all object
-IDs preserved.
+each decoded acknowledgement, and empties the outbox. No local test writes the
+server-owned Yjs status map. Without a configured authority/provider projection,
+the 100 operations truthfully remain pending; provider-authoritative convergence
+is **UNEXECUTED**.
 
 ### I2 — integrated P4 vertical and durable sources
 

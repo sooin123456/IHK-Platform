@@ -942,6 +942,8 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("bootstrapReadOnlyTest") === "1";
   const awarenessTest =
     new URL(request.url).searchParams.get("awarenessTest") === "1";
+  const verticalTest =
+    new URL(request.url).searchParams.get("verticalTest") === "1";
   const revision = fixture.workspace.document.revision;
   return {
     ...fixture,
@@ -1041,6 +1043,7 @@ export function loader({ request }: Route.LoaderArgs) {
     collaborationRetryTest,
     awarenessTest,
     realtimeTest,
+    verticalTest,
   };
 }
 
@@ -1111,6 +1114,7 @@ export default function LocalDrawingWorkspacePreview({
   const [previewSoftLockRequest, setPreviewSoftLockRequest] = useState<
     string | null
   >(null);
+  const [verticalSnapshot, setVerticalSnapshot] = useState<unknown>(null);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
@@ -1121,6 +1125,10 @@ export default function LocalDrawingWorkspacePreview({
   const previewHarness = useMemo(() => ({ onInvalidate }), [onInvalidate]);
   const awarenessPreviewHarness = useMemo(
     () => ({ onSoftLockChange: setPreviewSoftLockRequest }),
+    [],
+  );
+  const verticalPreviewHarness = useMemo(
+    () => ({ onStateChange: setVerticalSnapshot, verticalTest: true }),
     [],
   );
   useEffect(() => setHydrated(true), []);
@@ -1225,11 +1233,13 @@ export default function LocalDrawingWorkspacePreview({
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
         }
         previewHarness={
-          loaderData.realtimeTest
-            ? previewHarness
-            : loaderData.awarenessTest
-              ? awarenessPreviewHarness
-              : undefined
+          loaderData.verticalTest
+            ? verticalPreviewHarness
+            : loaderData.realtimeTest
+              ? previewHarness
+              : loaderData.awarenessTest
+                ? awarenessPreviewHarness
+                : undefined
         }
       />
       <aside
@@ -1240,6 +1250,14 @@ export default function LocalDrawingWorkspacePreview({
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>
+        {loaderData.verticalTest ? (
+          <output
+            aria-label="P4 mounted workspace snapshot"
+            className="sr-only"
+          >
+            {JSON.stringify(verticalSnapshot)}
+          </output>
+        ) : null}
         {loaderData.awarenessTest ? (
           <>
             <output aria-label="로컬 advisory 잠금" className="sr-only">

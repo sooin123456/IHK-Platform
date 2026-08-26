@@ -1,0 +1,88 @@
+P4 TASK 6 REREVIEW FIX EVIDENCE
+Date: 2026-08-27 (Asia/Seoul)
+
+RED / GREEN
+- Preview instrumentation RED: local preview test failed because
+  loaded.verticalTest was undefined; GREEN: 7/7 preview tests passed.
+- Mounted vertical RED: first real opening attempt remained at 9 semantic
+  objects because the authored 700mm host was shorter than the canonical
+  default 900mm opening. This was a valid product rejection. The test now
+  authors a 1300mm host; GREEN: the integrated mounted vertical passed.
+- Hosted cut mutation RED: dependency ordering temporarily disabled;
+  meaningful `(40,36.5)` pixel became `[0,0,0,255]` and
+  assertHostedCut failed. Implementation restored; GREEN pixel gate passed.
+
+FOCUSED NODE
+Command:
+  node --test tests/drawing-workspace-export.test.mjs tests/local-drawing-workspace-preview.test.mjs
+Result:
+  30 passed, 0 failed, 0 skipped
+
+FOCUSED CHROMIUM
+Command:
+  npx playwright test e2e/drawing-workspace-p4.spec.ts e2e/drawing-yjs-indexeddb.spec.ts --project=chromium --workers=1
+Result:
+  6 passed, 0 failed
+
+FULL DRAWING SUITE
+Command:
+  npm run test:drawing-workspace
+Result:
+  595 discovered; 594 passed, 0 failed, 1 skipped
+Skip:
+  UNEXECUTED: disposable PostgreSQL concurrency fixture is not configured
+
+STATIC / BUILD
+Commands and results:
+  npm run typecheck                 exit 0
+  npm run typecheck:collaboration   exit 0
+  npm run build                     exit 0 (established warnings only)
+  npm run build:collaboration       exit 0
+  git diff --check                  exit 0
+
+REAL OFFLINE / ACK BOUNDARY
+- navigator.onLine while Playwright context offline: false
+- operations sent through production mounted command bridge: 100
+- exact ordered outbox/Yjs/pending/object IDs before close: yes
+- exact ordered outbox/Yjs/pending/object IDs after reopen: yes
+- reconnect local action requests accepted: 100
+- outbox after action ACK: 0
+- locally/server-origin injected operationStatus rows: 0
+- pending after action ACK without provider projection: 100
+- provider-authoritative convergence: UNEXECUTED
+
+INTEGRATED MOUNTED WORKFLOW
+- Native six-type authoring: executed/pass
+- Inspector edit: executed/pass
+- Authored exact reload from Yjs/IndexedDB: executed/pass
+- Wall move and hosted opening follow: executed/pass
+- Opening pointer move: executed/pass
+- Invalid host shrink via mounted command bridge: rejected/pass
+- Native undo/redo: executed/pass
+- Remote selection and peer lock rejection: executed/pass
+- Local provider retry/reconnect lifecycle: executed/pass
+- Layer-lock mutation rejection: executed/pass
+- Viewer direct mounted-callback rejection: executed/pass
+- Review freeze/failure release: executed/pass
+- PDF download/parse/render: executed/pass
+- Changed checkpoint restore objects/refs/schedules/SVG: exact/pass
+- Restored state reload: exact/pass
+
+DURABLE SOURCES (BEFORE AND AFTER)
+- representative-drawing.pdf
+  size: 62602 bytes
+  sha256: 4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326
+- samples/sample.ifc
+  size: 222 bytes
+  sha256: 30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93
+
+VISUALLY INSPECTED SCREENSHOTS
+- task-6-fix2-integrated-authored.png
+  1440x2078, 128129 bytes; six authored types visible in changed workspace
+- task-6-fix2-integrated-restored.png
+  1440x900, 113207 bytes; canonical eight-object read-only restored workspace
+
+PRODUCTION
+- PostgreSQL concurrency: PRODUCTION UNEXECUTED
+- hosted authority/provider convergence: PRODUCTION UNEXECUTED
+- deployment/latency: PRODUCTION UNEXECUTED
