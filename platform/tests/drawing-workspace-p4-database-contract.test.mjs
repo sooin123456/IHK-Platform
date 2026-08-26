@@ -18,11 +18,31 @@ async function p4Migration() {
   return readFile(new URL(names[0], migrationDirectory), "utf8");
 }
 
+async function p4ContractFixMigration() {
+  const names = (await readdir(migrationDirectory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p4_semantic_object_contract_fixes.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "P4 contract fixes use exactly one new CLI-generated forward migration",
+  );
+  return readFile(new URL(names[0], migrationDirectory), "utf8");
+}
+
 test("P4 shared geometry corpus is mutation-resistant at the TypeScript authority", () => {
   for (const geometry of validP4Geometries)
-    assert.equal(DrawingGeometrySchema.safeParse(geometry).success, true, geometry.type);
+    assert.equal(
+      DrawingGeometrySchema.safeParse(geometry).success,
+      true,
+      geometry.type,
+    );
   for (const [name, geometry] of invalidP4Geometries)
-    assert.equal(DrawingGeometrySchema.safeParse(geometry).success, false, name);
+    assert.equal(
+      DrawingGeometrySchema.safeParse(geometry).success,
+      false,
+      name,
+    );
 });
 
 test("P4 forward migration keeps semantic persistence private and additive", async () => {
@@ -34,20 +54,75 @@ test("P4 forward migration keeps semantic persistence private and additive", asy
   assert.match(sql, /lukas_drawing_p4_semantic_graph_valid/i);
   assert.match(sql, /lukas_drawing_apply_operation_pre_p4_semantic_objects/i);
   assert.match(sql, /set search_path\s*=\s*''/i);
-  assert.match(sql, /revoke all on function[\s\S]*from public,anon,authenticated,service_role/i);
-  assert.match(sql, /grant execute on function private\.lukas_drawing_apply_operation[\s\S]*to authenticated,service_role/i);
-  assert.doesNotMatch(sql, /create\s+table\s+public\.[^;]*(measurement|semantic)/i);
-  assert.doesNotMatch(sql, /create\s+(?:or replace\s+)?function\s+public\.[^(]*(measurement|semantic)/i);
+  assert.match(
+    sql,
+    /revoke all on function[\s\S]*from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function private\.lukas_drawing_apply_operation[\s\S]*to authenticated,service_role/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /create\s+table\s+public\.[^;]*(measurement|semantic)/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /create\s+(?:or replace\s+)?function\s+public\.[^(]*(measurement|semantic)/i,
+  );
   assert.doesNotMatch(sql, /alter\s+table\s+(?:public\.)?lukas_qto_files/i);
+  assert.doesNotMatch(sql, /realtime\./i);
+});
+
+test("P4 contract fixes stay private, additive, and behind the existing operation RPC", async () => {
+  const sql = await p4ContractFixMigration();
+  assert.match(sql, /begin;[\s\S]*commit;/i);
+  assert.match(sql, /lukas_drawing_p4_utf16_string_valid/i);
+  assert.match(sql, /lukas_drawing_objects_p4_utf16_strings_check/i);
+  assert.match(sql, /lukas_drawing_geometry_valid_pre_p4_contract_fixes/i);
+  assert.match(sql, /lukas_drawing_apply_operation_pre_p4_contract_fixes/i);
+  assert.match(
+    sql,
+    /p_base_versions\s+is\s+distinct\s+from[\s\S]*v_expected_put_bases/i,
+  );
+  assert.match(sql, /set search_path\s*=\s*''/i);
+  assert.match(
+    sql,
+    /revoke all on function[\s\S]*from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function private\.lukas_drawing_apply_operation[\s\S]*to authenticated,service_role/i,
+  );
+  assert.doesNotMatch(sql, /create\s+table\s+public\./i);
+  assert.doesNotMatch(sql, /create\s+(?:or replace\s+)?function\s+public\./i);
+  assert.doesNotMatch(sql, /alter\s+table\s+public\.lukas_qto_files/i);
   assert.doesNotMatch(sql, /realtime\./i);
 });
 
 test("P4 SQL contracts preserve primitive blocks while widening object properties", async () => {
   const sql = await p4Migration();
   for (const type of [
-    "line", "polyline", "rectangle", "circle", "text", "dimension",
-    "wall", "opening", "space", "area", "grid", "arc",
-  ]) assert.match(sql, new RegExp(`'${type}'`));
-  assert.match(sql, /p2_block_primitives_valid[\s\S]*\('line','polyline','rectangle','circle','text','dimension'\)/i);
-  assert.match(sql, /p2_property_schema_json_valid[\s\S]*'wall'[\s\S]*'opening'[\s\S]*'space'[\s\S]*'area'[\s\S]*'grid'[\s\S]*'arc'/i);
+    "line",
+    "polyline",
+    "rectangle",
+    "circle",
+    "text",
+    "dimension",
+    "wall",
+    "opening",
+    "space",
+    "area",
+    "grid",
+    "arc",
+  ])
+    assert.match(sql, new RegExp(`'${type}'`));
+  assert.match(
+    sql,
+    /p2_block_primitives_valid[\s\S]*\('line','polyline','rectangle','circle','text','dimension'\)/i,
+  );
+  assert.match(
+    sql,
+    /p2_property_schema_json_valid[\s\S]*'wall'[\s\S]*'opening'[\s\S]*'space'[\s\S]*'area'[\s\S]*'grid'[\s\S]*'arc'/i,
+  );
 });

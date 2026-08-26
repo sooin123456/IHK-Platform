@@ -28,6 +28,28 @@ const PositiveFiniteMax = (maximum: number) =>
     .refine(Number.isFinite, "유한한 숫자여야 합니다.")
     .refine((value) => value > 0, "0보다 커야 합니다.");
 const Uuid = z.string().uuid();
+const P4HostUuid = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+const isP4UnicodeScalarText = (value: string) => {
+  if (value.includes("\0")) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      if (index + 1 >= value.length) return false;
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+  }
+  return true;
+};
+const P4AuthoredText = z
+  .string()
+  .max(255)
+  .refine(isP4UnicodeScalarText, "유효한 유니코드 문자열이어야 합니다.");
 const PositiveInteger = z.number().int().positive().max(SHARED_INTEGER_MAX);
 const NonNegativeInteger = z
   .number()
@@ -186,7 +208,7 @@ export const DrawingOpeningGeometrySchema = z
   .object({
     type: z.literal("opening"),
     semanticVersion: z.literal(1),
-    hostWallId: Uuid,
+    hostWallId: P4HostUuid,
     offsetMillimeters: P4NonNegative,
     widthMillimeters: P4Positive,
     heightMillimeters: P4Positive,
@@ -212,12 +234,12 @@ export const DrawingSpaceGeometrySchema = z
     type: z.literal("space"),
     semanticVersion: z.literal(1),
     boundary: P4BoundarySchema,
-    number: z.string().max(255),
+    number: P4AuthoredText,
     finishes: z
       .object({
-        floor: z.string().max(255).nullable(),
-        wall: z.string().max(255).nullable(),
-        ceiling: z.string().max(255).nullable(),
+        floor: P4AuthoredText.nullable(),
+        wall: P4AuthoredText.nullable(),
+        ceiling: P4AuthoredText.nullable(),
       })
       .strict(),
   })

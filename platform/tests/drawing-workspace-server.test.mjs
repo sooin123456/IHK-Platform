@@ -327,6 +327,12 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
     validP4Geometries[1],
     "D-01",
   );
+  const boundarySpace = p4Object(
+    "40000000-0000-4000-8000-000000000003",
+    ids.workLayer,
+    validP4Geometries[8],
+    "Boundary Unicode space",
+  );
   const client = queryClient({
     lukas_qto_files: {
       data: {
@@ -423,7 +429,7 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
       error: null,
     },
     lukas_drawing_objects: {
-      data: [wall, opening].map((object) => ({
+      data: [wall, opening, boundarySpace].map((object) => ({
         id: object.id,
         name: object.name,
         page_id: ids.page,
@@ -492,7 +498,7 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
         version: 1,
       },
     ],
-    objects: [wall, opening],
+    objects: [wall, opening, boundarySpace],
     blockInstances: [],
   });
   for (const table of [
