@@ -418,8 +418,10 @@ test("architectural object tools remain accessible without toolbar overflow on d
     const initialSemanticCount = Number(
       await surface.getAttribute("data-rendered-semantic-object-count"),
     );
-    await page.getByRole("button", { name: "건축 객체" }).click();
+    const semanticTrigger = page.getByRole("button", { name: "건축 객체" });
+    await semanticTrigger.click();
     await page.getByRole("menuitem", { name: "벽 도구" }).click();
+    await expect(semanticTrigger).toBeFocused();
     const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
     const viewportX = Number(await surface.getAttribute("data-viewport-x"));
     const viewportY = Number(await surface.getAttribute("data-viewport-y"));
@@ -449,8 +451,28 @@ test("architectural object tools remain accessible without toolbar overflow on d
       await expect(
         page.getByText("서버 계산 · V1", { exact: true }),
       ).toBeVisible();
+      await semanticTrigger.click();
+      await page.getByRole("menuitem", { name: "영역 도구" }).click();
+      const invalidBoundary = [
+        { x: 100, y: 100 },
+        { x: 300, y: 300 },
+        { x: 100, y: 300 },
+        { x: 300, y: 100 },
+      ];
+      for (const [index, point] of invalidBoundary.entries()) {
+        await surface.click({
+          position: {
+            x: viewportX + point.x * zoom,
+            y: viewportY + point.y * zoom,
+          },
+        });
+        if (index < invalidBoundary.length - 1) await page.waitForTimeout(600);
+      }
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("alert")).toContainText(/경계|다각형/);
+      await page.keyboard.press("Escape");
     }
-    await page.getByRole("button", { name: "건축 객체" }).click();
+    await semanticTrigger.click();
     for (const name of [
       "벽 도구",
       "개구부 도구",
@@ -467,6 +489,7 @@ test("architectural object tools remain accessible without toolbar overflow on d
     ).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeHidden();
+    await expect(semanticTrigger).toBeFocused();
     const overflow = await page.evaluate(() => {
       const toolbar = document.querySelector('[aria-label="캔버스 도구"]');
       return {

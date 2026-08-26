@@ -139,6 +139,142 @@ function arcBounds(geometry: Extract<DrawingGeometry, { type: "arc" }>) {
   return boundsForPoints(points);
 }
 
+/** Canonical microdegree-normalized points used by semantic arc rendering. */
+export function sampleDrawingArcPoints(
+  geometry: Extract<DrawingGeometry, { type: "arc" }>,
+): Point[] {
+  const segments = Math.max(
+    8,
+    Math.ceil(Math.abs(geometry.sweepAngleDegrees) / 8),
+  );
+  const start = toMicrodegrees(geometry.startAngleDegrees);
+  const sweep = toMicrodegrees(geometry.sweepAngleDegrees);
+  return Array.from({ length: segments + 1 }, (_, index) =>
+    arcPointAtMicrodegrees(
+      geometry,
+      start + (sweep * BigInt(index)) / BigInt(segments),
+    ),
+  );
+}
+
+/** Resolved line markers shared by opening rendering, bounds, and hit testing. */
+export function drawingOpeningMarkerSegments(
+  geometry: Extract<DrawingGeometry, { type: "opening" }>,
+  resolved: ReturnType<typeof resolveDrawingOpening>,
+): [Point, Point][] {
+  const radians = (resolved.wallAngleDegrees * Math.PI) / 180;
+  const normal = {
+    x: -Math.sin(radians) * 35,
+    y: Math.cos(radians) * 35,
+  };
+  const segments: [Point, Point][] = [[resolved.start, resolved.end]];
+  if (geometry.openingKind === "window")
+    segments.push([
+      {
+        x: resolved.start.x + normal.x,
+        y: resolved.start.y + normal.y,
+      },
+      { x: resolved.end.x + normal.x, y: resolved.end.y + normal.y },
+    ]);
+  if (geometry.openingKind === "door")
+    segments.push([
+      resolved.start,
+      {
+        x: resolved.start.x + normal.x * 2.5,
+        y: resolved.start.y + normal.y * 2.5,
+      },
+    ]);
+  return segments;
+}
+
+function pointToSegmentDistance(point: Point, start: Point, end: Point) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return distance(point, start);
+  const amount = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+    ),
+  );
+  return distance(point, {
+    x: start.x + dx * amount,
+    y: start.y + dy * amount,
+  });
+}
+
+function pointInPolygon(point: Point, boundary: readonly Point[]) {
+  let inside = false;
+  for (
+    let index = 0, previous = boundary.length - 1;
+    index < boundary.length;
+    previous = index++
+  ) {
+    const currentPoint = boundary[index];
+    const previousPoint = boundary[previous];
+    if (
+      currentPoint.y > point.y !== previousPoint.y > point.y &&
+      point.x <
+        ((previousPoint.x - currentPoint.x) * (point.y - currentPoint.y)) /
+          (previousPoint.y - currentPoint.y) +
+          currentPoint.x
+    )
+      inside = !inside;
+  }
+  return inside;
+}
+
+/** Semantic narrow phase after the existing bounds broad phase. */
+export function drawingGeometryHitTest(
+  geometry: DrawingGeometry,
+  point: Point,
+  tolerance: number,
+  objects: Readonly<Record<string, DrawingObject>> = {},
+) {
+  if (!Number.isFinite(tolerance) || tolerance < 0)
+    throw new Error("선택 허용 오차가 올바르지 않습니다.");
+  if (geometry.type === "wall")
+    return (
+      pointToSegmentDistance(point, geometry.start, geometry.end) <=
+      geometry.thicknessMillimeters / 2 + tolerance
+    );
+  if (geometry.type === "grid")
+    return (
+      pointToSegmentDistance(point, geometry.start, geometry.end) <= tolerance
+    );
+  if (geometry.type === "arc") {
+    const samples = sampleDrawingArcPoints(geometry);
+    return samples
+      .slice(1)
+      .some(
+        (end, index) =>
+          pointToSegmentDistance(point, samples[index], end) <= tolerance,
+      );
+  }
+  if (geometry.type === "opening") {
+    const resolved = resolveDrawingOpening(geometry, objects);
+    return drawingOpeningMarkerSegments(geometry, resolved).some(
+      ([start, end]) =>
+        pointToSegmentDistance(point, start, end) <= tolerance + 5,
+    );
+  }
+  if (geometry.type === "space" || geometry.type === "area")
+    return (
+      pointInPolygon(point, geometry.boundary) ||
+      geometry.boundary.some(
+        (start, index) =>
+          pointToSegmentDistance(
+            point,
+            start,
+            geometry.boundary[(index + 1) % geometry.boundary.length],
+          ) <= tolerance,
+      )
+    );
+  return true;
+}
+
 /** Canonical authored points that are meaningful object-snap targets. */
 export function geometrySnapPoints(
   geometry: DrawingGeometry,
@@ -400,7 +536,9 @@ export function geometryBounds(
       return arcBounds(geometry);
     case "opening": {
       const resolved = resolveDrawingOpening(geometry, objects ?? {});
-      return boundsForPoints([resolved.start, resolved.end]);
+      return boundsForPoints(
+        drawingOpeningMarkerSegments(geometry, resolved).flat(),
+      );
     }
   }
 }

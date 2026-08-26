@@ -1316,6 +1316,16 @@ function controllerContext(overrides = {}) {
     calibrationId: null,
     canEdit: true,
     layerId: ids.layer,
+    layers: {
+      [ids.layer]: {
+        id: ids.layer,
+        name: "작업",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        version: 1,
+      },
+    },
     objectId: "00000000-0000-4000-8000-000000000020",
     repeatMode: false,
     snap: {

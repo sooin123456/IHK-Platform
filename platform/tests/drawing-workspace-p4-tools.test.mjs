@@ -20,6 +20,19 @@ test.after(() => vite.close());
 const layerId = "10000000-0000-4000-8000-000000000001";
 const wallId = "10000000-0000-4000-8000-000000000002";
 const objectId = "10000000-0000-4000-8000-000000000003";
+const openingId = "10000000-0000-4000-8000-000000000004";
+const otherLayerId = "10000000-0000-4000-8000-000000000005";
+function layer(id = layerId, overrides = {}) {
+  return {
+    id,
+    name: "Work",
+    visible: true,
+    locked: false,
+    systemKind: "work",
+    version: 1,
+    ...overrides,
+  };
+}
 const wall = {
   id: wallId,
   name: "W-01",
@@ -61,7 +74,7 @@ function context(overrides = {}) {
     calibrationId: null,
     canEdit: true,
     layerId,
-    layers: { [layerId]: { visible: true, locked: false } },
+    layers: { [layerId]: layer() },
     objectId,
     objects: { [wallId]: wall },
     repeatMode: false,
@@ -136,7 +149,7 @@ test("opening selects the nearest eligible wall and emits one default hosted doo
     context({ activeTool: "opening", lockedEntityIds: new Set([wallId]) }),
     context({
       activeTool: "opening",
-      layers: { [layerId]: { visible: true, locked: true } },
+      layers: { [layerId]: layer(layerId, { locked: true }) },
     }),
   ]) {
     const blocked = pointerDown(
@@ -197,14 +210,19 @@ test("space and area collect points, support Backspace, and complete only valid 
     { x: 1000, y: 0 },
   ])
     invalid = pointerDown(invalid, point, areaContext).state;
-  assert.equal(
-    tools.drawingToolEventTransition(
+  for (const event of [
+    { type: "double_click" },
+    { type: "key_down", key: "Enter" },
+  ]) {
+    const rejected = tools.drawingToolEventTransition(
       invalid,
-      { type: "double_click" },
+      event,
       areaContext,
-    ).command,
-    null,
-  );
+    );
+    assert.equal(rejected.command, null);
+    assert.deepEqual(rejected.state.session, invalid.session);
+    assert.match(rejected.state.validationMessage, /경계|다각형/);
+  }
   assert.deepEqual(
     tools.drawingToolEventTransition(
       invalid,
@@ -278,4 +296,308 @@ test("semantic completion respects repeat mode and capability/layer downgrade ca
     assert.equal(cancelled.command, null);
     assert.deepEqual(cancelled.state.session, { tool: "idle" });
   }
+});
+
+test("same-ID layer lock, hide, source downgrade, and capability loss cancel sessions and release capture", () => {
+  const wallContext = context({ activeTool: "wall" });
+  const startedWall = pointerDown(
+    tools.createDrawingToolControllerState(wallContext),
+    { x: 0, y: 0 },
+    wallContext,
+  );
+  for (const downgraded of [
+    context({
+      activeTool: "wall",
+      layers: { [layerId]: layer(layerId, { locked: true }) },
+    }),
+    context({
+      activeTool: "wall",
+      layers: { [layerId]: layer(layerId, { visible: false }) },
+    }),
+    context({
+      activeTool: "wall",
+      layers: {
+        [layerId]: layer(layerId, { locked: true, systemKind: "source" }),
+      },
+    }),
+    context({ activeTool: "wall", canEdit: false }),
+  ]) {
+    const cancelled = tools.drawingToolEventTransition(
+      startedWall.state,
+      { type: "sync_context" },
+      downgraded,
+    );
+    assert.deepEqual(cancelled.state.session, { tool: "idle" });
+    assert.equal(cancelled.command, null);
+  }
+
+  const rectangleContext = context({ activeTool: "rectangle" });
+  const dragging = pointerDown(
+    tools.createDrawingToolControllerState(rectangleContext),
+    { x: 0, y: 0 },
+    rectangleContext,
+  );
+  assert.deepEqual(dragging.pointerCapture, { type: "set", pointerId: 1 });
+  const cancelledDrag = tools.drawingToolEventTransition(
+    dragging.state,
+    { type: "sync_context" },
+    context({
+      activeTool: "rectangle",
+      layers: { [layerId]: layer(layerId, { locked: true }) },
+    }),
+  );
+  assert.deepEqual(cancelledDrag.pointerCapture, {
+    type: "release",
+    pointerId: 1,
+  });
+  assert.deepEqual(cancelledDrag.state.session, { tool: "idle" });
+});
+
+test("wall and grid reconcile competing object and grid snaps onto an exact Shift ray", () => {
+  for (const tool of ["wall", "grid"]) {
+    const objectSnapped = tools.commitDrawingPoint(
+      tools.beginDrawingToolSession(tool, { x: 0, y: 0 }, snap),
+      { x: 720, y: 735 },
+      options({
+        constrain: true,
+        snap: {
+          ...snap,
+          objectCandidates: [{ x: 720, y: 735 }],
+          tolerancePixels: 30,
+        },
+      }),
+    ).command.objects[0].geometry.end;
+    assert.equal(Math.abs(objectSnapped.x), Math.abs(objectSnapped.y));
+    assert.notDeepEqual(objectSnapped, { x: 720, y: 735 });
+
+    const gridSnapped = tools.commitDrawingPoint(
+      tools.beginDrawingToolSession(tool, { x: 10, y: 20 }, snap),
+      { x: 910, y: 520 },
+      options({
+        constrain: true,
+        snap: { ...snap, gridSize: 100, tolerancePixels: 100 },
+      }),
+    ).command.objects[0].geometry.end;
+    assert.equal(Math.abs(gridSnapped.x - 10), Math.abs(gridSnapped.y - 20));
+  }
+});
+
+test("semantic narrow-phase selection falls through an empty top bounding box", () => {
+  const rectangle = {
+    id: objectId,
+    name: "Under",
+    layerId,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 100,
+      height: 100,
+      rotation: 0,
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const concave = {
+    id: openingId,
+    name: "Top L",
+    layerId,
+    geometry: {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 40 },
+        { x: 40, y: 40 },
+        { x: 40, y: 100 },
+        { x: 0, y: 100 },
+      ],
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: "#ffffff" },
+    version: 1,
+  };
+  const result = tools.drawingSelectionEventTransition(
+    tools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: concave.id,
+      pointerId: 7,
+      screenPoint: { x: 80, y: 80 },
+      shiftKey: false,
+    },
+    {
+      actorId: "actor-a",
+      canEdit: true,
+      layers: { [layerId]: layer() },
+      objects: { [rectangle.id]: rectangle, [concave.id]: concave },
+      orderedCandidateIds: [rectangle.id, concave.id],
+      snap: { gridSize: 0 },
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  );
+  assert.deepEqual(result.state.selectedIds, [rectangle.id]);
+});
+
+test("wall drag previews include visible hosted openings but commit only the wall", () => {
+  assert.equal(typeof tools.drawingSelectionPreview, "function");
+  const hostedOpening = {
+    id: openingId,
+    name: "D-01",
+    layerId: otherLayerId,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: wallId,
+      offsetMillimeters: 1800,
+      widthMillimeters: 900,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    style: { stroke: "#000000", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const layers = {
+    [layerId]: layer(),
+    [otherLayerId]: layer(otherLayerId),
+  };
+  const objects = { [wallId]: wall, [openingId]: hostedOpening };
+  const preview = tools.drawingSelectionPreview({
+    actorId: "actor-a",
+    delta: { x: 100, y: 50 },
+    layers,
+    objects,
+    selectedIds: [wallId],
+  });
+  assert.deepEqual(preview.objectIds, [wallId, openingId]);
+  assert.deepEqual(preview.objects[openingId].geometry, hostedOpening.geometry);
+  assert.deepEqual(preview.objects[wallId].geometry.start, { x: 100, y: 50 });
+
+  const withSelectedOpening = tools.drawingSelectionPreview({
+    actorId: "actor-a",
+    delta: { x: 100, y: 50 },
+    layers,
+    objects,
+    selectedIds: [wallId, openingId],
+  });
+  assert.deepEqual(withSelectedOpening.objectIds, [wallId, openingId]);
+  assert.deepEqual(
+    withSelectedOpening.objects[openingId].geometry,
+    hostedOpening.geometry,
+  );
+
+  const hiddenOpening = tools.drawingSelectionPreview({
+    actorId: "actor-a",
+    delta: { x: 100, y: 50 },
+    layers: {
+      ...layers,
+      [otherLayerId]: layer(otherLayerId, { visible: false }),
+    },
+    objects,
+    selectedIds: [wallId],
+  });
+  assert.deepEqual(hiddenOpening.objectIds, [wallId]);
+
+  const selectionContext = {
+    actorId: "actor-a",
+    canEdit: true,
+    layers,
+    objects,
+    orderedCandidateIds: [wallId, openingId],
+    snap: { gridSize: 0 },
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+  let gesture = tools.drawingSelectionEventTransition(
+    tools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: wallId,
+      pointerId: 9,
+      screenPoint: { x: 1000, y: 0 },
+      shiftKey: false,
+    },
+    selectionContext,
+  );
+  gesture = tools.drawingSelectionEventTransition(
+    gesture.state,
+    { type: "pointer_move", pointerId: 9, screenPoint: { x: 1100, y: 50 } },
+    selectionContext,
+  );
+  const committed = tools.drawingSelectionEventTransition(
+    gesture.state,
+    { type: "pointer_up", pointerId: 9, screenPoint: { x: 1100, y: 50 } },
+    selectionContext,
+  );
+  assert.deepEqual(
+    committed.command.updates.map((update) => update.objectId),
+    [wallId],
+  );
+  const cancelled = tools.drawingSelectionEventTransition(
+    gesture.state,
+    { type: "pointer_cancel", pointerId: 9 },
+    selectionContext,
+  );
+  assert.deepEqual(cancelled.state.previewDelta, { x: 0, y: 0 });
+
+  const hostHidden = tools.drawingSelectionEventTransition(
+    gesture.state,
+    { type: "sync_context" },
+    {
+      ...selectionContext,
+      layers: { ...layers, [layerId]: layer(layerId, { visible: false }) },
+    },
+  );
+  assert.equal(hostHidden.state.drag, null);
+  assert.deepEqual(hostHidden.state.previewDelta, { x: 0, y: 0 });
+});
+
+test("semantic render cache is identity-bounded and stores only opening and arc views", () => {
+  assert.equal(typeof tools.semanticRenderView, "function");
+  assert.equal(tools.semanticRenderView(wall, { [wallId]: wall }), undefined);
+  const arcObject = {
+    ...wall,
+    id: objectId,
+    geometry: {
+      type: "arc",
+      semanticVersion: 1,
+      center: { x: 0, y: 0 },
+      radius: 100,
+      startAngleDegrees: 0,
+      sweepAngleDegrees: 90,
+    },
+  };
+  const firstArc = tools.semanticRenderView(arcObject, {});
+  assert.equal(tools.semanticRenderView(arcObject, {}), firstArc);
+  assert.notEqual(
+    tools.semanticRenderView({ ...arcObject, version: 2 }, {}),
+    firstArc,
+  );
+
+  const openingObject = {
+    ...wall,
+    id: openingId,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: wallId,
+      offsetMillimeters: 1800,
+      widthMillimeters: 900,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+  };
+  const firstOpening = tools.semanticRenderView(openingObject, {
+    [wallId]: wall,
+  });
+  assert.equal(
+    tools.semanticRenderView(openingObject, { [wallId]: wall }),
+    firstOpening,
+  );
+  assert.notEqual(
+    tools.semanticRenderView(openingObject, {
+      [wallId]: { ...wall, version: 2 },
+    }),
+    firstOpening,
+  );
 });

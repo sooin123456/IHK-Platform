@@ -24,9 +24,12 @@ import {
 
 import {
   drawingCanvasCursor,
+  drawingGeometryHitTest,
+  drawingOpeningMarkerSegments,
   drawingPanGestureTransition,
   geometryBounds,
   geometrySnapPoints,
+  sampleDrawingArcPoints,
   screenToWorld,
   snapWorldPoint,
   worldToScreen,
@@ -34,6 +37,7 @@ import {
   type DrawingPanGesture,
 } from "~/lukas/lib/drawing-geometry";
 import {
+  isEditableDrawingLayer,
   moveDrawingOpeningToPoint,
   translateDrawingGeometry,
   type DrawingCommand,
@@ -168,12 +172,22 @@ function nextTool(
 function constrainTo45Degrees(start: Point, end: Point): Point {
   const length = Math.hypot(end.x - start.x, end.y - start.y);
   if (length === 0) return end;
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const constrained = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-  return {
-    x: start.x + Math.cos(constrained) * length,
-    y: start.y + Math.sin(constrained) * length,
-  };
+  const direction =
+    ((Math.round(Math.atan2(end.y - start.y, end.x - start.x) / (Math.PI / 4)) %
+      8) +
+      8) %
+    8;
+  const diagonal = length / Math.SQRT2;
+  return [
+    { x: start.x + length, y: start.y },
+    { x: start.x + diagonal, y: start.y + diagonal },
+    { x: start.x, y: start.y + length },
+    { x: start.x - diagonal, y: start.y + diagonal },
+    { x: start.x - length, y: start.y },
+    { x: start.x - diagonal, y: start.y - diagonal },
+    { x: start.x, y: start.y - length },
+    { x: start.x + diagonal, y: start.y - diagonal },
+  ][direction];
 }
 
 function drawingObject(
@@ -276,7 +290,7 @@ export function commitDrawingPoint(
   if (session.tool === "idle" || session.tool === "text") {
     return { command: null, nextTool: "select", session };
   }
-  let candidate = point;
+  let committed = snapPoint(point, options.snap);
   if (
     options.constrain &&
     (session.tool === "line" ||
@@ -284,9 +298,8 @@ export function commitDrawingPoint(
       session.tool === "wall" ||
       session.tool === "grid")
   ) {
-    candidate = constrainTo45Degrees(session.start, candidate);
+    committed = constrainTo45Degrees(session.start, committed);
   }
-  const committed = snapPoint(candidate, options.snap);
   if (
     session.tool === "polyline" ||
     session.tool === "space" ||
@@ -431,8 +444,7 @@ export function completeDrawingToolSession(
       (point) =>
         point.x !== session.points[0]?.x || point.y !== session.points[0]?.y,
     );
-    return completedResult(
-      session.tool,
+    const geometry: DrawingGeometry | null =
       session.tool === "polyline"
         ? session.points.length >= 2 && distinct
           ? { type: "polyline", points: session.points, closed: false }
@@ -453,9 +465,10 @@ export function completeDrawingToolSession(
                     boundary: session.points.map(semanticPoint),
                   },
             )
-          : null,
-      options,
-    );
+          : null;
+    if (session.tool !== "polyline" && !geometry)
+      return { command: null, nextTool: session.tool, session };
+    return completedResult(session.tool, geometry, options);
   }
   if (session.tool === "text") {
     const text = options.text?.trim() ?? "";
@@ -502,6 +515,7 @@ export type DrawingToolControllerState = {
   editLayerId: string | null;
   previewPoint: Point | null;
   session: ToolSession;
+  validationMessage: string | null;
 };
 
 export type DrawingPointerCaptureIntent = {
@@ -542,7 +556,11 @@ export type DrawingToolControllerResult = {
 };
 
 function authorizedLayer(context: DrawingToolControllerContext) {
-  return context.canEdit ? context.layerId : null;
+  return context.canEdit && context.layerId && context.layers
+    ? isEditableDrawingLayer(context.layers[context.layerId])
+      ? context.layerId
+      : null
+    : null;
 }
 
 export function createDrawingToolControllerState(
@@ -555,6 +573,7 @@ export function createDrawingToolControllerState(
     editLayerId: authorizedLayer(context),
     previewPoint: null,
     session: { tool: "idle" },
+    validationMessage: null,
   };
 }
 
@@ -602,7 +621,7 @@ function synchronizedController(
   return {
     changed: true,
     result: controllerResult(createDrawingToolControllerState(context), {
-      nextTool: context.canEdit ? null : "select",
+      nextTool: authorizedLayer(context) ? null : "select",
       pointerCapture:
         state.dragPointerId === null
           ? null
@@ -649,6 +668,7 @@ function completedControllerResult(
       dragPointerId: null,
       previewPoint: null,
       session: completed.session,
+      validationMessage: null,
     },
     {
       command: completed.command,
@@ -656,6 +676,24 @@ function completedControllerResult(
       pointerCapture,
     },
   );
+}
+
+function completedOrRejectedPolygon(
+  state: DrawingToolControllerState,
+  completed: DrawingToolResult,
+) {
+  if (
+    !completed.command &&
+    (state.session.tool === "space" || state.session.tool === "area")
+  )
+    return controllerResult({
+      ...state,
+      previewPoint: null,
+      session: completed.session,
+      validationMessage:
+        "경계가 겹치지 않는 유효한 다각형이 되도록 점을 수정하세요.",
+    });
+  return completedControllerResult(state, completed);
 }
 
 function controllerWorldPoint(
@@ -749,7 +787,7 @@ export function drawingToolEventTransition(
   const synchronized = synchronizedController(state, context);
   if (event.type === "sync_context" || synchronized.changed)
     return synchronized.result;
-  if (!context.canEdit || !context.layerId)
+  if (!authorizedLayer(context))
     return controllerResult(createDrawingToolControllerState(context));
 
   const snap = controllerSnapContext(context);
@@ -787,12 +825,14 @@ export function drawingToolEventTransition(
           ...state,
           previewPoint: null,
           session: added.session,
+          validationMessage: null,
         });
       }
       return controllerResult({
         ...state,
         previewPoint: null,
         session: beginDrawingToolSession(context.activeTool, worldPoint, snap),
+        validationMessage: null,
       });
     }
     if (
@@ -815,6 +855,7 @@ export function drawingToolEventTransition(
         ...state,
         previewPoint: null,
         session: beginDrawingToolSession(context.activeTool, worldPoint, snap),
+        validationMessage: null,
       });
     }
     return controllerResult(
@@ -835,7 +876,10 @@ export function drawingToolEventTransition(
       (state.dragPointerId !== null && state.dragPointerId !== event.pointerId)
     )
       return controllerResult(state);
-    let candidate = controllerWorldPoint(event.screenPoint, context);
+    let candidate = snapPoint(
+      controllerWorldPoint(event.screenPoint, context),
+      snap,
+    );
     if (
       event.shiftKey &&
       (state.session.tool === "line" ||
@@ -847,7 +891,7 @@ export function drawingToolEventTransition(
     }
     return controllerResult({
       ...state,
-      previewPoint: snapPoint(candidate, snap),
+      previewPoint: candidate,
     });
   }
 
@@ -890,7 +934,7 @@ export function drawingToolEventTransition(
       return controllerResult(state);
     const options = controllerCommitOptions(context);
     return options
-      ? completedControllerResult(
+      ? completedOrRejectedPolygon(
           state,
           completeDrawingToolSession(state.session, options),
         )
@@ -917,6 +961,7 @@ export function drawingToolEventTransition(
       ...state,
       previewPoint: null,
       session: removeLastPolylinePoint(state.session),
+      validationMessage: null,
     });
   }
   if (
@@ -928,7 +973,7 @@ export function drawingToolEventTransition(
   ) {
     const options = controllerCommitOptions(context, false, event.text);
     return options
-      ? completedControllerResult(
+      ? completedOrRejectedPolygon(
           state,
           completeDrawingToolSession(state.session, options),
         )
@@ -959,6 +1004,7 @@ export type DrawingSelectionContext = {
   canEdit: boolean;
   layers: Record<string, DrawingLayer>;
   objects: Record<string, DrawingObject>;
+  orderedCandidateIds?: readonly string[];
   snap: { gridSize: number };
   viewport: Viewport;
   lockedEntityIds?: ReadonlySet<string>;
@@ -1001,6 +1047,39 @@ function selectableDrawingObject(
   const object = context.objects[objectId];
   const layer = object ? context.layers[object.layerId] : undefined;
   return object && layer?.visible && !layer.locked ? object : null;
+}
+
+function drawingSelectionCandidateAtPoint(
+  context: DrawingSelectionContext,
+  preferredId: string,
+  point: Point,
+) {
+  if (!selectableDrawingObject(context, preferredId)) return undefined;
+  const ordered = context.orderedCandidateIds ?? Object.keys(context.objects);
+  return [
+    preferredId,
+    ...[...ordered].reverse().filter((id) => id !== preferredId),
+  ]
+    .map((id) => selectableDrawingObject(context, id))
+    .find(
+      (object) =>
+        object &&
+        pointInBounds(
+          point,
+          drawingSelectionHitBounds(
+            object.geometry,
+            context.viewport.zoom,
+            SELECTION_HIT_TOLERANCE_PIXELS,
+            context.objects,
+          ),
+        ) &&
+        drawingGeometryHitTest(
+          object.geometry,
+          point,
+          SELECTION_HIT_TOLERANCE_PIXELS / context.viewport.zoom,
+          context.objects,
+        ),
+    );
 }
 
 /** Expands canonical object bounds by a fixed screen-space hit tolerance. */
@@ -1186,6 +1265,55 @@ function moveSelectionSnapshotsWithOpenings(
     : null;
 }
 
+export function drawingSelectionPreview({
+  actorId,
+  delta,
+  layers,
+  objects,
+  selectedIds,
+}: {
+  actorId: string;
+  delta: Point;
+  layers: Record<string, DrawingLayer>;
+  objects: Record<string, DrawingObject>;
+  selectedIds: readonly string[];
+}) {
+  if (delta.x === 0 && delta.y === 0)
+    return { objectIds: [] as string[], objects };
+  const selected = new Set(selectedIds);
+  const previewObjects = { ...objects };
+  for (const id of selectedIds) {
+    const object = objects[id];
+    if (!object) continue;
+    if (object.geometry.type === "opening") {
+      if (selected.has(object.geometry.hostWallId)) continue;
+      const resolved = resolveDrawingOpening(object.geometry, objects);
+      previewObjects[id] = {
+        ...object,
+        geometry: moveDrawingOpeningToPoint({ layers, objects }, id, actorId, {
+          x: resolved.center.x + delta.x,
+          y: resolved.center.y + delta.y,
+        }).updates[0].patch.geometry!,
+      };
+    } else {
+      previewObjects[id] = {
+        ...object,
+        geometry: translateDrawingGeometry(object.geometry, delta),
+      };
+    }
+  }
+  const objectIds = [...selectedIds];
+  for (const object of Object.values(objects))
+    if (
+      object.geometry.type === "opening" &&
+      selected.has(object.geometry.hostWallId) &&
+      !selected.has(object.id) &&
+      layers[object.layerId]?.visible
+    )
+      objectIds.push(object.id);
+  return { objectIds, objects: previewObjects };
+}
+
 /** Pure selection gesture adapter; renderer nodes are only candidate hints. */
 export function drawingSelectionEventTransition(
   state: DrawingSelectionState,
@@ -1246,20 +1374,12 @@ export function drawingSelectionEventTransition(
   if (event.type === "pointer_down") {
     const point = screenToWorld(event.screenPoint, context.viewport);
     if (event.candidateId !== null) {
-      const candidate = selectableDrawingObject(context, event.candidateId);
-      if (
-        !candidate ||
-        !pointInBounds(
-          point,
-          drawingSelectionHitBounds(
-            candidate.geometry,
-            context.viewport.zoom,
-            SELECTION_HIT_TOLERANCE_PIXELS,
-            context.objects,
-          ),
-        )
-      )
-        return { command: null, state };
+      const candidate = drawingSelectionCandidateAtPoint(
+        context,
+        event.candidateId,
+        point,
+      );
+      if (!candidate) return { command: null, state };
       const eligibleSelectedIds = state.selectedIds.filter((objectId) =>
         Boolean(selectableDrawingObject(context, objectId)),
       );
@@ -1649,17 +1769,11 @@ function geometryShape(
     case "opening": {
       const resolved =
         semanticView?.opening ?? resolveDrawingOpening(geometry, objects);
-      const points = [
-        resolved.start.x,
-        resolved.start.y,
-        resolved.end.x,
-        resolved.end.y,
-      ];
-      const radians = (resolved.wallAngleDegrees * Math.PI) / 180;
-      const normal = {
-        x: -Math.sin(radians) * 35,
-        y: Math.cos(radians) * 35,
-      };
+      const [opening, marker] = drawingOpeningMarkerSegments(
+        geometry,
+        resolved,
+      );
+      const points = opening.flatMap((point) => [point.x, point.y]);
       return (
         <>
           <Line
@@ -1676,24 +1790,14 @@ function geometryShape(
           {geometry.openingKind === "window" ? (
             <Line
               {...common}
-              points={[
-                resolved.start.x + normal.x,
-                resolved.start.y + normal.y,
-                resolved.end.x + normal.x,
-                resolved.end.y + normal.y,
-              ]}
+              points={marker.flatMap((point) => [point.x, point.y])}
               strokeWidth={5}
             />
           ) : null}
           {geometry.openingKind === "door" ? (
             <Line
               {...common}
-              points={[
-                resolved.start.x,
-                resolved.start.y,
-                resolved.start.x + normal.x * 2.5,
-                resolved.start.y + normal.y * 2.5,
-              ]}
+              points={marker.flatMap((point) => [point.x, point.y])}
               strokeWidth={6}
             />
           ) : null}
@@ -1780,7 +1884,7 @@ function geometryShape(
         <Line
           {...common}
           points={(
-            semanticView?.arcPoints ?? sampleDrawingArc(geometry)
+            semanticView?.arcPoints ?? sampleDrawingArcPoints(geometry)
           ).flatMap((point) => [point.x, point.y])}
         />
       );
@@ -1804,52 +1908,33 @@ function polygonCentroid(points: readonly Point[]): Point {
     : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
 }
 
-function sampleDrawingArc(
-  geometry: Extract<DrawingGeometry, { type: "arc" }>,
-): Point[] {
-  const segments = Math.max(
-    8,
-    Math.ceil(Math.abs(geometry.sweepAngleDegrees) / 8),
-  );
-  return Array.from({ length: segments + 1 }, (_, index) => {
-    const angle =
-      ((geometry.startAngleDegrees +
-        (geometry.sweepAngleDegrees * index) / segments) *
-        Math.PI) /
-      180;
-    return {
-      x: geometry.center.x + geometry.radius * Math.cos(angle),
-      y: geometry.center.y + geometry.radius * Math.sin(angle),
-    };
-  });
-}
+type SemanticRenderView = {
+  opening?: ReturnType<typeof resolveDrawingOpening>;
+  arcPoints?: Point[];
+};
 
-const semanticRenderCache = new Map<
-  string,
-  {
-    opening?: ReturnType<typeof resolveDrawingOpening>;
-    arcPoints?: Point[];
-  }
+const semanticRenderCache = new WeakMap<
+  DrawingObject,
+  { host?: DrawingObject; view: SemanticRenderView }
 >();
 
-function semanticRenderView(
+export function semanticRenderView(
   object: DrawingObject,
   objects: Readonly<Record<string, DrawingObject>>,
 ) {
-  const hostVersion =
+  if (object.geometry.type !== "opening" && object.geometry.type !== "arc")
+    return undefined;
+  const host =
     object.geometry.type === "opening"
-      ? (objects[object.geometry.hostWallId]?.version ?? "missing")
-      : "";
-  const key = `${object.id}:${object.version}:${hostVersion}`;
-  const cached = semanticRenderCache.get(key);
-  if (cached) return cached;
-  const view =
+      ? objects[object.geometry.hostWallId]
+      : undefined;
+  const cached = semanticRenderCache.get(object);
+  if (cached && cached.host === host) return cached.view;
+  const view: SemanticRenderView =
     object.geometry.type === "opening"
       ? { opening: resolveDrawingOpening(object.geometry, objects) }
-      : object.geometry.type === "arc"
-        ? { arcPoints: sampleDrawingArc(object.geometry) }
-        : {};
-  semanticRenderCache.set(key, view);
+      : { arcPoints: sampleDrawingArcPoints(object.geometry) };
+  semanticRenderCache.set(object, { host, view });
   return view;
 }
 
@@ -2414,7 +2499,7 @@ export const DrawingCanvas = forwardRef<
         toolContextRef.current,
       ),
     );
-  }, [activeTool, applyToolControllerResult, canEdit, layerId]);
+  }, [activeTool, applyToolControllerResult, canEdit, layerId, layersById]);
 
   useEffect(() => {
     const current = selectionRef.current;
@@ -2517,48 +2602,24 @@ export const DrawingCanvas = forwardRef<
       )
     : null;
   const handleSize = drawingSelectionHandleSize(viewport.zoom);
-  const previewObjectsById = useMemo(() => {
-    if (
-      selectionState.previewDelta.x === 0 &&
-      selectionState.previewDelta.y === 0
-    )
-      return objectsById;
-    const selected = new Set(selectionState.selectedIds);
-    const next = { ...objectsById };
-    for (const object of selectedObjects) {
-      if (object.geometry.type === "opening") {
-        if (selected.has(object.geometry.hostWallId)) continue;
-        const resolved = resolveDrawingOpening(object.geometry, objectsById);
-        next[object.id] = {
-          ...object,
-          geometry: moveDrawingOpeningToPoint(
-            selectionContextRef.current,
-            object.id,
-            actorId,
-            {
-              x: resolved.center.x + selectionState.previewDelta.x,
-              y: resolved.center.y + selectionState.previewDelta.y,
-            },
-          ).updates[0].patch.geometry!,
-        };
-      } else {
-        next[object.id] = {
-          ...object,
-          geometry: translateDrawingGeometry(
-            object.geometry,
-            selectionState.previewDelta,
-          ),
-        };
-      }
-    }
-    return next;
-  }, [
-    actorId,
-    objectsById,
-    selectedObjects,
-    selectionState.previewDelta,
-    selectionState.selectedIds,
-  ]);
+  const selectionPreview = useMemo(
+    () =>
+      drawingSelectionPreview({
+        actorId,
+        delta: selectionState.previewDelta,
+        layers: layersById,
+        objects: objectsById,
+        selectedIds: selectionState.selectedIds,
+      }),
+    [
+      actorId,
+      layersById,
+      objectsById,
+      selectionState.previewDelta,
+      selectionState.selectedIds,
+    ],
+  );
+  const previewObjectsById = selectionPreview.objects;
 
   function runToolEvent(
     event: DrawingToolControllerEvent,
@@ -2579,6 +2640,7 @@ export const DrawingCanvas = forwardRef<
       event,
       {
         ...selectionContextRef.current,
+        orderedCandidateIds: selectionCandidates.map(({ id }) => id),
         viewport: viewportRef.current,
       },
     );
@@ -2990,18 +3052,21 @@ export const DrawingCanvas = forwardRef<
               : null}
             {selectionState.previewDelta.x !== 0 ||
             selectionState.previewDelta.y !== 0
-              ? selectedObjects.map((object) => (
-                  <Group key={`preview-${object.id}`} listening={false}>
-                    {geometryShape(
-                      previewObjectsById[object.id].geometry,
-                      previewStyle,
-                      true,
-                      calibration,
-                      previewObjectsById,
-                      object.name,
-                    )}
-                  </Group>
-                ))
+              ? selectionPreview.objectIds.map((objectId) => {
+                  const object = previewObjectsById[objectId];
+                  return (
+                    <Group key={`preview-${object.id}`} listening={false}>
+                      {geometryShape(
+                        previewObjectsById[object.id].geometry,
+                        previewStyle,
+                        true,
+                        calibration,
+                        previewObjectsById,
+                        object.name,
+                      )}
+                    </Group>
+                  );
+                })
               : null}
             {selectedObjects.map((object) => {
               const geometry =
@@ -3087,6 +3152,14 @@ export const DrawingCanvas = forwardRef<
               : null}
           </Layer>
         </Stage>
+      ) : null}
+      {controllerState.validationMessage ? (
+        <p
+          className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100 shadow-lg"
+          role="alert"
+        >
+          {controllerState.validationMessage}
+        </p>
       ) : null}
       <DrawingCollaborationOverlay store={awarenessStore} viewport={viewport} />
       {textPosition ? (

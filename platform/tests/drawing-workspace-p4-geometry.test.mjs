@@ -6,10 +6,13 @@ import {
   DrawingGeometrySchema,
   defaultDrawingObjectName,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
-import {
+import * as drawingGeometry from "../app/lukas/lib/drawing-geometry.ts";
+const {
+  drawingGeometryHitTest,
   geometryBounds,
   geometrySnapPoints,
-} from "../app/lukas/lib/drawing-geometry.ts";
+  sampleDrawingArcPoints,
+} = drawingGeometry;
 const semanticGeometry =
   await import("../app/lukas/lib/drawing-semantic-geometry.ts").catch(
     () => ({}),
@@ -349,6 +352,135 @@ test("large equivalent arc angles have exact cardinal snap points and bounds", (
   assert.deepEqual(
     geometryBounds(largeTinySweep),
     geometryBounds(normalizedTinySweep),
+  );
+});
+
+test("canonical arc samples match snap geometry for huge, negative, and full-turn angles", () => {
+  assert.equal(typeof sampleDrawingArcPoints, "function");
+  for (const geometry of [
+    DrawingGeometrySchema.parse({
+      ...arc,
+      center: { x: 0, y: 0 },
+      radius: 9_000_000_000,
+      startAngleDegrees: 9_000_000_000,
+      sweepAngleDegrees: 90,
+    }),
+    DrawingGeometrySchema.parse({
+      ...arc,
+      center: { x: 0, y: 0 },
+      startAngleDegrees: 90,
+      sweepAngleDegrees: -90,
+    }),
+    DrawingGeometrySchema.parse({
+      ...arc,
+      center: { x: 0, y: 0 },
+      startAngleDegrees: -360,
+      sweepAngleDegrees: 360,
+    }),
+  ]) {
+    const samples = sampleDrawingArcPoints(geometry);
+    const snaps = geometrySnapPoints(geometry);
+    assert.deepEqual(samples[0], snaps[1]);
+    assert.deepEqual(samples.at(-1), snaps[2]);
+    assert.ok(
+      samples.every(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      ),
+    );
+  }
+
+  assert.deepEqual(
+    sampleDrawingArcPoints({
+      ...arc,
+      center: { x: 0, y: 0 },
+      startAngleDegrees: 90,
+      sweepAngleDegrees: -90,
+    }).at(-1),
+    { x: 50, y: 0 },
+  );
+  const fullTurn = sampleDrawingArcPoints({
+    ...arc,
+    center: { x: 0, y: 0 },
+    startAngleDegrees: -360,
+    sweepAngleDegrees: 360,
+  });
+  assert.deepEqual(fullTurn[0], { x: 50, y: 0 });
+  assert.deepEqual(fullTurn.at(-1), { x: 50, y: 0 });
+});
+
+test("semantic narrow-phase hit tests reject empty bounds and accept rendered geometry", () => {
+  assert.equal(typeof drawingGeometryHitTest, "function");
+  const diagonalGrid = {
+    ...grid,
+    start: { x: 0, y: 0 },
+    end: { x: 1000, y: 1000 },
+  };
+  assert.equal(
+    drawingGeometryHitTest(diagonalGrid, { x: 0, y: 1000 }, 6),
+    false,
+  );
+  assert.equal(
+    drawingGeometryHitTest(diagonalGrid, { x: 504, y: 500 }, 6),
+    true,
+  );
+
+  const fullCircle = {
+    ...arc,
+    center: { x: 0, y: 0 },
+    radius: 100,
+    sweepAngleDegrees: 360,
+  };
+  assert.equal(drawingGeometryHitTest(fullCircle, { x: 0, y: 0 }, 6), false);
+  assert.equal(drawingGeometryHitTest(fullCircle, { x: 103, y: 0 }, 6), true);
+
+  const concave = {
+    ...area,
+    boundary: [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 40 },
+      { x: 40, y: 40 },
+      { x: 40, y: 100 },
+      { x: 0, y: 100 },
+    ],
+  };
+  assert.equal(drawingGeometryHitTest(concave, { x: 80, y: 80 }, 2), false);
+  assert.equal(drawingGeometryHitTest(concave, { x: 20, y: 80 }, 2), true);
+
+  assert.equal(
+    drawingGeometryHitTest(opening, { x: 1500, y: 2000 }, 6, objects),
+    true,
+  );
+  assert.equal(
+    drawingGeometryHitTest(opening, { x: 3000, y: 1000 }, 6, objects),
+    false,
+  );
+  const resolvedOpening = resolveDrawingOpening(opening, objects);
+  const openingRadians = (resolvedOpening.wallAngleDegrees * Math.PI) / 180;
+  const doorLeafPoint = {
+    x: resolvedOpening.start.x - Math.sin(openingRadians) * 70,
+    y: resolvedOpening.start.y + Math.cos(openingRadians) * 70,
+  };
+  assert.equal(
+    drawingGeometryHitTest(opening, doorLeafPoint, 6, objects),
+    true,
+  );
+  const openingBounds = geometryBounds(opening, objects);
+  assert.ok(
+    doorLeafPoint.x >= openingBounds.x &&
+      doorLeafPoint.x <= openingBounds.x + openingBounds.width &&
+      doorLeafPoint.y >= openingBounds.y &&
+      doorLeafPoint.y <= openingBounds.y + openingBounds.height,
+  );
+
+  const windowOpening = { ...opening, openingKind: "window" };
+  const windowMarkerPoint = {
+    x: resolvedOpening.center.x - Math.sin(openingRadians) * 35,
+    y: resolvedOpening.center.y + Math.cos(openingRadians) * 35,
+  };
+  assert.equal(
+    drawingGeometryHitTest(windowOpening, windowMarkerPoint, 6, objects),
+    true,
   );
 });
 

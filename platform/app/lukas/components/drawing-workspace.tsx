@@ -712,6 +712,7 @@ export default function DrawingWorkspaceClient({
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [semanticMenuOpen, setSemanticMenuOpen] = useState(false);
+  const semanticMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
@@ -3268,6 +3269,7 @@ export default function DrawingWorkspaceClient({
                     aria-haspopup="menu"
                     aria-label="건축 객체"
                     onClick={() => setSemanticMenuOpen((open) => !open)}
+                    ref={semanticMenuTriggerRef}
                     size="icon"
                     variant={
                       [
@@ -3293,6 +3295,7 @@ export default function DrawingWorkspaceClient({
                         if (event.key === "Escape") {
                           event.preventDefault();
                           setSemanticMenuOpen(false);
+                          semanticMenuTriggerRef.current?.focus();
                           return;
                         }
                         if (
@@ -3333,6 +3336,7 @@ export default function DrawingWorkspaceClient({
                           onClick={() => {
                             setAuthorizedTool(tool);
                             setSemanticMenuOpen(false);
+                            semanticMenuTriggerRef.current?.focus();
                           }}
                           role="menuitem"
                           type="button"
