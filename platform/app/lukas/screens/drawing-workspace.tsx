@@ -7,9 +7,11 @@ import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialo
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
+import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
   handleWorkspaceMutation,
   drawingTemplateCloneLocation,
+  drawingTemplateWorkspaceLocation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceCollaborationBootstrap,
   loadDrawingWorkspaceCapability,
@@ -65,12 +67,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         workspace.document.revision.id,
       )
     : null;
+  const activityPage = workspace.document
+    ? await loadDrawingActivityPage(
+        client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
+        project.id,
+        workspace.document.revision.id,
+        { cursor: new URL(request.url).searchParams.get("historyCursor") },
+      )
+    : null;
   return data(
     {
       project,
       currentUserId: user.id,
       capability: collaborationBootstrap?.capability ?? capability,
       collaborationBootstrap,
+      activityPage,
       workspace,
       sourceUrl,
     },
@@ -112,6 +123,21 @@ export async function action({ request, params }: Route.ActionArgs) {
       { headers },
     );
   }
+  if (
+    form.get("intent") === "restore_approved_snapshot" &&
+    result.status === 200 &&
+    result.body.ok
+  ) {
+    const restored = result.body.result as { documentId: string };
+    return redirect(
+      drawingTemplateWorkspaceLocation(
+        project.id,
+        workspace.file.id,
+        restored.documentId,
+      ),
+      { headers },
+    );
+  }
   return data(result.body, { status: result.status, headers });
 }
 
@@ -127,7 +153,9 @@ export default function DrawingWorkspaceScreen({
         actionError={actionData?.error}
         capability={capability}
         collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
+        activityPage={loaderData.activityPage ?? undefined}
         currentUserId={loaderData.currentUserId}
+        projectId={project.id}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceUrl={loaderData.sourceUrl}
         workspace={{ ...workspace, document: workspace.document }}

@@ -60,6 +60,29 @@ type DrawingCommentRow = {
   body: string;
   created_at: string;
 };
+export type DrawingCommentMentionRow = {
+  comment_id: string;
+  user_id: string;
+  issue_id: string;
+  project_id: string;
+  created_by: string;
+  created_at: string;
+};
+export type DrawingCanvasRegionAnchorRow = {
+  id: string;
+  issue_id: string;
+  revision_id: string;
+  page_id: string;
+  canvas_id: string;
+  project_id: string;
+  x_mm: number;
+  y_mm: number;
+  width_mm: number;
+  height_mm: number;
+  label: string;
+  created_by: string;
+  created_at: string;
+};
 export type DrawingEventRow = {
   id: string;
   issue_id: string;
@@ -139,6 +162,42 @@ type DrawingDatabase = Omit<Database, "public"> & {
         Omit<DrawingApprovalRow, "id" | "created_at">,
         never
       >;
+      lukas_drawing_comment_mentions: TableDefinition<
+        DrawingCommentMentionRow,
+        never,
+        never
+      >;
+      lukas_drawing_canvas_region_anchors: TableDefinition<
+        DrawingCanvasRegionAnchorRow,
+        never,
+        never
+      >;
+    };
+    Functions: Database["public"]["Functions"] & {
+      lukas_drawing_add_comment: {
+        Args: {
+          p_issue_id: string;
+          p_comment_id: string;
+          p_body: string;
+          p_mentioned_user_ids: string[];
+        };
+        Returns: Json;
+      };
+      lukas_drawing_add_canvas_region_anchor: {
+        Args: {
+          p_issue_id: string;
+          p_revision_id: string;
+          p_page_id: string;
+          p_canvas_id: string;
+          p_anchor_id: string;
+          p_x_mm: number;
+          p_y_mm: number;
+          p_width_mm: number;
+          p_height_mm: number;
+          p_label: string;
+        };
+        Returns: Json;
+      };
     };
   };
 };
@@ -162,6 +221,21 @@ const AddAnchorMutationSchema = z.object({
 });
 const CommentMutationSchema = DrawingCommentSchema.extend({
   intent: z.literal("comment"),
+  commentId: z.string().uuid(),
+  mentionedUserIds: z.array(z.string().uuid()).max(50),
+});
+const CanvasRegionAnchorMutationSchema = z.object({
+  intent: z.literal("add_canvas_region_anchor"),
+  issueId: z.string().uuid(),
+  anchorId: z.string().uuid(),
+  revisionId: z.string().uuid(),
+  pageId: z.string().uuid(),
+  canvasId: z.string().uuid(),
+  xMm: z.number().finite(),
+  yMm: z.number().finite(),
+  widthMm: z.number().finite().positive(),
+  heightMm: z.number().finite().positive(),
+  label: z.string().trim().max(240),
 });
 const versionedIssueMutation = {
   issueId: z.string().uuid(),
@@ -200,6 +274,7 @@ const DrawingMutationSchema = z.discriminatedUnion("intent", [
   CreateIssueMutationSchema,
   AddAnchorMutationSchema,
   CommentMutationSchema,
+  CanvasRegionAnchorMutationSchema,
   SetAssigneeMutationSchema,
   SetDueMutationSchema,
   SetPriorityMutationSchema,
@@ -208,6 +283,25 @@ const DrawingMutationSchema = z.discriminatedUnion("intent", [
 ]);
 
 export type DrawingMutation = z.infer<typeof DrawingMutationSchema>;
+
+function parseMentionIds(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || value.trim() === "") return [];
+  const parsed = z.array(z.string().uuid()).max(50).parse(JSON.parse(value));
+  return [...new Set(parsed)].sort();
+}
+
+function parseMentionSelections(form: FormData) {
+  const values = form.getAll("mentioned_user_ids");
+  if (values.length === 0) return [];
+  if (
+    values.length === 1 &&
+    typeof values[0] === "string" &&
+    values[0].trim().startsWith("[")
+  )
+    return parseMentionIds(values[0]);
+  const parsed = z.array(z.string().uuid()).max(50).parse(values.map(String));
+  return [...new Set(parsed)].sort();
+}
 
 function optionalFormString(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
@@ -252,7 +346,23 @@ export function parseDrawingMutationForm(form: FormData): DrawingMutation {
     return DrawingMutationSchema.parse({
       intent,
       issueId: form.get("issue_id"),
+      commentId: form.get("comment_id"),
       body: form.get("body"),
+      mentionedUserIds: parseMentionSelections(form),
+    });
+  if (intent === "add_canvas_region_anchor")
+    return DrawingMutationSchema.parse({
+      intent,
+      issueId: form.get("issue_id"),
+      anchorId: form.get("anchor_id"),
+      revisionId: form.get("revision_id"),
+      pageId: form.get("page_id"),
+      canvasId: form.get("canvas_id"),
+      xMm: Number(form.get("x_mm")),
+      yMm: Number(form.get("y_mm")),
+      widthMm: Number(form.get("width_mm")),
+      heightMm: Number(form.get("height_mm")),
+      label: form.get("label") ?? "",
     });
   if (intent === "set_assignee")
     return DrawingMutationSchema.parse({
@@ -584,16 +694,31 @@ export async function mutateDrawingIssue(
     return data;
   }
   if (input.intent === "comment") {
-    const { data, error } = await client
-      .from("lukas_drawing_issue_comments")
-      .insert({
-        issue_id: input.issueId,
-        project_id: projectId,
-        author_id: actorId,
-        body: input.body,
-      })
-      .select()
-      .single();
+    const { data, error } = await client.rpc("lukas_drawing_add_comment", {
+      p_issue_id: input.issueId,
+      p_comment_id: input.commentId,
+      p_body: input.body,
+      p_mentioned_user_ids: input.mentionedUserIds,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+  if (input.intent === "add_canvas_region_anchor") {
+    const { data, error } = await client.rpc(
+      "lukas_drawing_add_canvas_region_anchor",
+      {
+        p_issue_id: input.issueId,
+        p_revision_id: input.revisionId,
+        p_page_id: input.pageId,
+        p_canvas_id: input.canvasId,
+        p_anchor_id: input.anchorId,
+        p_x_mm: input.xMm,
+        p_y_mm: input.yMm,
+        p_width_mm: input.widthMm,
+        p_height_mm: input.heightMm,
+        p_label: input.label,
+      },
+    );
     if (error) throw new Error(error.message);
     return data;
   }

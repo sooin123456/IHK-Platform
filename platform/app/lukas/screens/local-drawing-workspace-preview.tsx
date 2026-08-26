@@ -953,6 +953,7 @@ export default function LocalDrawingWorkspacePreview({
     <>
       <DrawingWorkspaceClient
         {...loaderData}
+        projectId={ids.project}
         capability={
           loaderData.realtimeTest && viewer ? "viewer" : loaderData.capability
         }

@@ -23,7 +23,11 @@ const PositiveFiniteMax = (maximum: number) =>
     .refine((value) => value > 0, "0보다 커야 합니다.");
 const Uuid = z.string().uuid();
 const PositiveInteger = z.number().int().positive().max(SHARED_INTEGER_MAX);
-const NonNegativeInteger = z.number().int().nonnegative().max(SHARED_INTEGER_MAX);
+const NonNegativeInteger = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(SHARED_INTEGER_MAX);
 const ExactTrimmedName = z
   .string()
   .min(1)
@@ -178,12 +182,14 @@ export type DrawingObject = {
   version: number;
 };
 
-export const PdfCalibrationSchema = z.object({
-  normalizedStart: PointSchema,
-  normalizedEnd: PointSchema,
-  realLengthMillimeters: PositiveFinite,
-  millimetersPerNormalizedUnit: PositiveFinite,
-}).strict();
+export const PdfCalibrationSchema = z
+  .object({
+    normalizedStart: PointSchema,
+    normalizedEnd: PointSchema,
+    realLengthMillimeters: PositiveFinite,
+    millimetersPerNormalizedUnit: PositiveFinite,
+  })
+  .strict();
 
 const DrawingObjectValidatedSchema = z
   .object({
@@ -198,7 +204,10 @@ const DrawingObjectValidatedSchema = z
   })
   .strict()
   .superRefine((object, context) => {
-    if (object.styleId == null && !DrawingStyleSchema.safeParse(object.style).success) {
+    if (
+      object.styleId == null &&
+      !DrawingStyleSchema.safeParse(object.style).success
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["style"],
@@ -423,7 +432,8 @@ export const DrawingPropertyValueSchema = z
   .strict()
   .refine(
     (value) =>
-      Number(value.objectId !== null) + Number(value.blockInstanceId !== null) ===
+      Number(value.objectId !== null) +
+        Number(value.blockInstanceId !== null) ===
       1,
     "속성 값은 객체 또는 블록 instance 중 하나에만 귀속해야 합니다.",
   );
@@ -456,7 +466,8 @@ const DrawingTableRowSchema = z
   .strict()
   .refine(
     (row) =>
-      Number(row.objectId !== null) + Number(row.blockInstanceId !== null) === 1,
+      Number(row.objectId !== null) + Number(row.blockInstanceId !== null) ===
+      1,
     "표 행은 객체 또는 블록 instance 중 하나에만 귀속해야 합니다.",
   );
 
@@ -509,10 +520,16 @@ const DrawingStructurePutActionSchema = <T extends z.ZodTypeAny>(
   entity: T,
 ) =>
   z
-    .object({ kind: z.literal(kind), entity, baseVersion: PositiveInteger.nullable() })
+    .object({
+      kind: z.literal(kind),
+      entity,
+      baseVersion: PositiveInteger.nullable(),
+    })
     .strict();
 const DrawingStructureDeleteActionSchema = (kind: string) =>
-  z.object({ kind: z.literal(kind), id: Uuid, baseVersion: PositiveInteger }).strict();
+  z
+    .object({ kind: z.literal(kind), id: Uuid, baseVersion: PositiveInteger })
+    .strict();
 
 export const DrawingStructureActionSchema = z.discriminatedUnion("kind", [
   DrawingStructurePutActionSchema("put_object", DrawingObjectSchema),
@@ -527,11 +544,20 @@ export const DrawingStructureActionSchema = z.discriminatedUnion("kind", [
   DrawingStructureDeleteActionSchema("delete_style"),
   DrawingStructurePutActionSchema("put_block", DrawingBlockSchema),
   DrawingStructureDeleteActionSchema("delete_block"),
-  DrawingStructurePutActionSchema("put_block_instance", DrawingBlockInstanceSchema),
+  DrawingStructurePutActionSchema(
+    "put_block_instance",
+    DrawingBlockInstanceSchema,
+  ),
   DrawingStructureDeleteActionSchema("delete_block_instance"),
-  DrawingStructurePutActionSchema("put_property_schema", DrawingPropertySchemaSchema),
+  DrawingStructurePutActionSchema(
+    "put_property_schema",
+    DrawingPropertySchemaSchema,
+  ),
   DrawingStructureDeleteActionSchema("delete_property_schema"),
-  DrawingStructurePutActionSchema("put_property_value", DrawingPropertyValueSchema),
+  DrawingStructurePutActionSchema(
+    "put_property_value",
+    DrawingPropertyValueSchema,
+  ),
   DrawingStructureDeleteActionSchema("delete_property_value"),
   DrawingStructurePutActionSchema("put_table", DrawingTableSchema),
   DrawingStructureDeleteActionSchema("delete_table"),
@@ -609,6 +635,13 @@ const DrawingOperationPayloadSchemas = {
       actions: z.array(DrawingStructureActionSchema),
     })
     .strict(),
+  restore_checkpoint: z
+    .object({
+      type: z.literal("restore_checkpoint"),
+      checkpointId: Uuid,
+      actions: z.array(DrawingStructureActionSchema).min(1).max(5000),
+    })
+    .strict(),
 } as const;
 
 export const DrawingOperationInputSchema = z
@@ -623,6 +656,7 @@ export const DrawingOperationInputSchema = z
       "update_layer",
       "mutate_structure",
       "mutate_objects_with_references",
+      "restore_checkpoint",
     ]),
     baseVersions: z.record(Uuid, PositiveInteger),
     forward: z.record(z.string(), z.unknown()),
@@ -655,7 +689,9 @@ export const DrawingOperationInputSchema = z
               ? DrawingOperationPayloadSchemas.mutate_structure
               : operation.type === "mutate_objects_with_references"
                 ? DrawingOperationPayloadSchemas.mutate_objects_with_references
-              : DrawingOperationPayloadSchemas[operation.type];
+                : operation.type === "restore_checkpoint"
+                  ? DrawingOperationPayloadSchemas.restore_checkpoint
+                  : DrawingOperationPayloadSchemas[operation.type];
     const inverse = inverseSchema.safeParse(operation.inverse);
     if (!forward.success)
       context.addIssue({
@@ -678,7 +714,9 @@ export type DrawingLayer = z.infer<typeof DrawingLayerSchema>;
 export type DrawingStructureLayer = z.infer<typeof DrawingStructureLayerSchema>;
 export type DrawingPage = z.infer<typeof DrawingPageSchema>;
 export type DrawingCanvas = z.infer<typeof DrawingCanvasSchema>;
-export type DrawingStyleDefinition = z.infer<typeof DrawingStyleDefinitionSchema>;
+export type DrawingStyleDefinition = z.infer<
+  typeof DrawingStyleDefinitionSchema
+>;
 export type DrawingBlockPrimitive = z.infer<typeof DrawingBlockPrimitiveSchema>;
 export type DrawingBlock = z.infer<typeof DrawingBlockSchema>;
 export type DrawingBlockInstance = z.infer<typeof DrawingBlockInstanceSchema>;
@@ -726,7 +764,9 @@ export type DrawingStructureAction =
   | (PutStructureAction<DrawingStyleDefinition> & { kind: "put_style" })
   | (PutStructureAction<DrawingBlock> & { kind: "put_block" })
   | (PutStructureAction<DrawingBlockInstance> & { kind: "put_block_instance" })
-  | (PutStructureAction<DrawingPropertySchema> & { kind: "put_property_schema" })
+  | (PutStructureAction<DrawingPropertySchema> & {
+      kind: "put_property_schema";
+    })
   | (PutStructureAction<DrawingPropertyValue> & { kind: "put_property_value" })
   | (PutStructureAction<DrawingTable> & { kind: "put_table" })
   | (DeleteStructureAction & { kind: "delete_object" })

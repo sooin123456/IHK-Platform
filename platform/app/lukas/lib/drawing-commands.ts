@@ -272,7 +272,10 @@ export function renameDrawingCanvasCommand(
   ]);
 }
 
-type StyleCommandState = Pick<DrawingDocumentState, "revisionId" | "layers" | "objects" | "structure">;
+type StyleCommandState = Pick<
+  DrawingDocumentState,
+  "revisionId" | "layers" | "objects" | "structure"
+>;
 
 function requireStyleCommandState(
   state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
@@ -292,7 +295,9 @@ function uniqueStyleName(
       (style) => style.id !== styleId && style.name === normalized,
     )
   ) {
-    throw new DrawingCommandError(`Drawing style ${normalized} already exists.`);
+    throw new DrawingCommandError(
+      `Drawing style ${normalized} already exists.`,
+    );
   }
   return normalized;
 }
@@ -323,15 +328,24 @@ export function updateDrawingStyleCommand(
   state: StyleCommandState,
   actorId: string,
   styleId: string,
-  patch: Partial<Pick<import("./drawing-workspace.types.ts").DrawingStyleDefinition, "name" | "value">>,
+  patch: Partial<
+    Pick<
+      import("./drawing-workspace.types.ts").DrawingStyleDefinition,
+      "name" | "value"
+    >
+  >,
 ): Extract<DrawingCommand, { type: "mutate_structure" }> {
   const canonical = requireStyleCommandState(state);
   const existing = canonical.structure.styles[styleId];
   if (!existing) throw new DrawingCommandError("Drawing style does not exist.");
   const style = DrawingStyleDefinitionSchema.parse({
     ...existing,
-    ...(patch.name === undefined ? {} : { name: uniqueStyleName(canonical, patch.name, styleId) }),
-    ...(patch.value === undefined ? {} : { value: DrawingStyleSchema.parse(patch.value) }),
+    ...(patch.name === undefined
+      ? {}
+      : { name: uniqueStyleName(canonical, patch.name, styleId) }),
+    ...(patch.value === undefined
+      ? {}
+      : { value: DrawingStyleSchema.parse(patch.value) }),
   });
   return structureCommand(actorId, [
     { kind: "put_style", entity: style, baseVersion: existing.version },
@@ -348,12 +362,16 @@ export function deleteDrawingStyleCommand(
   const existing = canonical.structure.styles[styleId];
   if (!existing) throw new DrawingCommandError("Drawing style does not exist.");
   const referenced =
-    Object.values(canonical.structure.objects ?? state.objects).some((object) => object.styleId === styleId) ||
+    Object.values(canonical.structure.objects ?? state.objects).some(
+      (object) => object.styleId === styleId,
+    ) ||
     Object.values(canonical.structure.blocks ?? {}).some((block) =>
       block.primitives.some((primitive) => primitive.styleId === styleId),
     );
   if (referenced)
-    throw new DrawingCommandError("Referenced drawing style cannot be deleted.");
+    throw new DrawingCommandError(
+      "Referenced drawing style cannot be deleted.",
+    );
   return structureCommand(actorId, [
     { kind: "delete_style", id: styleId, baseVersion: existing.version },
   ]);
@@ -637,6 +655,12 @@ export type DrawingCommand =
       objectAction: "delete" | "restore";
       objects: DrawingObject[];
       actions: DrawingStructureAction[];
+    }
+  | {
+      type: "restore_checkpoint";
+      actorId: string;
+      checkpointId: string;
+      actions: DrawingStructureAction[];
     };
 
 type DrawingCommandPayload =
@@ -650,6 +674,11 @@ type DrawingCommandPayload =
       type: "mutate_objects_with_references";
       objectAction: "delete" | "restore";
       objects: DrawingObject[];
+      actions: DrawingStructureAction[];
+    }
+  | {
+      type: "restore_checkpoint";
+      checkpointId: string;
       actions: DrawingStructureAction[];
     };
 
@@ -790,6 +819,12 @@ function payloadFor(command: DrawingCommand): DrawingCommandPayload {
         type: command.type,
         objectAction: command.objectAction,
         objects: clone(command.objects),
+        actions: clone(command.actions),
+      };
+    case "restore_checkpoint":
+      return {
+        type: command.type,
+        checkpointId: command.checkpointId,
         actions: clone(command.actions),
       };
   }
@@ -1177,7 +1212,10 @@ function reduceCommand(
           applied.baseVersions[object.id] = object.version;
           applied.resultVersions[object.id] = null;
           applied.realizedVersions[object.id] = object.version + 1;
-          inverseObjects.push({ ...clone(object), version: object.version + 2 });
+          inverseObjects.push({
+            ...clone(object),
+            version: object.version + 2,
+          });
           delete applied.state.objects[object.id];
         } else {
           const restoreBaseVersion = options.restoreBaseVersions?.[object.id];
@@ -1203,6 +1241,33 @@ function reduceCommand(
           objectAction:
             command.objectAction === "delete" ? "restore" : "delete",
           objects: inverseObjects,
+          actions: applied.inverse,
+        },
+        resultVersions: applied.resultVersions,
+        realizedVersions: applied.realizedVersions,
+        undoable: true,
+        structure,
+      };
+    }
+    case "restore_checkpoint": {
+      if (!state.structure)
+        throw new DrawingCommandError(
+          "Drawing structure state is required for checkpoint restore.",
+        );
+      const applied = applyDrawingStructureActions(
+        { revisionId: state.revisionId, ...state.structure },
+        command.actions,
+        { allowCheckpointRestore: true },
+      );
+      const { revisionId: _revisionId, ...structure } = applied.state;
+      return {
+        objects: applied.state.objects,
+        layers: applied.state.layers,
+        baseVersions: applied.baseVersions,
+        forward,
+        inverse: {
+          type: "restore_checkpoint",
+          checkpointId: command.checkpointId,
           actions: applied.inverse,
         },
         resultVersions: applied.resultVersions,
@@ -1279,13 +1344,14 @@ function conflictFor(
   const objectIds = Object.entries(operation.resultVersions)
     .filter(([objectId, expectedVersion]) => {
       const current =
-        operation.type === "mutate_structure"
+        operation.type === "mutate_structure" ||
+        operation.type === "restore_checkpoint"
           ? structureTarget(
               state.structure,
               (
                 operation.forward as Extract<
                   DrawingCommandPayload,
-                  { type: "mutate_structure" }
+                  { type: "mutate_structure" | "restore_checkpoint" }
                 >
               ).actions,
               objectId,
@@ -1311,9 +1377,9 @@ function conflictFor(
                 ).actions,
                 objectId,
               )
-          : operation.type === "update_layer"
-            ? state.layers[objectId]
-            : state.objects[objectId];
+            : operation.type === "update_layer"
+              ? state.layers[objectId]
+              : state.objects[objectId];
       return expectedVersion === null
         ? current !== undefined
         : current?.version !== expectedVersion;
@@ -1392,6 +1458,19 @@ function realizeStructurePayload(
   };
 }
 
+function realizeCheckpointPayload(
+  payload: Extract<DrawingCommandPayload, { type: "restore_checkpoint" }>,
+  structure: DrawingDocumentState["structure"],
+): Extract<DrawingCommandPayload, { type: "restore_checkpoint" }> {
+  return {
+    ...payload,
+    actions: realizeStructurePayload(
+      { type: "mutate_structure", actions: payload.actions },
+      structure,
+    ).actions,
+  };
+}
+
 function realizeObjectReferencePayload(
   payload: Extract<
     DrawingCommandPayload,
@@ -1399,10 +1478,7 @@ function realizeObjectReferencePayload(
   >,
   state: DrawingDocumentState,
   tombstoneVersions: Record<string, number> = {},
-): Extract<
-  DrawingCommandPayload,
-  { type: "mutate_objects_with_references" }
-> {
+): Extract<DrawingCommandPayload, { type: "mutate_objects_with_references" }> {
   const actions = realizeStructurePayload(
     { type: "mutate_structure", actions: payload.actions },
     state.structure,
@@ -1604,13 +1680,15 @@ export function undoDrawingCommand(
       ? realizeAddPayload(originalPayload, latestApplied.realizedVersions)
       : originalPayload.type === "mutate_structure"
         ? realizeStructurePayload(originalPayload, state.structure)
-        : originalPayload.type === "mutate_objects_with_references"
-          ? realizeObjectReferencePayload(
-              originalPayload,
-              state,
-              latestApplied.realizedVersions,
-            )
-        : originalPayload;
+        : originalPayload.type === "restore_checkpoint"
+          ? realizeCheckpointPayload(originalPayload, state.structure)
+          : originalPayload.type === "mutate_objects_with_references"
+            ? realizeObjectReferencePayload(
+                originalPayload,
+                state,
+                latestApplied.realizedVersions,
+              )
+            : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
@@ -1629,6 +1707,134 @@ export function undoDrawingCommand(
       originalOperationId,
     ]),
   };
+}
+
+/** Reverts one currently-applied operation without consuming another actor's history. */
+export function revertDrawingOperation(
+  state: DrawingDocumentState,
+  actorId: string,
+  operationId: string,
+  environment: DrawingCommandEnvironment = {},
+): AppliedDrawingCommand | DrawingCommandConflict {
+  const original = state.operations.find(
+    (operation) => operation.clientOperationId === operationId,
+  );
+  if (!original || original.actorId !== actorId || !original.undoable)
+    throw new DrawingCommandError(
+      "Only the actor may revert an undoable drawing operation.",
+    );
+  const latestRelated = [...state.operations]
+    .reverse()
+    .find(
+      (operation) =>
+        operation.clientOperationId === operationId ||
+        operation.originalOperationId === operationId,
+    );
+  if (latestRelated?.historyAction === "undo")
+    throw new DrawingCommandError("Drawing operation is already reverted.");
+  const existing = state.undoStackByActor[actorId] ?? [];
+  const result = undoDrawingCommand(
+    {
+      ...state,
+      undoStackByActor: {
+        ...cloneStacks(state.undoStackByActor),
+        [actorId]: [
+          ...existing.filter((id) => id !== operationId),
+          operationId,
+        ],
+      },
+    },
+    actorId,
+    environment,
+  );
+  if (!result)
+    throw new DrawingCommandError("Drawing operation cannot be reverted.");
+  return result;
+}
+
+const checkpointCollections = [
+  ["pages", "page"],
+  ["canvases", "canvas"],
+  ["layers", "layer"],
+  ["styles", "style"],
+  ["blocks", "block"],
+  ["objects", "object"],
+  ["blockInstances", "block_instance"],
+  ["propertySchemas", "property_schema"],
+  ["propertyValues", "property_value"],
+  ["tables", "table"],
+] as const;
+
+function checkpointEntityEqual(
+  left: { version: number },
+  right: { version: number },
+) {
+  const { version: _leftVersion, ...leftValue } = left;
+  const { version: _rightVersion, ...rightValue } = right;
+  return JSON.stringify(leftValue) === JSON.stringify(rightValue);
+}
+
+/** Builds one validated current-to-checkpoint compound mutation. */
+export function createDrawingCheckpointRestoreCommand(
+  current: DrawingDocumentState,
+  checkpoint: DrawingDocumentState,
+  actorId: string,
+  checkpointId: string,
+): DrawingCommand {
+  if (
+    current.revisionId !== checkpoint.revisionId ||
+    !current.structure ||
+    !checkpoint.structure
+  )
+    throw new DrawingCommandError(
+      "Drawing checkpoint must belong to the current structured revision.",
+    );
+  const additions: DrawingStructureAction[] = [];
+  const updates: DrawingStructureAction[] = [];
+  const deletions: DrawingStructureAction[] = [];
+  for (const [collection, suffix] of checkpointCollections) {
+    const currentEntities = current.structure[collection] as Record<
+      string,
+      { id: string; version: number }
+    >;
+    const targetEntities = checkpoint.structure[collection] as Record<
+      string,
+      { id: string; version: number }
+    >;
+    for (const [id, target] of Object.entries(targetEntities)) {
+      const present = currentEntities[id];
+      if (present && checkpointEntityEqual(present, target)) continue;
+      const tombstone = current.structure.tombstones?.[id];
+      const entity = {
+        ...clone(target),
+        version: present
+          ? present.version + 1
+          : tombstone?.collection === collection
+            ? tombstone.version + 2
+            : 1,
+      };
+      const action = {
+        kind: `put_${suffix}`,
+        entity,
+        baseVersion: present?.version ?? null,
+      } as DrawingStructureAction;
+      (present ? updates : additions).push(action);
+    }
+    for (const [id, present] of Object.entries(currentEntities)) {
+      if (targetEntities[id]) continue;
+      deletions.push({
+        kind: `delete_${suffix}`,
+        id,
+        baseVersion: present.version,
+      } as DrawingStructureAction);
+    }
+  }
+  const actions = [...additions, ...updates, ...deletions.reverse()];
+  if (actions.length === 0)
+    throw new DrawingCommandError(
+      "Drawing checkpoint already matches current state.",
+    );
+  return { type: "restore_checkpoint", actorId, checkpointId, actions };
 }
 
 /** Reapplies the requesting actor's latest undone object operation as a new entry. */
@@ -1658,9 +1864,11 @@ export function redoDrawingCommand(
       ? realizeAddPayload(originalPayload, inverse.realizedVersions)
       : originalPayload.type === "mutate_structure"
         ? realizeStructurePayload(originalPayload, state.structure)
-        : originalPayload.type === "mutate_objects_with_references"
-          ? realizeObjectReferencePayload(originalPayload, state)
-        : originalPayload;
+        : originalPayload.type === "restore_checkpoint"
+          ? realizeCheckpointPayload(originalPayload, state.structure)
+          : originalPayload.type === "mutate_objects_with_references"
+            ? realizeObjectReferencePayload(originalPayload, state)
+            : originalPayload;
   const applied = appendOperation(
     state,
     payloadToCommand(actorId, payload),
@@ -1965,14 +2173,20 @@ export type DrawingInspectorPatch = {
   text?: string;
 };
 
-type StyleSelectionState = Pick<DrawingDocumentState, "layers" | "objects" | "structure">;
+type StyleSelectionState = Pick<
+  DrawingDocumentState,
+  "layers" | "objects" | "structure"
+>;
 
 function styleSelectionTargets(
   state: StyleSelectionState,
   selectedIds: string[],
 ): DrawingObject[] {
-  const targets = [...new Set(selectedIds)].map((id) => requireObject(state.objects, id));
-  if (targets.length === 0) throw new DrawingCommandError("Select at least one drawing object.");
+  const targets = [...new Set(selectedIds)].map((id) =>
+    requireObject(state.objects, id),
+  );
+  if (targets.length === 0)
+    throw new DrawingCommandError("Select at least one drawing object.");
   for (const object of targets) {
     if (!mutableDrawingObject(state, object.id))
       throw new LockedDrawingLayerError(object.layerId);
@@ -2011,8 +2225,14 @@ export function resetDrawingStyleOverrides(
     actorId,
     updates: styleSelectionTargets(state, selectedIds).map((object) => {
       if (!object.styleId)
-        throw new DrawingCommandError("Inline drawing styles do not have overrides to reset.");
-      return { objectId: object.id, baseVersion: object.version, patch: { style: {} } };
+        throw new DrawingCommandError(
+          "Inline drawing styles do not have overrides to reset.",
+        );
+      return {
+        objectId: object.id,
+        baseVersion: object.version,
+        patch: { style: {} },
+      };
     }),
   };
 }
@@ -2024,7 +2244,9 @@ export function detachDrawingStyleSelection(
   actorId: string,
 ): Extract<DrawingCommand, { type: "update_objects" }> {
   if (!state.structure)
-    throw new DrawingCommandError("Drawing structure state is required for styles.");
+    throw new DrawingCommandError(
+      "Drawing structure state is required for styles.",
+    );
   return {
     type: "update_objects",
     actorId,
@@ -2075,7 +2297,11 @@ export function updateDrawingSelectionProperties(
       ? { fill: DrawingFillColorSchema.parse(patch.fill) }
       : {}),
     ...(patch.fontSize !== undefined
-      ? { fontSize: DrawingStyleSchema.shape.fontSize.unwrap().parse(patch.fontSize) }
+      ? {
+          fontSize: DrawingStyleSchema.shape.fontSize
+            .unwrap()
+            .parse(patch.fontSize),
+        }
       : {}),
   };
   if (parsed.layerId !== undefined) {

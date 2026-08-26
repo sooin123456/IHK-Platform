@@ -32,7 +32,14 @@ export type DrawingStructureState = {
   propertySchemas: Record<string, DrawingPropertySchema>;
   propertyValues: Record<string, DrawingPropertyValue>;
   tables: Record<string, DrawingTable>;
-  tombstones?: Record<string, { collection: StructureCollection; entity: StructureEntity; version: number }>;
+  tombstones?: Record<
+    string,
+    {
+      collection: StructureCollection;
+      entity: StructureEntity;
+      version: number;
+    }
+  >;
 };
 
 export type AppliedDrawingStructureActions = {
@@ -74,7 +81,10 @@ type StructureEntity =
   | DrawingPropertyValue
   | DrawingTable;
 
-const collectionForKind: Record<DrawingStructureAction["kind"], StructureCollection> = {
+const collectionForKind: Record<
+  DrawingStructureAction["kind"],
+  StructureCollection
+> = {
   put_object: "objects",
   delete_object: "objects",
   put_page: "pages",
@@ -113,52 +123,69 @@ const GEOMETRY_RELATIVE_TOLERANCE = 64 * Number.EPSILON;
 
 function sameGeometryNumber(left: number, right: number): boolean {
   if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
-  return Math.abs(left - right) <=
+  return (
+    Math.abs(left - right) <=
     GEOMETRY_ABSOLUTE_TOLERANCE +
-      GEOMETRY_RELATIVE_TOLERANCE * Math.max(Math.abs(left), Math.abs(right));
+      GEOMETRY_RELATIVE_TOLERANCE * Math.max(Math.abs(left), Math.abs(right))
+  );
 }
 
 function samePoint(
   left: { x: number; y: number },
   right: { x: number; y: number },
 ): boolean {
-  return sameGeometryNumber(left.x, right.x) &&
-    sameGeometryNumber(left.y, right.y);
+  return (
+    sameGeometryNumber(left.x, right.x) && sameGeometryNumber(left.y, right.y)
+  );
 }
 
 function sameGeometry(left: DrawingGeometry, right: DrawingGeometry): boolean {
   if (left.type !== right.type) return false;
   switch (left.type) {
     case "line":
-      return right.type === "line" &&
+      return (
+        right.type === "line" &&
         samePoint(left.start, right.start) &&
-        samePoint(left.end, right.end);
+        samePoint(left.end, right.end)
+      );
     case "polyline":
-      return right.type === "polyline" &&
+      return (
+        right.type === "polyline" &&
         left.closed === right.closed &&
         left.points.length === right.points.length &&
-        left.points.every((point, index) => samePoint(point, right.points[index]));
+        left.points.every((point, index) =>
+          samePoint(point, right.points[index]),
+        )
+      );
     case "rectangle":
-      return right.type === "rectangle" &&
+      return (
+        right.type === "rectangle" &&
         samePoint(left.origin, right.origin) &&
         sameGeometryNumber(left.width, right.width) &&
         sameGeometryNumber(left.height, right.height) &&
-        sameGeometryNumber(left.rotation, right.rotation);
+        sameGeometryNumber(left.rotation, right.rotation)
+      );
     case "circle":
-      return right.type === "circle" &&
+      return (
+        right.type === "circle" &&
         samePoint(left.center, right.center) &&
-        sameGeometryNumber(left.radius, right.radius);
+        sameGeometryNumber(left.radius, right.radius)
+      );
     case "text":
-      return right.type === "text" &&
+      return (
+        right.type === "text" &&
         left.text === right.text &&
         samePoint(left.origin, right.origin) &&
-        sameGeometryNumber(left.width, right.width);
+        sameGeometryNumber(left.width, right.width)
+      );
     case "dimension":
-      return right.type === "dimension" &&
+      return (
+        right.type === "dimension" &&
         left.calibrationId === right.calibrationId &&
         samePoint(left.start, right.start) &&
         samePoint(left.end, right.end) &&
-        sameGeometryNumber(left.offset, right.offset);
+        sameGeometryNumber(left.offset, right.offset)
+      );
   }
 }
 
@@ -166,11 +193,13 @@ function sameBlockObject(
   left: ReturnType<typeof drawingObjectFromBlockPrimitive>,
   right: ReturnType<typeof drawingObjectFromBlockPrimitive>,
 ): boolean {
-  return left.name === right.name &&
+  return (
+    left.name === right.name &&
     left.layerId === right.layerId &&
     left.styleId === right.styleId &&
     sameJson(left.style, right.style) &&
-    sameGeometry(left.geometry, right.geometry);
+    sameGeometry(left.geometry, right.geometry)
+  );
 }
 
 function transformPoint(
@@ -202,25 +231,63 @@ function transformGeometry(
   instance: DrawingBlockInstance,
   inverse: boolean,
 ): DrawingGeometry {
-  const point = (value: { x: number; y: number }) => transformPoint(value, instance, inverse);
+  const point = (value: { x: number; y: number }) =>
+    transformPoint(value, instance, inverse);
   const scaleX = Math.abs(instance.scaleX);
   const scaleY = Math.abs(instance.scaleY);
   const uniform = scaleX === scaleY;
   const scale = scaleX;
   const rotation = inverse
-    ? (geometry.type === "rectangle" ? geometry.rotation - instance.rotation : 0)
-    : (geometry.type === "rectangle" ? geometry.rotation + instance.rotation : 0);
+    ? geometry.type === "rectangle"
+      ? geometry.rotation - instance.rotation
+      : 0
+    : geometry.type === "rectangle"
+      ? geometry.rotation + instance.rotation
+      : 0;
   switch (geometry.type) {
-    case "line": return { ...geometry, start: point(geometry.start), end: point(geometry.end) };
-    case "polyline": return { ...geometry, points: geometry.points.map(point) };
-    case "rectangle": return { ...geometry, origin: point(geometry.origin), width: inverse ? geometry.width / scaleX : geometry.width * scaleX, height: inverse ? geometry.height / scaleY : geometry.height * scaleY, rotation };
+    case "line":
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+      };
+    case "polyline":
+      return { ...geometry, points: geometry.points.map(point) };
+    case "rectangle":
+      return {
+        ...geometry,
+        origin: point(geometry.origin),
+        width: inverse ? geometry.width / scaleX : geometry.width * scaleX,
+        height: inverse ? geometry.height / scaleY : geometry.height * scaleY,
+        rotation,
+      };
     case "circle":
-      if (!uniform) throw new DrawingStructureError("A non-uniform block instance cannot exactly convert a circle.");
-      return { ...geometry, center: point(geometry.center), radius: inverse ? geometry.radius / scale : geometry.radius * scale };
-    case "text": return { ...geometry, origin: point(geometry.origin), width: inverse ? geometry.width / scaleX : geometry.width * scaleX };
+      if (!uniform)
+        throw new DrawingStructureError(
+          "A non-uniform block instance cannot exactly convert a circle.",
+        );
+      return {
+        ...geometry,
+        center: point(geometry.center),
+        radius: inverse ? geometry.radius / scale : geometry.radius * scale,
+      };
+    case "text":
+      return {
+        ...geometry,
+        origin: point(geometry.origin),
+        width: inverse ? geometry.width / scaleX : geometry.width * scaleX,
+      };
     case "dimension":
-      if (!uniform) throw new DrawingStructureError("A non-uniform block instance cannot exactly convert a dimension.");
-      return { ...geometry, start: point(geometry.start), end: point(geometry.end), offset: inverse ? geometry.offset / scale : geometry.offset * scale };
+      if (!uniform)
+        throw new DrawingStructureError(
+          "A non-uniform block instance cannot exactly convert a dimension.",
+        );
+      return {
+        ...geometry,
+        start: point(geometry.start),
+        end: point(geometry.end),
+        offset: inverse ? geometry.offset / scale : geometry.offset * scale,
+      };
   }
 }
 
@@ -278,7 +345,9 @@ function recordFor(
 
 function entityFor(action: DrawingStructureAction): StructureEntity {
   if (!("entity" in action)) {
-    throw new DrawingStructureError(`${action.kind} does not include an entity.`);
+    throw new DrawingStructureError(
+      `${action.kind} does not include an entity.`,
+    );
   }
   return action.entity as StructureEntity;
 }
@@ -291,9 +360,13 @@ function requireEntity(
   state: DrawingStructureState,
   action: DrawingStructureAction,
 ): StructureEntity {
-  const entity = recordFor(state, collectionForKind[action.kind])[idFor(action)];
+  const entity = recordFor(state, collectionForKind[action.kind])[
+    idFor(action)
+  ];
   if (!entity) {
-    throw new DrawingStructureError(`${action.kind} target ${idFor(action)} does not exist.`);
+    throw new DrawingStructureError(
+      `${action.kind} target ${idFor(action)} does not exist.`,
+    );
   }
   return entity;
 }
@@ -306,7 +379,9 @@ function validateActionBases(
   for (const action of actions) {
     const target = idFor(action);
     if (targets.has(target)) {
-      throw new DrawingStructureError(`${action.kind} targets ${idFor(action)} more than once.`);
+      throw new DrawingStructureError(
+        `${action.kind} targets ${idFor(action)} more than once.`,
+      );
     }
     targets.add(target);
     const collection = collectionForKind[action.kind];
@@ -326,22 +401,34 @@ function validateActionBases(
       ] as StructureCollection[]
     ).some(
       (candidate) =>
-        candidate !== collection && Boolean(recordFor(state, candidate)[idFor(action)]),
+        candidate !== collection &&
+        Boolean(recordFor(state, candidate)[idFor(action)]),
     );
     if (occupiedElsewhere) {
-      throw new DrawingStructureError(`${action.kind} reuses a UUID from another structure collection.`);
+      throw new DrawingStructureError(
+        `${action.kind} reuses a UUID from another structure collection.`,
+      );
     }
     const tombstone = state.tombstones?.[idFor(action)];
     if (tombstone && tombstone.collection !== collection) {
-      throw new DrawingStructureError(`${action.kind} reuses a UUID from another structure collection.`);
+      throw new DrawingStructureError(
+        `${action.kind} reuses a UUID from another structure collection.`,
+      );
     }
     if ("entity" in action) {
       if (action.baseVersion === null) {
         if (existing) {
-          throw new DrawingStructureError(`${action.kind} cannot create existing entity ${action.entity.id}.`);
+          throw new DrawingStructureError(
+            `${action.kind} cannot create existing entity ${action.entity.id}.`,
+          );
         }
-        if (tombstone && JSON.stringify(tombstone.entity) !== JSON.stringify(action.entity)) {
-          throw new DrawingStructureError(`${action.kind} must restore the exact tombstoned entity.`);
+        if (
+          tombstone &&
+          JSON.stringify(tombstone.entity) !== JSON.stringify(action.entity)
+        ) {
+          throw new DrawingStructureError(
+            `${action.kind} must restore the exact tombstoned entity.`,
+          );
         }
         if (!tombstone && action.entity.version !== 1) {
           throw new DrawingStructureError(
@@ -349,10 +436,14 @@ function validateActionBases(
           );
         }
       } else if (!existing || existing.version !== action.baseVersion) {
-        throw new DrawingStructureError(`${action.kind} base version does not match operation-start state.`);
+        throw new DrawingStructureError(
+          `${action.kind} base version does not match operation-start state.`,
+        );
       }
     } else if (!existing || existing.version !== action.baseVersion) {
-      throw new DrawingStructureError(`${action.kind} base version does not match operation-start state.`);
+      throw new DrawingStructureError(
+        `${action.kind} base version does not match operation-start state.`,
+      );
     }
   }
 }
@@ -363,7 +454,9 @@ function validateStyleReference(
   label: string,
 ): void {
   if (styleId !== null && styleId !== undefined && !state.styles[styleId]) {
-    throw new DrawingStructureError(`${label} references missing style ${styleId}.`);
+    throw new DrawingStructureError(
+      `${label} references missing style ${styleId}.`,
+    );
   }
 }
 
@@ -373,21 +466,30 @@ function validatePropertyValue(
 ): void {
   const schema = state.propertySchemas[value.schemaId];
   if (!schema) {
-    throw new DrawingStructureError(`Property value ${value.id} references a missing schema.`);
+    throw new DrawingStructureError(
+      `Property value ${value.id} references a missing schema.`,
+    );
   }
   const object = value.objectId ? state.objects[value.objectId] : undefined;
   const instance = value.blockInstanceId
     ? state.blockInstances[value.blockInstanceId]
     : undefined;
   if (value.objectId && !object) {
-    throw new DrawingStructureError(`Property value ${value.id} references a missing object.`);
+    throw new DrawingStructureError(
+      `Property value ${value.id} references a missing object.`,
+    );
   }
   if (value.blockInstanceId && !instance) {
-    throw new DrawingStructureError(`Property value ${value.id} references a missing block instance.`);
+    throw new DrawingStructureError(
+      `Property value ${value.id} references a missing block instance.`,
+    );
   }
-  const appliesTo = object?.geometry.type ?? (instance ? "block_instance" : null);
+  const appliesTo =
+    object?.geometry.type ?? (instance ? "block_instance" : null);
   if (!appliesTo || !schema.appliesTo.includes(appliesTo)) {
-    throw new DrawingStructureError(`Property value ${value.id} is not applicable to its target.`);
+    throw new DrawingStructureError(
+      `Property value ${value.id} is not applicable to its target.`,
+    );
   }
   if (value.value === null) return;
   const validCalendarDate = (candidate: string) => {
@@ -402,50 +504,72 @@ function validatePropertyValue(
   };
   const valid =
     (schema.valueType === "text" && typeof value.value === "string") ||
-    (schema.valueType === "number" && typeof value.value === "number" && Number.isFinite(value.value)) ||
+    (schema.valueType === "number" &&
+      typeof value.value === "number" &&
+      Number.isFinite(value.value)) ||
     (schema.valueType === "boolean" && typeof value.value === "boolean") ||
-    (schema.valueType === "date" && typeof value.value === "string" && validCalendarDate(value.value)) ||
-    (schema.valueType === "enum" && typeof value.value === "string" && schema.enumOptions.includes(value.value));
+    (schema.valueType === "date" &&
+      typeof value.value === "string" &&
+      validCalendarDate(value.value)) ||
+    (schema.valueType === "enum" &&
+      typeof value.value === "string" &&
+      schema.enumOptions.includes(value.value));
   if (!valid) {
-    throw new DrawingStructureError(`Property value ${value.id} does not match schema ${schema.id}.`);
+    throw new DrawingStructureError(
+      `Property value ${value.id} does not match schema ${schema.id}.`,
+    );
   }
 }
 
 function validateReferences(state: DrawingStructureState): void {
   for (const page of Object.values(state.pages)) {
     if (page.revisionId !== state.revisionId) {
-      throw new DrawingStructureError(`Page ${page.id} belongs to another revision.`);
+      throw new DrawingStructureError(
+        `Page ${page.id} belongs to another revision.`,
+      );
     }
   }
   for (const canvas of Object.values(state.canvases)) {
     if (!state.pages[canvas.pageId]) {
-      throw new DrawingStructureError(`Canvas ${canvas.id} references a missing page.`);
+      throw new DrawingStructureError(
+        `Canvas ${canvas.id} references a missing page.`,
+      );
     }
   }
   for (const layer of Object.values(state.layers)) {
     if (!layer.canvasId || !state.canvases[layer.canvasId]) {
-      throw new DrawingStructureError(`Layer ${layer.id} references a missing canvas.`);
+      throw new DrawingStructureError(
+        `Layer ${layer.id} references a missing canvas.`,
+      );
     }
   }
   for (const object of Object.values(state.objects)) {
     if (!state.layers[object.layerId]) {
-      throw new DrawingStructureError(`Object ${object.id} references a missing layer.`);
+      throw new DrawingStructureError(
+        `Object ${object.id} references a missing layer.`,
+      );
     }
     validateStyleReference(object.styleId, state, `Object ${object.id}`);
   }
   const styleNames = new Set<string>();
   for (const style of Object.values(state.styles)) {
     if (style.revisionId !== state.revisionId) {
-      throw new DrawingStructureError(`Style ${style.id} belongs to another revision.`);
+      throw new DrawingStructureError(
+        `Style ${style.id} belongs to another revision.`,
+      );
     }
     if (styleNames.has(style.name)) {
-      throw new DrawingStructureError(`Drawing style name ${style.name} must be unique.`);
+      throw new DrawingStructureError(
+        `Drawing style name ${style.name} must be unique.`,
+      );
     }
     styleNames.add(style.name);
   }
   for (const block of Object.values(state.blocks)) {
     if (block.revisionId !== state.revisionId) {
-      throw new DrawingStructureError(`Block ${block.id} belongs to another revision.`);
+      throw new DrawingStructureError(
+        `Block ${block.id} belongs to another revision.`,
+      );
     }
     for (const primitive of block.primitives) {
       validateStyleReference(primitive.styleId, state, `Block ${block.id}`);
@@ -453,12 +577,16 @@ function validateReferences(state: DrawingStructureState): void {
   }
   for (const instance of Object.values(state.blockInstances)) {
     if (!state.blocks[instance.blockId] || !state.layers[instance.layerId]) {
-      throw new DrawingStructureError(`Block instance ${instance.id} has a missing reference.`);
+      throw new DrawingStructureError(
+        `Block instance ${instance.id} has a missing reference.`,
+      );
     }
   }
   for (const schema of Object.values(state.propertySchemas)) {
     if (schema.revisionId !== state.revisionId) {
-      throw new DrawingStructureError(`Property schema ${schema.id} belongs to another revision.`);
+      throw new DrawingStructureError(
+        `Property schema ${schema.id} belongs to another revision.`,
+      );
     }
   }
   for (const value of Object.values(state.propertyValues)) {
@@ -466,23 +594,36 @@ function validateReferences(state: DrawingStructureState): void {
   }
   for (const table of Object.values(state.tables)) {
     if (table.revisionId !== state.revisionId) {
-      throw new DrawingStructureError(`Table ${table.id} belongs to another revision.`);
+      throw new DrawingStructureError(
+        `Table ${table.id} belongs to another revision.`,
+      );
     }
     const columns = new Map(table.columns.map((column) => [column.id, column]));
     for (const column of table.columns) {
-      if (column.propertySchemaId && !state.propertySchemas[column.propertySchemaId]) {
-        throw new DrawingStructureError(`Table ${table.id} references a missing property schema.`);
+      if (
+        column.propertySchemaId &&
+        !state.propertySchemas[column.propertySchemaId]
+      ) {
+        throw new DrawingStructureError(
+          `Table ${table.id} references a missing property schema.`,
+        );
       }
     }
     for (const row of table.rows) {
       if (row.objectId && !state.objects[row.objectId]) {
-        throw new DrawingStructureError(`Table row ${row.id} references a missing object.`);
+        throw new DrawingStructureError(
+          `Table row ${row.id} references a missing object.`,
+        );
       }
       if (row.blockInstanceId && !state.blockInstances[row.blockInstanceId]) {
-        throw new DrawingStructureError(`Table row ${row.id} references a missing block instance.`);
+        throw new DrawingStructureError(
+          `Table row ${row.id} references a missing block instance.`,
+        );
       }
       if (row.objectId && row.blockInstanceId) {
-        throw new DrawingStructureError(`Table row ${row.id} may not reference two targets.`);
+        throw new DrawingStructureError(
+          `Table row ${row.id} may not reference two targets.`,
+        );
       }
       const targetKind = row.objectId
         ? state.objects[row.objectId]?.geometry.type
@@ -505,16 +646,36 @@ function validateReferences(state: DrawingStructureState): void {
       for (const [columnId, cell] of Object.entries(row.cells)) {
         const column = columns.get(columnId);
         if (!column) {
-          throw new DrawingStructureError(`Table row ${row.id} has an unknown column.`);
+          throw new DrawingStructureError(
+            `Table row ${row.id} has an unknown column.`,
+          );
         }
-        if (cell !== null && column.kind !== "text" && column.kind !== "number") {
-          throw new DrawingStructureError(`Table row ${row.id} stores a computed cell.`);
+        if (
+          cell !== null &&
+          column.kind !== "text" &&
+          column.kind !== "number"
+        ) {
+          throw new DrawingStructureError(
+            `Table row ${row.id} stores a computed cell.`,
+          );
         }
-        if (column.kind === "text" && cell !== null && typeof cell !== "string") {
-          throw new DrawingStructureError(`Table row ${row.id} text cell must be text.`);
+        if (
+          column.kind === "text" &&
+          cell !== null &&
+          typeof cell !== "string"
+        ) {
+          throw new DrawingStructureError(
+            `Table row ${row.id} text cell must be text.`,
+          );
         }
-        if (column.kind === "number" && cell !== null && typeof cell !== "number") {
-          throw new DrawingStructureError(`Table row ${row.id} number cell must be numeric.`);
+        if (
+          column.kind === "number" &&
+          cell !== null &&
+          typeof cell !== "number"
+        ) {
+          throw new DrawingStructureError(
+            `Table row ${row.id} number cell must be numeric.`,
+          );
         }
       }
     }
@@ -538,7 +699,9 @@ function validateFinalCanvasInvariant(state: DrawingStructureState): void {
       (canvas) => canvas.spaceKind === "paper" && canvas.sortOrder === 0,
     );
     if (defaults.length !== 1) {
-      throw new DrawingStructureError(`Page ${page.id} must have exactly one default paper canvas.`);
+      throw new DrawingStructureError(
+        `Page ${page.id} must have exactly one default paper canvas.`,
+      );
     }
   }
   for (const canvas of Object.values(state.canvases)) {
@@ -550,26 +713,42 @@ function validateFinalCanvasInvariant(state: DrawingStructureState): void {
         !layer.locked,
     );
     if (!hasEditableLayer) {
-      throw new DrawingStructureError(`Canvas ${canvas.id} must retain an editable layer.`);
+      throw new DrawingStructureError(
+        `Canvas ${canvas.id} must retain an editable layer.`,
+      );
     }
   }
 }
 
 /** Validates a complete P2 graph before it becomes canonical client state. */
-export function validateDrawingStructureState(state: DrawingStructureState): void {
-  const collections: Array<[StructureCollection, Record<string, StructureEntity>]> = [
-    ["objects", state.objects], ["pages", state.pages], ["canvases", state.canvases],
-    ["layers", state.layers as Record<string, StructureEntity>], ["styles", state.styles], ["blocks", state.blocks],
-    ["blockInstances", state.blockInstances], ["propertySchemas", state.propertySchemas],
-    ["propertyValues", state.propertyValues], ["tables", state.tables],
+export function validateDrawingStructureState(
+  state: DrawingStructureState,
+): void {
+  const collections: Array<
+    [StructureCollection, Record<string, StructureEntity>]
+  > = [
+    ["objects", state.objects],
+    ["pages", state.pages],
+    ["canvases", state.canvases],
+    ["layers", state.layers as Record<string, StructureEntity>],
+    ["styles", state.styles],
+    ["blocks", state.blocks],
+    ["blockInstances", state.blockInstances],
+    ["propertySchemas", state.propertySchemas],
+    ["propertyValues", state.propertyValues],
+    ["tables", state.tables],
   ];
   const ids = new Set<string>();
   for (const [collection, records] of collections) {
     for (const [id, entity] of Object.entries(records)) {
       if (id !== entity.id)
-        throw new DrawingStructureError(`${collection} key ${id} does not match its entity ID.`);
+        throw new DrawingStructureError(
+          `${collection} key ${id} does not match its entity ID.`,
+        );
       if (ids.has(id))
-        throw new DrawingStructureError(`Structure collections reuse UUID ${id}.`);
+        throw new DrawingStructureError(
+          `Structure collections reuse UUID ${id}.`,
+        );
       ids.add(id);
     }
   }
@@ -708,7 +887,9 @@ function validateObjectCompound(
     );
     if (
       block.primitives.length !== expected.length ||
-      expected.some((primitive, index) => !sameJson(block.primitives[index], primitive))
+      expected.some(
+        (primitive, index) => !sameJson(block.primitives[index], primitive),
+      )
     ) {
       throw new DrawingStructureError(
         "Block conversion primitives must exactly represent the deleted objects in instance-relative coordinates.",
@@ -742,7 +923,9 @@ function validateObjectCompound(
     const expected = block.primitives.map((primitive) =>
       drawingObjectFromBlockPrimitive(primitive, instance),
     );
-    const restored = objectActions.map((action) => entityFor(action) as DrawingObject);
+    const restored = objectActions.map(
+      (action) => entityFor(action) as DrawingObject,
+    );
     const remaining = [...expected];
     for (const object of restored) {
       const tombstone = state.tombstones?.[object.id];
@@ -782,18 +965,24 @@ function validateObjectCompound(
 
 /** Resolves a style definition and inline override into one validated render style. */
 export function resolveDrawingStyle(
-  styled: Pick<DrawingObject, "styleId" | "style"> | {
-    styleId: string | null;
-    style: DrawingStyleOverride;
-  },
-  styles: readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+  styled:
+    | Pick<DrawingObject, "styleId" | "style">
+    | {
+        styleId: string | null;
+        style: DrawingStyleOverride;
+      },
+  styles:
+    | readonly DrawingStyleDefinition[]
+    | Record<string, DrawingStyleDefinition>,
 ): DrawingStyle {
   const definitions = Array.isArray(styles) ? styles : Object.values(styles);
   const styleId = styled.styleId ?? null;
   if (styleId === null) {
     const parsed = DrawingStyleSchema.safeParse(styled.style);
     if (!parsed.success) {
-      throw new DrawingStructureError("Inline drawing style must be complete and valid.");
+      throw new DrawingStructureError(
+        "Inline drawing style must be complete and valid.",
+      );
     }
     return parsed.data;
   }
@@ -801,9 +990,14 @@ export function resolveDrawingStyle(
   if (!definition) {
     throw new DrawingStructureError(`Drawing style ${styleId} does not exist.`);
   }
-  const parsed = DrawingStyleSchema.safeParse({ ...definition.value, ...styled.style });
+  const parsed = DrawingStyleSchema.safeParse({
+    ...definition.value,
+    ...styled.style,
+  });
   if (!parsed.success) {
-    throw new DrawingStructureError("Resolved drawing style must be complete and valid.");
+    throw new DrawingStructureError(
+      "Resolved drawing style must be complete and valid.",
+    );
   }
   return parsed.data;
 }
@@ -812,19 +1006,26 @@ export function resolveDrawingStyle(
 export function applyDrawingStructureActions(
   state: DrawingStructureState,
   inputActions: DrawingStructureAction[],
+  options: { allowCheckpointRestore?: boolean } = {},
 ): AppliedDrawingStructureActions {
   const actions = inputActions.map(
     (action) =>
-      DrawingStructureActionSchema.parse(clone(action)) as DrawingStructureAction,
+      DrawingStructureActionSchema.parse(
+        clone(action),
+      ) as DrawingStructureAction,
   );
   if (actions.length === 0) {
-    throw new DrawingStructureError("A structure operation requires at least one action.");
+    throw new DrawingStructureError(
+      "A structure operation requires at least one action.",
+    );
   }
-  validateObjectCompound(state, actions);
+  if (!options.allowCheckpointRestore) validateObjectCompound(state, actions);
   validateActionBases(state, actions);
   const protectedDefaultCanvasIds = new Set(
     Object.values(state.canvases)
-      .filter((canvas) => canvas.spaceKind === "paper" && canvas.sortOrder === 0)
+      .filter(
+        (canvas) => canvas.spaceKind === "paper" && canvas.sortOrder === 0,
+      )
       .map((canvas) => canvas.id),
   );
 
@@ -840,7 +1041,10 @@ export function applyDrawingStructureActions(
     if ("entity" in action) {
       const previous = record[action.entity.id];
       if (previous) {
-        const entity = { ...clone(action.entity), version: previous.version + 1 } as StructureEntity;
+        const entity = {
+          ...clone(action.entity),
+          version: previous.version + 1,
+        } as StructureEntity;
         record[entity.id] = entity;
         inverse.unshift({
           kind: action.kind,
@@ -859,7 +1063,10 @@ export function applyDrawingStructureActions(
         record[entity.id] = entity;
         if (tombstone) delete next.tombstones?.[entity.id];
         inverse.unshift({
-          kind: action.kind.replace("put_", "delete_") as DrawingStructureAction["kind"],
+          kind: action.kind.replace(
+            "put_",
+            "delete_",
+          ) as DrawingStructureAction["kind"],
           id: entity.id,
           baseVersion: entity.version,
         } as DrawingStructureAction);
@@ -877,7 +1084,10 @@ export function applyDrawingStructureActions(
         version: tombstoneVersion,
       };
       inverse.unshift({
-        kind: action.kind.replace("delete_", "put_") as DrawingStructureAction["kind"],
+        kind: action.kind.replace(
+          "delete_",
+          "put_",
+        ) as DrawingStructureAction["kind"],
         entity: clone(previous),
         baseVersion: null,
       } as DrawingStructureAction);
@@ -888,16 +1098,28 @@ export function applyDrawingStructureActions(
     validateReferences(next);
   }
   const deletedPageIds = new Set(
-    actions
-      .filter((action) => action.kind === "delete_page")
-      .map(idFor),
+    actions.filter((action) => action.kind === "delete_page").map(idFor),
   );
-  if (actions.some((action) => {
-    if (action.kind !== "delete_canvas" || !protectedDefaultCanvasIds.has(action.id)) return false;
-    return !deletedPageIds.has(state.canvases[action.id]?.pageId);
-  })) {
-    throw new DrawingStructureError("The operation-start default paper canvas cannot be deleted.");
+  if (
+    actions.some((action) => {
+      if (
+        action.kind !== "delete_canvas" ||
+        !protectedDefaultCanvasIds.has(action.id)
+      )
+        return false;
+      return !deletedPageIds.has(state.canvases[action.id]?.pageId);
+    })
+  ) {
+    throw new DrawingStructureError(
+      "The operation-start default paper canvas cannot be deleted.",
+    );
   }
   validateFinalCanvasInvariant(next);
-  return { state: next, inverse, baseVersions, resultVersions, realizedVersions };
+  return {
+    state: next,
+    inverse,
+    baseVersions,
+    resultVersions,
+    realizedVersions,
+  };
 }

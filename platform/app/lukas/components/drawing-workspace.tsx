@@ -48,6 +48,7 @@ import {
   moveDrawingSelection,
   pasteDrawingClipboard,
   redoDrawingCommand,
+  revertDrawingOperation,
   undoDrawingCommand,
   type AppliedDrawingCommand,
   type DrawingCommand,
@@ -103,6 +104,7 @@ import type {
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
+import type { DrawingActivityItem } from "~/lukas/lib/drawing-history.server";
 import {
   DrawingLayerSchema,
   DrawingObjectSchema,
@@ -176,7 +178,9 @@ export type DrawingWorkspacePanel =
   | "styles"
   | "properties"
   | "schedules"
-  | "blocks";
+  | "blocks"
+  | "collaboration"
+  | "history";
 
 const drawingWorkspacePanels: Array<{
   id: DrawingWorkspacePanel;
@@ -187,6 +191,8 @@ const drawingWorkspacePanels: Array<{
   { id: "properties", label: "속성" },
   { id: "schedules", label: "Schedule" },
   { id: "blocks", label: "블록" },
+  { id: "collaboration", label: "댓글·이슈" },
+  { id: "history", label: "변경 이력" },
 ];
 
 /** Resolves the standard keyboard navigation owned by the workspace tablist. */
@@ -538,8 +544,10 @@ function drawingStateFromBootstrap(
 
 type Props = {
   actionError?: string | null;
+  activityPage?: { items: DrawingActivityItem[]; nextCursor: string | null };
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
+  projectId: string;
   previewMode?: boolean;
   realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
   previewHarness?: {
@@ -558,8 +566,10 @@ type Props = {
 
 export default function DrawingWorkspaceClient({
   actionError,
+  activityPage,
   capability,
   currentUserId,
+  projectId,
   previewMode = false,
   realtimeAdapter,
   previewHarness,
@@ -582,6 +592,7 @@ export default function DrawingWorkspaceClient({
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
+  const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const semanticBlockSelectionRef = useRef<Set<string>>(new Set());
@@ -1453,6 +1464,28 @@ export default function DrawingWorkspaceClient({
       setAwarenessSoftLock,
     ],
   );
+  const revertOperation = useCallback(
+    (operationId: string) => {
+      try {
+        const reverted = revertDrawingOperation(
+          drawingState,
+          currentUserId,
+          operationId,
+        );
+        if ("kind" in reverted) {
+          setHistoryStatus("후속 변경이 있어 안전하게 되돌릴 수 없습니다.");
+          return;
+        }
+        commitApplied(reverted);
+        setHistoryStatus("되돌리기 작업을 저장 대기열에 추가했습니다.");
+      } catch (error) {
+        setHistoryStatus(
+          error instanceof Error ? error.message : "작업을 되돌릴 수 없습니다.",
+        );
+      }
+    },
+    [commitApplied, currentUserId, drawingState],
+  );
   const blockMutationAdapter = useMemo(
     () =>
       createDrawingWorkspaceBlockMutationAdapter({
@@ -2095,7 +2128,7 @@ export default function DrawingWorkspaceClient({
             role="tablist"
             aria-label="도면 도구"
             data-drawing-shortcuts="ignore"
-            className="grid shrink-0 grid-cols-5 gap-1 border-b border-white/10 p-2 xl:grid-cols-2"
+            className="grid shrink-0 grid-cols-4 gap-1 border-b border-white/10 p-2 xl:grid-cols-2"
           >
             {drawingWorkspacePanels.map((panel) => {
               const selected = activePanel === panel.id;
@@ -2129,6 +2162,152 @@ export default function DrawingWorkspaceClient({
                 </button>
               );
             })}
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-collaboration"
+            className="min-h-0 flex-1 overflow-y-auto p-3"
+            hidden={activePanel !== "collaboration"}
+            id="drawing-panel-collaboration"
+          >
+            <section
+              aria-label="댓글 및 이슈"
+              className="space-y-3 text-sm text-slate-200"
+            >
+              <h2 className="font-bold text-white">댓글·이슈</h2>
+              <p className="text-xs text-slate-400">
+                객체 또는 캔버스 영역을 선택한 뒤 이슈에서 댓글과 명시적 멘션을
+                연결합니다.
+              </p>
+              <Link
+                className="inline-flex min-h-10 items-center rounded-md border border-white/20 px-3 font-semibold hover:bg-white/10"
+                to={`/projects/${projectId}/drawings/${file.id}`}
+              >
+                협업 이슈 열기
+              </Link>
+              <Link
+                className="block text-xs text-indigo-300 underline underline-offset-4"
+                to={`/projects/${projectId}/members`}
+              >
+                프로젝트 멤버 및 역할 관리
+              </Link>
+            </section>
+          </div>
+          <div
+            role="tabpanel"
+            aria-labelledby="drawing-panel-tab-history"
+            className="min-h-0 flex-1 overflow-y-auto p-3"
+            hidden={activePanel !== "history"}
+            id="drawing-panel-history"
+          >
+            <section
+              aria-label="변경 이력"
+              className="space-y-3 text-sm text-slate-200"
+            >
+              <h2 className="font-bold text-white">변경 이력</h2>
+              <p className="text-xs text-slate-400">
+                저장된 변경은 추가형 작업으로 보존됩니다. 내 작업만 안전할 때
+                되돌릴 수 있습니다.
+              </p>
+              {historyStatus ? (
+                <p
+                  aria-live="polite"
+                  className="rounded-md bg-white/10 p-2 text-xs"
+                >
+                  {historyStatus}
+                </p>
+              ) : null}
+              {effectiveRevisionStatus === "approved" && authority.canWrite ? (
+                <Form
+                  method="post"
+                  className="rounded-md border border-indigo-400/30 p-2"
+                >
+                  <input
+                    name="intent"
+                    type="hidden"
+                    value="restore_approved_snapshot"
+                  />
+                  <input
+                    name="source_revision_id"
+                    type="hidden"
+                    value={revision.id}
+                  />
+                  <input
+                    id={`snapshot-request-${revision.id}`}
+                    name="request_id"
+                    type="hidden"
+                  />
+                  <p className="text-xs text-slate-300">
+                    승인본은 덮어쓰지 않고 새 ID의 하위 초안으로 복원합니다.
+                  </p>
+                  <button
+                    className="mt-2 min-h-10 rounded bg-indigo-500 px-3 text-xs font-bold text-white"
+                    onClick={() => {
+                      const input = document.getElementById(
+                        `snapshot-request-${revision.id}`,
+                      ) as HTMLInputElement | null;
+                      if (input) input.value = crypto.randomUUID();
+                    }}
+                    type="submit"
+                  >
+                    새 초안으로 복원
+                  </button>
+                </Form>
+              ) : null}
+              <ol className="space-y-2" reversed>
+                {(
+                  activityPage?.items ??
+                  drawingState.operations
+                    .slice(-25)
+                    .reverse()
+                    .map((operation) => ({
+                      id: operation.clientOperationId,
+                      action: operation.type,
+                      actorId: operation.actorId,
+                      createdAt: operation.createdAt,
+                    }))
+                ).map((operation) => (
+                  <li
+                    className="rounded-md border border-white/10 p-2"
+                    key={operation.id}
+                  >
+                    <p className="font-semibold">{operation.action}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">
+                      {operation.actorId?.slice(0, 8) ?? "system"} ·{" "}
+                      {operation.createdAt}
+                    </p>
+                    {drawingState.operations.some(
+                      (candidate) =>
+                        candidate.clientOperationId === operation.id &&
+                        candidate.actorId === currentUserId &&
+                        candidate.undoable,
+                    ) ? (
+                      <button
+                        className="mt-2 min-h-9 rounded border border-white/20 px-2 text-xs font-semibold"
+                        onClick={() => revertOperation(operation.id)}
+                        type="button"
+                      >
+                        이 작업 되돌리기
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              {(activityPage?.items.length ??
+                drawingState.operations.length) === 0 ? (
+                <p className="text-xs text-slate-400">
+                  아직 저장된 작업이 없습니다.
+                </p>
+              ) : null}
+              {activityPage?.nextCursor ? (
+                <Link
+                  className="inline-flex min-h-10 items-center text-xs font-semibold text-indigo-300 underline underline-offset-4"
+                  to={`?historyCursor=${encodeURIComponent(activityPage.nextCursor)}`}
+                >
+                  이전 이력 더 보기
+                </Link>
+              ) : null}
+            </section>
           </div>
           <div
             role="tabpanel"

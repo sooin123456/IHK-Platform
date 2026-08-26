@@ -230,6 +230,14 @@ const collaborationHistoryAuthorityMigration = () =>
     ),
     "utf8",
   );
+const p3MentionsHistoryMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826020804_drawing_workspace_p3_mentions_history.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -319,6 +327,42 @@ const foundationSql = `
       id uuid primary key,
       project_id uuid not null references public.lukas_qto_projects(id),
       unique(id, project_id)
+    );
+    create table public.lukas_drawing_issue_comments(
+      id uuid primary key,
+      issue_id uuid not null,
+      project_id uuid not null references public.lukas_qto_projects(id),
+      author_id uuid not null references auth.users(id),
+      body text not null,
+      created_at timestamptz not null default now(),
+      foreign key(issue_id,project_id)
+        references public.lukas_drawing_issues(id,project_id)
+    );
+    create table public.lukas_drawing_issue_events(
+      id uuid primary key default gen_random_uuid(),
+      issue_id uuid not null,
+      project_id uuid not null references public.lukas_qto_projects(id),
+      actor_id uuid references auth.users(id),
+      event_type text not null,
+      from_value jsonb,
+      to_value jsonb,
+      note text not null default '',
+      created_at timestamptz not null default now(),
+      unique(id,project_id),
+      foreign key(issue_id,project_id)
+        references public.lukas_drawing_issues(id,project_id)
+    );
+    create table public.lukas_drawing_notifications(
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references public.lukas_qto_projects(id),
+      issue_id uuid not null,
+      event_id uuid not null references public.lukas_drawing_issue_events(id),
+      user_id uuid not null references auth.users(id),
+      read_at timestamptz,
+      created_at timestamptz not null default now(),
+      unique(event_id,user_id),
+      foreign key(issue_id,project_id)
+        references public.lukas_drawing_issues(id,project_id)
     );
     create function private.lukas_qto_project_role(p_project_id uuid)
     returns text language sql stable security definer set search_path = '' as $$
@@ -553,6 +597,7 @@ before(async () => {
   await db.exec(await p3ServiceAuthorityMigration());
   await db.exec(await collaborationHistoryLineageMigration());
   await db.exec(await collaborationHistoryAuthorityMigration());
+  await db.exec(await p3MentionsHistoryMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -8684,4 +8729,200 @@ test("P2 review refuses a page whose canvas lost every editable layer", async ()
       error.code === "P1C01" &&
       /editable-layer invariants/i.test(error.message),
   );
+});
+
+test("P3 comments persist only explicit same-project mentions with idempotent evidence", async () => {
+  const ids = await createDocument("P3 explicit mentions");
+  const issueId = randomUUID();
+  const commentId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  const addComment = (body, mentionedUserIds) =>
+    db.query(
+      "select public.lukas_drawing_add_comment($1,$2,$3,$4) result",
+      [issueId, commentId, body, mentionedUserIds],
+    );
+
+  const first = await addComment("@누구나 표시 문구", [REVIEWER]);
+  const retried = await addComment("@누구나 표시 문구", [REVIEWER]);
+  assert.deepEqual(retried.rows[0].result, first.rows[0].result);
+  assert.equal(first.rows[0].result.commentId, commentId);
+  assert.deepEqual(first.rows[0].result.mentionedUserIds, [REVIEWER]);
+
+  await db.exec("reset role");
+  const [mentions, events, notifications] = await Promise.all([
+    db.query(
+      "select comment_id,user_id,project_id from public.lukas_drawing_comment_mentions where comment_id=$1",
+      [commentId],
+    ),
+    db.query(
+      "select event_type,to_value from public.lukas_drawing_issue_events where to_value->>'comment_id'=$1 order by event_type",
+      [commentId],
+    ),
+    db.query(
+      "select user_id from public.lukas_drawing_notifications where issue_id=$1",
+      [issueId],
+    ),
+  ]);
+  assert.deepEqual(mentions.rows, [
+    { comment_id: commentId, user_id: REVIEWER, project_id: PROJECT },
+  ]);
+  assert.deepEqual(events.rows, [
+    {
+      event_type: "mention_added",
+      to_value: { comment_id: commentId, mentioned_user_id: REVIEWER },
+    },
+  ]);
+  assert.deepEqual(notifications.rows, [{ user_id: REVIEWER }]);
+
+  await asActor(OWNER);
+  await assert.rejects(
+    addComment("@문구만으로는 권한이 생기지 않음", [OUTSIDER]),
+    (error) => error.code === "P3S01",
+  );
+  await assert.rejects(
+    addComment("다른 요청", [REVIEWER]),
+    (error) => error.code === "P3S01",
+  );
+  await assert.rejects(
+    db.query(
+      "update public.lukas_drawing_comment_mentions set user_id=$1 where comment_id=$2",
+      [EDITOR, commentId],
+    ),
+  );
+  await assert.rejects(
+    db.query(
+      "delete from public.lukas_drawing_comment_mentions where comment_id=$1",
+      [commentId],
+    ),
+  );
+
+  await asActor(randomUUID());
+  const hidden = await db.query(
+    "select * from public.lukas_drawing_comment_mentions where comment_id=$1",
+    [commentId],
+  );
+  assert.deepEqual(hidden.rows, []);
+});
+
+test("P3 canvas anchors preserve signed finite world millimeters and composite identity", async () => {
+  const ids = await createDocument("P3 canvas region anchors");
+  const issueId = randomUUID();
+  const anchorId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [issueId, PROJECT],
+  );
+  const graph = await db.query(
+    `select p.id page_id,c.id canvas_id
+     from public.lukas_drawing_pages p
+     join public.lukas_drawing_canvases c on c.page_id=p.id
+     where p.revision_id=$1 limit 1`,
+    [ids.revisionId],
+  );
+  const { page_id: pageId, canvas_id: canvasId } = graph.rows[0];
+  await asActor(OWNER);
+  const insert = (id, x, y, width, height, canvas = canvasId) =>
+    db.query(
+      `select public.lukas_drawing_add_canvas_region_anchor(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+      ) result`,
+      [
+        issueId,
+        ids.revisionId,
+        pageId,
+        canvas,
+        id,
+        x,
+        y,
+        width,
+        height,
+        "서측 영역",
+      ],
+    );
+
+  const created = await insert(anchorId, -25.5, -10, 120.25, 80);
+  assert.deepEqual(created.rows[0].result, {
+    anchorId,
+    canvasId,
+    heightMm: 80,
+    pageId,
+    revisionId: ids.revisionId,
+    widthMm: 120.25,
+    xMm: -25.5,
+    yMm: -10,
+  });
+  for (const [x, y, width, height] of [
+    [0, 0, 0, 1],
+    [0, 0, 1, -1],
+    [Number.NaN, 0, 1, 1],
+    [Number.POSITIVE_INFINITY, 0, 1, 1],
+    [0, Number.NEGATIVE_INFINITY, 1, 1],
+  ])
+    await assert.rejects(insert(randomUUID(), x, y, width, height));
+  await assert.rejects(insert(randomUUID(), 0, 0, 1, 1, randomUUID()));
+  await assert.rejects(
+    db.query(
+      "update public.lukas_drawing_canvas_region_anchors set x_mm=0 where id=$1",
+      [anchorId],
+    ),
+  );
+  await assert.rejects(
+    db.query(
+      "delete from public.lukas_drawing_canvas_region_anchors where id=$1",
+      [anchorId],
+    ),
+  );
+});
+
+test("P3 approved checkpoint restore is an idempotent fresh child draft with lineage", async () => {
+  const ids = await createDocument("P3 approved restore parent");
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  await addObject(ids, object);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'approved','restore fixture'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const requestId = randomUUID();
+  const restore = () =>
+    db.query(
+      "select public.lukas_drawing_restore_approved_snapshot($1,$2) result",
+      [ids.revisionId, requestId],
+    );
+  const first = (await restore()).rows[0].result;
+  assert.deepEqual((await restore()).rows[0].result, first);
+  assert.equal(first.documentId, ids.documentId);
+  assert.notEqual(first.revisionId, ids.revisionId);
+  assert.equal(first.sourceRevisionId, ids.revisionId);
+  assert.equal(first.parentRevisionId, ids.revisionId);
+  assert.equal(first.status, "draft");
+  const cloned = await db.query(
+    "select id,lineage_id from public.lukas_drawing_objects where revision_id=$1",
+    [first.revisionId],
+  );
+  assert.equal(cloned.rows.length, 1);
+  assert.notEqual(cloned.rows[0].id, object.id);
+  assert.equal(cloned.rows[0].lineage_id, object.lineageId ?? object.id);
+  const parent = await db.query(
+    "select status from public.lukas_drawing_revisions where id=$1",
+    [ids.revisionId],
+  );
+  assert.equal(parent.rows[0].status, "approved");
 });

@@ -652,9 +652,14 @@ export default function DrawingIssuePanel({
               ))}
             </div>
             {mayWrite ? (
-              <Form className="mt-2 flex gap-2" method="post">
+              <Form className="mt-2 space-y-2" method="post">
                 <input name="intent" type="hidden" value="comment" />
                 <input name="issue_id" type="hidden" value={selected.id} />
+                <input
+                  id={`comment-id-${selected.id}`}
+                  name="comment_id"
+                  type="hidden"
+                />
                 <Input
                   className="min-h-11"
                   id={`comment-${selected.id}`}
@@ -662,7 +667,33 @@ export default function DrawingIssuePanel({
                   placeholder="댓글을 입력하세요"
                   required
                 />
-                <Button className="min-h-11" type="submit">
+                <Label htmlFor={`comment-mentions-${selected.id}`}>
+                  멘션할 프로젝트 멤버 (선택 항목만 알림)
+                </Label>
+                <select
+                  className="min-h-24 w-full rounded-lg border bg-background p-2 text-sm"
+                  id={`comment-mentions-${selected.id}`}
+                  multiple
+                  name="mentioned_user_ids"
+                >
+                  {assignees
+                    .filter((assignee) => assignee.userId !== currentUserId)
+                    .map((assignee) => (
+                      <option key={assignee.userId} value={assignee.userId}>
+                        {assigneeLabel(assignee)}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  className="min-h-11 w-full"
+                  onClick={() => {
+                    const input = document.getElementById(
+                      `comment-id-${selected.id}`,
+                    ) as HTMLInputElement | null;
+                    if (input) input.value = crypto.randomUUID();
+                  }}
+                  type="submit"
+                >
                   등록
                 </Button>
               </Form>

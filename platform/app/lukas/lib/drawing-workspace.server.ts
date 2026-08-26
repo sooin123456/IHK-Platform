@@ -233,6 +233,10 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_decision: "approved" | "rejected";
         p_note: string;
       }>;
+      lukas_drawing_restore_approved_snapshot: DrawingRpc<{
+        p_source_revision_id: string;
+        p_request_id: string;
+      }>;
       lukas_drawing_link_object_issue: DrawingRpc<{
         p_object_id: string;
         p_issue_id: string;
@@ -456,6 +460,13 @@ const MutateObjectsWithReferencesPayloadSchema = z
     actions: z.array(DrawingStructureActionSchema),
   })
   .strict();
+const RestoreCheckpointPayloadSchema = z
+  .object({
+    type: z.literal("restore_checkpoint"),
+    checkpointId: Uuid,
+    actions: z.array(DrawingStructureActionSchema).min(1).max(5000),
+  })
+  .strict();
 
 const OperationPayloadSchemas = {
   add_objects: AddObjectsPayloadSchema,
@@ -465,6 +476,7 @@ const OperationPayloadSchemas = {
   update_layer: UpdateLayerPayloadSchema,
   mutate_structure: MutateStructurePayloadSchema,
   mutate_objects_with_references: MutateObjectsWithReferencesPayloadSchema,
+  restore_checkpoint: RestoreCheckpointPayloadSchema,
 } as const;
 
 const exactOperationKeys = [
@@ -540,7 +552,9 @@ function parseOperation(value: unknown): DrawingOperationInput {
             ? MutateStructurePayloadSchema
             : operation.type === "mutate_objects_with_references"
               ? MutateObjectsWithReferencesPayloadSchema
-              : OperationPayloadSchemas[operation.type];
+              : operation.type === "restore_checkpoint"
+                ? RestoreCheckpointPayloadSchema
+                : OperationPayloadSchemas[operation.type];
   parseExactPayload(expectedInverse, operation.inverse);
   return operation;
 }
@@ -583,6 +597,11 @@ const RecordRevisionDecisionMutationSchema = z.object({
   decision: z.enum(["approved", "rejected"]),
   note: DecisionNote,
 });
+const RestoreApprovedSnapshotMutationSchema = z.object({
+  intent: z.literal("restore_approved_snapshot"),
+  sourceRevisionId: Uuid,
+  requestId: Uuid,
+});
 
 export type WorkspaceMutation =
   | z.infer<typeof CreateDocumentMutationSchema>
@@ -591,6 +610,7 @@ export type WorkspaceMutation =
   | z.infer<typeof CreateLayerMutationSchema>
   | z.infer<typeof LinkIssueMutationSchema>
   | z.infer<typeof RequestReviewMutationSchema>
+  | z.infer<typeof RestoreApprovedSnapshotMutationSchema>
   | z.infer<typeof RecordRevisionDecisionMutationSchema>;
 
 const allowedFormFields = {
@@ -606,6 +626,11 @@ const allowedFormFields = {
   create_layer: new Set(["intent", "name"]),
   link_issue: new Set(["intent", "object_id", "issue_id"]),
   request_review: new Set(["intent", "revision_id"]),
+  restore_approved_snapshot: new Set([
+    "intent",
+    "source_revision_id",
+    "request_id",
+  ]),
   record_revision_decision: new Set([
     "intent",
     "revision_id",
@@ -672,6 +697,12 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
     return RequestReviewMutationSchema.parse({
       intent,
       revisionId: form.get("revision_id"),
+    });
+  if (knownIntent === "restore_approved_snapshot")
+    return RestoreApprovedSnapshotMutationSchema.parse({
+      intent,
+      sourceRevisionId: form.get("source_revision_id"),
+      requestId: form.get("request_id"),
     });
   return RecordRevisionDecisionMutationSchema.parse({
     intent,
@@ -753,6 +784,7 @@ const CollaborationRecentOutcomeSchema = z
       "update_layer",
       "mutate_structure",
       "mutate_objects_with_references",
+      "restore_checkpoint",
     ]),
     baseVersions: z.record(Uuid, z.number().int().positive()),
     forward: z.record(z.string(), z.unknown()),
@@ -2411,6 +2443,21 @@ export async function requestDrawingReview(
   return rpcResult(data, error);
 }
 
+export async function restoreApprovedDrawingSnapshot(
+  client: DrawingWorkspaceClient,
+  sourceRevisionId: string,
+  requestId: string,
+) {
+  const { data, error } = await client.rpc(
+    "lukas_drawing_restore_approved_snapshot",
+    {
+      p_source_revision_id: Uuid.parse(sourceRevisionId),
+      p_request_id: Uuid.parse(requestId),
+    },
+  );
+  return rpcResult(data, error);
+}
+
 export async function recordDrawingRevisionDecision(
   client: DrawingWorkspaceClient,
   input: z.infer<typeof RecordRevisionDecisionMutationSchema>,
@@ -2627,6 +2674,13 @@ export async function handleWorkspaceMutation({
       } else if (mutation.intent === "request_review") {
         assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
         result = await requestDrawingReview(client, mutation.revisionId);
+      } else if (mutation.intent === "restore_approved_snapshot") {
+        assertCurrentWorkspaceRevision(workspace, mutation.sourceRevisionId);
+        result = await restoreApprovedDrawingSnapshot(
+          client,
+          mutation.sourceRevisionId,
+          mutation.requestId,
+        );
       } else {
         const revision = workspace.document?.revision;
         if (!revision)

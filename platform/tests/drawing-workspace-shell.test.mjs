@@ -86,29 +86,37 @@ test("workspace SSR shell keeps the canvas first below xl and restores three col
   assert.match(html, /aria-label="P2 도면 객체 미리보기"/);
 });
 
-test("workspace SSR shell exposes one selected panel from five accessible tabs", () => {
+test("workspace SSR shell exposes one selected panel from seven accessible tabs", () => {
   const html = renderWorkspace();
   assert.match(
     html,
     /role="tablist" aria-label="도면 도구" data-drawing-shortcuts="ignore"/,
   );
-  assert.equal(html.match(/role="tab"/g)?.length, 5);
-  assert.equal(html.match(/role="tabpanel"/g)?.length, 5);
+  assert.equal(html.match(/role="tab"/g)?.length, 7);
+  assert.equal(html.match(/role="tabpanel"/g)?.length, 7);
   assert.equal(html.match(/role="tab"[^>]*aria-selected="true"/g)?.length, 1);
-  assert.equal(html.match(/role="tab"[^>]*aria-selected="false"/g)?.length, 4);
-  assert.equal(html.match(/role="tabpanel"[^>]*hidden=""/g)?.length, 4);
-  for (const label of ["페이지·레이어", "스타일", "속성", "Schedule", "블록"])
+  assert.equal(html.match(/role="tab"[^>]*aria-selected="false"/g)?.length, 6);
+  assert.equal(html.match(/role="tabpanel"[^>]*hidden=""/g)?.length, 6);
+  for (const label of [
+    "페이지·레이어",
+    "스타일",
+    "속성",
+    "Schedule",
+    "블록",
+    "댓글·이슈",
+    "변경 이력",
+  ])
     assert.match(html, new RegExp(`role="tab"[^>]*>${label}<`));
 });
 
 test("workspace panel tabs wrap with arrows and jump with Home and End", () => {
   const resolve = workspaceModule.resolveDrawingWorkspacePanelKey;
   assert.equal(resolve("structure", "ArrowRight"), "styles");
-  assert.equal(resolve("structure", "ArrowLeft"), "blocks");
-  assert.equal(resolve("blocks", "ArrowDown"), "structure");
+  assert.equal(resolve("structure", "ArrowLeft"), "history");
+  assert.equal(resolve("blocks", "ArrowDown"), "collaboration");
   assert.equal(resolve("properties", "ArrowUp"), "styles");
   assert.equal(resolve("schedules", "Home"), "structure");
-  assert.equal(resolve("styles", "End"), "blocks");
+  assert.equal(resolve("styles", "End"), "history");
   assert.equal(resolve("styles", "Enter"), null);
 });
 

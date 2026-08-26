@@ -97,7 +97,9 @@ function defaultSchedule(delayMs: number, retry: () => Promise<void>) {
   // a completed Node test process to stay alive. A live workspace still owns
   // and can cancel this timer through dispose().
   if (typeof timeout === "object" && "unref" in timeout)
-    (timeout as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    (
+      timeout as ReturnType<typeof setTimeout> & { unref?: () => void }
+    ).unref?.();
   return () => globalThis.clearTimeout(timeout);
 }
 
@@ -330,7 +332,10 @@ function normalizeLegacyPersistedDrawingOperation(
     forward?: { actions?: unknown[] };
     inverse?: { actions?: unknown[] };
   };
-  if (candidate?.type === "mutate_structure") {
+  if (
+    candidate?.type === "mutate_structure" ||
+    candidate?.type === "restore_checkpoint"
+  ) {
     for (const payload of [candidate.forward, candidate.inverse]) {
       if (!Array.isArray(payload?.actions)) continue;
       for (const action of payload.actions) {
@@ -549,6 +554,7 @@ function recoveryBaseVersionsMatch(
   // in the loaded snapshot, so the flat P0/P1 map is not authoritative here.
   if (
     operation.type === "mutate_structure" ||
+    operation.type === "restore_checkpoint" ||
     operation.type === "mutate_objects_with_references"
   )
     return true;
@@ -567,9 +573,7 @@ function recoveryBaseVersionsMatch(
   );
 }
 
-function structureCollectionForRecovery(
-  kind: DrawingStructureAction["kind"],
-) {
+function structureCollectionForRecovery(kind: DrawingStructureAction["kind"]) {
   if (kind.includes("object")) return "objects" as const;
   if (kind.includes("page")) return "pages" as const;
   if (kind.includes("canvas")) return "canvases" as const;
@@ -602,11 +606,11 @@ function requireExactStructureInverse(
   const id = structureActionId(action);
   const inverseId = structureActionId(inverse);
   const suffix = action.kind.replace(/^(put|delete)_/, "");
-  if (inverseId !== id) throw new Error("Structure inverse target is not exact.");
+  if (inverseId !== id)
+    throw new Error("Structure inverse target is not exact.");
   if ("entity" in action) {
-    const expectedKind = action.baseVersion === null
-      ? `delete_${suffix}`
-      : `put_${suffix}`;
+    const expectedKind =
+      action.baseVersion === null ? `delete_${suffix}` : `put_${suffix}`;
     if (inverse.kind !== expectedKind || inverse.baseVersion === null)
       throw new Error("Structure put inverse is not exact.");
     return;
@@ -715,37 +719,40 @@ function layerEffect(
 function acknowledgedFinalEffects(
   operation: DrawingOperationInput,
 ): AcknowledgedFinalEffect[] {
-  if (operation.type === "mutate_structure") {
+  if (
+    operation.type === "mutate_structure" ||
+    operation.type === "restore_checkpoint"
+  ) {
     const forward = operation.forward as { actions: DrawingStructureAction[] };
     const inverse = operation.inverse as { actions: DrawingStructureAction[] };
     if (forward.actions.length !== inverse.actions.length)
       throw new Error("Structure inverse action count is not exact.");
-    return uniqueAcknowledgedTargets(forward.actions.map((action, index) => {
-      const paired = pairedInverse(inverse.actions, index);
-      requireExactStructureInverse(action, paired);
-      const collection = structureCollectionForRecovery(action.kind);
-      const id = structureActionId(action);
-      if ("entity" in action) {
-        if (paired.baseVersion === null)
-          throw new Error("Structure result version is not exact.");
-        const expected = { ...action.entity, version: paired.baseVersion };
+    return uniqueAcknowledgedTargets(
+      forward.actions.map((action, index) => {
+        const paired = pairedInverse(inverse.actions, index);
+        requireExactStructureInverse(action, paired);
+        const collection = structureCollectionForRecovery(action.kind);
+        const id = structureActionId(action);
+        if ("entity" in action) {
+          if (paired.baseVersion === null)
+            throw new Error("Structure result version is not exact.");
+          const expected = { ...action.entity, version: paired.baseVersion };
+          return {
+            target: `${collection}:${id}`,
+            matches: (state) =>
+              valuesMatch(state.structure?.[collection][id], expected),
+          };
+        }
         return {
           target: `${collection}:${id}`,
-          matches: (state) => valuesMatch(
-            state.structure?.[collection][id],
-            expected,
-          ),
+          matches: (state) => {
+            if (state.structure?.[collection][id]) return false;
+            const tombstone = state.structure?.tombstones?.[id];
+            return !tombstone || tombstone.version === action.baseVersion + 1;
+          },
         };
-      }
-      return {
-        target: `${collection}:${id}`,
-        matches: (state) => {
-          if (state.structure?.[collection][id]) return false;
-          const tombstone = state.structure?.tombstones?.[id];
-          return !tombstone || tombstone.version === action.baseVersion + 1;
-        },
-      };
-    }));
+      }),
+    );
   }
   if (operation.type === "mutate_objects_with_references") {
     const forward = operation.forward as {
@@ -767,20 +774,19 @@ function acknowledgedFinalEffects(
         requireExactStructureInverse(action, paired);
         const collection = structureCollectionForRecovery(action.kind);
         const id = structureActionId(action);
-        if (action.baseVersion !== null)
-          expectedBases[id] = action.baseVersion;
+        if (action.baseVersion !== null) expectedBases[id] = action.baseVersion;
         if ("entity" in action) {
           if (paired.baseVersion === null)
             throw new Error("Structure result version is not exact.");
-          const resultVersion = action.baseVersion === null
-            ? action.entity.version + 2
-            : action.baseVersion + 1;
+          const resultVersion =
+            action.baseVersion === null
+              ? action.entity.version + 2
+              : action.baseVersion + 1;
           if (
             (action.baseVersion !== null &&
               action.entity.version !== action.baseVersion) ||
             paired.baseVersion !== resultVersion ||
-            ("entity" in paired &&
-              paired.entity.version !== action.baseVersion)
+            ("entity" in paired && paired.entity.version !== action.baseVersion)
           )
             throw new Error("Structure inverse result version is not exact.");
           const expected = { ...action.entity, version: paired.baseVersion };
@@ -837,69 +843,98 @@ function acknowledgedFinalEffects(
       inverse.updates.length !== forward.updates.length ||
       !forward.updates.every((update, index) => {
         const reverted = inverse.updates[index];
-        return reverted?.objectId === update.objectId &&
-          valuesMatch(Object.keys(reverted.patch).sort(), Object.keys(update.patch).sort());
+        return (
+          reverted?.objectId === update.objectId &&
+          valuesMatch(
+            Object.keys(reverted.patch).sort(),
+            Object.keys(update.patch).sort(),
+          )
+        );
       })
     )
       throw new Error("Object update inverse is not exact.");
     exactBaseVersions(
       operation,
-      Object.fromEntries(forward.updates.map((update) => [
-        update.objectId,
-        operation.baseVersions[update.objectId],
-      ])),
+      Object.fromEntries(
+        forward.updates.map((update) => [
+          update.objectId,
+          operation.baseVersions[update.objectId],
+        ]),
+      ),
     );
-    return uniqueAcknowledgedTargets(forward.updates.map((update) => {
-      const base = operation.baseVersions[update.objectId];
-      if (!base) throw new Error("Object update base version is missing.");
-      return objectEffect(update.objectId, base + 1, update.patch);
-    }));
+    return uniqueAcknowledgedTargets(
+      forward.updates.map((update) => {
+        const base = operation.baseVersions[update.objectId];
+        if (!base) throw new Error("Object update base version is missing.");
+        return objectEffect(update.objectId, base + 1, update.patch);
+      }),
+    );
   }
   if (operation.type === "delete_objects") {
     const forward = operation.forward as { objectIds: string[] };
-    const inverse = operation.inverse as { objects: Array<{ id: string; version: number }> };
+    const inverse = operation.inverse as {
+      objects: Array<{ id: string; version: number }>;
+    };
     if (
       inverse.objects.length !== forward.objectIds.length ||
       !forward.objectIds.every((id, index) => {
         const restored = inverse.objects[index];
-        return restored?.id === id && restored.version === operation.baseVersions[id];
+        return (
+          restored?.id === id && restored.version === operation.baseVersions[id]
+        );
       })
     )
       throw new Error("Object delete inverse is not exact.");
     exactBaseVersions(
       operation,
-      Object.fromEntries(forward.objectIds.map((id) => [id, operation.baseVersions[id]])),
+      Object.fromEntries(
+        forward.objectIds.map((id) => [id, operation.baseVersions[id]]),
+      ),
     );
-    return uniqueAcknowledgedTargets(forward.objectIds.map((id) => ({
-      target: `objects:${id}`,
-      matches: (state) => !state.objects[id],
-    })));
+    return uniqueAcknowledgedTargets(
+      forward.objectIds.map((id) => ({
+        target: `objects:${id}`,
+        matches: (state) => !state.objects[id],
+      })),
+    );
   }
   if (operation.type === "add_objects") {
     const forward = operation.forward as { objects: unknown[] };
     const inverse = operation.inverse as { objectIds: string[] };
-    const objects = forward.objects.map((input) => DrawingObjectSchema.parse(input));
+    const objects = forward.objects.map((input) =>
+      DrawingObjectSchema.parse(input),
+    );
     if (
       inverse.objectIds.length !== objects.length ||
       !objects.every((object, index) => inverse.objectIds[index] === object.id)
     )
       throw new Error("Object add inverse is not exact.");
-    exactBaseVersions(operation, Object.fromEntries(
-      objects
-        .filter((object) => object.version > 1)
-        .map((object) => [object.id, object.version - 1]),
-    ));
-    return uniqueAcknowledgedTargets(objects.map((object) => ({
-      target: `objects:${object.id}`,
-      matches: (state) => valuesMatch(state.objects[object.id], object),
-    })));
+    exactBaseVersions(
+      operation,
+      Object.fromEntries(
+        objects
+          .filter((object) => object.version > 1)
+          .map((object) => [object.id, object.version - 1]),
+      ),
+    );
+    return uniqueAcknowledgedTargets(
+      objects.map((object) => ({
+        target: `objects:${object.id}`,
+        matches: (state) => valuesMatch(state.objects[object.id], object),
+      })),
+    );
   }
   if (operation.type === "add_layer") {
-    const layer = DrawingLayerInputSchema.parse((operation.forward as { layer: unknown }).layer);
+    const layer = DrawingLayerInputSchema.parse(
+      (operation.forward as { layer: unknown }).layer,
+    );
     if (!valuesMatch(operation.inverse, {}))
       throw new Error("Layer add inverse is not exact.");
     exactBaseVersions(operation, { [layer.id]: layer.version });
-    const expected = DrawingLayerSchema.parse({ ...layer, systemKind: "custom" });
+    const expected = DrawingLayerSchema.parse({
+      ...layer,
+      systemKind: "custom",
+    });
     return [
       {
         target: `layers:${layer.id}`,
@@ -914,7 +949,10 @@ function acknowledgedFinalEffects(
   const inverse = operation.inverse as typeof forward;
   if (
     inverse.layerId !== forward.layerId ||
-    !valuesMatch(Object.keys(inverse.patch).sort(), Object.keys(forward.patch).sort())
+    !valuesMatch(
+      Object.keys(inverse.patch).sort(),
+      Object.keys(forward.patch).sort(),
+    )
   )
     throw new Error("Layer update inverse is not exact.");
   const base = operation.baseVersions[forward.layerId];
@@ -1077,7 +1115,10 @@ export function recoverPendingDrawingState(
         });
         candidate.layers[layer.id] = layer;
         candidateVersions.set(layer.id, layer.version);
-      } else if (operation.type === "mutate_structure") {
+      } else if (
+        operation.type === "mutate_structure" ||
+        operation.type === "restore_checkpoint"
+      ) {
         if (!candidate.structure)
           throw new Error("P2 structure state is missing.");
         const forward = operation.forward as {
@@ -1096,13 +1137,17 @@ export function recoverPendingDrawingState(
         const applied = applyDrawingStructureActions(
           { revisionId: candidate.revisionId, ...candidate.structure },
           forward.actions,
+          operation.type === "restore_checkpoint"
+            ? { allowCheckpointRestore: true }
+            : undefined,
         );
         for (const [index, action] of forward.actions.entries()) {
           const expected = pairedInverse(inverse.actions, index);
           requireExactStructureInverse(action, expected);
           const id = structureActionId(action);
           if ("entity" in action) {
-            const current = applied.state[structureCollectionForRecovery(action.kind)][id];
+            const current =
+              applied.state[structureCollectionForRecovery(action.kind)][id];
             if (!current || current.version !== expected.baseVersion)
               throw new Error("Structure result version is not exact.");
           } else if (expected.baseVersion !== null) {
@@ -1173,10 +1218,7 @@ export function recoverPendingDrawingState(
               version: base,
             };
             const currentTombstone = structureState.tombstones?.[object.id];
-            if (
-              currentTombstone &&
-              !valuesMatch(currentTombstone, tombstone)
-            )
+            if (currentTombstone && !valuesMatch(currentTombstone, tombstone))
               throw new Error("Object restoration tombstone is stale.");
             structureState.tombstones ??= {};
             structureState.tombstones[object.id] = tombstone;
@@ -1461,7 +1503,8 @@ export function canPersistDrawingMutation(
 ) {
   return (
     revisionStatus === "draft" &&
-    !persistence?.failed && (capability === "admin" || capability === "editor")
+    !persistence?.failed &&
+    (capability === "admin" || capability === "editor")
   );
 }
 
