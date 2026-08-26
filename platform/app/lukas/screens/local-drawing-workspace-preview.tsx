@@ -27,6 +27,7 @@ import type {
   DrawingStructureLayer,
   DrawingTable,
 } from "~/lukas/lib/drawing-workspace.types";
+import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
 import {
   DrawingBlockInstanceSchema,
   DrawingBlockSchema,
@@ -71,21 +72,83 @@ const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
 const previewCollaborationPersistenceFactory = async () => null;
-const previewCollaborationConnectionFactory = async ({
-  onPhase,
-}: {
-  onPhase?: (phase: "connected" | "connecting" | "degraded") => void;
-}) => {
-  onPhase?.("connected");
-  return {
-    phase: "connected" as const,
-    flush() {},
-    async refreshToken() {},
-    dispose() {
-      onPhase?.("degraded");
-    },
+function previewCollaborationConnectionFactory(testPeers = false) {
+  return async ({
+    onPhase,
+  }: {
+    onPhase?: (phase: "connected" | "connecting" | "degraded") => void;
+  }) => {
+    const listeners = new Set<() => void>();
+    const expiresAt = Date.now() + 10_000;
+    const peer = (
+      id: string,
+      displayName: string,
+      cursorWorld: { x: number; y: number },
+      selectedIds: string[],
+      softLocks: Array<{
+        entityId: string;
+        leaseId: string;
+        expiresAt: number;
+      }>,
+    ) => ({
+      user: { id, displayName, color: drawingAwarenessColor(id) },
+      pageId: ids.pagePlan,
+      canvasId: ids.canvasPlanPaper,
+      cursorWorld,
+      selectedIds,
+      activeTool: "select",
+      softLocks,
+    });
+    const peerOne = "00000000-0000-4000-8000-000000000701";
+    const peerTwo = "00000000-0000-4000-8000-000000000702";
+    const states = new Map<number, unknown>(
+      testPeers
+        ? [
+            [
+              2,
+              peer(
+                peerOne,
+                "김도윤",
+                { x: 450, y: 310 },
+                [objects[1].id],
+                [
+                  {
+                    entityId: objects[1].id,
+                    leaseId: "00000000-0000-4000-8000-000000000703",
+                    expiresAt,
+                  },
+                ],
+              ),
+            ],
+            [3, peer(peerTwo, "박서연", { x: 700, y: 470 }, [], [])],
+          ]
+        : [],
+    );
+    onPhase?.("connected");
+    return {
+      phase: "connected" as const,
+      flush() {},
+      async refreshToken() {},
+      awareness: {
+        clientId: 1,
+        getStates: () => states,
+        setLocalState(state: unknown) {
+          if (state === null) states.delete(1);
+          else states.set(1, state);
+          for (const listener of listeners) listener();
+        },
+        subscribe(listener: () => void) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+      dispose() {
+        listeners.clear();
+        onPhase?.("degraded");
+      },
+    };
   };
-};
+}
 
 type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
   emit(): void;
@@ -692,6 +755,8 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("collaborationRetryTest") === "1";
   const bootstrapReadOnlyTest =
     new URL(request.url).searchParams.get("bootstrapReadOnlyTest") === "1";
+  const awarenessTest =
+    new URL(request.url).searchParams.get("awarenessTest") === "1";
   const revision = fixture.workspace.document.revision;
   return {
     ...fixture,
@@ -731,6 +796,7 @@ export function loader({ request }: Route.LoaderArgs) {
       : undefined,
     previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
     collaborationRetryTest,
+    awarenessTest,
     realtimeTest,
   };
 }
@@ -877,7 +943,7 @@ export default function LocalDrawingWorkspacePreview({
         collaborationConnectionFactory={
           loaderData.collaborationRetryTest
             ? retryConnectionFactory
-            : previewCollaborationConnectionFactory
+            : previewCollaborationConnectionFactory(loaderData.awarenessTest)
         }
         collaborationPersistenceFactory={
           loaderData.collaborationRetryTest

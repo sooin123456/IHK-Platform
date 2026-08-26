@@ -125,6 +125,13 @@ import {
   type DrawingWorkspaceRealtimeAdapter,
 } from "~/lukas/lib/drawing-workspace-realtime";
 import {
+  createDrawingAwarenessPeerStore,
+  createDrawingAwarenessPublisher,
+  createDrawingSoftLockLease,
+  parseDrawingAwarenessPeers,
+  type DrawingAwarenessLocalInput,
+} from "~/lukas/lib/drawing-awareness";
+import {
   DrawingCommandMenu,
   type DrawingCommandId,
 } from "./drawing-command-menu";
@@ -136,6 +143,11 @@ import { DrawingPagesPanel } from "./drawing-pages-panel";
 import { DrawingPropertiesPanel } from "./drawing-properties-panel";
 import { DrawingStylesPanel } from "./drawing-styles-panel";
 import { DrawingTablesPanel } from "./drawing-tables-panel";
+import {
+  DrawingCollaborationConnectionStatus,
+  DrawingCollaborationLockStatus,
+  DrawingCollaborationParticipants,
+} from "./drawing-collaboration-presence";
 
 const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
@@ -661,6 +673,24 @@ export default function DrawingWorkspaceClient({
   > | null>(null);
   const collaborationConnectionRef =
     useRef<DrawingCollaborationConnection | null>(null);
+  const awarenessStoreRef = useRef(createDrawingAwarenessPeerStore());
+  const awarenessPublisherRef = useRef<ReturnType<
+    typeof createDrawingAwarenessPublisher
+  > | null>(null);
+  const awarenessLeaseRef = useRef<ReturnType<
+    typeof createDrawingSoftLockLease
+  > | null>(null);
+  const awarenessRenewalRef = useRef<number | null>(null);
+  const awarenessCursorRef =
+    useRef<DrawingAwarenessLocalInput["cursorWorld"]>(null);
+  const awarenessLocalRef = useRef<DrawingAwarenessLocalInput>({
+    pageId: null,
+    canvasId: null,
+    cursorWorld: null,
+    selectedIds: [],
+    activeTool: "select",
+    softLocks: [],
+  });
   const [collaborationPhase, setCollaborationPhase] = useState<
     DrawingCollaborationConnection["phase"]
   >(previewMode ? "connected" : "connecting");
@@ -741,6 +771,31 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const activeDrawingState = transient.state;
+  const publishAwareness = useCallback(
+    (patch: Partial<DrawingAwarenessLocalInput>) => {
+      const next = { ...awarenessLocalRef.current, ...patch };
+      awarenessLocalRef.current = next;
+      awarenessPublisherRef.current?.update(next);
+    },
+    [],
+  );
+  const setAwarenessSoftLock = useCallback((entityId: string | null) => {
+    if (awarenessRenewalRef.current !== null) {
+      window.clearInterval(awarenessRenewalRef.current);
+      awarenessRenewalRef.current = null;
+    }
+    const lease = awarenessLeaseRef.current;
+    if (!lease) return;
+    if (!entityId) {
+      lease.release();
+      return;
+    }
+    lease.acquire(entityId);
+    awarenessRenewalRef.current = window.setInterval(
+      () => lease.renew(),
+      5_000,
+    );
+  }, []);
   const resolvedObjects = useMemo(() => {
     const resolver = createDrawingStyleResolutionCache(
       activeDrawingState.structure?.styles ?? {},
@@ -926,8 +981,25 @@ export default function DrawingWorkspaceClient({
       dispose(): Promise<void>;
     } | null = null;
     let connection: DrawingCollaborationConnection | null = null;
+    let unsubscribeAwareness: (() => void) | null = null;
+    let awarenessExpiryTimer: number | null = null;
     let connecting: Promise<void> | null = null;
     let initializing: Promise<void> | null = null;
+    const clearAwareness = () => {
+      unsubscribeAwareness?.();
+      unsubscribeAwareness = null;
+      if (awarenessExpiryTimer !== null)
+        window.clearTimeout(awarenessExpiryTimer);
+      awarenessExpiryTimer = null;
+      if (awarenessRenewalRef.current !== null)
+        window.clearInterval(awarenessRenewalRef.current);
+      awarenessRenewalRef.current = null;
+      awarenessLeaseRef.current?.release();
+      awarenessLeaseRef.current = null;
+      awarenessPublisherRef.current?.dispose();
+      awarenessPublisherRef.current = null;
+      awarenessStoreRef.current.replace([]);
+    };
     const actionUrl = window.location.href;
     const refresh = async () => {
       const [entries, legacy] = await Promise.all([
@@ -998,6 +1070,38 @@ export default function DrawingWorkspaceClient({
         else {
           connection = opened;
           collaborationConnectionRef.current = opened;
+          const remote = opened?.awareness;
+          if (remote) {
+            const refreshPeers = () => {
+              if (awarenessExpiryTimer !== null)
+                window.clearTimeout(awarenessExpiryTimer);
+              const now = Date.now();
+              const peers = parseDrawingAwarenessPeers(remote.getStates(), {
+                localClientId: remote.clientId,
+                localUserId: currentUserId,
+                pageId: awarenessLocalRef.current.pageId,
+                canvasId: awarenessLocalRef.current.canvasId,
+                now,
+              });
+              awarenessStoreRef.current.replace(peers);
+              const nextExpiry = peers
+                .flatMap((peer) => peer.softLocks.map((lock) => lock.expiresAt))
+                .sort((left, right) => left - right)[0];
+              awarenessExpiryTimer = nextExpiry
+                ? window.setTimeout(refreshPeers, Math.max(0, nextExpiry - now))
+                : null;
+            };
+            unsubscribeAwareness = remote.subscribe(refreshPeers);
+            awarenessPublisherRef.current = createDrawingAwarenessPublisher({
+              user: { id: currentUserId, displayName: "나" },
+              publish: (state) => remote.setLocalState(state),
+            });
+            awarenessLeaseRef.current = createDrawingSoftLockLease({
+              onChange: (softLocks) => publishAwareness({ softLocks }),
+            });
+            awarenessPublisherRef.current.update(awarenessLocalRef.current);
+            refreshPeers();
+          }
         }
       } catch {
         if (active) setCollaborationPhase("degraded");
@@ -1019,6 +1123,7 @@ export default function DrawingWorkspaceClient({
         setOutboxReady(false);
         collaborationAdapterRef.current = null;
         collaborationCommandRef.current = null;
+        clearAwareness();
         connection?.dispose();
         connection = null;
         collaborationConnectionRef.current = null;
@@ -1124,6 +1229,7 @@ export default function DrawingWorkspaceClient({
       active = false;
       persistence.dispose();
       outbox.dispose();
+      clearAwareness();
       connection?.dispose();
       void attempt?.dispose().catch(() => undefined);
       collaborationAdapterRef.current = null;
@@ -1139,6 +1245,32 @@ export default function DrawingWorkspaceClient({
   }, [documentStore, persistenceLifecycleKey]);
 
   useEffect(() => {
+    awarenessCursorRef.current = null;
+    setAwarenessSoftLock(null);
+    publishAwareness({
+      pageId: drawingState.activePageId,
+      canvasId: drawingState.activeCanvasId,
+      cursorWorld: null,
+      selectedIds: transient.selectedIds,
+      activeTool: transient.activeTool,
+      softLocks: [],
+    });
+  }, [
+    drawingState.activeCanvasId,
+    drawingState.activePageId,
+    publishAwareness,
+    setAwarenessSoftLock,
+  ]);
+
+  useEffect(() => {
+    publishAwareness({
+      cursorWorld: awarenessCursorRef.current,
+      selectedIds: transient.selectedIds,
+      activeTool: transient.activeTool,
+    });
+  }, [publishAwareness, selectedIdsKey, transient.activeTool]);
+
+  useEffect(() => {
     const adapter = collaborationAdapterRef.current;
     if (!adapter) return;
     adapter.setAuthorization(effectiveCapability);
@@ -1149,15 +1281,18 @@ export default function DrawingWorkspaceClient({
         { baseOperationSequence: collaborationBootstrap.operationSequence },
       );
     if (!authority.canWrite) {
+      setAwarenessSoftLock(null);
+      awarenessPublisherRef.current?.clear();
       setActiveTool("select");
       setActiveLayerId(null);
       setSelectedIds([]);
-    }
+    } else awarenessPublisherRef.current?.update(awarenessLocalRef.current);
   }, [
     authority.canWrite,
     collaborationBootstrap,
     effectiveCapability,
     effectiveRevisionStatus,
+    setAwarenessSoftLock,
   ]);
 
   useEffect(() => {
@@ -1680,19 +1815,12 @@ export default function DrawingWorkspaceClient({
           >
             {realtime.message}
           </span>
-          <span
-            aria-label={`공동 편집 상태: ${collaborationPhase}`}
-            className={`inline-flex min-h-9 items-center px-2 text-xs ${collaborationPhase === "connected" ? "text-emerald-300" : collaborationPhase === "degraded" ? "text-amber-300" : "text-slate-300"}`}
-            role="status"
-          >
-            {collaborationPhase === "connected"
-              ? authority.canWrite
-                ? "공동 편집 연결됨"
-                : "공동 편집 연결됨 · 읽기 전용"
-              : collaborationPhase === "degraded"
-                ? "공동 편집 오프라인"
-                : "공동 편집 연결 중"}
-          </span>
+          <DrawingCollaborationConnectionStatus
+            phase={collaborationPhase}
+            readOnly={!authority.canWrite}
+            store={awarenessStoreRef.current}
+          />
+          <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
           <DrawingExportDialog
             createdAt={drawingDocument.created_at}
             documentState={drawingState}
@@ -2049,6 +2177,7 @@ export default function DrawingWorkspaceClient({
                   activeCanvasId={drawingState.activeCanvasId!}
                   activeTool={transient.activeTool as DrawingTool}
                   actorId={currentUserId}
+                  awarenessStore={awarenessStoreRef.current}
                   background={background}
                   calibration={calibration}
                   calibrationId={calibrationId}
@@ -2058,6 +2187,10 @@ export default function DrawingWorkspaceClient({
                   blockInstances={resolvedBlockInstances.instances}
                   objects={visibleObjects}
                   onCommand={applyCommand}
+                  onCursorWorldChange={(cursorWorld) => {
+                    awarenessCursorRef.current = cursorWorld;
+                    publishAwareness({ cursorWorld });
+                  }}
                   onSelectionChange={(ids) =>
                     setAuthorizedSelection(
                       ids.filter(
@@ -2073,6 +2206,7 @@ export default function DrawingWorkspaceClient({
                   onToolComplete={(tool) =>
                     setAuthorizedTool(transient.activeLayerId ? tool : "select")
                   }
+                  onSoftLockChange={setAwarenessSoftLock}
                   ref={canvasRef}
                   repeatMode={repeatMode}
                   selectedIds={transient.selectedIds}
@@ -2348,7 +2482,17 @@ export default function DrawingWorkspaceClient({
           aria-label="속성 검사기"
           className="order-3 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
         >
+          <DrawingCollaborationLockStatus
+            objectNames={Object.fromEntries(
+              Object.values(activeDrawingState.objects).map((object) => [
+                object.id,
+                object.name,
+              ]),
+            )}
+            store={awarenessStoreRef.current}
+          />
           <DrawingInspector
+            awarenessStore={awarenessStoreRef.current}
             actorId={currentUserId}
             canEdit={
               editing.canEdit &&
@@ -2365,6 +2509,7 @@ export default function DrawingWorkspaceClient({
             issueLinks={revision.issueLinks}
             issues={revision.issues}
             onCommand={applyCommand}
+            onSoftLockChange={setAwarenessSoftLock}
             selectedIds={transient.selectedIds}
             state={activeDrawingState}
           />

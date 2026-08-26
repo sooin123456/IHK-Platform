@@ -18,6 +18,14 @@ import {
   DrawingOperationInputSchema,
   type DrawingOperationInput,
 } from "./drawing-workspace.types.ts";
+import type { DrawingAwarenessState } from "./drawing-collaboration-protocol.ts";
+
+export type DrawingCollaborationAwareness = {
+  clientId: number;
+  getStates(): Map<number, unknown>;
+  setLocalState(state: DrawingAwarenessState | null): void;
+  subscribe(listener: () => void): () => void;
+};
 
 export type DrawingCollaborationRecentOutcome = {
   revisionId: string;
@@ -38,6 +46,7 @@ export type DrawingCollaborationConnection = {
   flush(): void;
   refreshToken(): Promise<void>;
   dispose(): void;
+  awareness?: DrawingCollaborationAwareness;
 };
 
 export function drawingCollaborationPhaseForProviderStatus(status: string) {
@@ -221,10 +230,25 @@ export async function openDrawingCollaborationConnection({
     onStatus: ({ status }) =>
       onPhase?.(drawingCollaborationPhaseForProviderStatus(status)),
   });
+  const awareness = provider.awareness;
   return {
     phase: "connecting",
     flush: () => provider.flushPendingUpdates(),
     refreshToken: () => provider.sendToken(),
+    ...(awareness
+      ? {
+          awareness: {
+            clientId: awareness.clientID,
+            getStates: () => awareness.getStates(),
+            setLocalState: (state: DrawingAwarenessState | null) =>
+              awareness.setLocalState(state),
+            subscribe(listener: () => void) {
+              awareness.on("change", listener);
+              return () => awareness.off("change", listener);
+            },
+          },
+        }
+      : {}),
     dispose: () => provider.destroy(),
   };
 }

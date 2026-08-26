@@ -327,35 +327,73 @@ test("style preset reset replaces the stored override and undo redo preserves it
   const state = createDrawingDocumentState({
     revisionId: ids.revision,
     structure: {
-      pages: {}, canvases: {},
+      pages: {},
+      canvases: {},
       layers: { [ids.layer]: layer() },
       objects: {
-        [ids.rectangle]: rectangle({ styleId: styleA, style: { fill: "#ffffff" } }),
+        [ids.rectangle]: rectangle({
+          styleId: styleA,
+          style: { fill: "#ffffff" },
+        }),
       },
       styles: {
-        [styleA]: { id: styleA, revisionId: ids.revision, name: "A", value: { stroke: "#111111", strokeWidth: 2, fill: null }, version: 1 },
-        [styleB]: { id: styleB, revisionId: ids.revision, name: "B", value: { stroke: "#222222", strokeWidth: 3, fill: "#000000" }, version: 1 },
+        [styleA]: {
+          id: styleA,
+          revisionId: ids.revision,
+          name: "A",
+          value: { stroke: "#111111", strokeWidth: 2, fill: null },
+          version: 1,
+        },
+        [styleB]: {
+          id: styleB,
+          revisionId: ids.revision,
+          name: "B",
+          value: { stroke: "#222222", strokeWidth: 3, fill: "#000000" },
+          version: 1,
+        },
       },
-      blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const applied = applyDrawingCommand(state, {
-    type: "update_objects", actorId: "actor-a",
-    updates: [{ objectId: ids.rectangle, patch: { styleId: styleB, style: {} } }],
-  }, environment());
+  const applied = applyDrawingCommand(
+    state,
+    {
+      type: "update_objects",
+      actorId: "actor-a",
+      updates: [
+        { objectId: ids.rectangle, patch: { styleId: styleB, style: {} } },
+      ],
+    },
+    environment(),
+  );
   assert.deepEqual(applied.state.objects[ids.rectangle].style, {});
   assert.equal(applied.state.objects[ids.rectangle].styleId, styleB);
-  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(applied.operation).success,
+    true,
+  );
   const undone = undoDrawingCommand(applied.state, "actor-a", environment());
   assert.equal("kind" in undone, false);
   assert.equal(undone.state.objects[ids.rectangle].styleId, styleA);
-  assert.deepEqual(undone.state.objects[ids.rectangle].style, { fill: "#ffffff" });
-  assert.equal(DrawingOperationInputSchema.safeParse(undone.operation).success, true);
+  assert.deepEqual(undone.state.objects[ids.rectangle].style, {
+    fill: "#ffffff",
+  });
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(undone.operation).success,
+    true,
+  );
   const redone = redoDrawingCommand(undone.state, "actor-a", environment());
   assert.equal("kind" in redone, false);
   assert.equal(redone.state.objects[ids.rectangle].styleId, styleB);
   assert.deepEqual(redone.state.objects[ids.rectangle].style, {});
-  assert.equal(DrawingOperationInputSchema.safeParse(redone.operation).success, true);
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(redone.operation).success,
+    true,
+  );
 });
 
 test("delete removes an object and records an add inverse", () => {
@@ -1803,6 +1841,49 @@ test("drag sync releases capture when one snapshot layer becomes ineligible", ()
   assert.deepEqual(synced.pointerCapture, { type: "release", pointerId: 29 });
 });
 
+test("an advisory peer lock preserves selection but blocks and cancels only its drag", () => {
+  const locked = selectionContext({
+    lockedEntityIds: new Set([ids.rectangle]),
+  });
+  const selected = selectionPointer(
+    drawingTools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: ids.rectangle,
+      pointerId: 30,
+      screenPoint: { x: 110, y: 60 },
+      shiftKey: false,
+    },
+    locked,
+  );
+  assert.deepEqual(selected.state.selectedIds, [ids.rectangle]);
+  assert.equal(selected.state.drag, null);
+
+  const unlocked = selectionContext();
+  const started = selectionPointer(
+    drawingTools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: ids.rectangle,
+      pointerId: 31,
+      screenPoint: { x: 110, y: 60 },
+      shiftKey: false,
+    },
+    unlocked,
+  );
+  const cancelled = selectionPointer(
+    started.state,
+    { type: "sync_context" },
+    locked,
+  );
+  assert.equal(cancelled.state.drag, null);
+  assert.deepEqual(cancelled.pointerCapture, {
+    type: "release",
+    pointerId: 31,
+  });
+  assert.equal(cancelled.command, null);
+});
+
 test("selection handles stay screen-sized across zoom levels", () => {
   assert.equal(typeof drawingTools.drawingSelectionHandleSize, "function");
   assert.equal(drawingTools.drawingSelectionHandleSize(0.5), 16);
@@ -1965,23 +2046,29 @@ test("referenced-style copy fails closed unless it explicitly resolves to portab
     style: { fill: "#ffffff" },
   });
   const state = emptyState({ objects: [referenced] });
-  assert.throws(() => drawingCommands.copyDrawingSelection(state, [ids.rectangle]));
+  assert.throws(() =>
+    drawingCommands.copyDrawingSelection(state, [ids.rectangle]),
+  );
   const copied = drawingCommands.copyDrawingSelection(
     state,
     [ids.rectangle],
     () => ({ stroke: "#111111", strokeWidth: 2, fill: "#ffffff" }),
   );
-  const pasted = drawingCommands.pasteDrawingClipboard(copied, "actor-a", environment().createId);
+  const pasted = drawingCommands.pasteDrawingClipboard(
+    copied,
+    "actor-a",
+    environment().createId,
+  );
   assert.equal(pasted.objects[0].styleId, undefined);
   assert.deepEqual(pasted.objects[0].style, {
-    stroke: "#111111", strokeWidth: 2, fill: "#ffffff",
+    stroke: "#111111",
+    strokeWidth: 2,
+    fill: "#ffffff",
   });
   assert.throws(() =>
-    drawingCommands.copyDrawingSelection(
-      state,
-      [ids.rectangle],
-      () => ({ fill: "#ffffff" }),
-    ),
+    drawingCommands.copyDrawingSelection(state, [ids.rectangle], () => ({
+      fill: "#ffffff",
+    })),
   );
 });
 

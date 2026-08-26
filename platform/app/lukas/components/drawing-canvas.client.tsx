@@ -67,6 +67,9 @@ import type {
   Viewport,
 } from "~/lukas/lib/drawing-workspace.types";
 import { defaultDrawingObjectName } from "~/lukas/lib/drawing-workspace.types";
+import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
+import { DrawingCollaborationOverlay } from "~/lukas/components/drawing-collaboration-overlay.client";
+import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
@@ -683,6 +686,7 @@ export type DrawingSelectionContext = {
   objects: Record<string, DrawingObject>;
   snap: { gridSize: number };
   viewport: Viewport;
+  lockedEntityIds?: ReadonlySet<string>;
 };
 
 export type DrawingSelectionEvent =
@@ -835,6 +839,7 @@ function drawingSelectionDragIsValid(
     if (state.selectedIds[index] !== snapshot.id) return false;
     const current = selectableDrawingObject(context, snapshot.id);
     return (
+      !context.lockedEntityIds?.has(snapshot.id) &&
       current?.version === snapshot.version &&
       current.layerId === snapshot.layerId &&
       JSON.stringify(current.geometry) === JSON.stringify(snapshot.geometry)
@@ -956,6 +961,7 @@ export function drawingSelectionEventTransition(
           marquee: null,
           drag:
             context.canEdit &&
+            !selectedIds.some((id) => context.lockedEntityIds?.has(id)) &&
             selectedIds.includes(candidate.id) &&
             snapshots.length === selectedIds.length
               ? { pointerId: event.pointerId, start: point, snapshots }
@@ -1091,6 +1097,9 @@ type DrawingCanvasProps = {
   onViewportChange?: (viewport: Viewport) => void;
   repeatMode: boolean;
   selectedIds: string[];
+  awarenessStore: DrawingAwarenessPeerStore;
+  onCursorWorldChange: (point: Point | null) => void;
+  onSoftLockChange: (entityId: string | null) => void;
 };
 
 type CanvasSize = { width: number; height: number };
@@ -1421,10 +1430,23 @@ export const DrawingCanvas = forwardRef<
     onViewportChange,
     repeatMode,
     selectedIds,
+    awarenessStore,
+    onCursorWorldChange,
+    onSoftLockChange,
   },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const awarenessPeers = useDrawingAwarenessPeers(awarenessStore);
+  const remotelyLockedIds = useMemo(
+    () =>
+      new Set(
+        awarenessPeers.flatMap((peer) =>
+          peer.softLocks.map((lock) => lock.entityId),
+        ),
+      ),
+    [awarenessPeers],
+  );
   const viewportRef = useRef<Viewport>({ x: 40, y: 40, zoom: 1 });
   const fitPendingRef = useRef(true);
   const panGestureRef = useRef<DrawingPanGesture | null>(null);
@@ -1528,6 +1550,7 @@ export const DrawingCanvas = forwardRef<
     objects: objectsById,
     snap: { gridSize: BASE_GRID_SIZE },
     viewport: viewportRef.current,
+    lockedEntityIds: remotelyLockedIds,
   });
   selectionContextRef.current = {
     actorId,
@@ -1536,6 +1559,7 @@ export const DrawingCanvas = forwardRef<
     objects: objectsById,
     snap: { gridSize: BASE_GRID_SIZE },
     viewport,
+    lockedEntityIds: remotelyLockedIds,
   };
 
   const setViewport = useCallback(
@@ -1701,6 +1725,7 @@ export const DrawingCanvas = forwardRef<
         capturedSelectionTargetRef.current = null;
       }
       selectionRef.current = result.state;
+      if (previous.drag && !result.state.drag) onSoftLockChange(null);
       if (result.state !== previous) setSelectionState(result.state);
       if (
         result.state.selectedIds.length !== previous.selectedIds.length ||
@@ -1711,7 +1736,7 @@ export const DrawingCanvas = forwardRef<
         onSelectionChange(result.state.selectedIds);
       if (result.command) onCommand(result.command);
     },
-    [onCommand, onSelectionChange],
+    [onCommand, onSelectionChange, onSoftLockChange],
   );
 
   useEffect(
@@ -1733,8 +1758,9 @@ export const DrawingCanvas = forwardRef<
       )
         selectionTarget.releasePointerCapture(selectionPointerId);
       capturedSelectionTargetRef.current = null;
+      onSoftLockChange(null);
     },
-    [],
+    [onSoftLockChange],
   );
 
   useEffect(() => {
@@ -1786,6 +1812,7 @@ export const DrawingCanvas = forwardRef<
     canEdit,
     layersById,
     objectsById,
+    remotelyLockedIds,
     selectedIds,
   ]);
 
@@ -1933,13 +1960,14 @@ export const DrawingCanvas = forwardRef<
       }
       target?.setPointerCapture?.(event.evt.pointerId);
       capturedSelectionTargetRef.current = target;
-      runSelectionEvent({
+      const result = runSelectionEvent({
         type: "pointer_down",
         candidateId,
         pointerId: event.evt.pointerId,
         screenPoint: pointer,
         shiftKey: event.evt.shiftKey,
       });
+      if (result.state.drag && candidateId) onSoftLockChange(candidateId);
       return;
     }
     runToolEvent(
@@ -1961,6 +1989,9 @@ export const DrawingCanvas = forwardRef<
   }
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
+    const stagePoint = event.target.getStage()?.getPointerPosition();
+    if (stagePoint)
+      onCursorWorldChange(screenToWorld(stagePoint, viewportRef.current));
     const result = drawingPanGestureTransition(panGestureRef.current, {
       type: "move",
       pointerId: event.evt.pointerId,
@@ -1968,7 +1999,7 @@ export const DrawingCanvas = forwardRef<
     });
     if (result.viewport) setViewport(result.viewport);
     if (result.viewport || panGestureRef.current) return;
-    const pointer = event.target.getStage()?.getPointerPosition();
+    const pointer = stagePoint;
     if (!pointer) return;
     if (activeTool === "select") {
       runSelectionEvent({
@@ -2084,6 +2115,7 @@ export const DrawingCanvas = forwardRef<
         setSpacePressed(false);
       }}
       onPointerDown={(event) => event.currentTarget.focus()}
+      onPointerLeave={() => onCursorWorldChange(null)}
       ref={hostRef}
       tabIndex={0}
     >
@@ -2155,6 +2187,35 @@ export const DrawingCanvas = forwardRef<
                 y={pdfSource.bounds.y}
               />
             ) : null}
+          </Layer>
+          <Layer
+            listening={false}
+            name="drawing-collaboration-selection"
+            scaleX={viewport.zoom}
+            scaleY={viewport.zoom}
+            x={viewport.x}
+            y={viewport.y}
+          >
+            {awarenessPeers.flatMap((peer) =>
+              peer.selectedIds.flatMap((objectId) => {
+                const object = objectsById[objectId];
+                if (!object) return [];
+                const bounds = geometryBounds(object.geometry);
+                return [
+                  <Rect
+                    dash={[7 / viewport.zoom, 5 / viewport.zoom]}
+                    height={bounds.height}
+                    key={`${peer.clientId}:${objectId}`}
+                    listening={false}
+                    stroke={peer.user.color}
+                    strokeWidth={2 / viewport.zoom}
+                    width={bounds.width}
+                    x={bounds.x}
+                    y={bounds.y}
+                  />,
+                ];
+              }),
+            )}
           </Layer>
           <Layer
             listening={false}
@@ -2321,6 +2382,7 @@ export const DrawingCanvas = forwardRef<
           </Layer>
         </Stage>
       ) : null}
+      <DrawingCollaborationOverlay store={awarenessStore} viewport={viewport} />
       {textPosition ? (
         <form
           className="absolute z-10"

@@ -8,6 +8,7 @@ import {
 import { z } from "zod";
 
 import { parseDrawingRoomName } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
+import { drawingAwarenessColor } from "../../app/lukas/lib/drawing-awareness.ts";
 
 const UserIdSchema = z
   .string()
@@ -142,13 +143,6 @@ function verifiedPayload(payload: JWTPayload): VerifiedDrawingUser {
   };
 }
 
-function stableColor(userId: string): string {
-  let hash = 0;
-  for (const character of userId)
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return `#${(hash & 0xffffff).toString(16).padStart(6, "0")}`;
-}
-
 export async function authorizeDrawingRoom(input: {
   token: string;
   origin: string | null;
@@ -180,7 +174,7 @@ export async function authorizeDrawingRoom(input: {
     ...room,
     roomName: input.roomName,
     displayName: label.slice(0, 120),
-    color: stableColor(user.userId),
+    color: drawingAwarenessColor(user.userId),
     lastAuthorizedAt: (input.now ?? Date.now)(),
   };
 }

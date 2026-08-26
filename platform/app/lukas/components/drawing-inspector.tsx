@@ -31,14 +31,21 @@ import type {
   DrawingObjectIssueLink,
   DrawingWorkspaceIssue,
 } from "~/lukas/lib/drawing-workspace.server";
+import {
+  drawingSoftLockConflict,
+  type DrawingAwarenessPeerStore,
+} from "~/lukas/lib/drawing-awareness";
+import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
 
 type Props = {
   actorId: string;
+  awarenessStore?: DrawingAwarenessPeerStore;
   canEdit: boolean;
   canLinkIssues: boolean;
   issueLinks: DrawingObjectIssueLink[];
   issues: DrawingWorkspaceIssue[];
   onCommand: (command: DrawingCommand) => void;
+  onSoftLockChange?: (entityId: string | null) => void;
   selectedIds: string[];
   state: DrawingDocumentState;
 };
@@ -65,14 +72,17 @@ function inspectorError(error: unknown) {
 
 export function DrawingInspector({
   actorId,
-  canEdit,
+  awarenessStore,
+  canEdit: capabilityCanEdit,
   canLinkIssues,
   issueLinks,
   issues,
   onCommand,
+  onSoftLockChange,
   selectedIds,
   state,
 }: Props) {
+  const awarenessPeers = useDrawingAwarenessPeers(awarenessStore);
   const dirtyFields = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [issueSearch, setIssueSearch] = useState("");
@@ -124,6 +134,10 @@ export function DrawingInspector({
   );
   const selectedObject =
     selectedObjects.length === 1 ? selectedObjects[0] : null;
+  const lockConflict = selectedIds
+    .map((id) => drawingSoftLockConflict(id, awarenessPeers))
+    .find(Boolean);
+  const canEdit = capabilityCanEdit && !lockConflict;
   const linkedIssueIds = new Set(
     selectedObject
       ? issueLinks
@@ -544,6 +558,16 @@ export function DrawingInspector({
         <p className="mt-1 text-xs text-slate-400">
           {selectedObjects.length}개 객체 선택 · 읽기 전용
         </p>
+        {lockConflict ? (
+          <p
+            aria-label="선택 객체 잠금 상태"
+            className="mt-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+            role="status"
+          >
+            {lockConflict.user.displayName}님이 편집 중입니다. 이 잠금은 충돌을
+            줄이기 위한 안내이며 서버 권한은 별도로 확인됩니다.
+          </p>
+        ) : null}
         <dl className="mt-4 grid gap-3 text-sm">
           <div>
             <dt className="text-xs text-slate-400">객체 이름</dt>
@@ -608,7 +632,16 @@ export function DrawingInspector({
   }
 
   return (
-    <section aria-labelledby="drawing-inspector-title">
+    <section
+      aria-labelledby="drawing-inspector-title"
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          onSoftLockChange?.(null);
+      }}
+      onFocusCapture={() => {
+        if (selectedObject) onSoftLockChange?.(selectedObject.id);
+      }}
+    >
       <h2 className="text-sm font-bold" id="drawing-inspector-title">
         속성
       </h2>

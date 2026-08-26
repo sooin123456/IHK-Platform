@@ -422,6 +422,8 @@ export const DrawingAwarenessStateSchema = z
       });
   });
 
+export type DrawingAwarenessState = z.infer<typeof DrawingAwarenessStateSchema>;
+
 export const drawingCollaborationWritableCapabilities = [
   "admin",
   "editor",

@@ -4,6 +4,7 @@ const previewPath = "/workspace-preview/drawing-workspace";
 const realtimeTestPreviewPath = `${previewPath}?realtimeTest=1`;
 const retryTestPreviewPath = `${previewPath}?collaborationRetryTest=1`;
 const staleBootstrapPreviewPath = `${previewPath}?bootstrapReadOnlyTest=1`;
+const awarenessTestPreviewPath = `${previewPath}?awarenessTest=1`;
 test.describe.configure({ timeout: 30_000 });
 
 async function openPreview(page: Page, path = previewPath) {
@@ -46,7 +47,56 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   ).toBeVisible();
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
-  ).toHaveText("공동 편집 연결됨");
+  ).toHaveText("공동 편집 연결됨 · 1명");
+  expect(supabaseRequests).toEqual([]);
+  expect(collaborationSockets).toEqual([]);
+});
+
+test("two verified collaborators render cursor selection and advisory lock accessibly", async ({
+  page,
+}) => {
+  const supabaseRequests: string[] = [];
+  const collaborationSockets: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).port === "54321")
+      supabaseRequests.push(request.url());
+  });
+  page.on("websocket", (socket) => {
+    const url = new URL(socket.url());
+    if (
+      url.pathname.includes("drawing:") ||
+      url.hostname.includes("collaboration")
+    )
+      collaborationSockets.push(socket.url());
+  });
+
+  await openPreview(page, awarenessTestPreviewPath);
+  await expect(
+    page.getByRole("status", { name: "공동 작업 참여자 3명" }),
+  ).toBeVisible();
+  const participants = page.getByRole("list", { name: "참여자 목록" });
+  await expect(participants.getByText("김도윤", { exact: true })).toBeVisible();
+  await expect(participants.getByText("박서연", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("김도윤 커서")).toBeVisible();
+  await expect(page.locator('[data-remote-selection="김도윤"]')).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "객체 잠금 상태" }),
+  ).toContainText("김도윤님이 코어 편집 중");
+  await expect(
+    page.getByRole("status", { name: /공동 편집 상태/ }),
+  ).toContainText("3명");
+
+  const overflow = await page.evaluate(() => ({
+    document:
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+    inspector: (() => {
+      const element = document.querySelector('[aria-label="속성 검사기"]');
+      return element ? element.scrollWidth - element.clientWidth : 1;
+    })(),
+  }));
+  expect(overflow.document).toBeLessThanOrEqual(0);
+  expect(overflow.inspector).toBeLessThanOrEqual(0);
   expect(supabaseRequests).toEqual([]);
   expect(collaborationSockets).toEqual([]);
 });
@@ -87,7 +137,7 @@ test("transactional read-only bootstrap blocks stale draft editing before initia
   ).toBeHidden();
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
-  ).toHaveText("공동 편집 연결됨 · 읽기 전용");
+  ).toHaveText("공동 편집 연결됨 · 읽기 전용 · 1명");
 });
 
 test("preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes", async ({
@@ -122,7 +172,7 @@ test("preview keeps a local edit through realtime revalidation and resets only w
   ).toBeVisible();
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
-  ).toHaveText("공동 편집 연결됨 · 읽기 전용");
+  ).toHaveText("공동 편집 연결됨 · 읽기 전용 · 1명");
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeHidden();
