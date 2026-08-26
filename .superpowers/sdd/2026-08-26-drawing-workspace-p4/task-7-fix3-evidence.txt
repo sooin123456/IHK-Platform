@@ -1,0 +1,41 @@
+P4 Task 7 rereview round-three evidence — 2026-08-27
+Source implementation commit: cc33072ac041351439c04e9fae39150dee4f52ab
+
+FOCUSED / MUTATION PASS
+  Task 7 release/mutation: 32 pass, 0 fail
+  Semantic tables: 15 pass, 0 fail
+  Random UUID/object permutations: preserved
+  Orphan/duplicate measurement object ID: rejected
+  Wrong total/caption/value/count: rejected
+  Missing/extra/reordered cells and keys: rejected
+  Reordered/duplicate/missing columns and lineage: rejected
+  Missing/extra schedule categories: rejected
+  Missing/duplicate/type-swapped schedule rows: rejected
+
+FUNCTIONAL CHROMIUM PASS
+  npm run test:e2e:drawing-workspace-p4:local
+  9 pass, 0 fail
+  Confirmed loader evidence is serialized; stale/preview evidence is not.
+  Production spec compares the full loader payload to authorized bootstrap evidence.
+
+LOCAL RELEASE PASS
+  cd platform
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:local
+  exit 0; terminal: P4 LOCAL PASS
+  collaboration: 33 pass, 0 fail
+  explicit IFC/PDF/quantity/approval/Revit regressions: 98 pass, 0 fail
+  production-build performance Chromium: 1 pass, 0 fail
+  licenses: 7 pass, 0 fail
+
+GENERATED MEASUREMENT EVIDENCE
+  file: task-7-performance.json
+  sourceCommitSha: cc33072ac041351439c04e9fae39150dee4f52ab
+  firstUsableTargetMs: 2500
+  firstUsableTargetMet: false
+  p7SixtyFpsGate: UNEXECUTED
+  productionProviderP95: UNEXECUTED
+
+PRODUCTION UNEXECUTED
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:production
+  exit 1 before Playwright; all ten missing authorities named
+  No hosted provider/offline/RLS/freeze/source/deploy/cleanup/rollback pass exists.
