@@ -10,6 +10,12 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createServer } from "vite";
+import {
+  invalidP4Geometries,
+  p4FixtureIds,
+  p4Object,
+  validP4Geometries,
+} from "./fixtures/drawing-workspace-p4-database-fixtures.mjs";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const REVIEWER = "00000000-0000-4000-8000-000000000002";
@@ -286,6 +292,14 @@ const p3PreloadStoreFenceMigration = () =>
     ),
     "utf8",
   );
+const p4SemanticObjectsMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826123529_drawing_workspace_p4_semantic_objects.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -298,6 +312,9 @@ const vite = await createServer({
 });
 const drawingCommands = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-commands.ts",
+);
+const drawingTypes = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-workspace.types.ts",
 );
 const drawingBlocks = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-blocks.ts",
@@ -675,6 +692,7 @@ before(async () => {
   await db.exec(await p3ReviewRejectionRecoveryMigration());
   await db.exec(await p3CrossInstanceFreezeLeaseMigration());
   await db.exec(await p3PreloadStoreFenceMigration());
+  await db.exec(await p4SemanticObjectsMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -695,6 +713,391 @@ before(async () => {
      values ($1,$2,$3,'pdf',$4)`,
     [PDF, PROJECT, OWNER, PDF_SHA],
   );
+});
+
+test("P4 shared geometry corpus matches strict Zod and SQL authorities", async () => {
+  await db.exec("reset role");
+  for (const geometry of validP4Geometries) {
+    assert.equal(drawingTypes.DrawingGeometrySchema.safeParse(geometry).success, true);
+    const result = await db.query(
+      "select private.lukas_drawing_geometry_valid($1,$2::jsonb) valid",
+      [geometry.type, JSON.stringify(geometry)],
+    );
+    assert.equal(result.rows[0].valid, true, geometry.type);
+  }
+  for (const [name, geometry] of invalidP4Geometries) {
+    assert.equal(drawingTypes.DrawingGeometrySchema.safeParse(geometry).success, false);
+    const result = await db.query(
+      "select private.lukas_drawing_geometry_valid($1,$2::jsonb) valid",
+      [geometry.type, JSON.stringify(geometry)],
+    );
+    assert.equal(result.rows[0].valid, false, name);
+  }
+});
+
+test("P4 persists generated hosted references and validates the final operation graph", async () => {
+  const ids = await createDocument("P4 semantic graph");
+  const wall = p4Object(p4FixtureIds.wall, ids.workLayerId, validP4Geometries[0], "W-01");
+  const opening = p4Object(p4FixtureIds.opening, ids.workLayerId, validP4Geometries[1], "D-01");
+  const added = await applyOperationWithId(
+    ids.revisionId,
+    randomUUID(),
+    "add_objects",
+    {},
+    { type: "add_objects", objects: [wall, opening] },
+    { type: "delete_objects", objectIds: [wall.id, opening.id] },
+  );
+  assert.deepEqual(added.resultVersions, { [wall.id]: 1, [opening.id]: 1 });
+  await db.exec("reset role");
+  const stored = await db.query(
+    "select object_type,host_object_id from public.lukas_drawing_objects where id=any($1::uuid[]) order by id",
+    [[wall.id, opening.id]],
+  );
+  assert.deepEqual(stored.rows, [
+    { object_type: "wall", host_object_id: null },
+    { object_type: "opening", host_object_id: wall.id },
+  ]);
+
+  await asActor(OWNER);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "delete_objects",
+      { [wall.id]: 1 },
+      { type: "delete_objects", objectIds: [wall.id] },
+      { type: "add_objects", objects: [{ ...wall, version: 3 }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_objects",
+      { [wall.id]: 1 },
+      {
+        type: "update_objects",
+        updates: [{
+          objectId: wall.id,
+          patch: { geometry: { ...wall.geometry, end: { x: 800, y: 0 } } },
+        }],
+      },
+      {
+        type: "update_objects",
+        updates: [{ objectId: wall.id, patch: { geometry: wall.geometry } }],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await db.exec("reset role");
+  await assert.rejects(
+    db.query("delete from public.lukas_drawing_objects where id=$1", [wall.id]),
+    (error) => /foreign key constraint/i.test(error.message),
+  );
+  for (const actor of [REVIEWER, OUTSIDER]) {
+    await asActor(actor);
+    await assert.rejects(
+      applyOperation(
+        ids.revisionId,
+        "update_objects",
+        { [opening.id]: 1 },
+        {
+          type: "update_objects",
+          updates: [{ objectId: opening.id, patch: { name: "Denied" } }],
+        },
+        {
+          type: "update_objects",
+          updates: [{ objectId: opening.id, patch: { name: opening.name } }],
+        },
+      ),
+      (error) => error.code === "P1R01",
+    );
+  }
+});
+
+test("P4 widens property applicability but keeps semantic geometry out of blocks", async () => {
+  await db.exec("reset role");
+  const property = await db.query(
+    "select private.lukas_drawing_p2_property_schema_json_valid('text','[]'::jsonb,$1::jsonb) valid",
+    [JSON.stringify(["wall", "opening", "space", "area", "grid", "arc"])],
+  );
+  assert.equal(property.rows[0].valid, true);
+  const ids = await createDocument("P4 block boundary");
+  await db.exec("reset role");
+  const primitives = [{
+    localId: "semantic",
+    name: "Wall",
+    geometry: validP4Geometries[0],
+    styleId: null,
+    style: { stroke: "#112233", strokeWidth: 1, fill: null },
+  }];
+  const block = await db.query(
+    "select private.lukas_drawing_p2_block_primitives_valid($1::jsonb,$2,$3) valid",
+    [JSON.stringify(primitives), ids.revisionId, PROJECT],
+  );
+  assert.equal(block.rows[0].valid, false);
+});
+
+test("P4 persists mixed wall updates with explicit opening deletion exactly once", async () => {
+  const ids = await createDocument("P4 mixed semantic operation");
+  const wall = p4Object(randomUUID(), ids.workLayerId, validP4Geometries[0], "W-02");
+  const retained = p4Object(
+    randomUUID(),
+    ids.workLayerId,
+    { ...validP4Geometries[1], hostWallId: wall.id, widthMillimeters: 100 },
+    "D-02",
+  );
+  const deleted = p4Object(
+    randomUUID(),
+    ids.workLayerId,
+    {
+      ...validP4Geometries[1],
+      hostWallId: wall.id,
+      offsetMillimeters: 850,
+      widthMillimeters: 100,
+    },
+    "D-03",
+  );
+  await applyOperation(
+    ids.revisionId,
+    "add_objects",
+    {},
+    { type: "add_objects", objects: [wall, retained, deleted].sort((a, b) => a.id.localeCompare(b.id)) },
+    { type: "delete_objects", objectIds: [wall.id, retained.id, deleted.id].sort() },
+  );
+  const changedWall = { ...wall, geometry: { ...wall.geometry, end: { x: 700, y: 0 } } };
+  const changedOpening = {
+    ...retained,
+    geometry: { ...retained.geometry, offsetMillimeters: 400 },
+  };
+  const forward = {
+    type: "mutate_objects_with_references",
+    objectAction: "delete",
+    objects: [deleted],
+    actions: [
+      { kind: "put_object", entity: changedWall, baseVersion: 1 },
+      { kind: "put_object", entity: changedOpening, baseVersion: 1 },
+    ],
+  };
+  const inverse = {
+    type: "mutate_objects_with_references",
+    objectAction: "restore",
+    objects: [{ ...deleted, version: 3 }],
+    actions: [
+      { kind: "put_object", entity: retained, baseVersion: 2 },
+      { kind: "put_object", entity: wall, baseVersion: 2 },
+    ],
+  };
+  const clientOperationId = randomUUID();
+  const baseVersions = { [wall.id]: 1, [retained.id]: 1, [deleted.id]: 1 };
+  const first = await applyOperationWithId(
+    ids.revisionId,
+    clientOperationId,
+    "mutate_objects_with_references",
+    baseVersions,
+    forward,
+    inverse,
+  );
+  const retry = await applyOperationWithId(
+    ids.revisionId,
+    clientOperationId,
+    "mutate_objects_with_references",
+    baseVersions,
+    forward,
+    inverse,
+  );
+  assert.deepEqual(retry, first);
+  assert.deepEqual(first.resultVersions, {
+    [wall.id]: 2,
+    [retained.id]: 2,
+    [deleted.id]: null,
+  });
+  await db.exec("reset role");
+  const stored = await db.query(
+    "select id,geometry,status,version from public.lukas_drawing_objects where id=any($1::uuid[]) order by id",
+    [[wall.id, retained.id, deleted.id]],
+  );
+  assert.equal(stored.rows.find((row) => row.id === wall.id).geometry.end.x, 700);
+  assert.equal(stored.rows.find((row) => row.id === retained.id).geometry.offsetMillimeters, 400);
+  assert.equal(stored.rows.find((row) => row.id === deleted.id).status, "deleted");
+  await asActor(OWNER);
+  const undoForward = {
+    type: "mutate_objects_with_references",
+    objectAction: "restore",
+    objects: [{ ...deleted, version: 3 }],
+    actions: [
+      { kind: "put_object", entity: { ...retained, version: 2 }, baseVersion: 2 },
+      { kind: "put_object", entity: { ...wall, version: 2 }, baseVersion: 2 },
+    ],
+  };
+  const undoInverse = {
+    type: "mutate_objects_with_references",
+    objectAction: "delete",
+    objects: [{ ...deleted, version: 3 }],
+    actions: [
+      { kind: "put_object", entity: { ...changedWall, version: 2 }, baseVersion: 3 },
+      { kind: "put_object", entity: { ...changedOpening, version: 2 }, baseVersion: 3 },
+    ],
+  };
+  const undone = await db.query(
+    `select public.lukas_drawing_apply_operation(
+      $1,$2,'mutate_objects_with_references',$3,$4,$5,'undo',$6
+    ) result`,
+    [
+      ids.revisionId,
+      randomUUID(),
+      { [wall.id]: 2, [retained.id]: 2, [deleted.id]: 2 },
+      undoForward,
+      undoInverse,
+      clientOperationId,
+    ],
+  );
+  assert.deepEqual(undone.rows[0].result.resultVersions, {
+    [wall.id]: 3,
+    [retained.id]: 3,
+    [deleted.id]: 3,
+  });
+  await db.exec("reset role");
+  const restored = await db.query(
+    "select id,geometry,status,version from public.lukas_drawing_objects where id=any($1::uuid[]) order by id",
+    [[wall.id, retained.id, deleted.id]],
+  );
+  assert.equal(restored.rows.find((row) => row.id === wall.id).geometry.end.x, 1000);
+  assert.equal(restored.rows.find((row) => row.id === retained.id).geometry.offsetMillimeters, 500);
+  assert.equal(restored.rows.find((row) => row.id === deleted.id).status, "active");
+});
+
+test("P4 accepts an opening-first compound host deletion and rejects host-only deletion", async () => {
+  const ids = await createDocument("P4 host compound delete");
+  const wall = p4Object(randomUUID(), ids.workLayerId, validP4Geometries[0], "W-03");
+  const opening = p4Object(
+    randomUUID(), ids.workLayerId,
+    { ...validP4Geometries[1], hostWallId: wall.id }, "D-04",
+  );
+  await applyOperation(
+    ids.revisionId, "add_objects", {},
+    { type: "add_objects", objects: [opening, wall] },
+    { type: "delete_objects", objectIds: [opening.id, wall.id] },
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "mutate_objects_with_references",
+      { [opening.id]: 1, [wall.id]: 1 },
+      { type: "mutate_objects_with_references", objectAction: "delete", objects: [wall, opening], actions: [] },
+      {
+        type: "mutate_objects_with_references",
+        objectAction: "restore",
+        objects: [{ ...wall, version: 3 }, { ...opening, version: 3 }],
+        actions: [],
+      },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const result = await applyOperation(
+    ids.revisionId,
+    "mutate_objects_with_references",
+    { [opening.id]: 1, [wall.id]: 1 },
+    { type: "mutate_objects_with_references", objectAction: "delete", objects: [opening, wall], actions: [] },
+    {
+      type: "mutate_objects_with_references",
+      objectAction: "restore",
+      objects: [{ ...opening, version: 3 }, { ...wall, version: 3 }],
+      actions: [],
+    },
+  );
+  assert.deepEqual(result.resultVersions, { [opening.id]: null, [wall.id]: null });
+});
+
+test("P4 approved template clone remaps hosted IDs without changing source bytes", async () => {
+  const ids = await createDocument("P4 semantic template");
+  const wall = p4Object(randomUUID(), ids.workLayerId, validP4Geometries[0], "W-T");
+  const opening = p4Object(
+    randomUUID(), ids.workLayerId,
+    { ...validP4Geometries[1], hostWallId: wall.id }, "D-T",
+  );
+  await applyOperation(
+    ids.revisionId, "add_objects", {},
+    { type: "add_objects", objects: [wall, opening].sort((a, b) => a.id.localeCompare(b.id)) },
+    { type: "delete_objects", objectIds: [wall.id, opening.id].sort() },
+  );
+  await db.exec("reset role");
+  const sourceBefore = await db.query(
+    "select to_jsonb(f) bytes from public.lukas_qto_files f where id=$1",
+    [PDF],
+  );
+  await asActor(OWNER);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_objects",
+      { [wall.id]: 1 },
+      { type: "update_objects", updates: [{ objectId: wall.id, patch: { name: "Frozen" } }] },
+      { type: "update_objects", updates: [{ objectId: wall.id, patch: { name: wall.name } }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','p4 template')",
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await assert.rejects(
+    applyOperation(
+      ids.revisionId,
+      "update_objects",
+      { [wall.id]: 1 },
+      { type: "update_objects", updates: [{ objectId: wall.id, patch: { name: "Approved frozen" } }] },
+      { type: "update_objects", updates: [{ objectId: wall.id, patch: { name: wall.name } }] },
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const cloned = await db.query(
+    "select public.lukas_drawing_create_from_template($1,'P4 clone',null,$2) result",
+    [ids.revisionId, randomUUID()],
+  );
+  await db.exec("reset role");
+  const copied = await db.query(
+    `select id,lineage_id,object_type,geometry,host_object_id,version
+     from public.lukas_drawing_objects where revision_id=$1 and status='active'
+     order by object_type`,
+    [cloned.rows[0].result.revisionId],
+  );
+  const clonedOpening = copied.rows.find((row) => row.object_type === "opening");
+  const clonedWall = copied.rows.find((row) => row.object_type === "wall");
+  assert.equal(clonedWall.lineage_id, wall.id);
+  assert.equal(clonedOpening.lineage_id, opening.id);
+  assert.equal(clonedOpening.geometry.hostWallId, clonedWall.id);
+  assert.equal(clonedOpening.host_object_id, clonedWall.id);
+  assert.equal(clonedOpening.version, 1);
+  await asActor(OWNER);
+  const restored = await db.query(
+    "select public.lukas_drawing_restore_approved_snapshot($1,$2) result",
+    [ids.revisionId, randomUUID()],
+  );
+  await db.exec("reset role");
+  const restoredHost = await db.query(
+    `select opening.geometry->>'hostWallId' host_id,wall.id wall_id
+     from public.lukas_drawing_objects opening
+     join public.lukas_drawing_objects wall
+       on wall.id=opening.host_object_id and wall.revision_id=opening.revision_id
+     where opening.revision_id=$1 and opening.object_type='opening'`,
+    [restored.rows[0].result.revisionId],
+  );
+  assert.equal(restoredHost.rows[0].host_id, restoredHost.rows[0].wall_id);
+  const sourceAfter = await db.query(
+    "select to_jsonb(f) bytes from public.lukas_qto_files f where id=$1",
+    [PDF],
+  );
+  assert.deepEqual(sourceAfter.rows, sourceBefore.rows);
 });
 
 test("P3 collaboration bootstrap is one canonical capability-scoped payload", async () => {

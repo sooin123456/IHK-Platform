@@ -26,6 +26,7 @@ import {
   DrawingStructureLayerSchema,
   DrawingTableSchema,
 } from "./drawing-workspace.types.ts";
+import { validateDrawingSemanticReferences } from "./drawing-structure.ts";
 import type {
   DrawingBlockInstance,
   DrawingBlock,
@@ -130,7 +131,18 @@ type DrawingObjectRow = {
   revision_id: string;
   project_id: string;
   object_type:
-    "line" | "polyline" | "rectangle" | "circle" | "text" | "dimension";
+    | "line"
+    | "polyline"
+    | "rectangle"
+    | "circle"
+    | "text"
+    | "dimension"
+    | "wall"
+    | "opening"
+    | "space"
+    | "area"
+    | "grid"
+    | "arc";
   geometry: Json;
   style: Json;
   status: "active" | "deleted";
@@ -1007,6 +1019,20 @@ const P2ObjectRowSchema = z
     layer_id: Uuid,
     revision_id: Uuid,
     project_id: Uuid,
+    object_type: z.enum([
+      "line",
+      "polyline",
+      "rectangle",
+      "circle",
+      "text",
+      "dimension",
+      "wall",
+      "opening",
+      "space",
+      "area",
+      "grid",
+      "arc",
+    ]),
     geometry: z.unknown(),
     style_id: Uuid.nullable(),
     style: z.unknown(),
@@ -1166,7 +1192,7 @@ function parseP2Workspace(
   const objects = rows.objects.map((row) => {
     const value = P2ObjectRowSchema.safeParse(row);
     if (!value.success) return p2RowError("object");
-    return DrawingObjectSchema.parse({
+    const object = DrawingObjectSchema.parse({
       id: value.data.id,
       name: value.data.name,
       layerId: value.data.layer_id,
@@ -1175,6 +1201,11 @@ function parseP2Workspace(
       style: value.data.style,
       version: value.data.version,
     });
+    requireP2Ancestry(
+      object.geometry.type === value.data.object_type,
+      "Drawing object type does not match its geometry.",
+    );
+    return object;
   });
   const styles = rows.styles.map((row) => {
     const value = P2StyleRowSchema.safeParse(row);
@@ -1325,6 +1356,14 @@ function parseP2Workspace(
       );
     }),
   );
+  try {
+    validateDrawingSemanticReferences({
+      objects: Object.fromEntries(objects.map((object) => [object.id, object])),
+      layers: Object.fromEntries(layers.map((layer) => [layer.id, layer])),
+    });
+  } catch {
+    requireP2Ancestry(false, "Drawing semantic ancestry is invalid.");
+  }
   requireP2Ancestry(
     blocks.every((block) => block.revisionId === revisionId) &&
       styles.every((style) => style.revisionId === revisionId) &&
@@ -1748,7 +1787,7 @@ export async function loadDrawingWorkspace(
         order: [{ column: "id", direction: "asc" }],
         filters: [["status", "active"]],
         select:
-          "id,name,page_id,layer_id,revision_id,project_id,geometry,style_id,style,version",
+          "id,name,page_id,layer_id,revision_id,project_id,object_type,geometry,style_id,style,version",
       }),
       loadAllDrawingRows(client, {
         table: "lukas_drawing_styles",

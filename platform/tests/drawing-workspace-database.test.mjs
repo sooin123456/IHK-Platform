@@ -22,6 +22,8 @@ const p2CompatibilityMigration = () =>
   read("supabase/migrations/20260825040000_drawing_workspace_p2_compatibility_gaps.sql");
 const p2HistoryReconciliationMigration = () =>
   read("supabase/migrations/20260825050000_drawing_workspace_p2_history_reconciliation.sql");
+const p4SemanticMigration = () =>
+  read("supabase/migrations/20260826123529_drawing_workspace_p4_semantic_objects.sql");
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -50,6 +52,14 @@ test("workspace migration binds sources by project and SHA and freezes approved 
   );
   assert.match(sql, /approved drawing revision is immutable/i);
   assert.match(sql, /unique\s*\(revision_id,\s*client_operation_id\)/i);
+});
+
+test("P4 remains a forward-only semantic upgrade on the frozen workspace authority", async () => {
+  const sql = await p4SemanticMigration();
+  assert.match(sql, /alter table public\.lukas_drawing_objects[\s\S]*add column host_object_id/i);
+  assert.match(sql, /generated always as/i);
+  assert.match(sql, /lukas_drawing_p4_assert_semantic_graph/i);
+  assert.doesNotMatch(sql, /alter table public\.lukas_qto_files/i);
 });
 
 test("workspace creates only the ten approved P0/P1 tables with domain checks", async () => {

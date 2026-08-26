@@ -21,6 +21,11 @@ import {
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
+import {
+  p4FixtureIds,
+  p4Object,
+  validP4Geometries,
+} from "./fixtures/drawing-workspace-p4-database-fixtures.mjs";
 
 const ids = {
   actor: "00000000-0000-4000-8000-000000000001",
@@ -309,7 +314,19 @@ test("keyset transport rejects duplicate rows, caps pages, and applies numeric c
   );
 });
 
-test("P2 loader strictly converts snake-case rows and fails closed for broken canvas ancestry", async () => {
+test("P4 loader strictly converts semantic rows and fails closed for broken canvas ancestry", async () => {
+  const wall = p4Object(
+    p4FixtureIds.wall,
+    ids.workLayer,
+    validP4Geometries[0],
+    "W-01",
+  );
+  const opening = p4Object(
+    p4FixtureIds.opening,
+    ids.workLayer,
+    validP4Geometries[1],
+    "D-01",
+  );
   const client = queryClient({
     lukas_qto_files: {
       data: {
@@ -405,7 +422,22 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
       ],
       error: null,
     },
-    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_objects: {
+      data: [wall, opening].map((object) => ({
+        id: object.id,
+        name: object.name,
+        page_id: ids.page,
+        layer_id: object.layerId,
+        revision_id: ids.revision,
+        project_id: ids.project,
+        object_type: object.geometry.type,
+        geometry: object.geometry,
+        style_id: object.styleId ?? null,
+        style: object.style,
+        version: object.version,
+      })),
+      error: null,
+    },
     lukas_drawing_styles: { data: [], error: null },
     lukas_drawing_blocks: { data: [], error: null },
     lukas_drawing_block_instances: { data: [], error: null },
@@ -460,7 +492,7 @@ test("P2 loader strictly converts snake-case rows and fails closed for broken ca
         version: 1,
       },
     ],
-    objects: [],
+    objects: [wall, opening],
     blockInstances: [],
   });
   for (const table of [
