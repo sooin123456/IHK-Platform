@@ -129,6 +129,7 @@ import {
   createDrawingAwarenessPublisher,
   createDrawingSoftLockLease,
   drawingCommandSoftLockConflict,
+  drawingRecordedOperationSoftLockConflict,
   drawingSelectionSoftLockConflict,
   drawingSoftLockConflict,
   parseDrawingAwarenessPeers,
@@ -1378,8 +1379,8 @@ export default function DrawingWorkspaceClient({
 
   const commitApplied = useCallback(
     (applied: AppliedDrawingCommand) => {
-      const lockConflict = drawingCommandSoftLockConflict(
-        applied.operation.forward,
+      const lockConflict = drawingRecordedOperationSoftLockConflict(
+        applied.operation,
         awarenessLockPeers,
       );
       if (lockConflict) {

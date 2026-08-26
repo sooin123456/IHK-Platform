@@ -15,6 +15,9 @@ const ids = {
   objectA: "00000000-0000-4000-8000-000000000707",
   objectB: "00000000-0000-4000-8000-000000000708",
   lease: "00000000-0000-4000-8000-000000000709",
+  property: "00000000-0000-4000-8000-000000000710",
+  schema: "00000000-0000-4000-8000-000000000711",
+  blockInstance: "00000000-0000-4000-8000-000000000712",
 };
 
 function requireAwareness() {
@@ -274,6 +277,147 @@ test("workspace command gating blocks only live locked drawing and block targets
       10_000,
     ),
     null,
+  );
+});
+
+test("recorded-operation gating unions forward and inverse ownership targets", () => {
+  const {
+    drawingRecordedOperationSoftLockConflict,
+    drawingRecordedOperationTargetIds,
+  } = requireAwareness();
+  const peers = [{ ...peerState(), clientId: 2 }];
+  const propertyUndo = {
+    forward: {
+      type: "mutate_structure",
+      actions: [
+        {
+          kind: "delete_property_value",
+          id: ids.property,
+          baseVersion: 1,
+        },
+      ],
+    },
+    inverse: {
+      type: "mutate_structure",
+      actions: [
+        {
+          kind: "put_property_value",
+          entity: {
+            id: ids.property,
+            schemaId: ids.schema,
+            objectId: ids.objectA,
+            blockInstanceId: null,
+            value: "A",
+            version: 2,
+          },
+          baseVersion: 2,
+        },
+      ],
+    },
+  };
+  assert.deepEqual(drawingRecordedOperationTargetIds(propertyUndo), [
+    ids.objectA,
+  ]);
+  assert.deepEqual(
+    drawingRecordedOperationTargetIds({
+      forward: {
+        type: "delete_objects",
+        objectIds: [ids.objectA],
+      },
+      inverse: {
+        type: "add_objects",
+        objects: [{ id: ids.objectA }],
+      },
+    }),
+    [ids.objectA],
+  );
+  assert.deepEqual(
+    drawingRecordedOperationTargetIds({
+      forward: {
+        type: "mutate_structure",
+        actions: [
+          {
+            kind: "delete_block_instance",
+            id: ids.blockInstance,
+            baseVersion: 1,
+          },
+        ],
+      },
+      inverse: {
+        type: "mutate_structure",
+        actions: [
+          {
+            kind: "put_block_instance",
+            entity: { id: ids.blockInstance },
+            baseVersion: 2,
+          },
+        ],
+      },
+    }),
+    [ids.blockInstance],
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(propertyUndo, peers, 1).lock
+      .entityId,
+    ids.objectA,
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(
+      {
+        forward: {
+          type: "delete_objects",
+          objectIds: [ids.objectB],
+        },
+        inverse: {
+          type: "add_objects",
+          objects: [{ id: ids.objectB }],
+        },
+      },
+      peers,
+      1,
+    ),
+    null,
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(propertyUndo, peers, 10_000),
+    null,
+  );
+  assert.throws(
+    () =>
+      drawingRecordedOperationTargetIds({
+        forward: propertyUndo.forward,
+        inverse: { type: "forged", actions: [] },
+      }),
+    /recorded operation/i,
+  );
+  assert.throws(
+    () =>
+      drawingRecordedOperationTargetIds({
+        forward: propertyUndo.forward,
+        inverse: {
+          type: "mutate_structure",
+          actions: [{ kind: "forged" }],
+        },
+      }),
+    /recorded operation/i,
+  );
+  assert.throws(
+    () =>
+      drawingRecordedOperationTargetIds({
+        forward: {
+          type: "delete_objects",
+          objectIds: [ids.objectA],
+        },
+        inverse: {},
+      }),
+    /recorded operation/i,
+  );
+  assert.deepEqual(
+    drawingRecordedOperationTargetIds({
+      forward: { type: "add_layer", layer: {} },
+      inverse: {},
+    }),
+    [],
   );
 });
 

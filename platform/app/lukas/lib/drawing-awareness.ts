@@ -1,4 +1,5 @@
 import {
+  DRAWING_COLLABORATION_LIMITS,
   DrawingAwarenessStateSchema,
   type DrawingAwarenessState,
 } from "./drawing-collaboration-protocol.ts";
@@ -217,43 +218,122 @@ export function drawingSoftLockConflict(
   return null;
 }
 
-function structureActionTargetIds(action: DrawingStructureAction) {
-  if (action.kind === "put_object" || action.kind === "put_block_instance")
-    return [action.entity.id];
+const CANONICAL_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function invalidRecordedOperation(): never {
+  throw new Error("Drawing recorded operation payload is invalid.");
+}
+
+function boundedItems(value: unknown): unknown[] {
   if (
-    action.kind === "delete_object" ||
-    action.kind === "delete_block_instance"
+    !Array.isArray(value) ||
+    value.length > DRAWING_COLLABORATION_LIMITS.maxActionItems
   )
-    return [action.id];
-  if (action.kind === "put_property_value")
-    return [action.entity.objectId, action.entity.blockInstanceId].filter(
-      (id): id is string => id !== null,
-    );
-  if (action.kind === "put_table")
-    return action.entity.rows.flatMap((row) =>
-      [row.objectId, row.blockInstanceId].filter(
-        (id): id is string => id !== null,
-      ),
-    );
-  return [];
+    invalidRecordedOperation();
+  return value;
+}
+
+function canonicalTargetId(value: unknown) {
+  if (typeof value !== "string" || !CANONICAL_UUID.test(value))
+    invalidRecordedOperation();
+  return value;
+}
+
+function optionalCanonicalTargetId(value: unknown) {
+  return value === null ? [] : [canonicalTargetId(value)];
+}
+
+function structureActionTargetIds(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return invalidRecordedOperation();
+  const action = value as DrawingStructureAction;
+  switch (action.kind) {
+    case "put_object":
+    case "put_block_instance":
+      return [canonicalTargetId(action.entity.id)];
+    case "delete_object":
+    case "delete_block_instance":
+      return [canonicalTargetId(action.id)];
+    case "put_property_value":
+      return [action.entity.objectId, action.entity.blockInstanceId].flatMap(
+        optionalCanonicalTargetId,
+      );
+    case "put_table":
+      return boundedItems(action.entity.rows).flatMap((row) =>
+        [
+          (row as { objectId: unknown }).objectId,
+          (row as { blockInstanceId: unknown }).blockInstanceId,
+        ].flatMap(optionalCanonicalTargetId),
+      );
+    case "delete_property_value":
+    case "delete_table":
+    case "put_page":
+    case "delete_page":
+    case "put_canvas":
+    case "delete_canvas":
+    case "put_layer":
+    case "delete_layer":
+    case "put_style":
+    case "delete_style":
+    case "put_block":
+    case "delete_block":
+    case "put_property_schema":
+    case "delete_property_schema":
+      return [];
+    default:
+      return invalidRecordedOperation();
+  }
 }
 
 export function drawingCommandTargetIds(
   command: DrawingCommand | DrawingRecordedOperation["forward"],
 ) {
   if (command.type === "add_objects")
-    return command.objects.map((object) => object.id);
+    return boundedItems(command.objects).map((object) =>
+      canonicalTargetId((object as { id: unknown }).id),
+    );
   if (command.type === "update_objects")
-    return command.updates.map((update) => update.objectId);
-  if (command.type === "delete_objects") return command.objectIds;
+    return boundedItems(command.updates).map((update) =>
+      canonicalTargetId((update as { objectId: unknown }).objectId),
+    );
+  if (command.type === "delete_objects")
+    return boundedItems(command.objectIds).map(canonicalTargetId);
   if (command.type === "mutate_structure")
-    return command.actions.flatMap(structureActionTargetIds);
+    return boundedItems(command.actions).flatMap(structureActionTargetIds);
   if (command.type === "mutate_objects_with_references")
     return [
-      ...command.objects.map((object) => object.id),
-      ...command.actions.flatMap(structureActionTargetIds),
+      ...boundedItems(command.objects).map((object) =>
+        canonicalTargetId((object as { id: unknown }).id),
+      ),
+      ...boundedItems(command.actions).flatMap(structureActionTargetIds),
     ];
-  return [];
+  if (command.type === "add_layer" || command.type === "update_layer")
+    return [];
+  return invalidRecordedOperation();
+}
+
+function operationPayloadTargetIds(payload: unknown, allowEmpty: boolean) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return invalidRecordedOperation();
+  if (Object.keys(payload).length === 0)
+    return allowEmpty ? [] : invalidRecordedOperation();
+  return drawingCommandTargetIds(
+    payload as DrawingRecordedOperation["forward"],
+  );
+}
+
+export function drawingRecordedOperationTargetIds(
+  operation: Pick<DrawingRecordedOperation, "forward" | "inverse">,
+) {
+  const emptyInverseAllowed = operation.forward.type === "add_layer";
+  const targets = new Set([
+    ...operationPayloadTargetIds(operation.forward, false),
+    ...operationPayloadTargetIds(operation.inverse, emptyInverseAllowed),
+  ]);
+  if (targets.size > DRAWING_COLLABORATION_LIMITS.maxActionItems * 2)
+    return invalidRecordedOperation();
+  return [...targets];
 }
 
 export function drawingCommandSoftLockConflict(
@@ -262,6 +342,18 @@ export function drawingCommandSoftLockConflict(
   now = Date.now(),
 ) {
   for (const entityId of new Set(drawingCommandTargetIds(command))) {
+    const conflict = drawingSoftLockConflict(entityId, peers, now);
+    if (conflict) return conflict;
+  }
+  return null;
+}
+
+export function drawingRecordedOperationSoftLockConflict(
+  operation: Pick<DrawingRecordedOperation, "forward" | "inverse">,
+  peers: DrawingAwarenessLockPeer[],
+  now = Date.now(),
+) {
+  for (const entityId of drawingRecordedOperationTargetIds(operation)) {
     const conflict = drawingSoftLockConflict(entityId, peers, now);
     if (conflict) return conflict;
   }

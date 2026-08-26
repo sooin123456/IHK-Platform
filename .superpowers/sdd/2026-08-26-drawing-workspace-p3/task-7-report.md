@@ -14,6 +14,7 @@ Baseline: `707d5f9`
 - Review remediation centralizes live advisory-lock conflict checks at the workspace command/recorded-operation boundary. Selection copy/duplicate/delete/nudge and menu affordances share that gate, unrelated entity commands remain enabled, and blocked work reports an accessible reason without replacing server authority.
 - Review remediation resolves both drawing objects and block instances through canonical render items, so remote block selections receive real Konva bounds and block inspector focus/blur/unmount drives the same renewable lease lifecycle.
 - Lock-only subscribers are isolated from cursor-only updates, preserving the committed drawing memo boundary at pointer frequency.
+- Final re-review remediation derives the recorded-operation lock target set from the bounded, canonical union of both forward and inverse payloads. This closes undo/redo gaps where a delete carries only the property-row ID while its inverse carries the owning drawing object or block instance; ordinary local commands still pass through their single existing gate.
 
 ## TDD evidence
 
@@ -25,12 +26,13 @@ RED:
 - Full Drawing Node regression exposed a direct SSR inspector render without `awarenessStore`; its semantic block navigation test failed before the empty-store compatibility fix.
 - Review RED: focused pure/command tests failed 4 cases for same-user/different-client retention, lock-only subscription isolation, central command conflict gating, and block-instance remote bounds.
 - Review Chromium RED: the same-user/block scenario first exposed the missing block display name and then the missing inspector lease observation before those paths were completed.
+- Final re-review RED: the new recorded-operation tests failed because the central commit boundary inspected only `forward`, so a new property-value undo could not recover its locked object or block owner from `inverse`.
 
 GREEN:
 
 - `node --test tests/drawing-awareness.test.mjs` — 9/9 passed.
-- `node --test tests/drawing-awareness.test.mjs tests/drawing-workspace-commands.test.mjs tests/drawing-collaboration-protocol.test.mjs tests/drawing-collaboration-service.test.mjs tests/drawing-workspace-collaboration.test.mjs` — 127/127 passed.
-- `npm run test:drawing-workspace` — 452 passed, 1 skipped, 0 failed (453 total).
+- `node --test tests/drawing-awareness.test.mjs tests/drawing-workspace-commands.test.mjs tests/drawing-collaboration-protocol.test.mjs tests/drawing-collaboration-service.test.mjs tests/drawing-workspace-collaboration.test.mjs` — 129/129 passed.
+- `npm run test:drawing-workspace` — 453 passed, 1 skipped, 0 failed (454 total).
 - `E2E_BASE_URL=http://127.0.0.1:5173 npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --workers=1` — 9/9 passed against a freshly restarted dev server.
 - `npm run typecheck` — passed.
 - `npm run typecheck:collaboration` — passed.

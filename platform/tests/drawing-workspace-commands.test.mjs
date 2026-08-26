@@ -9,6 +9,8 @@ import {
   DrawingObjectSchema,
   DrawingOperationInputSchema,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
+import { setDrawingPropertySelectionValuesCommand } from "../app/lukas/lib/drawing-properties.ts";
+import { drawingRecordedOperationSoftLockConflict } from "../app/lukas/lib/drawing-awareness.ts";
 
 const {
   applyDrawingCommand,
@@ -233,6 +235,159 @@ test("mutate_structure records strict forward and inverse payloads", () => {
   const redone = redoDrawingCommand(undone.state, "actor-a", environment());
   assert.equal(redone.kind, undefined);
   assert.equal(redone.state.structure.canvases[ids.modelCanvas].version, 3);
+});
+
+test("property-value undo resolves locked object and block owners from its recorded inverse", () => {
+  const blockId = "00000000-0000-4000-8000-000000000090";
+  const instanceId = "00000000-0000-4000-8000-000000000091";
+  const schemaId = "00000000-0000-4000-8000-000000000092";
+  const state = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [ids.canvas]: {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: layer({ canvasId: ids.canvas, sortOrder: 0 }),
+      },
+      objects: { [ids.rectangle]: rectangle() },
+      styles: {},
+      blocks: {
+        [blockId]: {
+          id: blockId,
+          revisionId: ids.revision,
+          name: "Door",
+          primitives: [
+            {
+              localId: "leaf",
+              name: "Leaf",
+              geometry: {
+                type: "rectangle",
+                origin: { x: 0, y: 0 },
+                width: 10,
+                height: 2,
+                rotation: 0,
+              },
+              styleId: null,
+              style: { stroke: "#000000", strokeWidth: 1, fill: null },
+            },
+          ],
+          version: 1,
+        },
+      },
+      blockInstances: {
+        [instanceId]: {
+          id: instanceId,
+          lineageId: "00000000-0000-4000-8000-000000000093",
+          blockId,
+          layerId: ids.layer,
+          name: "Door 1",
+          origin: { x: 20, y: 20 },
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          version: 1,
+        },
+      },
+      propertySchemas: {
+        [schemaId]: {
+          id: schemaId,
+          revisionId: ids.revision,
+          name: "Code",
+          valueType: "text",
+          enumOptions: [],
+          appliesTo: ["rectangle", "block_instance"],
+          required: false,
+          version: 1,
+        },
+      },
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  const added = applyDrawingCommand(
+    state,
+    setDrawingPropertySelectionValuesCommand(
+      state,
+      "actor-a",
+      [ids.rectangle, instanceId],
+      { [schemaId]: "A" },
+      environment().createId,
+    ),
+    environment(),
+  );
+  const undone = undoDrawingCommand(added.state, "actor-a", environment());
+  assert.ok(undone && !("kind" in undone));
+  assert.ok(
+    undone.operation.forward.actions.every(
+      (action) => action.kind === "delete_property_value",
+    ),
+  );
+  const peer = (entityId) => [
+    {
+      clientId: 2,
+      user: { id: "peer", displayName: "Peer", color: "#ffffff" },
+      softLocks: [{ entityId, leaseId: ids.circle, expiresAt: 10_000 }],
+    },
+  ];
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(
+      undone.operation,
+      peer(ids.rectangle),
+      1,
+    ).lock.entityId,
+    ids.rectangle,
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(
+      undone.operation,
+      peer(instanceId),
+      1,
+    ).lock.entityId,
+    instanceId,
+  );
+  const redone = redoDrawingCommand(undone.state, "actor-a", environment());
+  assert.ok(redone && !("kind" in redone));
+  assert.ok(
+    redone.operation.forward.actions.every(
+      (action) => action.kind === "put_property_value",
+    ),
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(
+      redone.operation,
+      peer(ids.rectangle),
+      1,
+    ).lock.entityId,
+    ids.rectangle,
+  );
+  assert.equal(
+    drawingRecordedOperationSoftLockConflict(
+      redone.operation,
+      peer(instanceId),
+      1,
+    ).lock.entityId,
+    instanceId,
+  );
 });
 
 test("add appends an operation with an inverse and leaves its input state unchanged", () => {
