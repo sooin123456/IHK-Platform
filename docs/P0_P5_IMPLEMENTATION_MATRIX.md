@@ -35,6 +35,20 @@ Windows/Revit 실기와 3개 현장 적용은 코드 완료와 분리된 외부 
 서로 대체할 수 없는 별도 상태다. 특히 로컬 계약 통과는 운영 실행이나 성능 목표
 달성을 뜻하지 않는다. P3 realtime/Yjs는 이 P2 범위에서 구현되지 않았다.
 
+## Drawing Workspace P3 협업 게이트 (2026-08-26)
+
+| 범위 | implemented | locally executed | production unexecuted | measured target |
+| --- | --- | --- | --- | --- |
+| Yjs·y-indexeddb·Hocuspocus 공동 편집 | operation protocol, 실제 Chromium IndexedDB 복구, Node 22 서비스, Realtime invalidation, 참여자·커서·선택·soft lock 구현 | Task 1~10 focused·전체 Node·Drawing·service·typecheck·build·로컬 Chromium PASS; Task 11 보고서에 재실행 근거 기록 | 실제 hosted Supabase·WebSocket·DB login·5-role fixture·two-user field flow 미실행 | production three-context warm reflection p95 ≤ 500 ms 미측정 |
+| 협업 업무 흐름 | 객체/영역 댓글·명시적 mention·history·revert·checkpoint·approved child draft·atomic review freeze 구현 | PGlite와 서비스 crash/restart·cross-instance lease 계약 PASS | 실제 owner/editor/reviewer/viewer/nonmember RLS·WebSocket 결과 미실행 | production offline 100 operation loss 0 및 role/source 결과 미측정 |
+| 운영·복구 | asymmetric JWKS fail-closed, 전용 LOGIN/SET ROLE, additive migration, one-replica rollout, forward-safe rollback runbook 구현 | credential guard·minimal manifest·dependency/license·source invariance 계약 PASS | image build/push, migration apply/typegen, preview, promotion, rollback rehearsal 미실행 | deployed p95·cold condition·CPU/memory·source SHA evidence 없음 |
+
+P3 local implementation은 Task 11 공식 검토와 final broad review가 끝나기 전에는
+완료로 판정하지 않는다. P3 production은 현재 **UNEXECUTED / 미실행**이며 실제
+배포된 두 사용자, 역할/RLS, p95, 무손실 offline 복구, 원본 SHA-256, cleanup과
+rollback rehearsal 증거가 모두 있어야 별도로 완료된다. 기존 운영 도면 협업실의
+배포 상태는 이 새 Drawing Workspace P3 배포 상태를 대신하지 않는다.
+
 ## P0 — 보안·운영 기반
 
 | 요구사항              | 구현 증거                                                                                           | 상태                      |

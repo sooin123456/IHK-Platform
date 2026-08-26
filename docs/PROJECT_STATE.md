@@ -1,5 +1,23 @@
 # 프로젝트 상태
 
+## Drawing Workspace P3 진행 상태 (2026-08-26)
+
+- P3 local implementation: Yjs·y-indexeddb·Hocuspocus, Realtime invalidation,
+  durable outbox reconciliation, live Awareness/soft lock, 댓글·mention·history·restore,
+  원자적 review freeze와 production fixture 계약을 구현했다.
+- Task 1~10 공식 검토는 완료했다. Task 11 release evidence 검토와 final broad
+  review는 **pending**이므로 P3 local implementation 완료 판정은 아직 하지 않는다.
+- P3 production은 **UNEXECUTED / 미실행**이다. 실제 Supabase/Hocuspocus에 P3
+  migration·service·app을 배포하거나 owner/editor/reviewer/viewer/nonmember
+  fixture, two-user smoke, three-context p95, offline loss 0, PDF/IFC source SHA,
+  cleanup 및 rollback rehearsal을 실행했다는 증거가 없다.
+- 기존 운영 commit `42d0af4`와 Vercel deployment
+  `dpl_Avd2huenCGqy5KQ3jbRYQUC8o5Co`는 이전 도면 협업 플랫폼의 배포 증거다.
+  새 Drawing Workspace P3 배포·성능·현장 검증을 증명하지 않는다.
+- P3의 구현·로컬 실행·로컬 환경 미실행·production 미실행·측정 상태는
+  `docs/superpowers/reports/2026-08-26-drawing-workspace-p3-release.md`에서 분리한다.
+  실제 배포와 final broad review 전에는 P0~P7 전체 목표도 계속 진행 상태다.
+
 ## 1HK 도면 협업 플랫폼 진행 상태 (2026-08-23)
 
 - 목표는 축소하지 않는다. IFC 3D와 PDF 2D를 같은 프로젝트에서 열고,

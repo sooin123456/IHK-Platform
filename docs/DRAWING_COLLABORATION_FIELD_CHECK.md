@@ -11,6 +11,37 @@
 이 문서는 완료 선언을 위한 증거 양식이다. 고객 도면 원본, 이메일, 사용자 UUID,
 서명 URL은 문서나 Git에 기록하지 않는다.
 
+## Drawing Workspace P3 상태
+
+- P3 local implementation: Tasks 1~10 구현과 해당 공식 검토는 완료했으며,
+  Task 11 release evidence 검토와 final broad review는 아직 pending이다.
+- P3 production: **UNEXECUTED / 미실행**. 현재 문서 상단의 기존 운영 배포
+  commit·Vercel ID는 이전 도면 협업실 증거이며 Yjs/Hocuspocus P3 배포 증거가
+  아니다.
+- hosted migration 적용, collaboration image build/push, asymmetric JWKS,
+  dedicated database LOGIN, application preview, 실제 WebSocket/RLS와 source
+  재다운로드, promotion 및 rollback rehearsal 증거는 아직 없다.
+- production three-context warm reflection p95 목표는 500 ms 이하이나 현재
+  값은 `UNEXECUTED`; cold 측정도 `UNEXECUTED`다. 로컬 계약 결과를 production
+  수치로 옮겨 적지 않는다.
+
+P3 production fixture는 owner, editor, reviewer, viewer, nonmember 다섯 역할을
+분리하고 세 browser context를 동시에 사용해야 한다. 다음을 비식별 release
+record에 함께 남긴다.
+
+1. exact app/service image digest와 적용 migration 목록
+2. 브라우저·OS·viewport·CPU·memory·도면 object mix와 warm/cold 조건
+3. 30회 warm reflection의 nearest-rank p95와 500 ms 판정
+4. offline 100 operation ID의 Postgres/Yjs exact set, 유실 건수와 최종 geometry
+5. owner/editor 쓰기, reviewer/viewer 읽기 전용, nonmember WebSocket·DB 거부
+6. review freeze, 승인, 반려 후 released draft, approved child draft 복원
+7. 작업 전후 PDF/IFC metadata·downloaded-byte SHA-256 및 byte size
+8. 실제 quantity report/manifest·도면 객체·IFC source lineage와 cleanup
+9. 새 admission 중단→Hocuspocus flush/drain→image rollback→복구 smoke 결과
+
+전체 항목과 아래 실제 2인 현장 검증이 끝나기 전에는 P3 operationally complete
+또는 P3 운영 완료로 표시하지 않는다.
+
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공
