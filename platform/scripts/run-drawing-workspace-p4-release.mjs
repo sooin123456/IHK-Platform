@@ -83,7 +83,10 @@ function exactLocalManifest() {
         "--audit-level=high",
       ],
     },
-    { label: "diff check", argv: ["git", "diff", "--check"] },
+    {
+      label: "diff check",
+      argv: ["git", "--no-pager", "diff", "--check"],
+    },
   ];
 }
 
@@ -100,7 +103,12 @@ function execute({ argv }) {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0], argv.slice(1), {
       cwd: root,
-      env: process.env,
+      env: {
+        ...process.env,
+        GIT_PAGER: "cat",
+        GIT_TERMINAL_PROMPT: "0",
+        PAGER: "cat",
+      },
       shell: false,
       stdio: "inherit",
     });

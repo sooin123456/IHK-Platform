@@ -128,7 +128,10 @@ test("P4 local release manifest is complete ordered structured argv and fail-fas
         "--audit-level=high",
       ],
     },
-    { label: "diff check", argv: ["git", "diff", "--check"] },
+    {
+      label: "diff check",
+      argv: ["git", "--no-pager", "diff", "--check"],
+    },
   ];
   assert.deepEqual(P4_LOCAL_RELEASE_GATES, expected);
   assert.doesNotThrow(() => assertExactP4LocalGateManifest(expected));
@@ -420,6 +423,203 @@ test("P4 hosted server evidence rejects absent stale and erroneous authority", a
     },
   ])
     assert.throws(() => assertDrawingP4HostedServerEvidence(mutation));
+});
+
+test("P4 hosted evidence follows semantic identity across deterministic UUID and object permutations", async () => {
+  const {
+    assertDrawingP4HostedServerEvidence,
+    buildDrawingP4ProductionObjects,
+  } = await import("../e2e/utils/drawing-p4-release-fixture.ts");
+  const {
+    deriveDrawingServerMeasurementEvidence,
+    drawingMeasurementEvidenceCurrent,
+  } = await import("../app/lukas/lib/drawing-semantic-schedules.ts");
+  const ids = [
+    "b3b57219-54ef-48b2-99f1-ef0aad83f32a",
+    "10fb6032-a9c3-4ee5-a23a-6b3e02aa21da",
+    "fe24c117-866b-4374-bb3a-eac843ae5cb0",
+    "3c0ca575-3813-4b1b-b0a3-063aeceabcf0",
+    "790d383d-abbb-4620-97c9-ae8f6c43f94b",
+    "512a42ee-e177-4982-b847-2db1ae5637a7",
+  ];
+  const permute = (values, seed) => {
+    const result = [...values];
+    let state = seed >>> 0;
+    for (let index = result.length - 1; index > 0; index -= 1) {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      const swap = state % (index + 1);
+      [result[index], result[swap]] = [result[swap], result[index]];
+    }
+    return result;
+  };
+  const lineage = {
+    documentId: "20000000-0000-4000-8000-000000000001",
+    revisionId: "30000000-0000-4000-8000-000000000001",
+    revisionVersion: 1,
+    snapshotSha256: "c".repeat(64),
+    operationCheckpoint: 17,
+  };
+
+  for (let seed = 1; seed <= 64; seed += 1) {
+    const assignedIds = permute(ids, seed);
+    let next = 0;
+    const objects = permute(
+      buildDrawingP4ProductionObjects(
+        "10000000-0000-4000-8000-000000000001",
+        () => assignedIds[next++],
+      ),
+      seed ^ 0x9e3779b9,
+    );
+    const state = {
+      revisionId: lineage.revisionId,
+      objects: Object.fromEntries(objects.map((object) => [object.id, object])),
+    };
+    const evidence = deriveDrawingServerMeasurementEvidence({
+      ...lineage,
+      state,
+    });
+    assert.doesNotThrow(
+      () =>
+        assertDrawingP4HostedServerEvidence({
+          evidence,
+          evidenceError: null,
+          current: drawingMeasurementEvidenceCurrent(lineage, state, false),
+          objects,
+        }),
+      `seed ${seed}`,
+    );
+  }
+});
+
+test("P4 hosted evidence rejects wrong missing duplicate type-swapped and stale semantic entries", async () => {
+  const {
+    assertDrawingP4HostedServerEvidence,
+    buildDrawingP4ProductionObjects,
+  } = await import("../e2e/utils/drawing-p4-release-fixture.ts");
+  const {
+    deriveDrawingServerMeasurementEvidence,
+    drawingMeasurementEvidenceCurrent,
+  } = await import("../app/lukas/lib/drawing-semantic-schedules.ts");
+  const assignedIds = [
+    "fe24c117-866b-4374-bb3a-eac843ae5cb0",
+    "10fb6032-a9c3-4ee5-a23a-6b3e02aa21da",
+    "790d383d-abbb-4620-97c9-ae8f6c43f94b",
+    "3c0ca575-3813-4b1b-b0a3-063aeceabcf0",
+    "b3b57219-54ef-48b2-99f1-ef0aad83f32a",
+    "512a42ee-e177-4982-b847-2db1ae5637a7",
+  ];
+  let next = 0;
+  const objects = buildDrawingP4ProductionObjects(
+    "10000000-0000-4000-8000-000000000001",
+    () => assignedIds[next++],
+  ).toReversed();
+  const lineage = {
+    documentId: "20000000-0000-4000-8000-000000000001",
+    revisionId: "30000000-0000-4000-8000-000000000001",
+    revisionVersion: 1,
+    snapshotSha256: "c".repeat(64),
+    operationCheckpoint: 17,
+  };
+  const state = {
+    revisionId: lineage.revisionId,
+    objects: Object.fromEntries(objects.map((object) => [object.id, object])),
+  };
+  const input = {
+    evidence: deriveDrawingServerMeasurementEvidence({ ...lineage, state }),
+    evidenceError: null,
+    current: drawingMeasurementEvidenceCurrent(lineage, state, false),
+    objects,
+  };
+  const byType = Object.fromEntries(
+    objects.map((object) => [object.geometry.type, object]),
+  );
+  const mutations = [];
+
+  const wrong = structuredClone(input);
+  wrong.evidence.measurements[byType.wall.id].measurement.lengthMillimeters =
+    "201";
+  mutations.push(wrong);
+
+  const missing = structuredClone(input);
+  delete missing.evidence.measurements[byType.area.id];
+  mutations.push(missing);
+
+  const duplicate = structuredClone(input);
+  duplicate.evidence.schedules.room.rows.push(
+    structuredClone(duplicate.evidence.schedules.room.rows[0]),
+  );
+  mutations.push(duplicate);
+
+  const typeSwapped = structuredClone(input);
+  const wallMeasurement = typeSwapped.evidence.measurements[byType.wall.id];
+  const arcMeasurement = typeSwapped.evidence.measurements[byType.arc.id];
+  [wallMeasurement.measurement, arcMeasurement.measurement] = [
+    arcMeasurement.measurement,
+    wallMeasurement.measurement,
+  ];
+  mutations.push(typeSwapped);
+
+  const staleLineage = structuredClone(input);
+  staleLineage.evidence.measurements[byType.grid.id].objectVersion += 1;
+  mutations.push(staleLineage);
+
+  const missingSchedule = structuredClone(input);
+  missingSchedule.evidence.schedules.door.rows = [];
+  mutations.push(missingSchedule);
+
+  const typeSwappedSchedule = structuredClone(input);
+  typeSwappedSchedule.evidence.schedules.room.rows[0].objectId =
+    byType.opening.id;
+  mutations.push(typeSwappedSchedule);
+
+  for (const mutation of mutations)
+    assert.throws(() => assertDrawingP4HostedServerEvidence(mutation));
+});
+
+test("P4 release runner disables inherited pagers and exits in a pseudo-TTY without input", () => {
+  const runnerUrl = new URL(
+    "../scripts/run-drawing-workspace-p4-release.mjs",
+    import.meta.url,
+  ).href;
+  const probe = `
+    const { runReleaseGates } = await import(${JSON.stringify(runnerUrl)});
+    await runReleaseGates(
+      [{ label: "pager probe", argv: ["git", "--paginate", "log", "-1", "--oneline"] }],
+      { phase: "LOCAL" },
+    );
+  `;
+  const result = spawnSync(
+    "/usr/bin/expect",
+    [
+      "-c",
+      String.raw`
+        set timeout 10
+        spawn -noecho /usr/bin/env -i "PATH=$env(PATH)" GIT_PAGER=false PAGER=false "P4_PAGER_PROBE=$env(P4_PAGER_PROBE)" "$env(P4_NODE_BIN)" --input-type=module --eval {await import("data:text/javascript;base64,"+process.env.P4_PAGER_PROBE)}
+        expect {
+          timeout { exit 124 }
+          eof {}
+        }
+        set child_status [wait]
+        exit [lindex $child_status 3]
+      `,
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        P4_NODE_BIN: process.execPath,
+        P4_PAGER_PROBE: Buffer.from(probe).toString("base64"),
+      },
+      timeout: 15_000,
+    },
+  );
+  assert.equal(
+    result.status,
+    0,
+    `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+  );
+  assert.equal(result.signal, null);
 });
 
 test("P4 production-build browser gate owns a dedicated non-development port", async () => {

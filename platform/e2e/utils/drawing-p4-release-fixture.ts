@@ -33,6 +33,28 @@ export function assertDrawingP4HostedServerEvidence({
   if (evidence.ruleVersion !== "P4_MEASUREMENT_V1")
     throw new Error("P4 hosted measurement rule is not V1");
 
+  const objectOfType = (
+    label: string,
+    predicate: (object: DrawingObject) => boolean,
+  ) => {
+    const matches = objects.filter(predicate);
+    if (matches.length !== 1)
+      throw new Error(`P4 hosted ${label} identity is not exact`);
+    return matches[0];
+  };
+  const semanticObjects = {
+    wall: objectOfType("wall", ({ geometry }) => geometry.type === "wall"),
+    opening: objectOfType(
+      "door",
+      ({ geometry }) =>
+        geometry.type === "opening" && geometry.openingKind === "door",
+    ),
+    space: objectOfType("space", ({ geometry }) => geometry.type === "space"),
+    area: objectOfType("area", ({ geometry }) => geometry.type === "area"),
+    grid: objectOfType("grid", ({ geometry }) => geometry.type === "grid"),
+    arc: objectOfType("arc", ({ geometry }) => geometry.type === "arc"),
+  };
+
   const sortedObjects = [...objects].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
@@ -50,31 +72,49 @@ export function assertDrawingP4HostedServerEvidence({
     "object lineage",
   );
 
-  const exactMeasurements = [
-    { lengthMillimeters: "200", areaSquareMillimeters: null, count: "1" },
-    {
-      lengthMillimeters: "90",
-      areaSquareMillimeters: "189000",
-      count: "1",
-    },
-    {
-      lengthMillimeters: "640",
-      areaSquareMillimeters: "24000",
-      count: "1",
-    },
-    {
-      lengthMillimeters: "400",
-      areaSquareMillimeters: "10000",
-      count: "1",
-    },
-    { lengthMillimeters: "400", areaSquareMillimeters: null, count: "1" },
-    {
-      lengthMillimeters: "125.663706",
-      areaSquareMillimeters: null,
-      count: "1",
-    },
-  ];
-  sortedObjects.forEach((object, index) => {
+  const exactMeasurements = new Map([
+    [
+      semanticObjects.wall.id,
+      { lengthMillimeters: "200", areaSquareMillimeters: null, count: "1" },
+    ],
+    [
+      semanticObjects.opening.id,
+      {
+        lengthMillimeters: "90",
+        areaSquareMillimeters: "189000",
+        count: "1",
+      },
+    ],
+    [
+      semanticObjects.space.id,
+      {
+        lengthMillimeters: "640",
+        areaSquareMillimeters: "24000",
+        count: "1",
+      },
+    ],
+    [
+      semanticObjects.area.id,
+      {
+        lengthMillimeters: "400",
+        areaSquareMillimeters: "10000",
+        count: "1",
+      },
+    ],
+    [
+      semanticObjects.grid.id,
+      { lengthMillimeters: "400", areaSquareMillimeters: null, count: "1" },
+    ],
+    [
+      semanticObjects.arc.id,
+      {
+        lengthMillimeters: "125.663706",
+        areaSquareMillimeters: null,
+        count: "1",
+      },
+    ],
+  ]);
+  sortedObjects.forEach((object) => {
     const item = evidence.measurements[object.id];
     if (
       !item ||
@@ -90,7 +130,10 @@ export function assertDrawingP4HostedServerEvidence({
       throw new Error("P4 hosted measurement item lineage is not exact");
     exact(
       item.measurement,
-      { ruleVersion: "P4_MEASUREMENT_V1", ...exactMeasurements[index] },
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        ...exactMeasurements.get(object.id),
+      },
       `${object.geometry.type} measurement`,
     );
   });
@@ -99,7 +142,7 @@ export function assertDrawingP4HostedServerEvidence({
     evidence.schedules.room.rows,
     [
       {
-        objectId: objects[2].id,
+        objectId: semanticObjects.space.id,
         cells: {
           number: "P4-101",
           name: "P4 hosted room",
@@ -114,7 +157,7 @@ export function assertDrawingP4HostedServerEvidence({
     evidence.schedules.door.rows,
     [
       {
-        objectId: objects[1].id,
+        objectId: semanticObjects.opening.id,
         cells: {
           mark: "P4 hosted door",
           width: "90 mm",
@@ -129,7 +172,7 @@ export function assertDrawingP4HostedServerEvidence({
     evidence.schedules.finish.rows,
     [
       {
-        objectId: objects[2].id,
+        objectId: semanticObjects.space.id,
         cells: {
           number: "P4-101",
           name: "P4 hosted room",
