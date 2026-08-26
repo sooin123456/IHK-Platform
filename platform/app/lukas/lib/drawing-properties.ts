@@ -123,7 +123,11 @@ export function applicableDrawingPropertySchemas(
     return [];
   const types = targetIds.map((targetId) => targetType(state, targetId));
   return Object.values(state.structure.propertySchemas)
-    .filter((schema) => types.every((type) => schema.appliesTo.includes(type)))
+    .filter((schema) =>
+      types.every((type) =>
+        (schema.appliesTo as readonly string[]).includes(type),
+      ),
+    )
     .sort(
       (left, right) =>
         left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
@@ -261,7 +265,7 @@ export function setDrawingPropertySelectionValuesCommand(
       );
     for (const targetId of orderedTargets) {
       const type = targetType(state, targetId);
-      if (!schema.appliesTo.includes(type))
+      if (!(schema.appliesTo as readonly string[]).includes(type))
         throw new DrawingStructureError(
           `Drawing property ${schema.name} does not apply to ${type}.`,
         );
@@ -409,7 +413,9 @@ export function missingRequiredDrawingProperties(
     )
     .flatMap((schema) =>
       targets
-        .filter((target) => schema.appliesTo.includes(target.type))
+        .filter((target) =>
+          (schema.appliesTo as readonly string[]).includes(target.type),
+        )
         .filter(
           (target) =>
             propertyValueFor(state, schema.id, target.id)?.value == null,

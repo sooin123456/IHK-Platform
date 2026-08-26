@@ -9,7 +9,19 @@ const {
   snapWorldPoint,
   worldToScreen,
 } = drawingGeometry;
-import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  DrawingGeometrySchema,
+  defaultDrawingObjectName,
+} from "../app/lukas/lib/drawing-workspace.types.ts";
+
+test("P0/P1 geometry default names remain unchanged", () => {
+  assert.deepEqual(
+    ["line", "polyline", "rectangle", "circle", "text", "dimension"].map(
+      defaultDrawingObjectName,
+    ),
+    ["Line", "Polyline", "Rectangle", "Circle", "Text", "Dimension"],
+  );
+});
 
 test("world coordinates round-trip independently from viewport pixels", () => {
   const viewport = { x: 120, y: -40, zoom: 2 };

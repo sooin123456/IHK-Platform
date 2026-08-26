@@ -1942,6 +1942,15 @@ export function translateDrawingGeometry(
         start: point(geometry.start),
         end: point(geometry.end),
       };
+    case "wall":
+    case "opening":
+    case "space":
+    case "area":
+    case "grid":
+    case "arc":
+      throw new DrawingCommandError(
+        "Semantic geometry requires a host-aware move command.",
+      );
   }
 }
 
@@ -2005,8 +2014,7 @@ export function copyDrawingSelection(
   state: Pick<DrawingDocumentState, "layers" | "objects">,
   selectedIds: string[],
   resolveStyle:
-    | ((object: DrawingObject) => DrawingStyle)
-    | undefined = undefined,
+    ((object: DrawingObject) => DrawingStyle) | undefined = undefined,
 ): DrawingClipboard {
   return {
     items: [...new Set(selectedIds)].flatMap((objectId) => {
@@ -2054,9 +2062,9 @@ export function pasteDrawingClipboard(
 export function isEditableDrawingLayer(layer: DrawingLayer | undefined) {
   return Boolean(
     layer &&
-      (layer.systemKind === "work" || layer.systemKind === "custom") &&
-      layer.visible &&
-      !layer.locked,
+    (layer.systemKind === "work" || layer.systemKind === "custom") &&
+    layer.visible &&
+    !layer.locked,
   );
 }
 

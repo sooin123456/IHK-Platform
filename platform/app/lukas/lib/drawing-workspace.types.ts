@@ -1,10 +1,13 @@
 import { z } from "zod";
 
+import { isSimpleDrawingBoundary } from "./drawing-semantic-geometry.ts";
+
 export type Point = { x: number; y: number };
 export type Bounds = { x: number; y: number; width: number; height: number };
 export type Viewport = { x: number; y: number; zoom: number };
 
 const SHARED_NUMERIC_ABSOLUTE_MAX = 999_999_999_999;
+const P4_NUMERIC_ABSOLUTE_MAX = 9_000_000_000;
 const SHARED_INTEGER_MAX = 2_147_483_647;
 const Finite = z
   .number()
@@ -60,7 +63,7 @@ export const ViewportSchema = z
   })
   .strict();
 
-const DrawingGeometryBaseSchema = z.discriminatedUnion("type", [
+const DrawingPrimitiveGeometryBaseSchema = z.discriminatedUnion("type", [
   z
     .object({ type: z.literal("line"), start: PointSchema, end: PointSchema })
     .strict(),
@@ -106,8 +109,8 @@ const DrawingGeometryBaseSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
-export const DrawingGeometrySchema = DrawingGeometryBaseSchema.superRefine(
-  (geometry, context) => {
+export const DrawingPrimitiveGeometrySchema =
+  DrawingPrimitiveGeometryBaseSchema.superRefine((geometry, context) => {
     if (
       (geometry.type === "line" || geometry.type === "dimension") &&
       geometry.start.x === geometry.end.x &&
@@ -138,11 +141,156 @@ export const DrawingGeometrySchema = DrawingGeometryBaseSchema.superRefine(
         message: "텍스트에 NUL 문자를 포함할 수 없습니다.",
       });
     }
-  },
+  });
+
+const P4Finite = z
+  .number()
+  .min(-P4_NUMERIC_ABSOLUTE_MAX)
+  .max(P4_NUMERIC_ABSOLUTE_MAX)
+  .refine(Number.isFinite, "유한한 숫자여야 합니다.")
+  .refine(
+    (value) => Number.isSafeInteger(value * 1_000_000),
+    "소수점 이하 여섯 자리 이하여야 합니다.",
+  );
+const P4Positive = P4Finite.refine((value) => value > 0, "0보다 커야 합니다.");
+const P4NonNegative = P4Finite.refine(
+  (value) => value >= 0,
+  "0 이상이어야 합니다.",
 );
+const P4PointSchema = z.object({ x: P4Finite, y: P4Finite }).strict();
+const DrawingWallGeometryBaseSchema = z
+  .object({
+    type: z.literal("wall"),
+    semanticVersion: z.literal(1),
+    start: P4PointSchema,
+    end: P4PointSchema,
+    thicknessMillimeters: P4Positive,
+    heightMillimeters: P4Positive,
+  })
+  .strict();
+export const DrawingWallGeometrySchema =
+  DrawingWallGeometryBaseSchema.superRefine((geometry, context) => {
+    if (
+      geometry.start.x === geometry.end.x &&
+      geometry.start.y === geometry.end.y
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "시작점과 끝점이 달라야 합니다.",
+      });
+  });
+export const DrawingOpeningGeometrySchema = z
+  .object({
+    type: z.literal("opening"),
+    semanticVersion: z.literal(1),
+    hostWallId: Uuid,
+    offsetMillimeters: P4NonNegative,
+    widthMillimeters: P4Positive,
+    heightMillimeters: P4Positive,
+    sillHeightMillimeters: P4NonNegative,
+    openingKind: z.enum(["door", "window", "void"]),
+  })
+  .strict()
+  .superRefine((geometry, context) => {
+    if (geometry.openingKind === "door" && geometry.sillHeightMillimeters !== 0)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sillHeightMillimeters"],
+        message: "문의 하부 높이는 0이어야 합니다.",
+      });
+  });
+const P4BoundarySchema = z
+  .array(P4PointSchema)
+  .min(3)
+  .max(4096)
+  .refine(isSimpleDrawingBoundary, "단순한 비퇴화 경계여야 합니다.");
+export const DrawingSpaceGeometrySchema = z
+  .object({
+    type: z.literal("space"),
+    semanticVersion: z.literal(1),
+    boundary: P4BoundarySchema,
+    number: z.string().max(255),
+    finishes: z
+      .object({
+        floor: z.string().max(255).nullable(),
+        wall: z.string().max(255).nullable(),
+        ceiling: z.string().max(255).nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+export const DrawingAreaGeometrySchema = z
+  .object({
+    type: z.literal("area"),
+    semanticVersion: z.literal(1),
+    boundary: P4BoundarySchema,
+  })
+  .strict();
+const DrawingGridGeometryBaseSchema = z
+  .object({
+    type: z.literal("grid"),
+    semanticVersion: z.literal(1),
+    start: P4PointSchema,
+    end: P4PointSchema,
+  })
+  .strict();
+export const DrawingGridGeometrySchema =
+  DrawingGridGeometryBaseSchema.superRefine((geometry, context) => {
+    if (
+      geometry.start.x === geometry.end.x &&
+      geometry.start.y === geometry.end.y
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "시작점과 끝점이 달라야 합니다.",
+      });
+  });
+export const DrawingArcGeometrySchema = z
+  .object({
+    type: z.literal("arc"),
+    semanticVersion: z.literal(1),
+    center: P4PointSchema,
+    radius: P4Positive,
+    startAngleDegrees: P4Finite,
+    sweepAngleDegrees: P4Finite.refine(
+      (value) => value !== 0 && Math.abs(value) <= 360,
+      "호 각도는 0이 아니고 절댓값이 360 이하여야 합니다.",
+    ),
+  })
+  .strict();
+
+export const DrawingGeometrySchema = z.union([
+  DrawingPrimitiveGeometrySchema,
+  DrawingWallGeometrySchema,
+  DrawingOpeningGeometrySchema,
+  DrawingSpaceGeometrySchema,
+  DrawingAreaGeometrySchema,
+  DrawingGridGeometrySchema,
+  DrawingArcGeometrySchema,
+]);
+
+export type DrawingSemanticVersion = 1;
+export type DrawingPrimitiveGeometry = z.infer<
+  typeof DrawingPrimitiveGeometrySchema
+>;
+export type DrawingWallGeometry = z.infer<typeof DrawingWallGeometrySchema>;
+export type DrawingOpeningGeometry = z.infer<
+  typeof DrawingOpeningGeometrySchema
+>;
+export type DrawingSpaceGeometry = z.infer<typeof DrawingSpaceGeometrySchema>;
+export type DrawingAreaGeometry = z.infer<typeof DrawingAreaGeometrySchema>;
+export type DrawingGridGeometry = z.infer<typeof DrawingGridGeometrySchema>;
+export type DrawingArcGeometry = z.infer<typeof DrawingArcGeometrySchema>;
+export type DrawingSemanticGeometry =
+  | DrawingWallGeometry
+  | DrawingOpeningGeometry
+  | DrawingSpaceGeometry
+  | DrawingAreaGeometry
+  | DrawingGridGeometry
+  | DrawingArcGeometry;
 
 const drawingObjectDefaultNames: Record<
-  z.infer<typeof DrawingGeometryBaseSchema>["type"],
+  z.infer<typeof DrawingGeometrySchema>["type"],
   string
 > = {
   line: "Line",
@@ -151,11 +299,17 @@ const drawingObjectDefaultNames: Record<
   circle: "Circle",
   text: "Text",
   dimension: "Dimension",
+  wall: "Wall",
+  opening: "Opening",
+  space: "Space",
+  area: "Area",
+  grid: "Grid",
+  arc: "Arc",
 };
 
 /** Deterministic language-neutral names for newly authored geometry. */
 export function defaultDrawingObjectName(
-  type: z.infer<typeof DrawingGeometryBaseSchema>["type"],
+  type: z.infer<typeof DrawingGeometrySchema>["type"],
 ) {
   return drawingObjectDefaultNames[type];
 }
@@ -316,7 +470,7 @@ const DrawingStyledPrimitiveSchema = z
   .object({
     localId: z.string().min(1).max(255),
     name: DrawingObjectNameSchema,
-    geometry: DrawingGeometrySchema,
+    geometry: DrawingPrimitiveGeometrySchema,
     styleId: Uuid.nullable(),
     style: z.union([DrawingStyleSchema, DrawingStyleOverrideSchema]),
   })

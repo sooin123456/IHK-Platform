@@ -14,8 +14,10 @@ import type {
   DrawingStyleOverride,
   DrawingTable,
   DrawingGeometry,
+  DrawingPrimitiveGeometry,
 } from "./drawing-workspace.types.ts";
 import {
+  DrawingPrimitiveGeometrySchema,
   DrawingStructureActionSchema,
   DrawingStyleSchema,
 } from "./drawing-workspace.types.ts";
@@ -139,7 +141,10 @@ function samePoint(
   );
 }
 
-function sameGeometry(left: DrawingGeometry, right: DrawingGeometry): boolean {
+function sameGeometry(
+  left: DrawingPrimitiveGeometry,
+  right: DrawingPrimitiveGeometry,
+): boolean {
   if (left.type !== right.type) return false;
   switch (left.type) {
     case "line":
@@ -227,10 +232,10 @@ function transformPoint(
 }
 
 function transformGeometry(
-  geometry: DrawingGeometry,
+  geometry: DrawingPrimitiveGeometry,
   instance: DrawingBlockInstance,
   inverse: boolean,
-): DrawingGeometry {
+): DrawingPrimitiveGeometry {
   const point = (value: { x: number; y: number }) =>
     transformPoint(value, instance, inverse);
   const scaleX = Math.abs(instance.scaleX);
@@ -297,10 +302,11 @@ export function drawingBlockPrimitiveFromObject(
   instance: DrawingBlockInstance,
   localId: string,
 ) {
+  const geometry = DrawingPrimitiveGeometrySchema.parse(object.geometry);
   return {
     localId,
     name: object.name,
-    geometry: transformGeometry(object.geometry, instance, true),
+    geometry: transformGeometry(geometry, instance, true),
     styleId: object.styleId ?? null,
     style: clone(object.style),
   };
@@ -486,7 +492,10 @@ function validatePropertyValue(
   }
   const appliesTo =
     object?.geometry.type ?? (instance ? "block_instance" : null);
-  if (!appliesTo || !schema.appliesTo.includes(appliesTo)) {
+  if (
+    !appliesTo ||
+    !(schema.appliesTo as readonly string[]).includes(appliesTo)
+  ) {
     throw new DrawingStructureError(
       `Property value ${value.id} is not applicable to its target.`,
     );
@@ -636,7 +645,9 @@ function validateReferences(state: DrawingStructureState): void {
           const schema = column.propertySchemaId
             ? state.propertySchemas[column.propertySchemaId]
             : undefined;
-          return schema ? !schema.appliesTo.includes(targetKind) : false;
+          return schema
+            ? !(schema.appliesTo as readonly string[]).includes(targetKind)
+            : false;
         })
       ) {
         throw new DrawingStructureError(
@@ -941,7 +952,7 @@ function validateObjectCompound(
       const candidate = {
         name: object.name,
         layerId: object.layerId,
-        geometry: object.geometry,
+        geometry: DrawingPrimitiveGeometrySchema.parse(object.geometry),
         styleId: object.styleId ?? null,
         style: object.style,
       };
@@ -972,8 +983,7 @@ export function resolveDrawingStyle(
         style: DrawingStyleOverride;
       },
   styles:
-    | readonly DrawingStyleDefinition[]
-    | Record<string, DrawingStyleDefinition>,
+    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
 ): DrawingStyle {
   const definitions = Array.isArray(styles) ? styles : Object.values(styles);
   const styleId = styled.styleId ?? null;

@@ -13,11 +13,12 @@ import type {
 import {
   DrawingBlockInstanceSchema,
   DrawingBlockSchema,
+  DrawingPrimitiveGeometrySchema,
   type Bounds,
   type DrawingBlock,
   type DrawingBlockInstance,
   type DrawingBlockPrimitive,
-  type DrawingGeometry,
+  type DrawingPrimitiveGeometry,
   type DrawingObject,
   type DrawingStyle,
   type DrawingStyleDefinition,
@@ -95,9 +96,9 @@ function translatePoint(point: Point, origin: Point): Point {
 }
 
 function translateGeometry(
-  geometry: DrawingGeometry,
+  geometry: DrawingPrimitiveGeometry,
   origin: Point,
-): DrawingGeometry {
+): DrawingPrimitiveGeometry {
   switch (geometry.type) {
     case "line":
       return {
@@ -161,7 +162,10 @@ export function worldObjectsToBlockPrimitives(
     return {
       localId,
       name: object.name,
-      geometry: translateGeometry(structuredClone(object.geometry), origin),
+      geometry: translateGeometry(
+        DrawingPrimitiveGeometrySchema.parse(structuredClone(object.geometry)),
+        origin,
+      ),
       styleId: object.styleId ?? null,
       style: structuredClone(object.style),
     };
@@ -269,8 +273,7 @@ export function blockInstanceRenderModel(
   block: DrawingBlock,
   instance: DrawingBlockInstance,
   styles:
-    | readonly DrawingStyleDefinition[]
-    | Record<string, DrawingStyleDefinition>,
+    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
 ): DrawingBlockRenderModel {
   let definition: DrawingBlock;
   let placed: DrawingBlockInstance;
@@ -305,8 +308,7 @@ export function blockInstanceBounds(
   block: DrawingBlock,
   instance: DrawingBlockInstance,
   styles:
-    | readonly DrawingStyleDefinition[]
-    | Record<string, DrawingStyleDefinition>,
+    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
 ): Bounds {
   const model = blockInstanceRenderModel(block, instance, styles);
   return blockRenderModelBounds(model);
@@ -520,8 +522,7 @@ export function drawingBlockSelectionCandidates(
   blocks: Record<string, DrawingBlock>,
   layers: Record<string, { visible: boolean; locked: boolean }>,
   styles:
-    | readonly DrawingStyleDefinition[]
-    | Record<string, DrawingStyleDefinition>,
+    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
   zoom: number,
   tolerancePixels = 6,
 ): Array<{ id: string; bounds: Bounds }> {
@@ -795,11 +796,7 @@ export function deleteDrawingBlockInstanceCommand(
 }
 
 export type DrawingSelectionEntityKind =
-  | "none"
-  | "object"
-  | "block_instance"
-  | "mixed"
-  | "invalid";
+  "none" | "object" | "block_instance" | "mixed" | "invalid";
 
 export function drawingSelectionEntityKind(
   inputState: DrawingDocumentState,

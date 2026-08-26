@@ -125,7 +125,8 @@ export function resolveDrawingTable(
     if (
       targetKind &&
       [...propertySchemas.values()].some(
-        (schema) => !schema.appliesTo.includes(targetKind),
+        (schema) =>
+          !(schema.appliesTo as readonly string[]).includes(targetKind),
       )
     )
       throw new DrawingStructureError(

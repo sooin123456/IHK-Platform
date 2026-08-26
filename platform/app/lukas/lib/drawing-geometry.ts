@@ -1,10 +1,12 @@
 import type {
   Bounds,
   DrawingGeometry,
+  DrawingObject,
   PdfCalibration,
   Point,
   Viewport,
 } from "./drawing-workspace.types.ts";
+import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
 
 type SnapOptions = {
   gridSize: number;
@@ -57,8 +59,49 @@ function dimensionOffsetPoints(
   ];
 }
 
+function arcPoint(
+  geometry: Extract<DrawingGeometry, { type: "arc" }>,
+  angleDegrees: number,
+): Point {
+  const radians = (angleDegrees * Math.PI) / 180;
+  return {
+    x: geometry.center.x + geometry.radius * Math.cos(radians),
+    y: geometry.center.y + geometry.radius * Math.sin(radians),
+  };
+}
+
+function normalizedDegrees(value: number): number {
+  return ((value % 360) + 360) % 360;
+}
+
+function arcContainsAngle(
+  geometry: Extract<DrawingGeometry, { type: "arc" }>,
+  angleDegrees: number,
+): boolean {
+  if (Math.abs(geometry.sweepAngleDegrees) === 360) return true;
+  const travelled =
+    geometry.sweepAngleDegrees > 0
+      ? normalizedDegrees(angleDegrees - geometry.startAngleDegrees)
+      : normalizedDegrees(geometry.startAngleDegrees - angleDegrees);
+  return travelled <= Math.abs(geometry.sweepAngleDegrees);
+}
+
+function arcBounds(geometry: Extract<DrawingGeometry, { type: "arc" }>) {
+  const points = [
+    arcPoint(geometry, geometry.startAngleDegrees),
+    arcPoint(geometry, geometry.startAngleDegrees + geometry.sweepAngleDegrees),
+    ...[0, 90, 180, 270]
+      .filter((angle) => arcContainsAngle(geometry, angle))
+      .map((angle) => arcPoint(geometry, angle)),
+  ];
+  return boundsForPoints(points);
+}
+
 /** Canonical authored points that are meaningful object-snap targets. */
-export function geometrySnapPoints(geometry: DrawingGeometry): Point[] {
+export function geometrySnapPoints(
+  geometry: DrawingGeometry,
+  objects?: Readonly<Record<string, DrawingObject>>,
+): Point[] {
   switch (geometry.type) {
     case "line":
       return [geometry.start, geometry.end];
@@ -81,6 +124,25 @@ export function geometrySnapPoints(geometry: DrawingGeometry): Point[] {
       ];
     case "dimension":
       return [geometry.start, geometry.end, ...dimensionOffsetPoints(geometry)];
+    case "wall":
+    case "grid":
+      return [geometry.start, geometry.end];
+    case "space":
+    case "area":
+      return geometry.boundary;
+    case "arc":
+      return [
+        geometry.center,
+        arcPoint(geometry, geometry.startAngleDegrees),
+        arcPoint(
+          geometry,
+          geometry.startAngleDegrees + geometry.sweepAngleDegrees,
+        ),
+      ];
+    case "opening": {
+      const resolved = resolveDrawingOpening(geometry, objects ?? {});
+      return [resolved.start, resolved.center, resolved.end];
+    }
   }
 }
 
@@ -241,7 +303,10 @@ export function calibratePdf(
   };
 }
 
-export function geometryBounds(geometry: DrawingGeometry): Bounds {
+export function geometryBounds(
+  geometry: DrawingGeometry,
+  objects?: Readonly<Record<string, DrawingObject>>,
+): Bounds {
   switch (geometry.type) {
     case "line":
     case "polyline":
@@ -273,6 +338,27 @@ export function geometryBounds(geometry: DrawingGeometry): Bounds {
         geometry.end,
         ...dimensionOffsetPoints(geometry),
       ]);
+    }
+    case "wall": {
+      const bounds = boundsForPoints([geometry.start, geometry.end]);
+      const halfThickness = geometry.thicknessMillimeters / 2;
+      return {
+        x: bounds.x - halfThickness,
+        y: bounds.y - halfThickness,
+        width: bounds.width + geometry.thicknessMillimeters,
+        height: bounds.height + geometry.thicknessMillimeters,
+      };
+    }
+    case "grid":
+      return boundsForPoints([geometry.start, geometry.end]);
+    case "space":
+    case "area":
+      return boundsForPoints(geometry.boundary);
+    case "arc":
+      return arcBounds(geometry);
+    case "opening": {
+      const resolved = resolveDrawingOpening(geometry, objects ?? {});
+      return boundsForPoints([resolved.start, resolved.end]);
     }
   }
 }

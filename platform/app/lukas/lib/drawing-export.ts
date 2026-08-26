@@ -358,6 +358,15 @@ function svgGeometry(
         ),
       ];
     }
+    case "wall":
+    case "opening":
+    case "space":
+    case "area":
+    case "grid":
+    case "arc":
+      throw new DrawingExportError(
+        "Semantic geometry export is not available in this adapter.",
+      );
   }
 }
 
