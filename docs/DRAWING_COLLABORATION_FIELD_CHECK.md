@@ -13,8 +13,9 @@
 
 ## Drawing Workspace P3 상태
 
-- P3 local implementation: Tasks 1~10 구현과 해당 공식 검토는 완료했으며,
-  Task 11 release evidence 검토와 final broad review는 아직 pending이다.
+- P3 local implementation: Tasks 1~11 구현과 범위별 공식 검토는 완료했다.
+  Final broad review의 production-shaped Yjs bootstrap 결함은 수정했고 실제
+  provider 회귀 테스트를 추가했지만 fresh final broad review는 pending이다.
 - P3 production: **UNEXECUTED / 미실행**. 현재 문서 상단의 기존 운영 배포
   commit·Vercel ID는 이전 도면 협업실 증거이며 Yjs/Hocuspocus P3 배포 증거가
   아니다.

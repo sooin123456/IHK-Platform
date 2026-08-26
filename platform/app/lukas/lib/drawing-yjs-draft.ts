@@ -15,6 +15,7 @@ import {
   DrawingCollaborationOperationSchema,
   DrawingCollaborationStatusSchema,
   drawingCollaborationWritableCapabilities,
+  type DrawingCollaborationMeta,
   type DrawingCollaborationOperation,
 } from "./drawing-collaboration-protocol.ts";
 import {
@@ -80,6 +81,7 @@ type DrawingDraftAdapterOptions = DrawingCommandEnvironment & {
   frozen: boolean;
   baseOperationSequence?: number;
   localPersistenceSynced?: Promise<unknown>;
+  localBaseMeta?: DrawingCollaborationMeta;
   replaceProjection?: (state: DrawingDocumentState) => void;
 };
 
@@ -301,8 +303,9 @@ export function createDrawingDraftAdapter(
       )
     )
       throw new Error("Drawing document collections are invalid.");
+    const serverMeta = candidate.getMap("serverMeta").toJSON();
     const meta = DrawingCollaborationMetaSchema.parse(
-      candidate.getMap("serverMeta").toJSON(),
+      Object.keys(serverMeta).length === 0 ? options.localBaseMeta : serverMeta,
     );
     if (meta.revisionId !== authoritativeState.revisionId)
       throw new Error(

@@ -1321,10 +1321,12 @@ export default function DrawingWorkspaceClient({
         connection = null;
         collaborationConnectionRef.current = null;
         await attempt?.dispose();
+        let localBaseMeta:
+          ReturnType<typeof initializeDrawingCollaborationDocument> | undefined;
         attempt = await openDrawingCollaborationLocalAttempt({
           createDocument() {
             const document = new Y.Doc();
-            initializeDrawingCollaborationDocument({
+            localBaseMeta = initializeDrawingCollaborationDocument({
               document,
               projectId: revision.project_id,
               revisionId: revision.id,
@@ -1338,16 +1340,22 @@ export default function DrawingWorkspaceClient({
               revisionId: revision.id,
               document,
             }),
-          createAdapter: (document) =>
-            createDrawingDraftAdapter({
+          createAdapter: (document) => {
+            if (!localBaseMeta)
+              throw new Error(
+                "Drawing collaboration local base is unavailable.",
+              );
+            return createDrawingDraftAdapter({
               document,
+              localBaseMeta,
               authoritativeState: base,
               actorId: currentUserId,
               authorization: capabilityRef.current,
               frozen: revisionStatusRef.current !== "draft",
               baseOperationSequence: bootstrap?.operationSequence ?? 0,
               replaceProjection: (state) => documentStore.replace(state),
-            }),
+            });
+          },
           reconcile: (adapter) =>
             reconcileDrawingCollaborationDraft({
               actorId: currentUserId,

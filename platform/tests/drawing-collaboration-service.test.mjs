@@ -30,6 +30,10 @@ const storageModule = await import("../collaboration/src/storage.ts").catch(
 const serverModule = await import("../collaboration/src/server.ts").catch(
   () => null,
 );
+const collaborationClientModule =
+  await import("../app/lukas/lib/drawing-collaboration-client.ts").catch(
+    () => null,
+  );
 
 const ids = {
   project: "00000000-0000-4000-8000-000000000401",
@@ -1196,6 +1200,99 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
     );
   } finally {
     provider?.destroy();
+    await runtime.stop();
+  }
+});
+
+test("production-shaped first boot keeps server metadata authoritative and converges its pending operation", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  assert.ok(collaborationClientModule, "collaboration client must exist");
+  class OriginWebSocket extends CrossWebSocket {
+    constructor(url) {
+      super(url, [], { origin: "https://app.example.com" });
+    }
+  }
+  const document = new Y.Doc();
+  collaborationClientModule.initializeDrawingCollaborationDocument({
+    document,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    baseSnapshotSha256: "a".repeat(64),
+    baseOperationSequence: 0,
+  });
+  document.transact(() => {
+    document.getArray("operations").push([operation()]);
+    document.getArray("operationOrder").push([ids.operation]);
+  });
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      instanceId: "collab-production-shape-a",
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: "editor@example.com",
+      expiresAtMs: Date.now() + 120_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      bootstrap: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+    },
+  });
+  const server = await runtime.start();
+  let provider;
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("production-shaped sync timed out")),
+        2_000,
+      );
+      provider = new HocuspocusProvider({
+        url: server.webSocketURL,
+        name: roomName,
+        document,
+        token: "test-token",
+        WebSocketPolyfill: OriginWebSocket,
+        onSynced: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        onAuthenticationFailed: ({ reason }) => {
+          clearTimeout(timeout);
+          reject(new Error(reason));
+        },
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const serverDocument = runtime.hocuspocus.documents.get(roomName);
+    assert.equal(provider.isSynced, true);
+    assert.ok(serverDocument, "room must remain loaded after the handshake");
+    assert.deepEqual(serverDocument.getArray("operationOrder").toArray(), [
+      ids.operation,
+    ]);
+    assert.deepEqual(document.getArray("operationOrder").toArray(), [
+      ids.operation,
+    ]);
+    assert.equal(document.getMap("serverMeta").get("projectId"), ids.project);
+  } finally {
+    provider?.destroy();
+    document.destroy();
     await runtime.stop();
   }
 });

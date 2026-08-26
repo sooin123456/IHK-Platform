@@ -19,6 +19,10 @@ source evidence only.
   cursor/selection overlays and soft locks, comments/mentions/history/restore,
   cross-instance leased atomic review freeze, and the fail-closed production P3
   fixture.
+- The browser bootstrap keeps its authoritative base metadata outside Yjs until
+  the authenticated service supplies `serverMeta`. Offline/outbox operations
+  remain locally projectable and converge through the real provider without
+  giving the browser authorship of protected metadata.
 - `platform/DEPLOYMENT.md` now gives an executable backup→reversible JWKS
   rotation→database login→migration/types→one-replica image→fail-closed service
   smoke→application preview→production fixture→operator rollback rehearsal→
@@ -48,10 +52,10 @@ Fresh Task 11 verification from the source baseline and documentation diff:
 
 | Gate | Result |
 | --- | --- |
-| P3 release documentation contract | PASS, 7 tests, including live PGlite default-ACL mutation and credential-free service-smoke fail-closed execution |
-| Whole Node `node --test tests/*.test.mjs` | 739 total; 738 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
-| Drawing Workspace `npm run test:drawing-workspace` | 506 total; 505 passed, 0 failed, the same 1 environment-only gate `UNEXECUTED` |
-| Collaboration service tests | PASS, 32 tests |
+| P3 release documentation contract | PASS, 8 tests, including live PGlite default-ACL mutation, observed replica identity mutations, and credential-free service-smoke fail-closed execution |
+| Whole Node `node --test tests/*.test.mjs` | 742 total; 741 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
+| Drawing Workspace `npm run test:drawing-workspace` | 508 total; 507 passed, 0 failed, the same 1 environment-only gate `UNEXECUTED` |
+| Collaboration service tests | PASS, 33 tests, including the production-shaped first-boot provider regression |
 | IFC pinned geometry smoke | PASS: 413,681 bytes, 120 elements, 115 geometric elements, 119 placements, 14,694 triangles |
 | Application TypeScript | PASS |
 | Collaboration TypeScript | PASS |
@@ -130,7 +134,8 @@ storage object, or rollback outcome was simulated.
 - local Chromium shell: 10 scenarios; this is functional local evidence, not a
   latency or 60 fps measurement
 
-Disposition: local implementation may be considered only after Task 11's
-official review and the final broad P3 review. Operational/production completion
-requires real migration, service, application, two-user, p95, source, cleanup and
-rollback evidence; none is inferred from LOCAL PASS.
+Disposition: Task 11's scoped review is complete. The final broad review found
+the production-shaped bootstrap defect; its local fix and regression are now
+implemented, but a fresh final broad rereview is still pending. Operational or
+production completion requires real migration, service, application, two-user,
+p95, source, cleanup and rollback evidence; none is inferred from LOCAL PASS.

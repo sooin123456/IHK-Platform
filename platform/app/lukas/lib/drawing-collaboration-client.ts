@@ -5,6 +5,7 @@ import type {
 import * as Y from "yjs";
 import {
   DRAWING_COLLABORATION_SCHEMA_VERSION,
+  DrawingCollaborationMetaSchema,
   DrawingCollaborationOperationSchema,
   type DrawingCollaborationOperation,
 } from "./drawing-collaboration-protocol.ts";
@@ -152,21 +153,22 @@ export function initializeDrawingCollaborationDocument({
   baseSnapshotSha256: string;
   baseOperationSequence: number;
 }) {
+  const localBaseMeta = DrawingCollaborationMetaSchema.parse({
+    schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+    projectId,
+    revisionId,
+    baseSnapshotSha256,
+    baseOperationSequence,
+    freezeState: "active",
+    freezeRequestId: null,
+  });
   document.transact(() => {
-    const meta = document.getMap("serverMeta");
-    if (meta.size === 0) {
-      meta.set("schemaVersion", DRAWING_COLLABORATION_SCHEMA_VERSION);
-      meta.set("projectId", projectId);
-      meta.set("revisionId", revisionId);
-      meta.set("baseSnapshotSha256", baseSnapshotSha256);
-      meta.set("baseOperationSequence", baseOperationSequence);
-      meta.set("freezeState", "active");
-      meta.set("freezeRequestId", null);
-    }
+    document.getMap("serverMeta");
     document.getArray("operationOrder");
     document.getArray("operations");
     document.getMap("operationStatus");
   });
+  return localBaseMeta;
 }
 
 /** Browser token resolver. It serializes no token or privileged server secret. */

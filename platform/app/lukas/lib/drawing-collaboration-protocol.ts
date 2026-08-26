@@ -79,6 +79,10 @@ export const DrawingCollaborationMetaSchema = z
   })
   .strict();
 
+export type DrawingCollaborationMeta = z.infer<
+  typeof DrawingCollaborationMetaSchema
+>;
+
 export const DrawingCollaborationStatusSchema = z
   .object({
     operationId: CanonicalUuidSchema,

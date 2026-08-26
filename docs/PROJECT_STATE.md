@@ -5,8 +5,10 @@
 - P3 local implementation: Yjs·y-indexeddb·Hocuspocus, Realtime invalidation,
   durable outbox reconciliation, live Awareness/soft lock, 댓글·mention·history·restore,
   원자적 review freeze와 production fixture 계약을 구현했다.
-- Task 1~10 공식 검토는 완료했다. Task 11 release evidence 검토와 final broad
-  review는 **pending**이므로 P3 local implementation 완료 판정은 아직 하지 않는다.
+- Task 1~11의 범위별 공식 검토는 완료했다. Final broad review가 발견한
+  production-shaped Yjs bootstrap 결함은 실제 provider 회귀 테스트와 함께
+  수정했지만 fresh final broad review는 **pending**이므로 P3 local
+  implementation 완료 판정은 아직 하지 않는다.
 - P3 production은 **UNEXECUTED / 미실행**이다. 실제 Supabase/Hocuspocus에 P3
   migration·service·app을 배포하거나 owner/editor/reviewer/viewer/nonmember
   fixture, two-user smoke, three-context p95, offline loss 0, PDF/IFC source SHA,

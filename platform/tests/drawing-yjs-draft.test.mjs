@@ -11,6 +11,7 @@ import {
 } from "../app/lukas/lib/drawing-commands.ts";
 import {
   createDrawingCollaborationCommandBridge,
+  initializeDrawingCollaborationDocument,
   reconcileDrawingCollaborationDraft,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
 
@@ -148,6 +149,40 @@ function create(doc = initializedDoc(), options = {}) {
     ...options,
   });
 }
+
+test("client bootstrap keeps base metadata local while an offline operation remains projectable", () => {
+  const doc = new Y.Doc();
+  const localBaseMeta = initializeDrawingCollaborationDocument({
+    document: doc,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    baseSnapshotSha256: "a".repeat(64),
+    baseOperationSequence: 0,
+  });
+  assert.deepEqual(doc.getMap("serverMeta").toJSON(), {});
+  assert.deepEqual(doc.getMap("operationStatus").toJSON(), {});
+
+  const adapter = create(doc, { localBaseMeta });
+  const pending = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Offline" } }],
+    },
+    ids.operationA,
+  );
+  append(doc, pending.envelope);
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  assert.deepEqual(adapter.getSnapshot().pendingOperationIds, [ids.operationA]);
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "Offline",
+  );
+  assert.deepEqual(doc.getMap("serverMeta").toJSON(), {});
+  adapter.dispose();
+  doc.destroy();
+});
 
 test("projects base plus validated operations and publishes once per Yjs transaction", () => {
   const doc = initializedDoc();
