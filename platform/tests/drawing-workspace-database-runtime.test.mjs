@@ -14,6 +14,7 @@ import {
   invalidP4Geometries,
   invalidP4PropertySchemas,
   p4ObjectNameCorpus,
+  p4PersistedExactNameConsumers,
   p4FixtureIds,
   p4Object,
   validP4Geometries,
@@ -315,6 +316,14 @@ const p4FinalContractFixesMigration = async () => {
   const directory = new URL("../supabase/migrations/", import.meta.url);
   const names = (await readdir(directory)).filter((name) =>
     name.endsWith("_drawing_workspace_p4_final_contract_fixes.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], directory), "utf8");
+};
+const p4FinalNameAuthorityMigration = async () => {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p4_final_name_authority.sql"),
   );
   assert.equal(names.length, 1);
   return readFile(new URL(names[0], directory), "utf8");
@@ -722,6 +731,7 @@ before(async () => {
   await db.exec(await p4SemanticObjectsMigration());
   await db.exec(await p4SemanticContractFixesMigration());
   await db.exec(await p4FinalContractFixesMigration());
+  await db.exec(await p4FinalNameAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -867,6 +877,7 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
     await upgradeDb.exec(await p4SemanticObjectsMigration());
     await upgradeDb.exec(await p4SemanticContractFixesMigration());
     await upgradeDb.exec(await p4FinalContractFixesMigration());
+    await upgradeDb.exec(await p4FinalNameAuthorityMigration());
 
     const afterUpgrade = await evidence();
     assert.deepEqual(afterUpgrade, beforeUpgrade);
@@ -939,6 +950,79 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
     }
   } finally {
     await upgradeDb.close();
+  }
+});
+
+test("P4 final name authority rejects legacy-valid poison transactionally before constraints", async () => {
+  const legacyDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await legacyDb.exec(foundationSql);
+    await applyP0ThroughP3Migrations(legacyDb);
+    await legacyDb.exec(await p4SemanticObjectsMigration());
+    await legacyDb.exec(await p4SemanticContractFixesMigration());
+    await legacyDb.exec(await p4FinalContractFixesMigration());
+    await legacyDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await legacyDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await legacyDb.exec("set role authenticated");
+    await legacyDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = await legacyDb.query(
+      "select public.lukas_drawing_create_document($1,null,'Legacy names',true) result",
+      [PROJECT],
+    );
+    await legacyDb.exec("reset role");
+    await legacyDb.exec(
+      "alter table public.lukas_drawing_pages disable trigger user",
+    );
+    await legacyDb.query(
+      "update public.lukas_drawing_pages set name=name||$1 where id=$2",
+      ["\u00a0", created.rows[0].result.pageId],
+    );
+    await legacyDb.exec(
+      "alter table public.lukas_drawing_pages enable trigger user",
+    );
+
+    await assert.rejects(
+      legacyDb.exec(await p4FinalNameAuthorityMigration()),
+      (error) =>
+        error.code === "P1C01" &&
+        /final name authority: page/i.test(error.message),
+    );
+    await legacyDb.exec("rollback");
+    const rolledBack = await legacyDb.query(
+      `select
+        pg_catalog.to_regprocedure(
+          'private.lukas_drawing_p4_array_names_valid(jsonb,text)'
+        ) helper,
+        exists(select 1 from pg_catalog.pg_constraint
+          where conname='lukas_drawing_pages_name_contract') installed`,
+    );
+    assert.deepEqual(rolledBack.rows[0], { helper: null, installed: false });
+
+    await legacyDb.exec(
+      "alter table public.lukas_drawing_pages disable trigger user",
+    );
+    await legacyDb.query(
+      "update public.lukas_drawing_pages set name='Recovered page' where id=$1",
+      [created.rows[0].result.pageId],
+    );
+    await legacyDb.exec(
+      "alter table public.lukas_drawing_pages enable trigger user",
+    );
+    await legacyDb.exec(await p4FinalNameAuthorityMigration());
+    const upgraded = await legacyDb.query(
+      `select private.lukas_drawing_p2_name(pg_catalog.to_jsonb(name)) valid
+       from public.lukas_drawing_pages where id=$1`,
+      [created.rows[0].result.pageId],
+    );
+    assert.deepEqual(upgraded.rows, [{ valid: true }]);
+  } finally {
+    await legacyDb.close();
   }
 });
 
@@ -1090,6 +1174,339 @@ test("P4 shared randomized object-name corpus has exact Zod, SQL helper, authent
     });
     assert.equal(reloaded.geometry.type, row.object_type);
   }
+});
+
+test("P4 global exact-name authority accepts and strictly reloads every persisted name consumer", async () => {
+  const ids = await createDocument("P4 global exact names");
+  const validNames = p4ObjectNameCorpus
+    .filter(([, , expected]) => expected)
+    .map(([, value]) => value);
+  const name = (index) => validNames[index % validNames.length];
+  const style = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: name(5),
+    value: STYLE,
+    version: 1,
+  };
+  const propertySchema = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: name(8),
+    valueType: "enum",
+    enumOptions: [name(9)],
+    appliesTo: ["circle"],
+    required: false,
+    version: 1,
+  };
+  const table = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: name(10),
+    columns: [
+      {
+        id: randomUUID(),
+        name: name(11),
+        kind: "text",
+        propertySchemaId: null,
+      },
+    ],
+    rows: [],
+    version: 1,
+  };
+  const page = {
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+    name: name(0),
+    sortOrder: 1,
+    version: 1,
+  };
+  const canvas = {
+    id: randomUUID(),
+    pageId: page.id,
+    name: name(1),
+    spaceKind: "paper",
+    widthMillimeters: 420,
+    heightMillimeters: 297,
+    background: null,
+    sortOrder: 0,
+    version: 1,
+  };
+  const layer = {
+    id: randomUUID(),
+    name: name(2),
+    visible: true,
+    locked: false,
+    systemKind: "work",
+    canvasId: canvas.id,
+    sortOrder: 0,
+    version: 1,
+  };
+  await asActor(OWNER);
+  await applyStructure(
+    ids,
+    {},
+    [
+      { kind: "put_page", entity: page, baseVersion: null },
+      { kind: "put_canvas", entity: canvas, baseVersion: null },
+      { kind: "put_layer", entity: layer, baseVersion: null },
+      { kind: "put_style", entity: style, baseVersion: null },
+      {
+        kind: "put_property_schema",
+        entity: propertySchema,
+        baseVersion: null,
+      },
+      { kind: "put_table", entity: table, baseVersion: null },
+    ],
+    [
+      { kind: "delete_table", id: table.id, baseVersion: 1 },
+      {
+        kind: "delete_property_schema",
+        id: propertySchema.id,
+        baseVersion: 1,
+      },
+      { kind: "delete_style", id: style.id, baseVersion: 1 },
+      { kind: "delete_layer", id: layer.id, baseVersion: 1 },
+      { kind: "delete_canvas", id: canvas.id, baseVersion: 1 },
+      { kind: "delete_page", id: page.id, baseVersion: 1 },
+    ],
+  );
+  const object = circleObject(randomUUID(), layer.id, { name: name(3) });
+  await addObject(ids, object);
+  const persistedBlock = await createPersistedBlockInstance(ids, name(7));
+  const updatedBlock = {
+    ...persistedBlock.block,
+    name: name(5),
+    primitives: persistedBlock.block.primitives.map((primitive) => ({
+      ...primitive,
+      name: name(6),
+    })),
+    version: 1,
+  };
+  const updatedInstance = {
+    ...persistedBlock.instance,
+    name: name(7),
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    { [updatedBlock.id]: 1, [updatedInstance.id]: 1 },
+    [
+      { kind: "put_block", entity: updatedBlock, baseVersion: 1 },
+      { kind: "put_block_instance", entity: updatedInstance, baseVersion: 1 },
+    ],
+    [
+      {
+        kind: "put_block_instance",
+        entity: persistedBlock.instance,
+        baseVersion: 2,
+      },
+      {
+        kind: "put_block",
+        entity: persistedBlock.block,
+        baseVersion: 2,
+      },
+    ],
+  );
+
+  await db.exec("reset role");
+  const rows = await db.query(
+    `select pg_catalog.jsonb_build_object(
+      'page',(select pg_catalog.jsonb_build_object('id',id,'revisionId',revision_id,'name',name,'sortOrder',sort_order,'version',version) from public.lukas_drawing_pages where id=$1),
+      'canvas',(select pg_catalog.jsonb_build_object('id',id,'pageId',page_id,'name',name,'spaceKind',space_kind,'widthMillimeters',width_mm,'heightMillimeters',height_mm,'background',null,'sortOrder',sort_order,'version',version) from public.lukas_drawing_canvases where id=$2),
+      'layer',(select pg_catalog.jsonb_build_object('id',id,'name',name,'visible',visible,'locked',locked,'systemKind',system_kind,'canvasId',canvas_id,'sortOrder',sort_order,'version',version) from public.lukas_drawing_layers where id=$3),
+      'object',(select pg_catalog.jsonb_build_object('id',id,'name',name,'layerId',layer_id,'geometry',geometry,'styleId',style_id,'style',style,'version',version) from public.lukas_drawing_objects where id=$4),
+      'style',(select pg_catalog.jsonb_build_object('id',id,'revisionId',revision_id,'name',name,'value',value,'version',version) from public.lukas_drawing_styles where id=$5),
+      'block',(select pg_catalog.jsonb_build_object('id',id,'revisionId',revision_id,'name',name,'primitives',primitives,'version',version) from public.lukas_drawing_blocks where id=$6),
+      'instance',(select pg_catalog.jsonb_build_object('id',id,'lineageId',lineage_id,'blockId',block_id,'layerId',layer_id,'name',name,'origin',origin,'rotation',rotation,'scaleX',scale_x,'scaleY',scale_y,'version',version) from public.lukas_drawing_block_instances where id=$7),
+      'schema',(select pg_catalog.jsonb_build_object('id',id,'revisionId',revision_id,'name',name,'valueType',value_type,'enumOptions',enum_options,'appliesTo',applies_to,'required',required,'version',version) from public.lukas_drawing_property_schemas where id=$8),
+      'table',(select pg_catalog.jsonb_build_object('id',id,'revisionId',revision_id,'name',name,'columns',columns_json,'rows',rows_json,'version',version) from public.lukas_drawing_tables where id=$9)
+    ) entities`,
+    [
+      page.id,
+      canvas.id,
+      layer.id,
+      object.id,
+      style.id,
+      updatedBlock.id,
+      updatedInstance.id,
+      propertySchema.id,
+      table.id,
+    ],
+  );
+  const entities = rows.rows[0].entities;
+  drawingTypes.DrawingPageSchema.parse(entities.page);
+  drawingTypes.DrawingCanvasSchema.parse(entities.canvas);
+  drawingTypes.DrawingStructureLayerSchema.parse(entities.layer);
+  drawingTypes.DrawingObjectSchema.parse(entities.object);
+  drawingTypes.DrawingStyleDefinitionSchema.parse(entities.style);
+  drawingTypes.DrawingBlockSchema.parse(entities.block);
+  drawingTypes.DrawingBlockInstanceSchema.parse(entities.instance);
+  drawingTypes.DrawingPropertySchemaSchema.parse(entities.schema);
+  drawingTypes.DrawingTableSchema.parse(entities.table);
+  assert.equal(Object.keys(entities).length, 9);
+
+  const invalidName = " invalid";
+  const invalidMutations = [
+    [
+      "page",
+      "put_page",
+      entities.page,
+      { ...entities.page, name: invalidName },
+    ],
+    [
+      "canvas",
+      "put_canvas",
+      entities.canvas,
+      { ...entities.canvas, name: invalidName },
+    ],
+    [
+      "style",
+      "put_style",
+      entities.style,
+      { ...entities.style, name: invalidName },
+    ],
+    [
+      "block",
+      "put_block",
+      entities.block,
+      { ...entities.block, name: invalidName },
+    ],
+    [
+      "block primitive",
+      "put_block",
+      entities.block,
+      {
+        ...entities.block,
+        primitives: entities.block.primitives.map((primitive, index) =>
+          index === 0 ? { ...primitive, name: invalidName } : primitive,
+        ),
+      },
+    ],
+    [
+      "block instance",
+      "put_block_instance",
+      entities.instance,
+      { ...entities.instance, name: invalidName },
+    ],
+    [
+      "property schema",
+      "put_property_schema",
+      entities.schema,
+      { ...entities.schema, name: invalidName },
+    ],
+    [
+      "enum option",
+      "put_property_schema",
+      entities.schema,
+      { ...entities.schema, enumOptions: [invalidName] },
+    ],
+    [
+      "table",
+      "put_table",
+      entities.table,
+      { ...entities.table, name: invalidName },
+    ],
+    [
+      "table column",
+      "put_table",
+      entities.table,
+      {
+        ...entities.table,
+        columns: entities.table.columns.map((column, index) =>
+          index === 0 ? { ...column, name: invalidName } : column,
+        ),
+      },
+    ],
+  ];
+  for (const [consumer, kind, previous, invalid] of invalidMutations) {
+    const clientOperationId = randomUUID();
+    await asActor(OWNER);
+    await assert.rejects(
+      applyOperationWithId(
+        ids.revisionId,
+        clientOperationId,
+        "mutate_structure",
+        { [previous.id]: previous.version },
+        {
+          type: "mutate_structure",
+          actions: [{ kind, entity: invalid, baseVersion: previous.version }],
+        },
+        {
+          type: "mutate_structure",
+          actions: [
+            {
+              kind,
+              entity: previous,
+              baseVersion: previous.version + 1,
+            },
+          ],
+        },
+      ),
+      (error) =>
+        error.code === "P1C01" ||
+        /name|primitive|schema|table|column|option/i.test(error.message),
+      consumer,
+    );
+    await db.exec("reset role");
+    const operation = await db.query(
+      `select count(*)::int count from public.lukas_drawing_operations
+       where revision_id=$1 and client_operation_id=$2`,
+      [ids.revisionId, clientOperationId],
+    );
+    assert.equal(operation.rows[0].count, 0, consumer);
+  }
+  await asActor(OWNER);
+  const layerOperationId = randomUUID();
+  await assert.rejects(
+    applyOperationWithId(
+      ids.revisionId,
+      layerOperationId,
+      "update_layer",
+      { [entities.layer.id]: entities.layer.version },
+      {
+        type: "update_layer",
+        layerId: entities.layer.id,
+        patch: { name: invalidName },
+      },
+      {
+        type: "update_layer",
+        layerId: entities.layer.id,
+        patch: { name: entities.layer.name },
+      },
+    ),
+    (error) => error.code === "P1C01",
+    "layer",
+  );
+  await db.exec("reset role");
+  const rejectedOperations = await db.query(
+    `select count(*)::int count from public.lukas_drawing_operations
+     where revision_id=$1 and client_operation_id=$2`,
+    [ids.revisionId, layerOperationId],
+  );
+  assert.equal(rejectedOperations.rows[0].count, 0);
+
+  const constraints = await db.query(
+    `select conname from pg_catalog.pg_constraint
+     where conname=any($1::text[]) order by conname`,
+    [
+      [
+        "lukas_drawing_pages_name_contract",
+        "lukas_drawing_canvases_name_contract",
+        "lukas_drawing_layers_name_contract",
+        "lukas_drawing_objects_name_contract",
+        "lukas_drawing_styles_name_contract",
+        "lukas_drawing_blocks_name_contract",
+        "lukas_drawing_blocks_primitive_names_contract",
+        "lukas_drawing_block_instances_name_contract",
+        "lukas_drawing_property_schemas_name_contract",
+        "lukas_drawing_property_schemas_enum_option_names_contract",
+        "lukas_drawing_tables_name_contract",
+        "lukas_drawing_tables_column_names_contract",
+      ],
+    ],
+  );
+  assert.equal(constraints.rows.length, p4PersistedExactNameConsumers.length);
 });
 
 test("P4 shared property-schema corpus matches SQL and duplicate RPC mutations leave no poisoned revision", async () => {

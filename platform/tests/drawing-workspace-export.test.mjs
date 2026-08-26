@@ -13,6 +13,7 @@ import {
   exportDrawingSvg,
 } from "../app/lukas/lib/drawing-export.ts";
 import {
+  drawingSemanticAccessibilityLabel,
   drawingSemanticLabelLayout,
   geometryBounds,
 } from "../app/lukas/lib/drawing-geometry.ts";
@@ -739,8 +740,39 @@ test("semantic export matches the live canvas render metrics and label layout", 
   assert.match(svg, /<circle[^>]+r="18"[^>]+stroke-width="2"/);
   assert.match(
     svg,
-    /transform="translate\(180 293\) rotate\(0\)"[^>]*><text[^>]+aria-label="101 · 회의실"[^>]*><tspan x="90" y="0">101 · 회의실<\/tspan>/,
+    /transform="translate\(180 293\) rotate\(0\)"[^>]*><text[^>]+aria-hidden="true"[^>]*><tspan x="90" y="0">101 · 회의실<\/tspan>/,
   );
+});
+
+test("one complete semantic accessibility label is shared by live and SVG output", () => {
+  const document = semanticExportFixture();
+  const semanticObjects = [
+    ids.semanticWall,
+    ids.semanticDoor,
+    ids.semanticSpace,
+    ids.semanticArea,
+    ids.semanticGrid,
+    ids.semanticArc,
+  ].map((id) => document.structure.objects[id]);
+  const expected = [
+    "북측 벽 · wall · 두께 18 mm · 높이 3000 mm",
+    "D-01 · opening · door · 오프셋 250 mm · 너비 90 mm · 높이 2100 mm · 문턱 0 mm",
+    "101 · 회의실 · space · 바닥 타일 · 벽 도장 · 천장 텍스",
+    "외부 포장 · area",
+    "A · grid",
+    "처마 호 · arc · 반지름 100 mm · 시작 180° · 스윕 180°",
+  ];
+  assert.deepEqual(
+    semanticObjects.map((object) =>
+      drawingSemanticAccessibilityLabel(object.name, object.geometry),
+    ),
+    expected,
+  );
+
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  for (const label of expected)
+    assert.match(svg, new RegExp(`aria-label="${label}"`));
+  assert.equal(svg.match(/role="img" aria-label=/g)?.length, 7);
 });
 
 test("long semantic labels share deterministic bounded lines across live, SVG, PNG, and PDF plans", async () => {
@@ -761,7 +793,7 @@ test("long semantic labels share deterministic bounded lines across live, SVG, P
   const svg = exportDrawingSvg(document, ids.canvasSecond);
   assert.match(
     svg,
-    /aria-label="101 · 회의실 semantic label with deterministic wrapping 😀 가나다라 마바사 verylongtokenwithoutspaces"/,
+    /aria-label="101 · 회의실 semantic label with deterministic wrapping 😀 가나다라 마바사 verylongtokenwithoutspaces · space · 바닥 타일 · 벽 도장 · 천장 텍스"/,
   );
   assert.match(
     svg,

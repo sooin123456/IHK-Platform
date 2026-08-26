@@ -554,46 +554,62 @@ test("a hosted opening inherits hidden host visibility across layers", async () 
   const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
   const wallId = "50000000-0000-4000-8000-000000000001";
   const openingId = "50000000-0000-4000-8000-000000000002";
-  const adapter = blocks.drawingCanvasRenderAdapter({
-    blockInstances: [],
-    layers: {
-      wall: { visible: false, locked: false, sortOrder: 1 },
-      opening: { visible: true, locked: false, sortOrder: 0 },
+  const objects = [
+    {
+      ...object(wallId),
+      layerId: "wall",
+      geometry: {
+        type: "wall",
+        semanticVersion: 1,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        thicknessMillimeters: 10,
+        heightMillimeters: 3000,
+      },
+      style: { ...inlineStyle },
     },
-    objects: [
-      {
-        ...object(wallId),
-        layerId: "wall",
-        geometry: {
-          type: "wall",
-          semanticVersion: 1,
-          start: { x: 0, y: 0 },
-          end: { x: 100, y: 0 },
-          thicknessMillimeters: 10,
-          heightMillimeters: 3000,
-        },
-        style: { ...inlineStyle },
+    {
+      ...object(openingId),
+      layerId: "opening",
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: wallId,
+        offsetMillimeters: 50,
+        widthMillimeters: 20,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "door",
       },
-      {
-        ...object(openingId),
-        layerId: "opening",
-        geometry: {
-          type: "opening",
-          semanticVersion: 1,
-          hostWallId: wallId,
-          offsetMillimeters: 50,
-          widthMillimeters: 20,
-          heightMillimeters: 2100,
-          sillHeightMillimeters: 0,
-          openingKind: "door",
-        },
-        style: { ...inlineStyle },
-      },
-    ],
-    zoom: 1,
-  });
-  assert.deepEqual(adapter.items, []);
-  assert.deepEqual(adapter.hitItems, []);
+      style: { ...inlineStyle },
+    },
+  ];
+  for (let index = 0; index < 64; index += 1) {
+    const layers = {
+      wall: { visible: false, locked: false, sortOrder: index % 3 },
+      opening: { visible: true, locked: false, sortOrder: (index + 1) % 3 },
+    };
+    const authored = index % 2 ? [...objects].reverse() : objects;
+    assert.deepEqual(
+      blocks.drawingVisibleCanvasObjects(authored, layers),
+      [],
+      `hidden ${index}`,
+    );
+    const adapter = blocks.drawingCanvasRenderAdapter({
+      blockInstances: [],
+      layers,
+      objects: authored,
+      zoom: 1,
+    });
+    assert.deepEqual(adapter.items, [], `render ${index}`);
+    assert.deepEqual(adapter.hitItems, [], `hit ${index}`);
+    layers.wall.visible = true;
+    assert.deepEqual(
+      blocks.drawingVisibleCanvasObjects(authored, layers).map(({ id }) => id),
+      authored.map(({ id }) => id),
+      `restored ${index}`,
+    );
+  }
 });
 
 test("render models resolve live style definitions with primitive overrides and fail closed", () => {

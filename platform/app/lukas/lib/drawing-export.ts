@@ -7,6 +7,7 @@ import type { DrawingDocumentState } from "./drawing-commands.ts";
 import { drawingDimensionLayout, drawingTextLayout } from "./drawing-layout.ts";
 import {
   DRAWING_SEMANTIC_RENDER_METRICS,
+  drawingSemanticAccessibilityLabel,
   drawingOpeningMarkerSegments,
   drawingSemanticLabelLayout,
   sampleDrawingArcPoints,
@@ -247,7 +248,12 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
-function isSemanticGeometry(geometry: DrawingGeometry): boolean {
+function isSemanticGeometry(
+  geometry: DrawingGeometry,
+): geometry is Extract<
+  DrawingGeometry,
+  { type: "wall" | "opening" | "space" | "area" | "grid" | "arc" }
+> {
   switch (geometry.type) {
     case "wall":
     case "opening":
@@ -338,7 +344,7 @@ function svgSemanticLabel(
     .join("");
   return [
     `<clipPath id="${semanticClipId}"><rect x="0" y="0" width="${exportNumber(label.width)}" height="${exportNumber(label.height)}"/></clipPath>`,
-    `<g transform="translate(${exportNumber(label.x)} ${exportNumber(label.y)}) rotate(${exportNumber(label.rotation)})"><text aria-label="${escapeXml(label.text)}" clip-path="url(#${semanticClipId})" fill="${fill}" font-family="sans-serif" font-size="${exportNumber(label.fontSize)}" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve">${content}</text></g>`,
+    `<g transform="translate(${exportNumber(label.x)} ${exportNumber(label.y)}) rotate(${exportNumber(label.rotation)})"><text aria-hidden="true" clip-path="url(#${semanticClipId})" fill="${fill}" font-family="sans-serif" font-size="${exportNumber(label.fontSize)}" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve">${content}</text></g>`,
   ];
 }
 
@@ -500,7 +506,7 @@ export function exportDrawingSvg(
   ];
   traversal.primitives.forEach((primitive, index) => {
     lines.push(
-      `<g data-export-id="${escapeXml(primitive.id)}"${isSemanticGeometry(primitive.geometry) ? ` data-semantic-type="${primitive.geometry.type}"` : ""} transform="matrix(${primitive.transform.map(exportNumber).join(" ")})">`,
+      `<g data-export-id="${escapeXml(primitive.id)}"${isSemanticGeometry(primitive.geometry) ? ` data-semantic-type="${primitive.geometry.type}" role="img" aria-label="${escapeXml(drawingSemanticAccessibilityLabel(primitive.name, primitive.geometry))}"` : ""} transform="matrix(${primitive.transform.map(exportNumber).join(" ")})">`,
       ...svgGeometry(
         primitive,
         canvas,

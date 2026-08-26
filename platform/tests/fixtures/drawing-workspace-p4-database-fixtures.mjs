@@ -80,6 +80,21 @@ export const p4ObjectNameCorpus = [
   ["U+180E is not ECMAScript trim whitespace", "A\u180e", true],
 ];
 
+export const p4PersistedExactNameConsumers = [
+  ["page", "lukas_drawing_pages", "name"],
+  ["canvas", "lukas_drawing_canvases", "name"],
+  ["layer", "lukas_drawing_layers", "name"],
+  ["object", "lukas_drawing_objects", "name"],
+  ["style", "lukas_drawing_styles", "name"],
+  ["block", "lukas_drawing_blocks", "name"],
+  ["block primitive", "lukas_drawing_blocks", "primitives"],
+  ["block instance", "lukas_drawing_block_instances", "name"],
+  ["property schema", "lukas_drawing_property_schemas", "name"],
+  ["enum option", "lukas_drawing_property_schemas", "enum_options"],
+  ["table", "lukas_drawing_tables", "name"],
+  ["table column", "lukas_drawing_tables", "columns_json"],
+];
+
 const allPropertyTargets = [
   "line",
   "polyline",

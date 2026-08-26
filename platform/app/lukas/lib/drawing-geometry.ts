@@ -206,6 +206,41 @@ export const DRAWING_SEMANTIC_RENDER_METRICS = {
   windowMarkerWidth: 5,
 } as const;
 
+type DrawingSemanticGeometry = Extract<
+  DrawingGeometry,
+  { type: "wall" | "opening" | "space" | "area" | "grid" | "arc" }
+>;
+
+/** Complete deterministic label shared by live and exported accessibility. */
+export function drawingSemanticAccessibilityLabel(
+  objectName: string,
+  geometry: DrawingSemanticGeometry,
+): string {
+  switch (geometry.type) {
+    case "wall":
+      return `${objectName} · wall · 두께 ${geometry.thicknessMillimeters} mm · 높이 ${geometry.heightMillimeters} mm`;
+    case "opening":
+      return `${objectName} · opening · ${geometry.openingKind} · 오프셋 ${geometry.offsetMillimeters} mm · 너비 ${geometry.widthMillimeters} mm · 높이 ${geometry.heightMillimeters} mm · 문턱 ${geometry.sillHeightMillimeters} mm`;
+    case "space":
+      return [
+        geometry.number,
+        objectName,
+        "space",
+        geometry.finishes.floor && `바닥 ${geometry.finishes.floor}`,
+        geometry.finishes.wall && `벽 ${geometry.finishes.wall}`,
+        geometry.finishes.ceiling && `천장 ${geometry.finishes.ceiling}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "area":
+      return `${objectName} · area`;
+    case "grid":
+      return `${objectName} · grid`;
+    case "arc":
+      return `${objectName} · arc · 반지름 ${geometry.radius} mm · 시작 ${geometry.startAngleDegrees}° · 스윕 ${geometry.sweepAngleDegrees}°`;
+  }
+}
+
 function semanticLabelCharacterWidth(character: string, fontSize: number) {
   if (/\p{Mark}/u.test(character)) return 0;
   if (/\s/u.test(character)) return fontSize * 0.33;

@@ -194,6 +194,21 @@ test("P4 package exposes separate fail-closed local and production commands", as
   );
 });
 
+test("P4 local release inputs exist in a committed checkout without developer residue", async () => {
+  const tracked = execFileSync(
+    "git",
+    ["ls-files", "--error-unmatch", ".env.example"],
+    { cwd: root, encoding: "utf8" },
+  ).trim();
+  assert.equal(tracked, ".env.example");
+  const template = await read(".env.example");
+  assert.match(template, /^LUKAS_ENABLE_AI_PILOT=false$/m);
+  assert.doesNotMatch(
+    template,
+    /(?:SERVICE_ROLE_KEY|AUTH_LINK_STATE_SECRET|DATABASE_URL)=\S+/,
+  );
+});
+
 test("P4 functional browser authority ignores inherited targets and rejects mutations", async () => {
   const {
     P4_FUNCTIONAL_BASE_URL,

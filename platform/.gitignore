@@ -1,5 +1,6 @@
 .vercel
 .env*
+!.env.example
 .react-router/
 .DS_Store
 supabase/.temp/

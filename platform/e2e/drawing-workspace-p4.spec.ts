@@ -164,7 +164,7 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
   expect(svg.match(/data-semantic-type=/g)).toHaveLength(8);
   expect(svg).toContain("101 · 회의실");
   expect(svg).toContain("외부 포장");
-  expect(svg).toContain('aria-label="A"');
+  expect(svg).toContain('aria-label="A · grid"');
   expect(svg).toContain('<tspan x="40" y="0">A</tspan>');
   const png = await exportBytes(page, "PNG");
   expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
@@ -183,6 +183,38 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
       .update(await readFile(ifcPath))
       .digest("hex"),
   ).toBe(ifcBefore);
+});
+
+test("hidden host visibility excludes hosted openings from every mounted semantic surface and restores them", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPreview(page, "?hiddenHostTest=1&awarenessTest=1");
+  const surface = page.getByLabel(/도면 화면/);
+  const semanticList = page.getByRole("list", { name: "건축 객체 목록" });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "0",
+  );
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "0");
+  await expect(semanticList).not.toContainText("D-101");
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 305, y: 780 });
+  await expect(surface).toHaveAttribute("data-selected-object-name", "");
+
+  await page.getByRole("tab", { name: "페이지·레이어" }).click();
+  const hostLayerVisibility = page.getByLabel("레이어 표시: 건축 작업");
+  if (!(await hostLayerVisibility.isChecked()))
+    await hostLayerVisibility.click();
+  await expect(hostLayerVisibility).toBeChecked();
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "8",
+  );
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
+  await expect(semanticList).toContainText(
+    "D-101 · opening · door · 오프셋 230 mm · 너비 90 mm · 높이 2100 mm · 문턱 0 mm",
+  );
 });
 
 test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({

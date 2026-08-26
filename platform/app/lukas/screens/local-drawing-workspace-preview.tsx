@@ -758,9 +758,23 @@ type PreviewFixture = {
 
 /** Canonical P2 data kept entirely in process for development-only visual review. */
 export function localDrawingWorkspacePreviewFixture(options?: {
+  hiddenHostTest?: boolean;
   performanceObjects?: DrawingObject[];
 }): PreviewFixture {
-  const fixtureObjects = options?.performanceObjects ?? objects;
+  const fixtureObjects = options?.performanceObjects
+    ? options.performanceObjects
+    : options?.hiddenHostTest
+      ? objects.map((object) =>
+          object.id === ids.semanticDoor || object.id === ids.semanticWindow
+            ? { ...object, layerId: ids.layerPlanNotes }
+            : object,
+        )
+      : objects;
+  const fixtureLayers = options?.hiddenHostTest
+    ? layers.map((layer) =>
+        layer.id === ids.layerPlanWork ? { ...layer, visible: false } : layer,
+      )
+    : layers;
   const performance = Boolean(options?.performanceObjects);
   const fixturePropertyValues = performance ? [] : propertyValues;
   const fixtureTables = performance ? [] : tables;
@@ -781,7 +795,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     activeCanvasId: ids.canvasPlanPaper,
     pages,
     canvases,
-    layers,
+    layers: fixtureLayers,
     objects: fixtureObjects,
     styles: [styleWall, styleNote],
     blocks,
@@ -828,7 +842,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
               },
               pages,
               canvases,
-              layers,
+              layers: fixtureLayers,
               objects: fixtureObjects,
               styles: [styleWall, styleNote],
               blocks,
@@ -952,7 +966,10 @@ export function loader({ request }: Route.LoaderArgs) {
   const performanceFixture = performanceTest
     ? buildDrawingP4PerformanceFixture(10_000, ids.layerPlanWork)
     : null;
+  const hiddenHostTest =
+    new URL(request.url).searchParams.get("hiddenHostTest") === "1";
   const fixture = localDrawingWorkspacePreviewFixture({
+    hiddenHostTest,
     performanceObjects: performanceFixture?.objects,
   });
   validateLocalDrawingWorkspacePreviewFixture(fixture);

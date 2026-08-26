@@ -347,6 +347,27 @@ export type DrawingCanvasRenderItem =
       model: DrawingBlockRenderModel & { bounds: Bounds };
     };
 
+/**
+ * Derives the canonical authored-order object set visible to every live
+ * canvas consumer. Hosted openings inherit their host wall's layer
+ * visibility, while unresolved hosts remain present so strict geometry
+ * resolution can fail closed instead of silently hiding corrupt data.
+ */
+export function drawingVisibleCanvasObjects<T extends DrawingObject>(
+  objects: readonly T[],
+  layers: Readonly<Record<string, { visible: boolean }>>,
+): T[] {
+  const objectsById = Object.fromEntries(
+    objects.map((object) => [object.id, object]),
+  );
+  return objects.filter((object) => {
+    if (layers[object.layerId]?.visible !== true) return false;
+    if (object.geometry.type !== "opening") return true;
+    const host = objectsById[object.geometry.hostWallId];
+    return host === undefined || layers[host.layerId]?.visible === true;
+  });
+}
+
 export function drawingCanvasRenderAdapter(input: {
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   layers: Record<
@@ -361,25 +382,15 @@ export function drawingCanvasRenderAdapter(input: {
   const objectMap = Object.fromEntries(
     input.objects.map((object) => [object.id, object]),
   );
-  const objectIsVisible = (object: DrawingObject) => {
-    if (!input.layers[object.layerId]?.visible) return false;
-    if (object.geometry.type !== "opening") return true;
-    const host = objectMap[object.geometry.hostWallId];
-    return host === undefined || Boolean(input.layers[host.layerId]?.visible);
-  };
   const sortedItems: DrawingCanvasRenderItem[] = [
-    ...input.objects.flatMap((object) =>
-      objectIsVisible(object)
-        ? [
-            {
-              bounds: geometryBounds(object.geometry, objectMap),
-              id: object.id,
-              kind: "object" as const,
-              layerId: object.layerId,
-              object,
-            },
-          ]
-        : [],
+    ...drawingVisibleCanvasObjects(input.objects, input.layers).map(
+      (object) => ({
+        bounds: geometryBounds(object.geometry, objectMap),
+        id: object.id,
+        kind: "object" as const,
+        layerId: object.layerId,
+        object,
+      }),
     ),
     ...input.blockInstances.flatMap((model) =>
       input.layers[model.instance.layerId]?.visible

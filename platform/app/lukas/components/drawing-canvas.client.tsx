@@ -26,6 +26,7 @@ import {
   drawingCanvasCursor,
   drawingGeometryHitTest,
   drawingOpeningMarkerSegments,
+  drawingSemanticAccessibilityLabel,
   drawingSemanticLabelLayout,
   DRAWING_SEMANTIC_RENDER_METRICS,
   drawingPanGestureTransition,
@@ -48,6 +49,7 @@ import {
 import {
   drawingCanvasRenderAdapter,
   drawingKindExclusiveSelection,
+  drawingVisibleCanvasObjects,
   type DrawingBlockRenderModel,
   type DrawingCanvasRenderItem,
 } from "~/lukas/lib/drawing-blocks";
@@ -2274,8 +2276,7 @@ export const DrawingCanvas = forwardRef<
     [objects],
   );
   const visibleObjects = useMemo(
-    () =>
-      objects.filter((object) => layersById[object.layerId]?.visible === true),
+    () => drawingVisibleCanvasObjects(objects, layersById),
     [layersById, objects],
   );
   const blockInstancesById = useMemo(
@@ -2631,7 +2632,10 @@ export const DrawingCanvas = forwardRef<
       state: {
         ...result.state,
         selectedIds: [
-          ...new Set([...result.state.selectedIds, ...eligibleInstanceIds]),
+          ...new Set([
+            ...result.state.selectedIds.filter((id) => objectIdSet.has(id)),
+            ...eligibleInstanceIds,
+          ]),
         ],
       },
     });
@@ -2641,6 +2645,7 @@ export const DrawingCanvas = forwardRef<
     blockInstancesById,
     canEdit,
     layersById,
+    objectIdSet,
     objectsById,
     remotelyLockedIds,
     selectedIds,
@@ -3300,17 +3305,26 @@ export const DrawingCanvas = forwardRef<
         {pdfMessage || "빈 도면 배경을 표시하고 있습니다."}
       </p>
       <ul className="sr-only" aria-label="건축 객체 목록">
-        {visibleObjects.flatMap((object) =>
-          ["wall", "opening", "space", "area", "grid", "arc"].includes(
-            object.geometry.type,
-          )
-            ? [
+        {visibleObjects.flatMap((object) => {
+          switch (object.geometry.type) {
+            case "wall":
+            case "opening":
+            case "space":
+            case "area":
+            case "grid":
+            case "arc":
+              return [
                 <li key={object.id}>
-                  {object.name} · {object.geometry.type}
+                  {drawingSemanticAccessibilityLabel(
+                    object.name,
+                    object.geometry,
+                  )}
                 </li>,
-              ]
-            : [],
-        )}
+              ];
+            default:
+              return [];
+          }
+        })}
       </ul>
     </div>
   );

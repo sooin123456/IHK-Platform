@@ -11,6 +11,7 @@ import {
   invalidP4Geometries,
   invalidP4PropertySchemas,
   p4ObjectNameCorpus,
+  p4PersistedExactNameConsumers,
   validP4Geometries,
   validP4PropertySchemas,
 } from "./fixtures/drawing-workspace-p4-database-fixtures.mjs";
@@ -45,6 +46,18 @@ async function p4FinalContractFixMigration() {
     names.length,
     1,
     "P4 final contract fixes use one CLI-generated forward migration",
+  );
+  return readFile(new URL(names[0], migrationDirectory), "utf8");
+}
+
+async function p4FinalNameAuthorityMigration() {
+  const names = (await readdir(migrationDirectory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p4_final_name_authority.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "P4 global name authority uses one CLI-generated forward migration",
   );
   return readFile(new URL(names[0], migrationDirectory), "utf8");
 }
@@ -160,6 +173,40 @@ test("P4 final name fix replaces the exact private helper and object constraint 
   assert.match(sql, /set search_path\s*=\s*''/i);
   assert.doesNotMatch(sql, /create\s+table\s+public\./i);
   assert.doesNotMatch(sql, /alter\s+table\s+public\.lukas_qto_files/i);
+});
+
+test("P4 final global name authority preflights and constrains every strict persisted consumer", async () => {
+  const sql = await p4FinalNameAuthorityMigration();
+  assert.match(sql, /begin;[\s\S]*commit;/i);
+  assert.match(sql, /lukas_drawing_p4_array_names_valid/i);
+  assert.match(sql, /errcode\s*=\s*'P1C01'/i);
+  for (const [consumer, table, column] of p4PersistedExactNameConsumers) {
+    assert.match(sql, new RegExp(table), consumer);
+    assert.match(sql, new RegExp(column), consumer);
+  }
+  for (const constraint of [
+    "pages_name_contract",
+    "canvases_name_contract",
+    "layers_name_contract",
+    "objects_name_contract",
+    "styles_name_contract",
+    "blocks_name_contract",
+    "blocks_primitive_names_contract",
+    "block_instances_name_contract",
+    "property_schemas_name_contract",
+    "property_schemas_enum_option_names_contract",
+    "tables_name_contract",
+    "tables_column_names_contract",
+  ])
+    assert.match(sql, new RegExp(constraint), constraint);
+  assert.match(
+    sql,
+    /drop constraint if exists lukas_drawing_pages_name_check/i,
+  );
+  assert.match(sql, /set search_path\s*=\s*''/i);
+  assert.doesNotMatch(sql, /create\s+(?:or replace\s+)?function\s+public\./i);
+  assert.doesNotMatch(sql, /create\s+table\s+public\./i);
+  assert.doesNotMatch(sql, /realtime\./i);
 });
 
 test("P4 SQL contracts preserve primitive blocks while widening object properties", async () => {
