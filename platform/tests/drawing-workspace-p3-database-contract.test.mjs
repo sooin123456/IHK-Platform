@@ -30,6 +30,13 @@ const historyLineageMigration = await readFile(
   ),
   "utf8",
 );
+const historyAuthorityMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260826002019_drawing_collaboration_history_authority.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(
@@ -205,4 +212,28 @@ test("collaboration history forward migration persists and compares exact lineag
     historyLineageMigration,
     /alter migration|update auth\./i,
   );
+});
+
+test("collaboration history authority migration closes legacy and direct-DML bypasses", () => {
+  assert.match(
+    historyAuthorityMigration,
+    /foreign key\s*\(revision_id,original_operation_id,actor_id\)[\s\S]*references public\.lukas_drawing_operations\s*\(\s*revision_id,client_operation_id,actor_id\s*\)/i,
+  );
+  assert.match(
+    historyAuthorityMigration,
+    /create or replace function private\.lukas_drawing_apply_operation\([\s\S]*?p_inverse jsonb\s*\)[\s\S]*?select private\.lukas_drawing_apply_operation\([\s\S]*?p_inverse,null::text,null::uuid/i,
+  );
+  assert.match(
+    historyAuthorityMigration,
+    /create or replace function public\.lukas_drawing_apply_operation\([\s\S]*?p_inverse jsonb\s*\)[\s\S]*?select private\.lukas_drawing_apply_operation\([\s\S]*?p_inverse,null::text,null::uuid/i,
+  );
+  assert.match(
+    historyAuthorityMigration,
+    /revoke all on function private\.lukas_drawing_apply_operation\(\s*uuid,uuid,text,jsonb,jsonb,jsonb\s*\) from public,anon/i,
+  );
+  assert.match(
+    historyAuthorityMigration,
+    /grant execute on function public\.lukas_drawing_apply_operation\(\s*uuid,uuid,text,jsonb,jsonb,jsonb\s*\) to authenticated,service_role/i,
+  );
+  assert.doesNotMatch(historyAuthorityMigration, /drop column|update auth\./i);
 });

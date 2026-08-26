@@ -71,6 +71,11 @@
 - Test readiness has no timer shortcut. The shell now waits for independently
   observable persistence sync and provider subscription/failure signals, while
   explicit Vite dependency prebundling makes an empty-cache server deterministic.
+- A second CLI-generated forward migration closes both database compatibility
+  bypasses. Legacy six-argument public/private apply functions are now thin
+  null-lineage wrappers over the authoritative eight-argument function, and a
+  composite `(revision_id, original_operation_id, actor_id)` foreign key binds
+  direct history writes to an original operation owned by the same actor.
 
 ## TDD evidence
 
@@ -119,13 +124,20 @@
   service could not authorize redo after restart. PGlite runtime tests now prove
   exact retry, mismatched-lineage rejection, lookup/bootstrap preservation, and
   restart reconstruction.
+- Re-review 3 RED: retrying an eight-argument history operation through the
+  legacy six-argument overload returned the stored result without comparing
+  lineage, and a service-role insert could reference another actor's original.
+  The new wrapper and composite-FK regressions failed for those exact reasons
+  before the forward migration was implemented.
 
 ### GREEN
 
-- Focused service and database runtime: 128 passed, 0 failed, including 97
-  PGlite database/runtime cases and 31 service cases.
-- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 562 passed,
-  0 failed, 1 existing explicitly skipped gate (563 total).
+- Focused service, source-contract, and database runtime: 138 passed, 0 failed.
+  This includes legacy 8→6 rejection, 6→8 null equivalence, non-history retry,
+  cross-actor service-role insert/update rejection, and a populated migration
+  upgrade that preserves valid same-actor lineage byte-for-byte.
+- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 566 passed,
+  0 failed, 1 existing explicitly skipped gate (567 total).
 - Fresh-server hydrated Chromium workspace shell: 8 passed, 0 failed. This
   includes same-revision local edit preservation, user-key reset, downgrade to
   viewer with a retained provider, transactional stale-row freeze, deterministic
@@ -156,6 +168,7 @@
 - `platform/collaboration/src/storage.ts`
 - `platform/e2e/drawing-workspace-shell.spec.ts`
 - `platform/supabase/migrations/20260825234510_drawing_collaboration_history_lineage.sql`
+- `platform/supabase/migrations/20260826002019_drawing_collaboration_history_authority.sql`
 - `platform/tests/drawing-collaboration-service.test.mjs`
 - `platform/tests/drawing-collaboration-protocol.test.mjs`
 - `platform/tests/drawing-workspace-collaboration.test.mjs`
@@ -182,3 +195,4 @@
 - Review hardening follow-up: `fix: harden collaborative drawing integration`
 - Re-review follow-up: `fix: persist collaborative drawing history`
 - Authoritative lineage follow-up: `fix: enforce authoritative collaboration history`
+- Database authority follow-up: `fix: close collaboration history database bypasses`

@@ -222,6 +222,14 @@ const collaborationHistoryLineageMigration = () =>
     ),
     "utf8",
   );
+const collaborationHistoryAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826002019_drawing_collaboration_history_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -544,6 +552,7 @@ before(async () => {
   await db.exec(await task9ContractFixesMigration());
   await db.exec(await p3ServiceAuthorityMigration());
   await db.exec(await collaborationHistoryLineageMigration());
+  await db.exec(await collaborationHistoryAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -711,6 +720,48 @@ test("collaboration history lineage is authoritative across RPC retry, lookup, a
   );
   assert.equal(exactRetry.rows[0].result.sequence, 2);
   await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb)",
+      [
+        ids.revisionId,
+        undoId,
+        JSON.stringify({ [layer.id]: Number(layer.version) + 1 }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: layer.name },
+        }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: "History edited" },
+        }),
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await assert.rejects(
+    db.query(
+      "select private.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb)",
+      [
+        ids.revisionId,
+        undoId,
+        JSON.stringify({ [layer.id]: Number(layer.version) + 1 }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: layer.name },
+        }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: "History edited" },
+        }),
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  await assert.rejects(
     apply(
       undoId,
       Number(layer.version) + 1,
@@ -748,6 +799,302 @@ test("collaboration history lineage is authoritative across RPC retry, lookup, a
   assert.equal(serviceOutcome.historyAction, "undo");
   assert.equal(serviceOutcome.originalOperationId, originalId);
   await db.exec("reset role");
+});
+
+test("legacy six-argument apply is the null-lineage form of the authoritative RPC", async () => {
+  const ids = await createDocument("P3 legacy history wrapper");
+  const layerResult = await db.query(
+    "select id,name,version from public.lukas_drawing_layers where revision_id=$1 and system_kind='work' limit 1",
+    [ids.revisionId],
+  );
+  const layer = layerResult.rows[0];
+  const operationId = randomUUID();
+  const parameters = [
+    ids.revisionId,
+    operationId,
+    JSON.stringify({ [layer.id]: Number(layer.version) }),
+    JSON.stringify({
+      type: "update_layer",
+      layerId: layer.id,
+      patch: { name: "Legacy non-history" },
+    }),
+    JSON.stringify({
+      type: "update_layer",
+      layerId: layer.id,
+      patch: { name: layer.name },
+    }),
+  ];
+  const legacy = await db.query(
+    "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb) result",
+    parameters,
+  );
+  const authoritative = await db.query(
+    "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb,null::text,null::uuid) result",
+    parameters,
+  );
+  const legacyRetry = await db.query(
+    "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb) result",
+    parameters,
+  );
+  assert.equal(legacy.rows[0].result.sequence, 1);
+  assert.deepEqual(authoritative.rows, legacy.rows);
+  assert.deepEqual(legacyRetry.rows, legacy.rows);
+});
+
+test("operation lineage foreign key rejects cross-actor service writes", async () => {
+  const ids = await createDocument("P3 actor-bound history");
+  const layerResult = await db.query(
+    "select id,name,version from public.lukas_drawing_layers where revision_id=$1 and system_kind='work' limit 1",
+    [ids.revisionId],
+  );
+  const layer = layerResult.rows[0];
+  const ownerOriginalId = randomUUID();
+  const ownerUndoId = randomUUID();
+  const apply = (
+    operationId,
+    baseVersion,
+    name,
+    inverseName,
+    action,
+    original,
+  ) =>
+    db.query(
+      "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb,$6::text,$7::uuid)",
+      [
+        ids.revisionId,
+        operationId,
+        JSON.stringify({ [layer.id]: baseVersion }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name },
+        }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: inverseName },
+        }),
+        action,
+        original,
+      ],
+    );
+  await apply(
+    ownerOriginalId,
+    Number(layer.version),
+    "Owner edit",
+    layer.name,
+    null,
+    null,
+  );
+  await apply(
+    ownerUndoId,
+    Number(layer.version) + 1,
+    layer.name,
+    "Owner edit",
+    "undo",
+    ownerOriginalId,
+  );
+
+  await asActor(EDITOR);
+  const editorOriginalId = randomUUID();
+  await apply(
+    editorOriginalId,
+    Number(layer.version) + 2,
+    "Editor edit",
+    layer.name,
+    null,
+    null,
+  );
+
+  await db.exec("reset role; set role service_role; begin");
+  try {
+    await db.exec("savepoint cross_actor_insert");
+    await assert.rejects(
+      db.query(
+        `insert into public.lukas_drawing_operations(
+          revision_id,project_id,sequence,client_operation_id,operation_type,
+          base_versions,forward,inverse,result_versions,actor_id,
+          history_action,original_operation_id
+        )
+        select revision_id,project_id,
+          (select max(sequence)+1 from public.lukas_drawing_operations where revision_id=$1),
+          $2,operation_type,base_versions,forward,inverse,result_versions,$3,
+          'undo',$4
+        from public.lukas_drawing_operations
+        where revision_id=$1 and client_operation_id=$5`,
+        [ids.revisionId, randomUUID(), EDITOR, ownerOriginalId, ownerUndoId],
+      ),
+      (error) => error.code === "23503",
+    );
+    await db.exec("rollback to savepoint cross_actor_insert");
+
+    await db.exec("savepoint cross_actor_update");
+    await db.query(
+      "select set_config('private.lukas_drawing_history_write','1',true)",
+    );
+    await assert.rejects(
+      db.query(
+        `update public.lukas_drawing_operations
+         set history_action='undo',original_operation_id=$1
+         where revision_id=$2 and client_operation_id=$3`,
+        [editorOriginalId, ids.revisionId, ownerOriginalId],
+      ),
+      (error) => error.code === "23503",
+    );
+    await db.exec("rollback to savepoint cross_actor_update");
+  } finally {
+    await db.exec("rollback; reset role");
+  }
+
+  const stored = await db.query(
+    `select actor_id,history_action,original_operation_id
+     from public.lukas_drawing_operations
+     where revision_id=$1 and client_operation_id=$2`,
+    [ids.revisionId, ownerUndoId],
+  );
+  assert.deepEqual(stored.rows, [
+    {
+      actor_id: OWNER,
+      history_action: "undo",
+      original_operation_id: ownerOriginalId,
+    },
+  ]);
+  await asActor(OWNER);
+});
+
+test("history authority migration validates existing same-actor lineage without rewriting it", async () => {
+  const upgradeDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await upgradeDb.exec(foundationSql);
+    for (const load of [
+      migration,
+      upgradeMigration,
+      issueLinkMigration,
+      releaseHardeningMigration,
+      p2Migration,
+      p2LegacyLayerBackfillMigration,
+      p2HardeningMigration,
+      p2CompatibilityMigration,
+      p2HistoryReconciliationMigration,
+      p2NavigationHardeningMigration,
+      p2StyleGuardSqlstateMigration,
+      p2BlockExactnessMigration,
+      p2TemplateSnapshotGuardMigration,
+      p2TemplateCloneIdempotencyMigration,
+      p2BlockInstanceLineageMigration,
+      p2TemplateSnapshotAuthorityMigration,
+      p2LegacyTemplateSnapshotCloneMigration,
+      p2LineageSnapshotWriterMigration,
+      p2TemplateCloneSecurityMigration,
+      p3CollaborationStateMigration,
+      p3CollaborationStateFenceMigration,
+      p2TemplateCloneFinalLedgerMigration,
+      task9ContractFixesMigration,
+      p3ServiceAuthorityMigration,
+      collaborationHistoryLineageMigration,
+    ]) {
+      await upgradeDb.exec(await load());
+    }
+    await upgradeDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await upgradeDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = await upgradeDb.query(
+      "select public.lukas_drawing_create_document($1,null,'History upgrade',true) result",
+      [PROJECT],
+    );
+    const revisionId = created.rows[0].result.revisionId;
+    const layerResult = await upgradeDb.query(
+      "select id,name,version from public.lukas_drawing_layers where revision_id=$1 and system_kind='work' limit 1",
+      [revisionId],
+    );
+    const layer = layerResult.rows[0];
+    const originalId = randomUUID();
+    const undoId = randomUUID();
+    const operation = (
+      operationId,
+      baseVersion,
+      name,
+      inverseName,
+      action,
+      original,
+    ) =>
+      upgradeDb.query(
+        "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb,$6::text,$7::uuid)",
+        [
+          revisionId,
+          operationId,
+          JSON.stringify({ [layer.id]: baseVersion }),
+          JSON.stringify({
+            type: "update_layer",
+            layerId: layer.id,
+            patch: { name },
+          }),
+          JSON.stringify({
+            type: "update_layer",
+            layerId: layer.id,
+            patch: { name: inverseName },
+          }),
+          action,
+          original,
+        ],
+      );
+    await operation(
+      originalId,
+      Number(layer.version),
+      "Before upgrade",
+      layer.name,
+      null,
+      null,
+    );
+    await operation(
+      undoId,
+      Number(layer.version) + 1,
+      layer.name,
+      "Before upgrade",
+      "undo",
+      originalId,
+    );
+    await upgradeDb.exec("reset role");
+
+    await upgradeDb.exec(await collaborationHistoryAuthorityMigration());
+    const preserved = await upgradeDb.query(
+      `select client_operation_id,actor_id,history_action,original_operation_id
+       from public.lukas_drawing_operations
+       where revision_id=$1 order by sequence`,
+      [revisionId],
+    );
+    assert.deepEqual(preserved.rows, [
+      {
+        client_operation_id: originalId,
+        actor_id: OWNER,
+        history_action: null,
+        original_operation_id: null,
+      },
+      {
+        client_operation_id: undoId,
+        actor_id: OWNER,
+        history_action: "undo",
+        original_operation_id: originalId,
+      },
+    ]);
+    const constraint = await upgradeDb.query(
+      `select convalidated,pg_catalog.pg_get_constraintdef(oid) definition
+       from pg_catalog.pg_constraint
+       where conrelid='public.lukas_drawing_operations'::regclass
+         and conname='lukas_drawing_operations_history_original_fkey'`,
+    );
+    assert.equal(constraint.rows[0].convalidated, true);
+    assert.match(constraint.rows[0].definition, /actor_id.*actor_id/i);
+  } finally {
+    await upgradeDb.close();
+  }
 });
 
 test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, and draft-only", async () => {
