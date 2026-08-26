@@ -89,6 +89,21 @@ test("P3 production command fails closed for every external authority", () => {
       COLLABORATION_INTERNAL_SECRET: ` ${readyEnvironment.COLLABORATION_FREEZE_SECRET} `,
     }),
   );
+  for (const name of [
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "COLLABORATION_INTERNAL_SECRET",
+    "COLLABORATION_FREEZE_SECRET",
+  ]) {
+    const environment = { ...readyEnvironment, [name]: ` ${"x".repeat(31)} ` };
+    assert.deepEqual(
+      fixtureHelpers.drawingP3ProductionCredentialStatus(environment),
+      { status: "UNEXECUTED", missing: [name] },
+    );
+    assert.throws(() =>
+      fixtureHelpers.requireDrawingP3ProductionCredentials(environment),
+    );
+  }
 });
 
 test("P3 fixture identities are deterministic, role-complete and secret-free", () => {
@@ -203,6 +218,10 @@ test("P3 production spec registers executable mutation-resistant gates", async (
       /readOutboxIds/,
       /client_operation_id/,
       /new Set/,
+      /generatedOutboxIds/,
+      /committedOfflineIds/,
+      /toEqual\(generatedOutboxIds\)/,
+      /expectedOfflineGeometry/,
       /page\.close/,
       /setOffline\(false\)/,
     ],
@@ -233,6 +252,8 @@ test("P3 production spec registers executable mutation-resistant gates", async (
     "P3 Gate 07": [
       /mouse\.down/,
       /dragBase/,
+      /data-drag-active/,
+      /data-drag-preview/,
       /editorOperationsBefore/,
       /검토 요청/,
       /review_requested/,
@@ -246,7 +267,9 @@ test("P3 production spec registers executable mutation-resistant gates", async (
       /toEqual\(immutableSourceBefore\)/,
       /runDownload/,
       /quantities/,
-      /quantityArtifact/,
+      /quantityWorkflow/,
+      /setInputFiles/,
+      /verifyConcreteTakeoffBundle/,
       /lukas_qto_takeoff_inputs/,
       /drawing-room|협업 도면실/i,
       /revit-2025/,
@@ -259,6 +282,15 @@ test("P3 production spec registers executable mutation-resistant gates", async (
       assert.match(bodies[gate], pattern, `${gate}: ${pattern}`);
   assert.match(source, /new HocuspocusProvider\(/);
   assert.match(source, /new HocuspocusProviderWebsocket\(/);
+  assert.doesNotMatch(source, /coldSamples:\s*5/);
+  assert.match(source, /coldSamples:\s*0/);
+  assert.match(source, /coldMeasurement:\s*"UNEXECUTED"/);
+  assert.doesNotMatch(
+    source,
+    /from\("lukas_qto_takeoff_artifacts"\)\s*\.insert/,
+  );
+  const finalSourceRead = source.lastIndexOf("readSourceEvidence(fixture)");
+  assert.ok(finalSourceRead > source.lastIndexOf("unzipSync("));
   assert.match(source, /P3 denied-provider classification timed out/);
   assert.match(source, /onAuthenticationFailed/);
   assert.match(source, /P3 denied-provider cleanup failed/);
@@ -277,6 +309,29 @@ test("P3 command and Playwright config keep local and production execution separ
   assert.match(config, /P3_E2E_RUN_ID/);
   assert.match(config, /remote.*webServer/s);
   assert.doesNotMatch(config, /P3_E2E_DATABASE_ADMIN_URL[^\n]*console/i);
+});
+
+test("P3 crash repair keeps all four deterministic local boundaries executable", async () => {
+  const [collaboration, outbox] = await Promise.all([
+    read("tests/drawing-workspace-collaboration.test.mjs"),
+    read("tests/drawing-workspace-outbox.test.mjs"),
+  ]);
+  assert.match(
+    collaboration,
+    /boot repair pairs outbox-only and Yjs-only operations without duplicates/,
+  );
+  assert.match(
+    outbox,
+    /online reload resends an uncertain acknowledgement before recovery/,
+  );
+  assert.match(
+    collaboration,
+    /authoritative outcomes repair committed-unshared operations and clear the outbox/,
+  );
+  assert.match(
+    collaboration,
+    /accepted RPC with a lost receipt remains retryable under the same operation ID/,
+  );
 });
 
 test("P3 npm command exits UNEXECUTED before starting a credential-free server", () => {

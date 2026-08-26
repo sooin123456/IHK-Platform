@@ -222,10 +222,22 @@ test("drawing mutation parser covers comments, assignment, due date, priority, a
   const issueId = "11111111-1111-4111-8111-111111111111";
   const actorId = "22222222-2222-4222-8222-222222222222";
   const anchorId = "33333333-3333-4333-8333-333333333333";
+  const commentId = "44444444-4444-4444-8444-444444444444";
   const cases = [
     {
-      fields: { intent: "comment", issue_id: issueId, body: "현장 확인 완료" },
-      expected: { intent: "comment", issueId, body: "현장 확인 완료" },
+      fields: {
+        intent: "comment",
+        issue_id: issueId,
+        comment_id: commentId,
+        body: "현장 확인 완료",
+      },
+      expected: {
+        intent: "comment",
+        issueId,
+        commentId,
+        body: "현장 확인 완료",
+        mentionedUserIds: [],
+      },
     },
     {
       fields: {

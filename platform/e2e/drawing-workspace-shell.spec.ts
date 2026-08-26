@@ -15,9 +15,7 @@ async function openPreview(page: Page, path = previewPath) {
     waitUntil: "domcontentloaded",
   });
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
-  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText(
-    "준비됨",
-  );
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
 }
 
 async function waitForPreviewRealtimeEffect(page: Page) {
@@ -307,7 +305,7 @@ test("local preview Arrow, Home, and End keys select and focus their target tabs
 
   const structureTab = page.getByRole("tab", { name: "페이지·레이어" });
   const stylesTab = page.getByRole("tab", { name: "스타일" });
-  const blocksTab = page.getByRole("tab", { name: "블록" });
+  const historyTab = page.getByRole("tab", { name: "변경 이력" });
 
   await expect(async () => {
     await structureTab.focus();
@@ -320,11 +318,11 @@ test("local preview Arrow, Home, and End keys select and focus their target tabs
   await expect(page.locator("#drawing-panel-styles")).toBeVisible();
 
   await stylesTab.press("End");
-  await expect(blocksTab).toHaveAttribute("aria-selected", "true");
-  await expect(blocksTab).toBeFocused();
-  await expect(page.locator("#drawing-panel-blocks")).toBeVisible();
+  await expect(historyTab).toHaveAttribute("aria-selected", "true");
+  await expect(historyTab).toBeFocused();
+  await expect(page.locator("#drawing-panel-history")).toBeVisible();
 
-  await blocksTab.press("Home");
+  await historyTab.press("Home");
   await expect(structureTab).toHaveAttribute("aria-selected", "true");
   await expect(structureTab).toBeFocused();
   await expect(page.locator("#drawing-panel-structure")).toBeVisible();

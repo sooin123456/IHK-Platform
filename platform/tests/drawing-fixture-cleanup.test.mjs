@@ -89,7 +89,27 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
         };
       },
     },
-    from() {
+    from(table) {
+      if (table === "lukas_qto_files")
+        return {
+          select(columns) {
+            assert.equal(columns, "storage_path");
+            return {
+              async eq(column, id) {
+                calls.push(["file-paths", column, id]);
+                return {
+                  data: [
+                    { storage_path: "drawing.pdf" },
+                    { storage_path: "uploaded-report.csv" },
+                    { storage_path: "uploaded-manifest.csv" },
+                  ],
+                  error: null,
+                };
+              },
+            };
+          },
+        };
+      assert.equal(table, "lukas_qto_projects");
       return {
         delete() {
           return {
@@ -141,8 +161,15 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
   );
   assert.deepEqual(calls, [
     ["rooms", "project-1", "postgresql://not-used"],
+    ["file-paths", "project_id", "project-1"],
     ["project", "project-1"],
-    ["storage", "drawing.pdf", "model.ifc"],
+    [
+      "storage",
+      "drawing.pdf",
+      "model.ifc",
+      "uploaded-report.csv",
+      "uploaded-manifest.csv",
+    ],
     ["user", "owner"],
     ["user", "editor"],
     ["user", "reviewer"],

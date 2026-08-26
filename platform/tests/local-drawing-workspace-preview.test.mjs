@@ -127,7 +127,7 @@ test("P2 preview action validates operations and only echoes safe local operatio
     ),
     params: {},
   });
-  assert.deepEqual(await accepted.json(), {
+  assert.deepEqual(accepted.data, {
     ok: true,
     clientOperationId: "00000000-0000-4000-8000-000000000091",
   });
@@ -145,7 +145,7 @@ test("P2 preview action validates operations and only echoes safe local operatio
     ),
     params: {},
   });
-  assert.equal(rejected.status, 400);
+  assert.equal(rejected.init.status, 400);
 
   const forbidden = new FormData();
   forbidden.set("intent", "create_layer");
@@ -157,7 +157,7 @@ test("P2 preview action validates operations and only echoes safe local operatio
     ),
     params: {},
   });
-  assert.equal(forbiddenResult.status, 400);
+  assert.equal(forbiddenResult.init.status, 400);
 
   const wrongRevision = new FormData();
   wrongRevision.set("intent", "apply_operation");
@@ -175,5 +175,5 @@ test("P2 preview action validates operations and only echoes safe local operatio
     ),
     params: {},
   });
-  assert.equal(wrongRevisionResult.status, 400);
+  assert.equal(wrongRevisionResult.init.status, 400);
 });

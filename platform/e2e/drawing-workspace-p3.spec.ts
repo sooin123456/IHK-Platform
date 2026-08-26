@@ -20,6 +20,7 @@ import * as Y from "yjs";
 
 import { appendDrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-yjs";
 import type { DrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-protocol";
+import { verifyConcreteTakeoffBundle } from "../app/lukas/lib/concrete-takeoff-artifact.server";
 import {
   authenticateApiClient,
   authenticateContext,
@@ -191,7 +192,10 @@ async function addSmallPageCanvas(fixture: DrawingFixture, owner: ApiClient) {
   return { page, canvas, layer };
 }
 
-async function seedQuantityArtifact(fixture: DrawingFixture) {
+async function prepareQuantityWorkflow(
+  fixture: DrawingFixture,
+  drawingObjectId: string,
+) {
   const roles = [
     "export_manifest",
     "ifc",
@@ -201,53 +205,113 @@ async function seedQuantityArtifact(fixture: DrawingFixture) {
     "concrete_rules",
     "registry",
   ] as const;
-  const evidenceFiles = [
-    fixture.pdfFileId,
-    fixture.ifcFileId,
-    fixture.revisedPdfFileId,
-    fixture.revisedIfcFileId,
+  const kinds = {
+    export_manifest: "other",
+    ifc: "ifc",
+    qto: "qto_csv",
+    element_ledger: "element_ledger",
+    revit_mapping: "mapping",
+    concrete_rules: "other",
+    registry: "other",
+  } as const;
+  const inputs: Array<{
+    role: (typeof roles)[number];
+    fileId: string;
+    sha256: string;
+  }> = [
+    {
+      role: "ifc",
+      fileId: fixture.ifcFileId,
+      sha256: fixture.sourceEvidence[fixture.ifcFileId].metadataSha256,
+    },
   ];
-  const inputSha256 = Object.fromEntries(
-    roles.map((role, index) => [
-      role,
-      fixture.sourceEvidence[evidenceFiles[index % evidenceFiles.length]]
-        .metadataSha256,
-    ]),
+  for (const role of roles.filter((candidate) => candidate !== "ifc")) {
+    const bytes = Buffer.from(
+      `P3 quantity source ${role}\ndrawing_object=${drawingObjectId}\nifc_file=${fixture.ifcFileId}\n`,
+      "utf8",
+    );
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const storagePath = `${fixture.owner.id}/${fixture.projectId}/${randomUUID()}-${role}.csv`;
+    const upload = await fixture.admin.storage
+      .from("lukas-qto")
+      .upload(storagePath, bytes, { contentType: "text/csv", upsert: false });
+    if (upload.error) throw upload.error;
+    fixture.storagePaths.push(storagePath);
+    const file = await fixture.admin
+      .from("lukas_qto_files")
+      .insert({
+        project_id: fixture.projectId,
+        uploaded_by: fixture.owner.id,
+        kind: kinds[role],
+        storage_path: storagePath,
+        original_filename: `p3-${role}.csv`,
+        content_type: "text/csv",
+        byte_size: bytes.byteLength,
+        sha256,
+        immutable: true,
+      })
+      .select("id")
+      .single();
+    if (file.error) throw file.error;
+    inputs.push({ role, fileId: file.data.id, sha256 });
+  }
+  const orderedInputs = roles.map((role) =>
+    inputs.find((item) => item.role === role)!,
   );
-  const quantityArtifact = await fixture.admin
-    .from("lukas_qto_takeoff_artifacts")
-    .insert({
-      project_id: fixture.projectId,
-      artifact_kind: "concrete_takeoff",
-      format_version: "CONCRETE_TAKEOFF_CSV_V1",
-      report_file_id: fixture.pdfFileId,
-      manifest_file_id: fixture.revisedPdfFileId,
-      report_sha256: fixture.sourceEvidence[fixture.pdfFileId].metadataSha256,
-      manifest_sha256:
-        fixture.sourceEvidence[fixture.revisedPdfFileId].metadataSha256,
-      row_count: 1,
-      input_sha256: inputSha256,
-      status_counts: { PASS: 1 },
-      created_by: fixture.owner.id,
-    })
-    .select("id,row_count,input_sha256,status_counts")
-    .single();
-  if (quantityArtifact.error) throw quantityArtifact.error;
-  const inputs = roles.map((role, index) => {
-    const fileId = evidenceFiles[index % evidenceFiles.length];
-    return {
-      artifact_id: quantityArtifact.data.id,
-      project_id: fixture.projectId,
-      input_role: role,
-      file_id: fileId,
-      source_sha256: fixture.sourceEvidence[fileId].metadataSha256,
-    };
-  });
-  const inserted = await fixture.admin
-    .from("lukas_qto_takeoff_inputs")
-    .insert(inputs);
-  if (inserted.error) throw inserted.error;
-  return quantityArtifact.data;
+  const inputSha256 = Object.fromEntries(
+    orderedInputs.map((input) => [input.role, input.sha256]),
+  );
+  const takeoffHeader =
+    "record_type,status,source_kind,building,floor,member,spec,raw_m3,deduction_m3,allowance_m3,final_m3,formula,rule_id,rule_hash,rule_source,source_evidence,element_ids,message,left_m3,right_m3,delta_m3";
+  const expectedRow = {
+    rawM3: "10.00000001",
+    finalM3: "9.5",
+    sourceEvidence: `drawing_object=${drawingObjectId};ifc_file=${fixture.ifcFileId}`,
+  };
+  const reportRow = [
+    "TAKEOFF",
+    "PASS",
+    "Drawing+IFC",
+    "A",
+    "1F",
+    "W1",
+    "25-270-15",
+    expectedRow.rawM3,
+    "-1.00000001",
+    "-0.50000001",
+    expectedRow.finalM3,
+    "raw+deduction+allowance",
+    "RULE-P3",
+    inputSha256.concrete_rules,
+    "p3-concrete_rules.csv!2",
+    expectedRow.sourceEvidence,
+    "101",
+    "verified",
+    "",
+    "",
+    "",
+  ].join(",");
+  const reportBytes = Buffer.from(`${takeoffHeader}\n${reportRow}\n`, "utf8");
+  const reportSha256 = createHash("sha256").update(reportBytes).digest("hex");
+  const manifestBytes = Buffer.from(
+    [
+      "key,value",
+      "format_version,CONCRETE_TAKEOFF_CSV_V1",
+      "report_file,p3-takeoff.csv",
+      `report_sha256,${reportSha256}`,
+      "row_count,1",
+      ...orderedInputs.map((input) => `input_${input.role},${input.sha256}`),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  return {
+    expectedRow,
+    inputSha256,
+    inputs: orderedInputs,
+    manifestBytes,
+    reportBytes,
+    reportSha256,
+  };
 }
 
 async function openWorkspace(
@@ -534,7 +598,7 @@ test.describe
   let fixture: DrawingFixture;
   let immutableSourceBefore: DrawingFixture["sourceEvidence"];
   let sharedObjectId: string;
-  let quantityArtifact: Awaited<ReturnType<typeof seedQuantityArtifact>>;
+  let quantityWorkflow: Awaited<ReturnType<typeof prepareQuantityWorkflow>>;
   let nextDraft: { documentId: string; revisionId: string } | null = null;
 
   test.beforeAll(async () => {
@@ -550,7 +614,7 @@ test.describe
       })
     ).id;
     await addSmallPageCanvas(fixture, owner);
-    quantityArtifact = await seedQuantityArtifact(fixture);
+    quantityWorkflow = await prepareQuantityWorkflow(fixture, sharedObjectId);
   });
 
   test.afterEach(async () => {
@@ -738,9 +802,11 @@ test.describe
         seededDifferentObject: 2,
       },
       samples: reflectionLatencies.length,
-      coldSamples: 5,
-      warmSamples: 25,
-      coldWarm: "first five cold, remaining twenty-five warm",
+      coldSamples: 0,
+      warmSamples: 30,
+      coldMeasurement: "UNEXECUTED",
+      coldWarm:
+        "all samples are warm after context sync and two pre-measurement drags",
       cpu: {
         model: os.cpus()[0]?.model ?? "unknown",
         logicalCount: os.cpus().length,
@@ -947,13 +1013,28 @@ test.describe
       .eq("revision_id", fixture.blankWorkspace.revisionId)
       .eq("actor_id", fixture.owner.id);
     if (before.error) throw before.error;
+    const committedBeforeIds = new Set(
+      (before.data ?? []).map((row) => row.client_operation_id),
+    );
     const baseOfflineObject = await fixture.admin
       .from("lukas_drawing_objects")
-      .select("version")
+      .select("geometry,version")
       .eq("id", sharedObjectId)
       .single();
     if (baseOfflineObject.error) throw baseOfflineObject.error;
     const baseOfflineObjectVersion = baseOfflineObject.data.version;
+    const baseOfflineGeometry = baseOfflineObject.data.geometry as {
+      type: "circle";
+      center: { x: number; y: number };
+      radius: number;
+    };
+    const expectedOfflineGeometry = {
+      ...baseOfflineGeometry,
+      center: {
+        x: baseOfflineGeometry.center.x + 100,
+        y: baseOfflineGeometry.center.y,
+      },
+    };
     await page.evaluate(() => {
       const RealDate = Date;
       let offset = 0;
@@ -998,6 +1079,17 @@ test.describe
         { timeout: 30_000 },
       )
       .toHaveLength(outboxBefore.length + 100);
+    const outboxAfterGeneration = await readOutboxIds(
+      page,
+      fixture.owner.id,
+      fixture.blankWorkspace.revisionId,
+    );
+    const outboxBeforeSet = new Set(outboxBefore);
+    const generatedOutboxIds = outboxAfterGeneration
+      .filter((id) => !outboxBeforeSet.has(id))
+      .sort();
+    expect(generatedOutboxIds).toHaveLength(100);
+    expect(new Set(generatedOutboxIds).size).toBe(100);
     await expect(
       page.getByRole("status", { name: "공동 편집 상태: degraded" }),
     ).toBeVisible();
@@ -1015,31 +1107,45 @@ test.describe
             .eq("revision_id", fixture.blankWorkspace.revisionId)
             .eq("actor_id", fixture.owner.id);
           if (result.error) throw result.error;
-          return result.data ?? [];
+          return (result.data ?? [])
+            .map((row) => row.client_operation_id)
+            .filter((id) => !committedBeforeIds.has(id))
+            .sort();
         },
         { timeout: 60_000 },
       )
-      .toHaveLength((before.data?.length ?? 0) + 100);
-    const ids =
-      (
-        await fixture.admin
-          .from("lukas_drawing_operations")
-          .select("client_operation_id")
-          .eq("revision_id", fixture.blankWorkspace.revisionId)
-          .eq("actor_id", fixture.owner.id)
-      ).data ?? [];
-    expect(new Set(ids.map((row) => row.client_operation_id)).size).toBe(
-      ids.length,
-    );
+      .toEqual(generatedOutboxIds);
+    const committedOffline = await fixture.admin
+      .from("lukas_drawing_operations")
+      .select("client_operation_id")
+      .eq("revision_id", fixture.blankWorkspace.revisionId)
+      .eq("actor_id", fixture.owner.id);
+    if (committedOffline.error) throw committedOffline.error;
+    const committedOfflineIds = committedOffline.data
+      .map((row) => row.client_operation_id)
+      .filter((id) => !committedBeforeIds.has(id))
+      .sort();
+    expect(committedOfflineIds).toEqual(generatedOutboxIds);
+    const recoveredProvider = await connectProvider(fixture, fixture.owner);
+    await expect
+      .poll(() => {
+        const generated = new Set(generatedOutboxIds);
+        return recoveredProvider.document
+          .getArray<string>("operationOrder")
+          .toArray()
+          .filter((id) => generated.has(id))
+          .sort();
+      })
+      .toEqual(generatedOutboxIds);
+    recoveredProvider.dispose();
     const object = await fixture.admin
       .from("lukas_drawing_objects")
-      .select("id,version")
+      .select("id,geometry,version")
       .eq("id", sharedObjectId)
       .single();
     expect(object.data?.id).toBe(sharedObjectId);
-    expect(object.data?.version).toBeGreaterThanOrEqual(
-      baseOfflineObjectVersion + 100,
-    );
+    expect(object.data?.geometry).toEqual(expectedOfflineGeometry);
+    expect(object.data?.version).toBe(baseOfflineObjectVersion + 100);
     await context.close();
   });
 
@@ -1311,6 +1417,25 @@ test.describe
     await editor.page.mouse.move(point.x, point.y);
     await editor.page.mouse.down();
     await editor.page.mouse.move(point.x + 30, point.y + 20, { steps: 6 });
+    const editorSurface = editor.page.getByLabel(/도면 화면/);
+    await expect(editorSurface).toHaveAttribute("data-drag-active", "true");
+    await expect(editorSurface).not.toHaveAttribute("data-drag-preview", "0,0");
+    const dragPointerId = Number(
+      await editorSurface.getAttribute("data-drag-pointer-id"),
+    );
+    expect(dragPointerId).toBeGreaterThanOrEqual(0);
+    expect(
+      await editor.page.evaluate(
+        (pointerId) =>
+          [...document.querySelectorAll("canvas")].some((canvas) =>
+            canvas.hasPointerCapture(pointerId),
+          ),
+        dragPointerId,
+      ),
+    ).toBe(true);
+    await expect(owner.page.getByLabel("객체 잠금 상태")).toContainText(
+      displayName(fixture.editor),
+    );
     await owner.page.getByRole("button", { name: "검토 요청" }).click();
     await expect
       .poll(
@@ -1328,6 +1453,17 @@ test.describe
     await expect(
       editor.page.getByRole("button", { name: "선 도구" }),
     ).toHaveCount(0);
+    await expect(editorSurface).toHaveAttribute("data-drag-active", "false");
+    await expect(editorSurface).toHaveAttribute("data-drag-preview", "0,0");
+    expect(
+      await editor.page.evaluate(
+        (pointerId) =>
+          [...document.querySelectorAll("canvas")].some((canvas) =>
+            canvas.hasPointerCapture(pointerId),
+          ),
+        dragPointerId,
+      ),
+    ).toBe(false);
     await editor.page.mouse.up();
     const dragAfter = await fixture.admin
       .from("lukas_drawing_objects")
@@ -1431,25 +1567,6 @@ test.describe
     if (approval.error) throw approval.error;
     expect(approval.data.decision).toBe("approved");
     expect(approval.data.snapshot_sha256).toMatch(/^[0-9a-f]{64}$/);
-    const quantityInputs = await fixture.admin
-      .from("lukas_qto_takeoff_inputs")
-      .select("input_role,source_sha256")
-      .eq("artifact_id", quantityArtifact.id)
-      .order("input_role");
-    if (quantityInputs.error) throw quantityInputs.error;
-    expect(quantityArtifact).toMatchObject({
-      row_count: 1,
-      status_counts: { PASS: 1 },
-    });
-    expect(quantityInputs.data).toHaveLength(7);
-    expect(
-      quantityInputs.data.every(
-        (input) =>
-          quantityArtifact.input_sha256[input.input_role] ===
-          input.source_sha256,
-      ),
-    ).toBe(true);
-
     const context = trackContext(
       await browser.newContext({ viewport: { width: 1440, height: 900 } }),
     );
@@ -1476,6 +1593,114 @@ test.describe
     expect(parsedPdf.getPageCount()).toBeGreaterThan(0);
     expect(parsedPdf.getSubject()).toBe("Canonical drawing workspace export");
 
+    await page.goto(`${baseUrl}/projects/${fixture.projectId}/quantities`);
+    await page.locator("#takeoff_report").setInputFiles({
+      name: "p3-takeoff.csv",
+      mimeType: "text/csv",
+      buffer: quantityWorkflow.reportBytes,
+    });
+    await page.locator("#takeoff_manifest").setInputFiles({
+      name: "p3-takeoff-manifest.csv",
+      mimeType: "text/csv",
+      buffer: quantityWorkflow.manifestBytes,
+    });
+    await page.getByRole("button", { name: "두 파일 등록" }).click();
+    await expect(page.getByText("CONCRETE_TAKEOFF_CSV_V1")).toBeVisible();
+    await expect(page.getByText("1행")).toBeVisible();
+    await expect(page.getByText("PASS 1")).toBeVisible();
+
+    const quantityArtifactResult = await fixture.admin
+      .from("lukas_qto_takeoff_artifacts")
+      .select(
+        "id,row_count,status_counts,input_sha256,report_file_id,manifest_file_id",
+      )
+      .eq("project_id", fixture.projectId)
+      .eq("report_sha256", quantityWorkflow.reportSha256)
+      .single();
+    if (quantityArtifactResult.error) throw quantityArtifactResult.error;
+    const quantityArtifact = quantityArtifactResult.data;
+    expect(quantityArtifact.row_count).toBe(1);
+    expect(quantityArtifact.status_counts).toEqual({ PASS: 1 });
+    expect(quantityArtifact.input_sha256).toEqual(quantityWorkflow.inputSha256);
+
+    const quantityInputs = await fixture.admin
+      .from("lukas_qto_takeoff_inputs")
+      .select("input_role,file_id,source_sha256")
+      .eq("artifact_id", quantityArtifact.id)
+      .order("input_role");
+    if (quantityInputs.error) throw quantityInputs.error;
+    expect(quantityInputs.data).toEqual(
+      quantityWorkflow.inputs
+        .map((input) => ({
+          input_role: input.role,
+          file_id: input.fileId,
+          source_sha256: input.sha256,
+        }))
+        .sort((left, right) => left.input_role.localeCompare(right.input_role)),
+    );
+
+    const storedQuantityFiles = await fixture.admin
+      .from("lukas_qto_files")
+      .select("id,original_filename,storage_path")
+      .in("id", [
+        quantityArtifact.report_file_id,
+        quantityArtifact.manifest_file_id,
+      ]);
+    if (storedQuantityFiles.error) throw storedQuantityFiles.error;
+    expect(storedQuantityFiles.data).toHaveLength(2);
+    fixture.storagePaths.push(
+      ...storedQuantityFiles.data.map((file) => file.storage_path),
+    );
+    const reportFile = storedQuantityFiles.data.find(
+      (file) => file.id === quantityArtifact.report_file_id,
+    );
+    const manifestFile = storedQuantityFiles.data.find(
+      (file) => file.id === quantityArtifact.manifest_file_id,
+    );
+    expect(reportFile).toBeTruthy();
+    expect(manifestFile).toBeTruthy();
+    const [storedReport, storedManifest] = await Promise.all([
+      fixture.admin.storage
+        .from("lukas-qto")
+        .download(reportFile!.storage_path),
+      fixture.admin.storage
+        .from("lukas-qto")
+        .download(manifestFile!.storage_path),
+    ]);
+    if (storedReport.error) throw storedReport.error;
+    if (storedManifest.error) throw storedManifest.error;
+    const storedReportBytes = Buffer.from(
+      await storedReport.data.arrayBuffer(),
+    );
+    const storedManifestBytes = Buffer.from(
+      await storedManifest.data.arrayBuffer(),
+    );
+    expect(storedReportBytes).toEqual(quantityWorkflow.reportBytes);
+    expect(storedManifestBytes).toEqual(quantityWorkflow.manifestBytes);
+    const verifiedTakeoff = verifyConcreteTakeoffBundle(
+      storedReportBytes,
+      reportFile!.original_filename,
+      storedManifestBytes,
+    );
+    expect(verifiedTakeoff.rows[0]).toMatchObject({
+      raw_m3: quantityWorkflow.expectedRow.rawM3,
+      final_m3: quantityWorkflow.expectedRow.finalM3,
+      source_evidence: quantityWorkflow.expectedRow.sourceEvidence,
+    });
+    await page.goto(
+      `${baseUrl}/projects/${fixture.projectId}/takeoff/${quantityArtifact.id}`,
+    );
+    await expect(page.getByText("파일 변경 없음 · 재확인 완료")).toBeVisible();
+    await expect(
+      page.getByText(quantityWorkflow.expectedRow.rawM3),
+    ).toBeVisible();
+    await expect(
+      page.getByText(quantityWorkflow.expectedRow.finalM3),
+    ).toBeVisible();
+    await expect(
+      page.getByText(quantityWorkflow.expectedRow.sourceEvidence),
+    ).toBeVisible();
+
     for (const [route, evidence] of [
       [
         `/projects/${fixture.projectId}/drawings/${fixture.blankWorkspace.fileId}`,
@@ -1492,10 +1717,6 @@ test.describe
       expect(response?.status()).toBe(200);
       await expect(page.getByText(evidence).first()).toBeVisible();
     }
-    await page.goto(`${baseUrl}/projects/${fixture.projectId}/quantities`);
-    await expect(page.getByText("CONCRETE_TAKEOFF_CSV_V1")).toBeVisible();
-    await expect(page.getByText("1행")).toBeVisible();
-    await expect(page.getByText("PASS 1")).toBeVisible();
     const downloadLanding = await page.goto(`${baseUrl}/download`);
     expect(downloadLanding?.status()).toBe(200);
     const revitLink = page.getByRole("link", {
@@ -1515,15 +1736,8 @@ test.describe
     expect(revitEntries.some((entry) => /\.(?:addin|dll)$/i.test(entry))).toBe(
       true,
     );
-    const combinedSourceHash = createHash("sha256")
-      .update(
-        Object.values(immutableSourceBefore)
-          .map((item) => item.storageByteSha256)
-          .sort()
-          .join(""),
-      )
-      .digest("hex");
-    expect(combinedSourceHash).toMatch(/^[0-9a-f]{64}$/);
+    const immutableSourceAfter = await readSourceEvidence(fixture);
+    expect(immutableSourceAfter).toEqual(immutableSourceBefore);
     await context.close();
   });
 });

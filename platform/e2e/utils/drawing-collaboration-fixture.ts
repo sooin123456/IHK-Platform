@@ -166,31 +166,34 @@ function isDrawingP3ProductionValue(
   name: (typeof DRAWING_P3_PRODUCTION_VARIABLES)[number],
   value: string | undefined,
 ) {
-  if (!isActualProductionValue(value)) return false;
+  const normalized = value?.trim();
+  if (!isActualProductionValue(normalized)) return false;
   if (name === "E2E_BASE_URL" || name === "COLLABORATION_INTERNAL_URL")
-    return isExternalUrl(value, ["https:"]);
+    return isExternalUrl(normalized, ["https:"]);
   if (name === "SUPABASE_URL")
     return (
-      isExternalUrl(value, ["https:"]) &&
-      new URL(value!).hostname.endsWith(".supabase.co")
+      isExternalUrl(normalized, ["https:"]) &&
+      new URL(normalized!).hostname.endsWith(".supabase.co")
     );
   if (name === "VITE_DRAWING_COLLABORATION_URL")
-    return isExternalUrl(value, ["wss:"]);
+    return isExternalUrl(normalized, ["wss:"]);
   if (name === "P3_E2E_DATABASE_ADMIN_URL")
-    return isExternalUrl(value, ["postgres:", "postgresql:"]);
+    return isExternalUrl(normalized, ["postgres:", "postgresql:"]);
   if (name === "P3_E2E_RUN_ID")
     return (
-      /^[a-z0-9](?:[a-z0-9-]{6,46}[a-z0-9])$/.test(value!) &&
-      !/placeholder|example|dummy|local|test-value/i.test(value!)
+      /^[a-z0-9](?:[a-z0-9-]{6,46}[a-z0-9])$/.test(normalized!) &&
+      !/placeholder|example|dummy|local|test-value/i.test(normalized!)
     );
   if (
     name === "COLLABORATION_INTERNAL_SECRET" ||
     name === "COLLABORATION_FREEZE_SECRET"
   )
-    return value!.length >= 32 && !/placeholder|dummy|local/i.test(value!);
+    return (
+      normalized!.length >= 32 && !/placeholder|dummy|local/i.test(normalized!)
+    );
   return (
-    value!.length >= 32 &&
-    !/placeholder|dummy|local-anon-key|test-value/i.test(value!)
+    normalized!.length >= 32 &&
+    !/placeholder|dummy|local-anon-key|test-value/i.test(normalized!)
   );
 }
 
@@ -1286,6 +1289,21 @@ export async function destroyDrawingP3Fixture(
   } catch (error) {
     if (error instanceof AggregateError) errors.push(...error.errors);
     else errors.push(error);
+  }
+  try {
+    const discovered = await fixture.admin
+      .from("lukas_qto_files")
+      .select("storage_path")
+      .eq("project_id", fixture.projectId);
+    if (discovered.error) throw discovered.error;
+    fixture.storagePaths = [
+      ...new Set([
+        ...fixture.storagePaths,
+        ...(discovered.data ?? []).map((file) => file.storage_path),
+      ]),
+    ];
+  } catch (error) {
+    errors.push(error);
   }
   try {
     await destroyDrawingFixture(fixture);
