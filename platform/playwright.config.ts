@@ -1,11 +1,26 @@
 import { defineConfig, devices } from "@playwright/test";
 import "dotenv/config";
 
+import { requireDrawingP3ProductionCredentials } from "./e2e/utils/drawing-collaboration-fixture";
+
+const p3ProductionGate =
+  process.env.npm_lifecycle_event ===
+    "test:e2e:drawing-workspace-p3:production" ||
+  process.argv.some((argument) =>
+    argument.includes("drawing-workspace-p3.spec.ts"),
+  );
+if (p3ProductionGate) requireDrawingP3ProductionCredentials(process.env);
+
 const PORT = process.env.PORT || 4000;
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const remote = Boolean(process.env.E2E_BASE_URL);
 
 export default defineConfig({
+  metadata: {
+    p3DeterministicRun: process.env.P3_E2E_RUN_ID
+      ? "configured"
+      : "unconfigured",
+  },
   timeout: 60000 * 10,
   testDir: "./e2e",
   /* Run tests in files in parallel */

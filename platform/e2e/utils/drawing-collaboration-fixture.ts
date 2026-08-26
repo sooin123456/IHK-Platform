@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BrowserContext } from "@playwright/test";
+import postgres from "postgres";
 
 const IFC_URL =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
@@ -119,6 +120,19 @@ const DRAWING_P2_PRODUCTION_VARIABLES = [
   "SUPABASE_SERVICE_ROLE_KEY",
 ] as const;
 
+const DRAWING_P3_PRODUCTION_VARIABLES = [
+  "E2E_BASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "VITE_DRAWING_COLLABORATION_URL",
+  "COLLABORATION_INTERNAL_URL",
+  "COLLABORATION_INTERNAL_SECRET",
+  "COLLABORATION_FREEZE_SECRET",
+  "P3_E2E_DATABASE_ADMIN_URL",
+  "P3_E2E_RUN_ID",
+] as const;
+
 function isActualProductionValue(value: string | undefined) {
   if (!value?.trim()) return false;
   const normalized = value.trim().toLowerCase();
@@ -128,6 +142,109 @@ function isActualProductionValue(value: string | undefined) {
     normalized.includes("<masked") ||
     normalized.includes("placeholder")
   );
+}
+
+function isExternalUrl(value: string | undefined, protocols: string[]) {
+  if (!isActualProductionValue(value)) return false;
+  try {
+    const url = new URL(value!);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      protocols.includes(url.protocol) &&
+      hostname !== "localhost" &&
+      hostname !== "127.0.0.1" &&
+      hostname !== "::1" &&
+      !hostname.endsWith(".test") &&
+      !hostname.includes("example")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isDrawingP3ProductionValue(
+  name: (typeof DRAWING_P3_PRODUCTION_VARIABLES)[number],
+  value: string | undefined,
+) {
+  if (!isActualProductionValue(value)) return false;
+  if (name === "E2E_BASE_URL" || name === "COLLABORATION_INTERNAL_URL")
+    return isExternalUrl(value, ["https:"]);
+  if (name === "SUPABASE_URL")
+    return (
+      isExternalUrl(value, ["https:"]) &&
+      new URL(value!).hostname.endsWith(".supabase.co")
+    );
+  if (name === "VITE_DRAWING_COLLABORATION_URL")
+    return isExternalUrl(value, ["wss:"]);
+  if (name === "P3_E2E_DATABASE_ADMIN_URL")
+    return isExternalUrl(value, ["postgres:", "postgresql:"]);
+  if (name === "P3_E2E_RUN_ID")
+    return (
+      /^[a-z0-9](?:[a-z0-9-]{6,46}[a-z0-9])$/.test(value!) &&
+      !/placeholder|example|dummy|local|test-value/i.test(value!)
+    );
+  if (
+    name === "COLLABORATION_INTERNAL_SECRET" ||
+    name === "COLLABORATION_FREEZE_SECRET"
+  )
+    return value!.length >= 32 && !/placeholder|dummy|local/i.test(value!);
+  return (
+    value!.length >= 32 &&
+    !/placeholder|dummy|local-anon-key|test-value/i.test(value!)
+  );
+}
+
+export function drawingP3ProductionCredentialStatus(
+  environment: Record<string, string | undefined>,
+) {
+  const missing = DRAWING_P3_PRODUCTION_VARIABLES.filter(
+    (name) => !isDrawingP3ProductionValue(name, environment[name]),
+  );
+  return {
+    status: missing.length === 0 ? ("READY" as const) : ("UNEXECUTED" as const),
+    missing,
+  };
+}
+
+export function requireDrawingP3ProductionCredentials(
+  environment: Record<string, string | undefined>,
+) {
+  const status = drawingP3ProductionCredentialStatus(environment);
+  if (status.status !== "READY")
+    throw new Error(
+      `P3 production gate is UNEXECUTED: real values are required for ${status.missing.join(
+        ", ",
+      )}`,
+    );
+  const normalized = Object.fromEntries(
+    DRAWING_P3_PRODUCTION_VARIABLES.map((name) => [
+      name,
+      environment[name]!.trim(),
+    ]),
+  ) as Record<(typeof DRAWING_P3_PRODUCTION_VARIABLES)[number], string>;
+  if (
+    normalized.COLLABORATION_INTERNAL_SECRET ===
+    normalized.COLLABORATION_FREEZE_SECRET
+  )
+    throw new Error(
+      "P3 production gate is UNEXECUTED: collaboration outcome and freeze secrets must differ",
+    );
+  return normalized;
+}
+
+export function buildDrawingP3Identities(runId: string) {
+  if (
+    !/^[a-z0-9](?:[a-z0-9-]{6,46}[a-z0-9])$/.test(runId) ||
+    /placeholder|example|dummy|local|test-value/i.test(runId)
+  )
+    throw new Error("P3 E2E run ID is invalid");
+  return {
+    owner: `1hk-p3-e2e-owner-${runId}@example.test`,
+    editor: `1hk-p3-e2e-editor-${runId}@example.test`,
+    reviewer: `1hk-p3-e2e-reviewer-${runId}@example.test`,
+    viewer: `1hk-p3-e2e-viewer-${runId}@example.test`,
+    nonMember: `1hk-p3-e2e-nonmember-${runId}@example.test`,
+  };
 }
 
 export function drawingP2ProductionCredentialStatus(
@@ -244,8 +361,13 @@ function twoPagePdf() {
   return new Uint8Array(Buffer.from(pdf, "ascii"));
 }
 
-async function createUser(admin: SupabaseClient, label: string, runId: string) {
-  const email = `1hk-e2e-${label}-${runId}@example.test`;
+async function createUser(
+  admin: SupabaseClient,
+  label: string,
+  runId: string,
+  email?: string,
+) {
+  email ??= `1hk-e2e-${label}-${runId}@example.test`;
   const { data, error } = await admin.auth.admin.createUser({
     email,
     email_confirm: true,
@@ -255,19 +377,32 @@ async function createUser(admin: SupabaseClient, label: string, runId: string) {
   return { id: data.user.id, email };
 }
 
-export async function createDrawingFixture(): Promise<DrawingFixture> {
+export async function createDrawingFixture(options?: {
+  p3RunId?: string;
+}): Promise<DrawingFixture> {
   const url = required("SUPABASE_URL");
   const anonKey = required("SUPABASE_ANON_KEY");
   const serviceKey = required("SUPABASE_SERVICE_ROLE_KEY");
-  const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const runId = options?.p3RunId ?? `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const p3Identities = options?.p3RunId
+    ? buildDrawingP3Identities(options.p3RunId)
+    : null;
   const admin = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   const createdUsers: TestUser[] = [];
   let createdProjectId: string | null = null;
   const storagePaths: string[] = [];
-  const addUser = async (label: string) => {
-    const user = await createUser(admin, label, runId);
+  const addUser = async (
+    label: keyof ReturnType<typeof buildDrawingP3Identities>,
+  ) => {
+    const fixtureLabel = label === "nonMember" ? "nonmember" : label;
+    const user = await createUser(
+      admin,
+      fixtureLabel,
+      runId,
+      p3Identities?.[label],
+    );
     createdUsers.push(user);
     return user;
   };
@@ -277,7 +412,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     const editor = await addUser("editor");
     const reviewer = await addUser("reviewer");
     const viewer = await addUser("viewer");
-    const nonMember = await addUser("nonmember");
+    const nonMember = await addUser("nonMember");
 
     const { data: link, error: linkError } =
       await admin.auth.admin.generateLink({
@@ -1109,4 +1244,58 @@ export async function destroyDrawingFixture(
       fixture.nonMember,
     ].filter((user): user is TestUser => Boolean(user)),
   );
+}
+
+export async function destroyDrawingP3Fixture(
+  fixture: DrawingFixture | undefined,
+  databaseAdminUrl: string,
+  removeRooms: (
+    fixture: DrawingFixture,
+    databaseAdminUrl: string,
+  ) => Promise<void> = async (fixture, databaseAdminUrl) => {
+    const sql = postgres(databaseAdminUrl, { max: 1, prepare: false });
+    const errors: unknown[] = [];
+    try {
+      await sql.begin(async (transaction) => {
+        await transaction`
+          delete from private.lukas_drawing_collaboration_freeze_leases
+          where project_id = ${fixture.projectId}::uuid
+        `;
+        await transaction`
+          delete from private.lukas_drawing_collaboration_states
+          where project_id = ${fixture.projectId}::uuid
+        `;
+      });
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      try {
+        await sql.end({ timeout: 5 });
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length)
+      throw new AggregateError(errors, "Drawing P3 room cleanup failed");
+  },
+) {
+  if (!fixture) return;
+  const errors: unknown[] = [];
+  try {
+    await removeRooms(fixture, databaseAdminUrl);
+  } catch (error) {
+    if (error instanceof AggregateError) errors.push(...error.errors);
+    else errors.push(error);
+  }
+  try {
+    await destroyDrawingFixture(fixture);
+  } catch (error) {
+    if (error instanceof AggregateError) errors.push(...error.errors);
+    else errors.push(error);
+  }
+  if (errors.length)
+    throw new AggregateError(
+      errors,
+      "Drawing P3 E2E cleanup left possible room or fixture residue",
+    );
 }
