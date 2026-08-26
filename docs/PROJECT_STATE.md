@@ -1,5 +1,18 @@
 # 프로젝트 상태
 
+## Drawing Workspace P4 진행 상태 (2026-08-27)
+
+- P4 local implementation은 건축 semantic geometry/commands/Postgres mirror,
+  도구·inspector, server measurement, read-only schedules, export, history와
+  실제 IndexedDB/outbox offline action-ACK 경계까지 구현했다.
+- P4 local production-build Chromium baseline은 10,000 mixed semantic objects,
+  1440×900, Apple M3 Max에서 first usable 5,434.0 ms로 **MEASURED**되었고
+  제품 목표 `<= 2.5s`는 **NOT MET**다. P7 60 fps 최적화 증거가 아니다.
+- P4 production hosted provider/RLS/freeze/source/deployment/rollback과 provider
+  p95 `<= 500 ms`는 **UNEXECUTED / 미실행**이다. 실제 authority 없는
+  production command는 nonzero로 종료한다.
+- P4 local completion 판정은 Task 7 검토와 final broad review 전까지 pending이다.
+
 ## Drawing Workspace P3 진행 상태 (2026-08-26)
 
 - P3 local implementation: Yjs·y-indexeddb·Hocuspocus, Realtime invalidation,

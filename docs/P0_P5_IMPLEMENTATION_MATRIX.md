@@ -37,17 +37,29 @@ Windows/Revit 실기와 3개 현장 적용은 코드 완료와 분리된 외부 
 
 ## Drawing Workspace P3 협업 게이트 (2026-08-26)
 
-| 범위 | implemented | locally executed | production unexecuted | measured target |
-| --- | --- | --- | --- | --- |
-| Yjs·y-indexeddb·Hocuspocus 공동 편집 | operation protocol, 실제 Chromium IndexedDB 복구, Node 22 서비스, Realtime invalidation, 참여자·커서·선택·soft lock 구현 | Task 1~10 focused·전체 Node·Drawing·service·typecheck·build·로컬 Chromium PASS; Task 11 보고서에 재실행 근거 기록 | 실제 hosted Supabase·WebSocket·DB login·5-role fixture·two-user field flow 미실행 | production three-context warm reflection p95 ≤ 500 ms 미측정 |
-| 협업 업무 흐름 | 객체/영역 댓글·명시적 mention·history·revert·checkpoint·approved child draft·atomic review freeze 구현 | PGlite와 서비스 crash/restart·cross-instance lease 계약 PASS | 실제 owner/editor/reviewer/viewer/nonmember RLS·WebSocket 결과 미실행 | production offline 100 operation loss 0 및 role/source 결과 미측정 |
-| 운영·복구 | asymmetric JWKS fail-closed, 전용 LOGIN/SET ROLE, additive migration, one-replica rollout, forward-safe rollback runbook 구현 | credential guard·minimal manifest·dependency/license·source invariance 계약 PASS | image build/push, migration apply/typegen, preview, promotion, rollback rehearsal 미실행 | deployed p95·cold condition·CPU/memory·source SHA evidence 없음 |
+| 범위                                 | implemented                                                                                                                   | locally executed                                                                                                  | production unexecuted                                                                    | measured target                                                    |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Yjs·y-indexeddb·Hocuspocus 공동 편집 | operation protocol, 실제 Chromium IndexedDB 복구, Node 22 서비스, Realtime invalidation, 참여자·커서·선택·soft lock 구현      | Task 1~10 focused·전체 Node·Drawing·service·typecheck·build·로컬 Chromium PASS; Task 11 보고서에 재실행 근거 기록 | 실제 hosted Supabase·WebSocket·DB login·5-role fixture·two-user field flow 미실행        | production three-context warm reflection p95 ≤ 500 ms 미측정       |
+| 협업 업무 흐름                       | 객체/영역 댓글·명시적 mention·history·revert·checkpoint·approved child draft·atomic review freeze 구현                        | PGlite와 서비스 crash/restart·cross-instance lease 계약 PASS                                                      | 실제 owner/editor/reviewer/viewer/nonmember RLS·WebSocket 결과 미실행                    | production offline 100 operation loss 0 및 role/source 결과 미측정 |
+| 운영·복구                            | asymmetric JWKS fail-closed, 전용 LOGIN/SET ROLE, additive migration, one-replica rollout, forward-safe rollback runbook 구현 | credential guard·minimal manifest·dependency/license·source invariance 계약 PASS                                  | image build/push, migration apply/typegen, preview, promotion, rollback rehearsal 미실행 | deployed p95·cold condition·CPU/memory·source SHA evidence 없음    |
 
 P3 local implementation은 Task 11 공식 검토와 final broad review가 끝나기 전에는
 완료로 판정하지 않는다. P3 production은 현재 **UNEXECUTED / 미실행**이며 실제
 배포된 두 사용자, 역할/RLS, p95, 무손실 offline 복구, 원본 SHA-256, cleanup과
 rollback rehearsal 증거가 모두 있어야 별도로 완료된다. 기존 운영 도면 협업실의
 배포 상태는 이 새 Drawing Workspace P3 배포 상태를 대신하지 않는다.
+
+## Drawing Workspace P4 건축 객체 게이트 (2026-08-27)
+
+| 상태 구분               | 증거                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P4 local implementation | wall/opening/space/area/grid/arc, hosted-reference command/DB authority, `P4_MEASUREMENT_V1`, Room/Door/Finish schedule, semantic export, 실제 IndexedDB/outbox 100-operation action-ACK 경계가 구현됨 |
+| P4 local measured       | production build를 로컬로 serve한 Chromium 151, 1440×900, 10,000 mixed semantic objects에서 first usable 5,434.0 ms. 제품 목표 `<= 2.5s`는 **NOT MET**이며 P7 최적화 전까지 완료로 바꾸지 않음         |
+| P4 local environment    | disposable real PostgreSQL과 linked Supabase가 없어 해당 DB authority는 **LOCAL ENV UNEXECUTED**                                                                                                       |
+| P4 production           | 실제 hosted provider/RLS/freeze/source/deployment/cleanup/rollback과 provider p95 `<= 500 ms`는 **UNEXECUTED / 미실행**                                                                                |
+
+P4 local completion은 실행된 로컬 의미 계약만 뜻한다. 10,000-object 60 fps,
+field-user 결과, multi-instance fanout, P0~P7 전체 목표 완료를 뜻하지 않는다.
 
 ## P0 — 보안·운영 기반
 
@@ -78,7 +90,7 @@ rollback rehearsal 증거가 모두 있어야 별도로 완료된다. 기존 운
 | IDS 검사           | IDS 1.0 XML을 strict parse하고 현재 Element 원장이 증명 가능한 속성만 판정        | 최소 기능 완료   |
 | BCF 반환           | FAIL·REVIEW만 BCF 2.1 zip으로 결정론적 export                                     | 최소 기능 완료   |
 | 분류 ID            | namespace·code·version·label을 보존하는 연결 테이블과 UI                          | 완료             |
-| Revit↔IFC 연결    | Element ID가 원장에 1회, GlobalId가 IFC entity 첫 ID로 존재할 때만 사람 확인 기록 | 완료             |
+| Revit↔IFC 연결     | Element ID가 원장에 1회, GlobalId가 IFC entity 첫 ID로 존재할 때만 사람 확인 기록 | 완료             |
 | 공식 IDS 전체 호환 | buildingSMART 공식 corpus 전체와 BCF viewpoint round-trip                         | 후속 표준 게이트 |
 
 ## P3 — 제품 EPD와 자재 추적

@@ -29,6 +29,7 @@ import type {
   DrawingTable,
 } from "~/lukas/lib/drawing-workspace.types";
 import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
+import { buildDrawingP4PerformanceFixture } from "~/lukas/lib/drawing-p4-performance";
 import {
   DrawingBlockInstanceSchema,
   DrawingBlockSchema,
@@ -756,7 +757,13 @@ type PreviewFixture = {
 };
 
 /** Canonical P2 data kept entirely in process for development-only visual review. */
-export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
+export function localDrawingWorkspacePreviewFixture(options?: {
+  performanceObjects?: DrawingObject[];
+}): PreviewFixture {
+  const fixtureObjects = options?.performanceObjects ?? objects;
+  const performance = Boolean(options?.performanceObjects);
+  const fixturePropertyValues = performance ? [] : propertyValues;
+  const fixtureTables = performance ? [] : tables;
   const revision = {
     id: ids.revision,
     document_id: ids.document,
@@ -775,13 +782,13 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
     pages,
     canvases,
     layers,
-    objects,
+    objects: fixtureObjects,
     styles: [styleWall, styleNote],
     blocks,
     blockInstances,
     propertySchemas,
-    propertyValues,
-    tables,
+    propertyValues: fixturePropertyValues,
+    tables: fixtureTables,
     issues: [
       {
         id: ids.issue,
@@ -792,38 +799,46 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
         updated_at: createdAt,
       },
     ],
-    issueLinks: [
-      {
-        id: "00000000-0000-4000-8000-000000000095",
-        object_id: objects[4].id,
-        revision_id: ids.revision,
-        issue_id: ids.issue,
-        project_id: ids.project,
-        created_by: ids.user,
-        created_at: createdAt,
-      },
-    ],
+    issueLinks: performance
+      ? []
+      : [
+          {
+            id: "00000000-0000-4000-8000-000000000095",
+            object_id: objects[4].id,
+            revision_id: ids.revision,
+            issue_id: ids.issue,
+            project_id: ids.project,
+            created_by: ids.user,
+            created_at: createdAt,
+          },
+        ],
     reviewEvidence: null,
-    checkpoints: [
-      {
-        id: ids.checkpoint,
-        createdAt,
-        canonicalJson: {
-          operationSequence: 0,
-          revision: { id: ids.revision, documentId: ids.document, version: 1 },
-          pages,
-          canvases,
-          layers,
-          objects,
-          styles: [styleWall, styleNote],
-          blocks,
-          blockInstances,
-          propertySchemas,
-          propertyValues,
-          tables,
-        },
-      },
-    ],
+    checkpoints: performance
+      ? []
+      : [
+          {
+            id: ids.checkpoint,
+            createdAt,
+            canonicalJson: {
+              operationSequence: 0,
+              revision: {
+                id: ids.revision,
+                documentId: ids.document,
+                version: 1,
+              },
+              pages,
+              canvases,
+              layers,
+              objects: fixtureObjects,
+              styles: [styleWall, styleNote],
+              blocks,
+              blockInstances,
+              propertySchemas,
+              propertyValues: fixturePropertyValues,
+              tables: fixtureTables,
+            },
+          },
+        ],
   };
   return {
     capability: "editor",
@@ -932,7 +947,14 @@ function isLocalPreviewRequest(request: Request) {
 export function loader({ request }: Route.LoaderArgs) {
   if (!isLocalPreviewRequest(request))
     throw new Response("Not Found", { status: 404 });
-  const fixture = localDrawingWorkspacePreviewFixture();
+  const performanceTest =
+    new URL(request.url).searchParams.get("performanceTest") === "1";
+  const performanceFixture = performanceTest
+    ? buildDrawingP4PerformanceFixture(10_000, ids.layerPlanWork)
+    : null;
+  const fixture = localDrawingWorkspacePreviewFixture({
+    performanceObjects: performanceFixture?.objects,
+  });
   validateLocalDrawingWorkspacePreviewFixture(fixture);
   const realtimeTest =
     new URL(request.url).searchParams.get("realtimeTest") === "1";
@@ -1044,6 +1066,7 @@ export function loader({ request }: Route.LoaderArgs) {
     awarenessTest,
     realtimeTest,
     verticalTest,
+    performanceTest,
   };
 }
 

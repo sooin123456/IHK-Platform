@@ -43,6 +43,21 @@ record에 함께 남긴다.
 전체 항목과 아래 실제 2인 현장 검증이 끝나기 전에는 P3 operationally complete
 또는 P3 운영 완료로 표시하지 않는다.
 
+## Drawing Workspace P4 상태
+
+- P4 local implementation은 여섯 건축 객체, hosted reference, 서버
+  `P4_MEASUREMENT_V1`, Room/Door/Finish schedule, semantic export와 실제
+  IndexedDB/outbox reload/action-ACK 경계를 포함한다.
+- P4 local production-build baseline은 Chromium 151, Apple M3 Max, 1440×900,
+  10,000 mixed semantic objects에서 first usable 5,434.0 ms로 측정되어
+  `<= 2.5s` 목표를 **충족하지 못했다**. 60 fps는 P7 gate다.
+- P4 production은 **UNEXECUTED / 미실행**이다. 실제 owner/editor/reviewer/
+  viewer/nonmember RLS, hosted provider convergence, three-context provider p95
+  `<= 500 ms`, freeze/approved immutability, source hash, cleanup과 rollback을
+  현장 증거 없이 PASS로 바꾸지 않는다.
+- `npm run release:drawing-workspace-p4:production`은 실제 authority가 없으면
+  Playwright 시작 전에 nonzero `UNEXECUTED`로 종료한다.
+
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공

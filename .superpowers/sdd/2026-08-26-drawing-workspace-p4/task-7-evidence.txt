@@ -1,0 +1,80 @@
+P4 Task 7 release evidence — 2026-08-27
+Base: ea7885c257f3b5cbae314d25ae31d86c553d6a51
+
+LOCAL PASS
+
+Command: cd platform && npm run release:drawing-workspace-p4:local
+Result: exit 0; terminal line `P4 LOCAL PASS`
+  whole Node: 844 tests, 843 pass, 0 fail, 1 explicit UNEXECUTED skip
+  Drawing Workspace: 608 tests, 607 pass, 0 fail, 1 explicit UNEXECUTED skip
+  collaboration service: 33 pass, 0 fail
+  pinned IFC geometry smoke: 413681 bytes, 120 elements, 115 geometric,
+    119 placements, 14694 triangles
+  IFC/PDF/quantity/approval/Revit regression group: 98 pass, 0 fail
+  application typecheck/build: exit 0
+  collaboration typecheck/build: exit 0
+  Chromium functional + real IndexedDB/action-ACK: 9 pass, 0 fail
+  production-build Chromium performance: 1 pass, 0 fail
+  license closure: 7 pass, 0 fail
+  application audit --audit-level=high: exit 0; 3 known moderate ajv findings,
+    no fix available
+  collaboration audit --audit-level=high: exit 0; 0 vulnerabilities
+  git diff --check: exit 0
+
+Command: cd platform && node --test tests/drawing-workspace-p4-release.test.mjs
+Result: 8 pass, 0 fail
+
+MEASURED — LOCAL_PRODUCTION_BUILD_CHROMIUM
+
+Command:
+  P4_RELEASE_PRODUCTION_BUILD=1 npx playwright test \
+    e2e/drawing-workspace-p4-release.spec.ts \
+    --config=playwright.p4-release.config.ts --project=chromium \
+    --workers=1 --reporter=json
+Result: 1 pass, 0 fail
+Browser: Chromium 151.0.7922.34
+User agent: Windows NT 10.0 / Chrome 151.0.7922.34
+Host: Apple M3 Max; 14 logical CPUs; 38654705664 total memory bytes
+Viewport: 1440x900
+Condition: application assets warmed; cold exact 10,000-object document
+Composition: wall 2000, opening 2000, space 1500, area 1500, grid 1500,
+  arc 1500
+First usable: 5434.0 ms
+Product target <=2500 ms: NOT MET
+Warm samples: zoom 30, pan 31, selection 30
+Warm p95: zoom 0.2 ms, pan 0.3 ms, selection 72.7 ms
+P7 10k/60fps gate: UNEXECUTED
+
+DURABLE SOURCE EVIDENCE
+
+PDF:
+  ../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf
+  bytes 62602
+  sha256 4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326
+IFC:
+  ../samples/sample.ifc
+  bytes 222
+  sha256 30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93
+
+LOCAL ENV UNEXECUTED
+
+Disposable real PostgreSQL concurrency fixture is not configured. Linked
+Supabase, deployment host/registry, deploy, promotion, and rollback rehearsal
+authorities are absent. None is counted as LOCAL PASS.
+
+PRODUCTION UNEXECUTED
+
+Command with sanitized environment:
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:production
+Result: exit 1 before Playwright/server start
+Missing authorities:
+  E2E_BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY, VITE_DRAWING_COLLABORATION_URL,
+  COLLABORATION_INTERNAL_URL, COLLABORATION_INTERNAL_SECRET,
+  COLLABORATION_FREEZE_SECRET, P3_E2E_DATABASE_ADMIN_URL, P3_E2E_RUN_ID
+Status: P4 production gate is UNEXECUTED
+
+Therefore no production value exists for provider-authoritative convergence,
+three-context provider p95 <=500 ms, provider-backed offline/reconnect no-loss,
+hosted org/RLS/freeze/approved immutability, source re-read, cleanup, deployment,
+or rollback. No skip or local result is relabelled as production pass.

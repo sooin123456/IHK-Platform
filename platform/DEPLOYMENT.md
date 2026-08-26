@@ -757,6 +757,42 @@ operationally complete until those deployed records exist.
    smoke before reopening admission. Record an unsuccessful recovery as failed,
    not as a rollback pass.
 
+## Drawing Workspace P4 coordinated release gate
+
+P4 keeps the web application and the single-replica collaboration service as a
+coordinated release. Build both artifacts, run `npm run
+release:drawing-workspace-p4:local`, deploy the collaboration image first, run
+its authenticated health/admission/store/freeze smoke, then deploy the web
+preview against that exact WebSocket/internal endpoint. Run the fail-closed
+hosted fixture only with all P3/P4 app, Supabase, collaboration, database, and
+run-identity authorities:
+
+```sh
+npm run release:drawing-workspace-p4:production
+```
+
+Missing, masked, loopback, or placeholder authorities exit nonzero as `P4
+production gate is UNEXECUTED` before Playwright or a local server starts. A
+local P4 result cannot satisfy hosted organization membership/RLS, provider
+convergence, three-browser provider p95 `<= 500 ms`, approval freeze, deployed
+source hashes, cleanup, or rollback evidence.
+
+The production fixture first executes the P3 provider-authoritative gates (30
+warm reflection samples, exact 100-operation offline recovery, role denial,
+freeze/approval/child draft, immutable PDF/IFC, quantity/approval/Revit
+regressions), then the hosted P4 semantic graph gate for wall/opening/space/area/
+grid/arc, server `P4_MEASUREMENT_V1`, read-only schedules, draft-only editor
+mutation, reviewer/viewer/nonmember denial, approved immutability, and source
+re-read. It has no `test.skip` production path.
+
+Rollback is forward-safe: stop new admission, flush and await Hocuspocus,
+preserve operations/snapshots/approved evidence/source rows, drain the one
+replica, and restore the previous compatible web and collaboration image pair.
+Never down-migrate the P4 semantic constraints. Re-run health, authenticated and
+nonmember admission, P4 semantic load/schedules/export, source hashes, and a
+two-user reconnect before reopening admission. Record an incomplete direction
+as failed or `UNEXECUTED`, never PASS.
+
 ## Drawing Workspace P0/P1 release runbook
 
 The browser editor is an additive route. Keep the existing collaboration room
