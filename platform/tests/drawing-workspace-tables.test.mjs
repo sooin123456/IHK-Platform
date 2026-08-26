@@ -573,6 +573,102 @@ const semanticInspectorComponents = await vite
 const semanticSchedules =
   await import("../app/lukas/lib/drawing-semantic-schedules.ts");
 
+function semanticWall(overrides = {}) {
+  return {
+    id: "10000000-0000-4000-8000-000000000091",
+    name: "Draft wall",
+    layerId: ids.layer,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 1_000, y: 0 },
+      thicknessMillimeters: 18,
+      heightMillimeters: 3_000,
+    },
+    styleId: null,
+    style,
+    version: 1,
+    ...overrides,
+  };
+}
+
+test("semantic inspector draft preserves dirty fields across local movement projections", () => {
+  const wall = semanticWall();
+  const baseline = {
+    objectId: wall.id,
+    objectVersion: wall.version,
+    fields: { thicknessMillimeters: 18, heightMillimeters: 3_000 },
+  };
+  const moved = semanticWall({
+    version: 28,
+    geometry: {
+      ...wall.geometry,
+      start: { x: 70, y: 40 },
+      end: { x: 1_070, y: 40 },
+    },
+  });
+  assert.deepEqual(
+    semanticInspectorComponents.drawingSemanticInspectorDraftStatus(
+      baseline,
+      moved,
+    ),
+    { kind: "preserve", conflictedFields: [] },
+  );
+});
+
+test("semantic inspector draft preserves unrelated projections and reports a same-field conflict", () => {
+  const wall = semanticWall();
+  const baseline = {
+    objectId: wall.id,
+    objectVersion: wall.version,
+    fields: { thicknessMillimeters: 18 },
+  };
+  assert.deepEqual(
+    semanticInspectorComponents.drawingSemanticInspectorDraftStatus(
+      baseline,
+      semanticWall({
+        version: 2,
+        geometry: { ...wall.geometry, heightMillimeters: 3_200 },
+      }),
+    ),
+    { kind: "preserve", conflictedFields: [] },
+  );
+  assert.deepEqual(
+    semanticInspectorComponents.drawingSemanticInspectorDraftStatus(
+      baseline,
+      semanticWall({
+        version: 2,
+        geometry: { ...wall.geometry, thicknessMillimeters: 24 },
+      }),
+    ),
+    { kind: "preserve", conflictedFields: ["thicknessMillimeters"] },
+  );
+});
+
+test("semantic inspector draft clears when selection changes or the object is deleted", () => {
+  const wall = semanticWall();
+  const baseline = {
+    objectId: wall.id,
+    objectVersion: wall.version,
+    fields: { thicknessMillimeters: 18 },
+  };
+  assert.deepEqual(
+    semanticInspectorComponents.drawingSemanticInspectorDraftStatus(
+      baseline,
+      semanticWall({ id: "10000000-0000-4000-8000-000000000099" }),
+    ),
+    { kind: "clear", conflictedFields: [] },
+  );
+  assert.deepEqual(
+    semanticInspectorComponents.drawingSemanticInspectorDraftStatus(
+      baseline,
+      null,
+    ),
+    { kind: "clear", conflictedFields: [] },
+  );
+});
+
 test("schedule panel renders semantic read-only DOM and native labeled editor cells", () => {
   assert.equal(typeof tableComponents.DrawingTablesPanel, "function");
   const current = state({

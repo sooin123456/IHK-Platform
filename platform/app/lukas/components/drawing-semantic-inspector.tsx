@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type {
   DrawingCommand,
@@ -45,6 +45,56 @@ function optionalText(data: FormData, name: string) {
   return value || null;
 }
 
+type DrawingSemanticInspectorDraftBaseline = {
+  objectId: string;
+  objectVersion: number;
+  fields: Record<string, unknown>;
+};
+
+function drawingSemanticInspectorFieldValue(
+  object: DrawingObject & { geometry: DrawingSemanticGeometry },
+  field: string,
+) {
+  if (
+    object.geometry.type === "space" &&
+    ["floor", "wall", "ceiling"].includes(field)
+  )
+    return object.geometry.finishes[
+      field as keyof typeof object.geometry.finishes
+    ];
+  return (object.geometry as unknown as Record<string, unknown>)[field];
+}
+
+function sameDrawingSemanticInspectorValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Classifies a dirty form against a newly projected canonical object. */
+export function drawingSemanticInspectorDraftStatus(
+  baseline: DrawingSemanticInspectorDraftBaseline,
+  object: (DrawingObject & { geometry: DrawingSemanticGeometry }) | null,
+) {
+  if (!object || object.id !== baseline.objectId)
+    return { kind: "clear" as const, conflictedFields: [] as string[] };
+  if (object.version === baseline.objectVersion)
+    return { kind: "preserve" as const, conflictedFields: [] as string[] };
+  return {
+    kind: "preserve" as const,
+    conflictedFields: Object.entries(baseline.fields)
+      .filter(
+        ([field, value]) =>
+          !sameDrawingSemanticInspectorValue(
+            value,
+            drawingSemanticInspectorFieldValue(object, field),
+          ),
+      )
+      .map(([field]) => field),
+  };
+}
+
+const semanticDraftConflictMessage =
+  "편집 중인 건축 속성이 다른 변경에서 수정되었습니다. 취소한 뒤 최신 값을 확인하세요.";
+
 export function DrawingSemanticInspector({
   actorId,
   canEdit,
@@ -57,6 +107,10 @@ export function DrawingSemanticInspector({
   state,
 }: Props) {
   const dirtyFields = useRef(new Set<string>());
+  const draftBaseline = useRef<DrawingSemanticInspectorDraftBaseline | null>(
+    null,
+  );
+  const selectedObjectId = useRef(object.id);
   const [error, setError] = useState<string | null>(null);
   const measurement = useMemo(() => {
     try {
@@ -74,13 +128,70 @@ export function DrawingSemanticInspector({
       ? evidence?.measurements[object.id]?.measurement
       : null;
 
+  useEffect(() => {
+    if (selectedObjectId.current !== object.id) {
+      selectedObjectId.current = object.id;
+      dirtyFields.current.clear();
+      draftBaseline.current = null;
+      setError(null);
+      return;
+    }
+    if (!draftBaseline.current) return;
+    const status = drawingSemanticInspectorDraftStatus(
+      draftBaseline.current,
+      object,
+    );
+    if (status.kind === "clear") {
+      dirtyFields.current.clear();
+      draftBaseline.current = null;
+      setError(null);
+      return;
+    }
+    if (status.conflictedFields.length > 0)
+      setError(semanticDraftConflictMessage);
+    else
+      setError((current) =>
+        current === semanticDraftConflictMessage ? null : current,
+      );
+  }, [object]);
+
   function dirty(name: string) {
+    draftBaseline.current ??= {
+      objectId: object.id,
+      objectVersion: object.version,
+      fields: {},
+    };
+    if (!(name in draftBaseline.current.fields))
+      draftBaseline.current.fields[name] = drawingSemanticInspectorFieldValue(
+        object,
+        name,
+      );
     dirtyFields.current.add(name);
+  }
+
+  function clearDraft() {
+    dirtyFields.current.clear();
+    draftBaseline.current = null;
+    setError(null);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canEdit || dirtyFields.current.size === 0) return;
+    if (draftBaseline.current) {
+      const status = drawingSemanticInspectorDraftStatus(
+        draftBaseline.current,
+        object,
+      );
+      if (status.kind === "clear") {
+        clearDraft();
+        return;
+      }
+      if (status.conflictedFields.length > 0) {
+        setError(semanticDraftConflictMessage);
+        return;
+      }
+    }
     const data = new FormData(event.currentTarget);
     const geometry = structuredClone(object.geometry);
     const changed = dirtyFields.current;
@@ -129,8 +240,7 @@ export function DrawingSemanticInspector({
           },
         ],
       });
-      dirtyFields.current.clear();
-      setError(null);
+      clearDraft();
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -208,7 +318,8 @@ export function DrawingSemanticInspector({
       <form
         className="mt-3 grid gap-3"
         data-drawing-shortcuts="ignore"
-        key={`${object.id}:${object.version}`}
+        key={object.id}
+        onReset={clearDraft}
         onSubmit={submit}
       >
         {geometry.type === "wall" ? (
@@ -339,12 +450,20 @@ export function DrawingSemanticInspector({
         ) : null}
         {canEdit &&
         ["wall", "opening", "space", "arc"].includes(geometry.type) ? (
-          <button
-            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
-            type="submit"
-          >
-            건축 속성 적용
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className="min-h-10 rounded-md border border-white/15 px-3 text-sm font-semibold text-slate-200"
+              type="reset"
+            >
+              건축 속성 취소
+            </button>
+            <button
+              className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+              type="submit"
+            >
+              건축 속성 적용
+            </button>
+          </div>
         ) : null}
       </form>
       {error ? (

@@ -42,6 +42,7 @@ import {
   type DrawingBlockInstancesClipboard,
 } from "~/lukas/lib/drawing-blocks";
 import {
+  applyDrawingCommand,
   copyDrawingSelection,
   createDrawingCheckpointRestoreCommand,
   createDrawingDocumentState,
@@ -1787,6 +1788,45 @@ export default function DrawingWorkspaceClient({
       );
     }
   }, []);
+  const runVerticalRemoteWallProjection = useCallback(
+    (field: "name" | "thickness") => {
+      const adapter = collaborationAdapterRef.current;
+      const current = adapter?.getSnapshot().state;
+      const wall = current
+        ? Object.values(current.objects).find(
+            (object) => object.geometry.type === "wall",
+          )
+        : null;
+      if (!adapter || !current || !wall || wall.geometry.type !== "wall") {
+        setVerticalTestStatus("원격 벽 변경 대상을 찾지 못함");
+        return;
+      }
+      const applied = applyDrawingCommand(current, {
+        type: "update_objects",
+        actorId: "00000000-0000-4000-8000-000000000009",
+        updates: [
+          {
+            objectId: wall.id,
+            baseVersion: wall.version,
+            patch:
+              field === "name"
+                ? { name: `${wall.name} 원격` }
+                : {
+                    geometry: {
+                      ...wall.geometry,
+                      thicknessMillimeters: 24,
+                    },
+                  },
+          },
+        ],
+      });
+      adapter.replaceAuthoritative(applied.state);
+      setVerticalTestStatus(
+        field === "name" ? "원격 벽 이름 변경됨" : "원격 벽 두께 변경됨",
+      );
+    },
+    [],
+  );
   const revertOperation = useCallback(
     async (operationId: string) => {
       try {
@@ -2380,6 +2420,18 @@ export default function DrawingWorkspaceClient({
             type="button"
           >
             P4 로컬 저장 동기화
+          </button>
+          <button
+            onClick={() => runVerticalRemoteWallProjection("name")}
+            type="button"
+          >
+            P4 원격 벽 이름 변경
+          </button>
+          <button
+            onClick={() => runVerticalRemoteWallProjection("thickness")}
+            type="button"
+          >
+            P4 원격 벽 두께 변경
           </button>
           <output aria-label="P4 mounted command result">
             {verticalTestStatus}

@@ -194,15 +194,27 @@ test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
   ];
   for (const key of burst) await page.keyboard.press(key);
 
+  await page.getByLabel("벽 두께").fill("220");
+  await page.getByLabel("벽 높이").fill("3200");
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  await page.getByLabel(/도면 화면/).focus();
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+Shift+z");
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).operationIds.length)
+    .toBe(before.operationIds.length + burst.length + 3);
   await expect
     .poll(async () => (await mountedSnapshot(page)).objects[wallId].version)
-    .toBe(before.objects[wallId].version + burst.length);
+    .toBe(before.objects[wallId].version + burst.length + 3);
   const after = await mountedSnapshot(page);
   expect(after.objects[wallId].geometry.start).toEqual({ x: 190, y: 760 });
   expect(after.objects[wallId].geometry.end).toEqual({ x: 970, y: 760 });
+  expect(after.objects[wallId].geometry.thicknessMillimeters).toBe(220);
+  expect(after.objects[wallId].geometry.heightMillimeters).toBe(3200);
   expect(after.objects[openingId].geometry).toEqual(
     before.objects[openingId].geometry,
   );
+  await expect(page.getByLabel("공동 편집 작업 차단 안내")).toHaveCount(0);
   await page.getByRole("button", { name: "선택 도구" }).click();
   await clickWorld(page, { x: 420, y: 760 });
   await expect
@@ -221,43 +233,9 @@ test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
     (await mountedSnapshot(page)).objects[openingId].version,
   ).toBeGreaterThan(before.objects[openingId].version);
 
-  await page.getByRole("button", { name: "선택 도구" }).click();
-  await clickWorld(page, { x: 600, y: 760 });
-  await expect
-    .poll(async () => (await mountedSnapshot(page)).selectedIds)
-    .toEqual([wallId]);
-  await page.getByLabel("벽 두께").fill("220");
-  await page.getByLabel("벽 높이").fill("3200");
-  await page.getByRole("button", { name: "건축 속성 적용" }).click();
-  await expect
-    .poll(
-      async () =>
-        (await mountedSnapshot(page)).objects[wallId].geometry
-          .thicknessMillimeters,
-    )
-    .toBe(220);
-  await expect
-    .poll(
-      async () =>
-        (await mountedSnapshot(page)).objects[wallId].geometry
-          .heightMillimeters,
-    )
-    .toBe(3200);
-  expect((await mountedSnapshot(page)).objects[wallId].geometry.start).toEqual({
-    x: 190,
-    y: 760,
-  });
-  const beforeHistoryBurst = await mountedSnapshot(page);
-  await page.getByLabel(/도면 화면/).focus();
-  await page.keyboard.press("Control+z");
-  await page.keyboard.press("Control+Shift+z");
-  await expect
-    .poll(async () => (await mountedSnapshot(page)).objects[wallId].version)
-    .toBe(beforeHistoryBurst.objects[wallId].version + 2);
   const durable = await mountedSnapshot(page);
-  expect(durable.objects[wallId].geometry).toEqual(
-    beforeHistoryBurst.objects[wallId].geometry,
-  );
+  expect(durable.objects[wallId].geometry.thicknessMillimeters).toBe(220);
+  expect(durable.objects[wallId].geometry.heightMillimeters).toBe(3200);
   await page.getByRole("button", { name: "P4 로컬 저장 동기화" }).click();
   await expect(page.getByLabel("P4 mounted command result")).toHaveText(
     "로컬 저장 동기화됨",
@@ -272,6 +250,77 @@ test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
   expect(reloaded.operationIds).toEqual(durable.operationIds);
   expect(reloaded.undoIds).toEqual(durable.undoIds);
   expect(reloaded.redoIds).toEqual(durable.redoIds);
+});
+
+test("semantic inspector preserves a dirty field across an unrelated authoritative projection", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPreview(page, "?verticalTest=1");
+  const wallId = "00000000-0000-4000-8000-000000000100";
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 500, y: 720 });
+  await page.getByLabel("벽 두께").fill("220");
+  await page.getByRole("button", { name: "P4 원격 벽 이름 변경" }).click();
+  await expect(page.getByLabel("벽 두께")).toHaveValue("220");
+  await expect(
+    page.getByText(/편집 중인 건축 속성이 다른 변경에서 수정되었습니다/),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[wallId].geometry
+          .thicknessMillimeters,
+    )
+    .toBe(220);
+  const applied = await mountedSnapshot(page);
+  expect(applied.objects[wallId].name).toContain("원격");
+  expect(applied.operationIds).toHaveLength(2);
+});
+
+test("semantic inspector blocks same-field projections and clears on cancel, selection, and deletion", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPreview(page, "?verticalTest=1");
+  const wallId = "00000000-0000-4000-8000-000000000100";
+  const arcId = "00000000-0000-4000-8000-000000000106";
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 500, y: 720 });
+  await page.getByLabel("벽 두께").fill("220");
+  await page.getByRole("button", { name: "P4 원격 벽 두께 변경" }).click();
+  await expect(page.getByLabel("벽 두께")).toHaveValue("220");
+  await expect(
+    page.getByText(/편집 중인 건축 속성이 다른 변경에서 수정되었습니다/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  const conflicted = await mountedSnapshot(page);
+  expect(conflicted.operationIds).toHaveLength(1);
+  expect(conflicted.objects[wallId].geometry.thicknessMillimeters).toBe(24);
+
+  await page.getByRole("button", { name: "건축 속성 취소" }).click();
+  await expect(page.getByLabel("벽 두께")).toHaveValue("24");
+  await expect(
+    page.getByText(/편집 중인 건축 속성이 다른 변경에서 수정되었습니다/),
+  ).toHaveCount(0);
+  await page.getByLabel("벽 두께").fill("230");
+  await clickWorld(page, { x: 350, y: 720 });
+  await expect(page.getByLabel("개구부 너비")).toBeVisible();
+  await clickWorld(page, { x: 500, y: 720 });
+  await expect(page.getByLabel("벽 두께")).toHaveValue("24");
+
+  await clickWorld(page, { x: 950, y: 690 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([arcId]);
+  await page.getByLabel("호 반지름").fill("100");
+  await page.getByLabel(/도면 화면/).focus();
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).objects[arcId])
+    .toBeUndefined();
+  await expect(page.getByLabel("호 반지름")).toHaveCount(0);
 });
 
 test("P4 integrated architectural authoring, conflict, restore, permissions, freeze, and durable export vertical", async ({

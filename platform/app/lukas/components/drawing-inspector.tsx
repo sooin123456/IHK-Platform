@@ -179,7 +179,6 @@ export function DrawingInspector({
       evidenceError={evidenceError}
       hasUnconfirmedChanges={hasUnconfirmedChanges}
       lineage={lineage}
-      key={`${selectedSemanticObject.id}:${selectedSemanticObject.version}`}
       object={selectedSemanticObject}
       onCommand={onCommand}
       state={state}
