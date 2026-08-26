@@ -19,7 +19,6 @@ async function waitForPreviewRealtimeEffect(page: Page) {
   await expect(
     page.getByRole("status", { name: "실시간 미리보기 준비됨" }),
   ).toBeVisible({ timeout: 15_000 });
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
@@ -56,17 +55,24 @@ test("collaboration initialization retry cleans partial resources and restores e
   page,
 }) => {
   await openPreview(page, retryTestPreviewPath);
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("local-failed");
   await expect(page.getByText(/로컬 저장 실패/)).toBeVisible();
   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("0");
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByText(/로컬 저장 실패/)).toBeHidden();
   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("1");
+  await expect(page.getByLabel("협업 로컬 동기화 횟수")).toHaveText("1");
+  await expect(page.getByLabel("협업 provider 실패 횟수")).toHaveText("1");
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText(
+    "provider-failed",
+  );
   await expect(page.getByLabel("협업 provider 수")).toHaveText("0");
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByLabel("협업 provider 수")).toHaveText("1");
+  await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
   ).toBeVisible();

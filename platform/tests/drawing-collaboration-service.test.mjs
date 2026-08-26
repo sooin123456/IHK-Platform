@@ -106,6 +106,24 @@ function operation(overrides = {}) {
   };
 }
 
+function updateLayerOperation(overrides = {}) {
+  return operation({
+    type: "update_layer",
+    baseVersions: { [ids.layer]: 1 },
+    forward: {
+      type: "update_layer",
+      layerId: ids.layer,
+      patch: { name: "Updated" },
+    },
+    inverse: {
+      type: "update_layer",
+      layerId: ids.layer,
+      patch: { name: "Annotations" },
+    },
+    ...overrides,
+  });
+}
+
 function initializedDocument() {
   const doc = new Y.Doc();
   doc.getMap("serverMeta").set("schemaVersion", 1);
@@ -381,6 +399,147 @@ test("empty documents are initialized by the server and complete client updates 
       ),
     );
   }
+});
+
+test("client ingress and persisted validation reject malformed actor history transitions", () => {
+  const { validateDrawingClientUpdate, validatePersistedDrawingState } =
+    requireModules();
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+  const current = initializedDocument();
+  const original = updateLayerOperation();
+  const originalUpdate = appendUpdate(current, original);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(current, originalUpdate, context),
+  );
+  Y.applyUpdate(current, originalUpdate);
+  const remote = updateLayerOperation({
+    clientOperationId: randomUUID(),
+    actorId: ids.layer2,
+  });
+  const remoteUpdate = appendUpdate(current, remote);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(current, remoteUpdate, {
+      ...context,
+      userId: remote.actorId,
+    }),
+  );
+  Y.applyUpdate(current, remoteUpdate);
+
+  for (const malformed of [
+    updateLayerOperation({
+      clientOperationId: ids.operation2,
+      historyAction: "undo",
+      originalOperationId: ids.operation3,
+    }),
+    updateLayerOperation({
+      clientOperationId: ids.operation2,
+      actorId: ids.layer2,
+      historyAction: "undo",
+      originalOperationId: ids.operation,
+    }),
+    updateLayerOperation({
+      clientOperationId: ids.operation2,
+      historyAction: "redo",
+      originalOperationId: ids.operation,
+    }),
+  ])
+    assert.throws(() =>
+      validateDrawingClientUpdate(current, appendUpdate(current, malformed), {
+        ...context,
+        userId: malformed.actorId,
+      }),
+    );
+
+  const validUndo = updateLayerOperation({
+    clientOperationId: ids.operation2,
+    historyAction: "undo",
+    originalOperationId: ids.operation,
+  });
+  const undoUpdate = appendUpdate(current, validUndo);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(current, undoUpdate, context),
+  );
+  Y.applyUpdate(current, undoUpdate);
+  const repeatedUndo = updateLayerOperation({
+    clientOperationId: ids.operation3,
+    historyAction: "undo",
+    originalOperationId: ids.operation,
+  });
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      current,
+      appendUpdate(current, repeatedUndo),
+      context,
+    ),
+  );
+
+  const poisoned = new Y.Doc();
+  Y.applyUpdate(poisoned, Y.encodeStateAsUpdate(current));
+  poisoned.transact(() => {
+    poisoned.getArray("operations").push([repeatedUndo]);
+    poisoned.getArray("operationOrder").push([ids.operation3]);
+  });
+  assert.throws(() =>
+    validatePersistedDrawingState(Y.encodeStateAsUpdate(poisoned), context),
+  );
+});
+
+test("service bootstrap reconstructs accepted history before a restart redo", async () => {
+  const {
+    initializeDrawingCollaborationDocument,
+    validateDrawingClientUpdate,
+  } = requireModules();
+  const original = updateLayerOperation();
+  const undo = updateLayerOperation({
+    clientOperationId: ids.operation2,
+    historyAction: "undo",
+    originalOperationId: ids.operation,
+  });
+  const outcome = (envelope, sequence) => ({
+    revisionId: ids.revision,
+    clientOperationId: envelope.clientOperationId,
+    actorId: envelope.actorId,
+    operationType: envelope.type,
+    baseVersions: envelope.baseVersions,
+    forward: envelope.forward,
+    inverse: envelope.inverse,
+    ...(envelope.historyAction
+      ? {
+          historyAction: envelope.historyAction,
+          originalOperationId: envelope.originalOperationId,
+        }
+      : {}),
+    sequence,
+    resultVersions: {},
+  });
+  const restarted = new Y.Doc();
+  await initializeDrawingCollaborationDocument(restarted, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    bootstrap: async () => ({
+      sha256: "a".repeat(64),
+      operationSequence: 2,
+      recentOutcomes: [outcome(original, 1), outcome(undo, 2)],
+    }),
+  });
+  const redo = updateLayerOperation({
+    clientOperationId: ids.operation3,
+    historyAction: "redo",
+    originalOperationId: ids.operation,
+  });
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(restarted, appendUpdate(restarted, redo), {
+      userId: ids.actor,
+      projectId: ids.project,
+      revisionId: ids.revision,
+      canWrite: true,
+    }),
+  );
 });
 
 test("clone validation accepts concurrent Y.Array appends in either Yjs order", () => {
@@ -1352,6 +1511,51 @@ test("poll reconciliation validates the complete batch before one atomic status 
     ]),
   );
   assert.equal(doc.getMap("operationStatus").size, 0);
+});
+
+test("poll reconciliation preserves exact accepted history lineage", async () => {
+  const { reconcileAcceptedDrawingOperations } = requireModules();
+  const doc = initializedDocument();
+  const original = updateLayerOperation();
+  Y.applyUpdate(doc, appendUpdate(doc, original));
+  const undo = updateLayerOperation({
+    clientOperationId: ids.operation2,
+    historyAction: "undo",
+    originalOperationId: ids.operation,
+  });
+  Y.applyUpdate(doc, appendUpdate(doc, undo));
+  const accepted = (envelope, sequence) => ({
+    revisionId: ids.revision,
+    clientOperationId: envelope.clientOperationId,
+    actorId: envelope.actorId,
+    operationType: envelope.type,
+    baseVersions: envelope.baseVersions,
+    forward: envelope.forward,
+    inverse: envelope.inverse,
+    historyAction: envelope.historyAction ?? null,
+    originalOperationId: envelope.originalOperationId ?? null,
+    sequence,
+    resultVersions: {},
+  });
+  await reconcileAcceptedDrawingOperations(doc, async () => [
+    accepted(original, 1),
+    accepted(undo, 2),
+  ]);
+  assert.equal(
+    doc.getMap("operationStatus").get(ids.operation2).status,
+    "acked",
+  );
+
+  const mismatch = initializedDocument();
+  Y.applyUpdate(mismatch, appendUpdate(mismatch, original));
+  Y.applyUpdate(mismatch, appendUpdate(mismatch, undo));
+  await assert.rejects(() =>
+    reconcileAcceptedDrawingOperations(mismatch, async () => [
+      accepted(original, 1),
+      { ...accepted(undo, 2), historyAction: "redo" },
+    ]),
+  );
+  assert.equal(mismatch.getMap("operationStatus").size, 0);
 });
 
 test("signed outcomes persist before 204 semantics, survive an unloaded room, and replay idempotently", async () => {

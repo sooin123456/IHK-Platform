@@ -780,6 +780,9 @@ export default function LocalDrawingWorkspacePreview({
   const [viewer, setViewer] = useState(false);
   const [localResources, setLocalResources] = useState(0);
   const [providers, setProviders] = useState(0);
+  const [retryLifecycle, setRetryLifecycle] = useState("starting");
+  const [localSyncs, setLocalSyncs] = useState(0);
+  const [providerFailures, setProviderFailures] = useState(0);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
@@ -810,7 +813,12 @@ export default function LocalDrawingWorkspacePreview({
           return disposed;
         },
         async whenSynced() {
-          if (number === 1) throw new Error("preview IndexedDB open failed");
+          if (number === 1) {
+            setRetryLifecycle("local-failed");
+            throw new Error("preview IndexedDB open failed");
+          }
+          setLocalSyncs((count) => count + 1);
+          setRetryLifecycle("local-ready");
         },
         async flush() {},
         async dispose() {
@@ -831,10 +839,15 @@ export default function LocalDrawingWorkspacePreview({
       }) => {
         const number = ++providerAttempts.current;
         onPhase?.("connecting");
-        if (number === 1) throw new Error("preview provider creation failed");
+        if (number === 1) {
+          setProviderFailures((count) => count + 1);
+          setRetryLifecycle("provider-failed");
+          throw new Error("preview provider creation failed");
+        }
         let disposed = false;
         setProviders((count) => count + 1);
         onPhase?.("connected");
+        setRetryLifecycle("connected");
         return {
           phase: "connected" as const,
           flush() {},
@@ -917,6 +930,11 @@ export default function LocalDrawingWorkspacePreview({
       ) : null}
       {loaderData.collaborationRetryTest ? (
         <aside className="fixed bottom-3 left-3 z-50 rounded-md bg-slate-950 p-2 text-xs text-white">
+          <output aria-label="협업 재시도 상태">{retryLifecycle}</output>
+          <output aria-label="협업 로컬 동기화 횟수">{localSyncs}</output>
+          <output aria-label="협업 provider 실패 횟수">
+            {providerFailures}
+          </output>
           <output aria-label="협업 로컬 리소스 수">{localResources}</output>
           <output aria-label="협업 provider 수">{providers}</output>
         </aside>

@@ -59,6 +59,18 @@
 - Preview readiness no longer uses an animation-frame shortcut. Its injected
   Realtime adapter exposes a one-shot ready promise and subscribed state that
   advance only from the actual `subscribe` boundary.
+- History lineage is now an authoritative database/service contract, not only a
+  client envelope. A forward migration stores the paired nullable
+  `history_action`/`original_operation_id`, constrains the original to the same
+  revision, compares lineage during RPC idempotency, and returns it from lookup
+  and bootstrap contracts.
+- Service ingress and full-room validation rebuild a deterministic per-actor
+  history stack. Missing, foreign-actor, non-head, repeated, and wrong-direction
+  undo/redo contributions are rejected before persistence; valid actor history
+  survives polling, receipt loss, process restart, and remote interleaving.
+- Test readiness has no timer shortcut. The shell now waits for independently
+  observable persistence sync and provider subscription/failure signals, while
+  explicit Vite dependency prebundling makes an empty-cache server deterministic.
 
 ## TDD evidence
 
@@ -98,22 +110,32 @@
 - Review RED: the animation-frame preview barrier could report ready without a
   Realtime subscription and still timed out cold. Readiness is now emitted by
   the injected adapter's real subscription boundary.
+- Re-review RED: service ingress accepted missing, foreign, repeated, and
+  wrong-direction history lineage because only clients reconstructed the stack.
+  End-to-end service tests now exercise those mutations plus remote-actor
+  interleaving and valid undo/redo.
+- Re-review RED: the operation ledger and RPC discarded history lineage, so the
+  same durable ID could be retried with a different lineage and a detached
+  service could not authorize redo after restart. PGlite runtime tests now prove
+  exact retry, mismatched-lineage rejection, lookup/bootstrap preservation, and
+  restart reconstruction.
 
 ### GREEN
 
-- Focused protocol/outbox/Yjs command: 92 passed, 0 failed; focused service and
-  server collaboration command: 44 passed, 0 failed.
-- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 556 passed,
-  0 failed, 1 existing explicitly skipped gate (557 total).
+- Focused service and database runtime: 128 passed, 0 failed, including 97
+  PGlite database/runtime cases and 31 service cases.
+- Full `node --test --test-reporter=tap tests/drawing-*.test.mjs`: 562 passed,
+  0 failed, 1 existing explicitly skipped gate (563 total).
 - Fresh-server hydrated Chromium workspace shell: 8 passed, 0 failed. This
   includes same-revision local edit preservation, user-key reset, downgrade to
   viewer with a retained provider, transactional stale-row freeze, deterministic
   resource retry, visible collaboration status, and zero preview
   Supabase/collaboration requests. The formerly flaky readiness case passed
-  three consecutive full-suite repetitions and a fresh-server full run.
+  repeated warm runs and a final empty-Vite-cache fresh-server run.
 - Real Chromium `y-indexeddb` recovery: 3 passed, 0 failed, including 100 offline
   operations, frozen recovery, and two-browser-realm same-ID deduplication.
 - `npm run typecheck`: passed.
+- `npm run typecheck:collaboration`: passed.
 - `npm run build`: passed. Vite reported only its existing large-chunk and future
   React Router warnings.
 - `git diff --check`: passed.
@@ -131,12 +153,18 @@
 - `platform/app/lukas/screens/drawing-workspace.tsx`
 - `platform/app/lukas/screens/local-drawing-workspace-preview.tsx`
 - `platform/collaboration/src/server.ts`
+- `platform/collaboration/src/storage.ts`
 - `platform/e2e/drawing-workspace-shell.spec.ts`
+- `platform/supabase/migrations/20260825234510_drawing_collaboration_history_lineage.sql`
 - `platform/tests/drawing-collaboration-service.test.mjs`
 - `platform/tests/drawing-collaboration-protocol.test.mjs`
 - `platform/tests/drawing-workspace-collaboration.test.mjs`
+- `platform/tests/drawing-workspace-database-runtime.test.mjs`
+- `platform/tests/drawing-workspace-p3-database-contract.test.mjs`
 - `platform/tests/drawing-workspace-route.test.mjs`
+- `platform/tests/drawing-workspace-server.test.mjs`
 - `platform/tests/drawing-yjs-draft.test.mjs`
+- `platform/vite.config.ts`
 
 ## Unexecuted deployment gates
 
@@ -153,3 +181,4 @@
 - `feat: integrate collaborative drawing commands`
 - Review hardening follow-up: `fix: harden collaborative drawing integration`
 - Re-review follow-up: `fix: persist collaborative drawing history`
+- Authoritative lineage follow-up: `fix: enforce authoritative collaboration history`

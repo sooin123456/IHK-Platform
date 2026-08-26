@@ -164,12 +164,18 @@ test("document cleanup still runs when persistence disposal itself fails", async
     openDrawingCollaborationLocalAttempt({
       createDocument() {
         documents++;
-        return { destroy() { documents--; } };
+        return {
+          destroy() {
+            documents--;
+          },
+        };
       },
       async openPersistence() {
         return {
           async whenSynced() {},
-          async dispose() { throw new Error("persistence close failed"); },
+          async dispose() {
+            throw new Error("persistence close failed");
+          },
         };
       },
       createAdapter() {
@@ -381,6 +387,50 @@ test("workspace collaboration bootstrap is one authenticated transactional RPC",
   ]);
   assert.equal(bootstrap.operationSequence, 7);
   assert.equal(bootstrap.canonicalJson.revision.id, ids.revision);
+});
+
+test("lost-receipt bootstrap reconstructs exact persisted undo lineage", async () => {
+  let repaired;
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    adapter: {
+      operations: () => [],
+      preparePersistedLocal(value) {
+        repaired = value;
+        return { operation: value, state: { revisionId: ids.revision } };
+      },
+      appendDurableLocal() {
+        return true;
+      },
+    },
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue() {},
+      async markAcked() {},
+    },
+    recentOutcomes: [
+      {
+        revisionId: ids.revision,
+        clientOperationId: ids.operation,
+        actorId: ids.user,
+        operationType: operation.type,
+        baseVersions: operation.baseVersions,
+        forward: operation.forward,
+        inverse: operation.inverse,
+        historyAction: "undo",
+        originalOperationId: "00000000-0000-4000-8000-000000000099",
+        sequence: 7,
+        resultVersions: {},
+      },
+    ],
+  });
+  assert.equal(repaired.historyAction, "undo");
+  assert.equal(
+    repaired.originalOperationId,
+    "00000000-0000-4000-8000-000000000099",
+  );
 });
 
 test("React server signs one idempotent collaboration outcome receipt", async () => {

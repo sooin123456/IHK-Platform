@@ -23,13 +23,32 @@ const serviceAuthorityMigration = await readFile(
   ),
   "utf8",
 );
+const historyLineageMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260825234510_drawing_collaboration_history_lineage.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
-  assert.match(migration, /create role lukas_drawing_collaboration\s+noinherit\s+nologin/i);
-  assert.match(migration, /create table private\.lukas_drawing_collaboration_states/i);
-  assert.match(migration, /foreign key \(revision_id,project_id\)[\s\S]*references public\.lukas_drawing_revisions\(id,project_id\)/i);
+  assert.match(
+    migration,
+    /create role lukas_drawing_collaboration\s+noinherit\s+nologin/i,
+  );
+  assert.match(
+    migration,
+    /create table private\.lukas_drawing_collaboration_states/i,
+  );
+  assert.match(
+    migration,
+    /foreign key \(revision_id,project_id\)[\s\S]*references public\.lukas_drawing_revisions\(id,project_id\)/i,
+  );
   assert.match(migration, /octet_length\(yjs_state\) between 1 and 8388608/i);
-  assert.match(migration, /encode\(extensions\.digest\(yjs_state,'sha256'\),'hex'\)/i);
+  assert.match(
+    migration,
+    /encode\(extensions\.digest\(yjs_state,'sha256'\),'hex'\)/i,
+  );
 
   for (const signature of [
     "lukas_drawing_collaboration_authorize",
@@ -38,7 +57,10 @@ test("P3 collaboration migration exposes only the bounded service contracts", ()
     "lukas_drawing_collaboration_lookup_operations",
     "lukas_drawing_collaboration_bootstrap",
   ]) {
-    assert.match(migration, new RegExp(`function (?:public\\.|private\\.)${signature}\\s*\\(`, "i"));
+    assert.match(
+      migration,
+      new RegExp(`function (?:public\\.|private\\.)${signature}\\s*\\(`, "i"),
+    );
   }
   assert.match(
     migration,
@@ -49,8 +71,14 @@ test("P3 collaboration migration exposes only the bounded service contracts", ()
     /function public\.lukas_drawing_collaboration_bootstrap\([\s\S]*?\) returns jsonb language plpgsql stable security definer set search_path=''/i,
   );
 
-  assert.doesNotMatch(migration, /(?:create|alter|drop)\s+(?:table|function|schema|policy)[\s\S]{0,80}\brealtime\./i);
-  assert.doesNotMatch(migration, /freeze_request|manifest_digest|\bpassword\b|\blogin\b/i);
+  assert.doesNotMatch(
+    migration,
+    /(?:create|alter|drop)\s+(?:table|function|schema|policy)[\s\S]{0,80}\brealtime\./i,
+  );
+  assert.doesNotMatch(
+    migration,
+    /freeze_request|manifest_digest|\bpassword\b|\blogin\b/i,
+  );
 });
 
 test("P3 collaboration private grants exclude every Data API role", () => {
@@ -84,7 +112,10 @@ test("P3 collaboration publication changes are idempotent application-table addi
   ]) {
     assert.match(
       migration,
-      new RegExp(`alter publication supabase_realtime add table public\\.${table}`, "i"),
+      new RegExp(
+        `alter publication supabase_realtime add table public\\.${table}`,
+        "i",
+      ),
     );
   }
   assert.match(migration, /from pg_catalog\.pg_publication_tables/i);
@@ -124,8 +155,14 @@ test("P3 collaboration service authority is room-bound and excludes Data API rol
     /where r\.id=p_revision_id and r\.project_id=p_project_id for update/i,
   );
   assert.match(serviceAuthorityMigration, /v_status<>'draft'/i);
-  assert.match(serviceAuthorityMigration, /p_expected_generation[\s\S]*store_generation/i);
-  assert.match(serviceAuthorityMigration, /p_expected_sha256[\s\S]*yjs_sha256/i);
+  assert.match(
+    serviceAuthorityMigration,
+    /p_expected_generation[\s\S]*store_generation/i,
+  );
+  assert.match(
+    serviceAuthorityMigration,
+    /p_expected_sha256[\s\S]*yjs_sha256/i,
+  );
   assert.match(
     serviceAuthorityMigration,
     /revoke all on function private\.lukas_drawing_collaboration_service_[\s\S]*from public,anon,authenticated,service_role/i,
@@ -135,4 +172,37 @@ test("P3 collaboration service authority is room-bound and excludes Data API rol
     /grant execute on function private\.lukas_drawing_collaboration_service_[\s\S]*to lukas_drawing_collaboration/i,
   );
   assert.doesNotMatch(serviceAuthorityMigration, /p_user_id|auth\.uid\(\)/i);
+});
+
+test("collaboration history forward migration persists and compares exact lineage", () => {
+  assert.match(historyLineageMigration, /add column history_action text/i);
+  assert.match(
+    historyLineageMigration,
+    /add column original_operation_id uuid/i,
+  );
+  assert.match(
+    historyLineageMigration,
+    /foreign key\(revision_id,original_operation_id\)[\s\S]*references public\.lukas_drawing_operations\(revision_id,client_operation_id\)/i,
+  );
+  assert.match(
+    historyLineageMigration,
+    /v_existing\.history_action is distinct from p_history_action/i,
+  );
+  assert.match(
+    historyLineageMigration,
+    /v_existing\.original_operation_id is distinct from p_original_operation_id/i,
+  );
+  assert.match(
+    historyLineageMigration,
+    /lukas_drawing_collaboration_lookup_operations[\s\S]*history_action text[\s\S]*original_operation_id uuid/i,
+  );
+  assert.match(historyLineageMigration, /'historyAction',o\.history_action/i);
+  assert.match(
+    historyLineageMigration,
+    /'originalOperationId',o\.original_operation_id/i,
+  );
+  assert.doesNotMatch(
+    historyLineageMigration,
+    /alter migration|update auth\./i,
+  );
 });

@@ -22,6 +22,34 @@ export default defineConfig((config) => {
     plugins = [...plugins, sentryReactRouter(sentryConfig, config)];
   }
   return {
+    optimizeDeps: {
+      include: [
+        "@hocuspocus/provider",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-slot",
+        "@sentry/react-router",
+        "@supabase/ssr",
+        "class-variance-authority",
+        "clsx",
+        "i18next",
+        "i18next-browser-languagedetector",
+        "lucide-react",
+        "nprogress",
+        "pdf-lib",
+        "pdfjs-dist",
+        "react-i18next",
+        "react-konva",
+        "remix-i18next/client",
+        "remix-i18next/react",
+        "remix-i18next/server",
+        "remix-themes",
+        "sonner",
+        "tailwind-merge",
+        "y-indexeddb",
+        "yjs",
+        "zod",
+      ],
+    },
     server: {
       allowedHosts: true,
       watch: {

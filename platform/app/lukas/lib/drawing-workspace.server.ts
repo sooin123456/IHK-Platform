@@ -216,6 +216,8 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_base_versions: Json;
         p_forward: Json;
         p_inverse: Json;
+        p_history_action: "undo" | "redo" | null;
+        p_original_operation_id: string | null;
       }>;
       lukas_drawing_create_from_template: DrawingRpc<{
         p_source_revision_id: string;
@@ -755,10 +757,19 @@ const CollaborationRecentOutcomeSchema = z
     baseVersions: z.record(Uuid, z.number().int().positive()),
     forward: z.record(z.string(), z.unknown()),
     inverse: z.record(z.string(), z.unknown()),
+    originalOperationId: Uuid.optional(),
+    historyAction: z.enum(["undo", "redo"]).optional(),
     sequence: z.number().int().positive(),
     resultVersions: z.record(Uuid, z.number().int().positive()),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (Boolean(value.originalOperationId) !== Boolean(value.historyAction))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Drawing collaboration history outcome is incomplete.",
+      });
+  });
 
 const DrawingWorkspaceCollaborationBootstrapSchema = z
   .object({
@@ -2160,6 +2171,8 @@ export async function applyDrawingOperation(
     p_base_versions: operation.baseVersions as Json,
     p_forward: operation.forward as Json,
     p_inverse: operation.inverse as Json,
+    p_history_action: operation.historyAction ?? null,
+    p_original_operation_id: operation.originalOperationId ?? null,
   });
   const result = z
     .object({

@@ -167,7 +167,13 @@ const p2LineageSnapshotWriterMigration = () =>
     "utf8",
   );
 const p2TemplateCloneSecurityMigration = () =>
-  readFile(new URL("../supabase/migrations/20260825190000_drawing_workspace_template_clone_security.sql", import.meta.url), "utf8");
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825190000_drawing_workspace_template_clone_security.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const p3CollaborationStateMigration = () =>
   readFile(
     new URL(
@@ -196,6 +202,22 @@ const task9ContractFixesMigration = () =>
   readFile(
     new URL(
       "../supabase/migrations/20260825210000_drawing_workspace_task9_contract_fixes.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const p3ServiceAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825210528_drawing_workspace_p3_collaboration_service_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const collaborationHistoryLineageMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260825234510_drawing_collaboration_history_lineage.sql",
       import.meta.url,
     ),
     "utf8",
@@ -520,6 +542,8 @@ before(async () => {
   await db.exec(await p3CollaborationStateFenceMigration());
   await db.exec(await p2TemplateCloneFinalLedgerMigration());
   await db.exec(await task9ContractFixesMigration());
+  await db.exec(await p3ServiceAuthorityMigration());
+  await db.exec(await collaborationHistoryLineageMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -624,6 +648,108 @@ test("P3 collaboration bootstrap is one canonical capability-scoped payload", as
   await db.exec("reset role");
 });
 
+test("collaboration history lineage is authoritative across RPC retry, lookup, and bootstrap", async () => {
+  const ids = await createDocument("P3 history lineage");
+  const layerResult = await db.query(
+    "select id,name,version from public.lukas_drawing_layers where revision_id=$1 and system_kind='work' limit 1",
+    [ids.revisionId],
+  );
+  const layer = layerResult.rows[0];
+  const originalId = randomUUID();
+  const undoId = randomUUID();
+  const apply = (
+    operationId,
+    baseVersion,
+    name,
+    inverseName,
+    action,
+    original,
+  ) =>
+    db.query(
+      "select public.lukas_drawing_apply_operation($1,$2,'update_layer',$3::jsonb,$4::jsonb,$5::jsonb,$6::text,$7::uuid) result",
+      [
+        ids.revisionId,
+        operationId,
+        JSON.stringify({ [layer.id]: baseVersion }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name },
+        }),
+        JSON.stringify({
+          type: "update_layer",
+          layerId: layer.id,
+          patch: { name: inverseName },
+        }),
+        action,
+        original,
+      ],
+    );
+  await apply(
+    originalId,
+    Number(layer.version),
+    "History edited",
+    layer.name,
+    null,
+    null,
+  );
+  await apply(
+    undoId,
+    Number(layer.version) + 1,
+    layer.name,
+    "History edited",
+    "undo",
+    originalId,
+  );
+  const exactRetry = await apply(
+    undoId,
+    Number(layer.version) + 1,
+    layer.name,
+    "History edited",
+    "undo",
+    originalId,
+  );
+  assert.equal(exactRetry.rows[0].result.sequence, 2);
+  await assert.rejects(
+    apply(
+      undoId,
+      Number(layer.version) + 1,
+      layer.name,
+      "History edited",
+      "redo",
+      originalId,
+    ),
+    (error) => error.code === "P1C01",
+  );
+
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  const lookup = await db.query(
+    "select * from private.lukas_drawing_collaboration_lookup_operations($1,$2)",
+    [ids.revisionId, [undoId]],
+  );
+  assert.equal(lookup.rows[0].history_action, "undo");
+  assert.equal(lookup.rows[0].original_operation_id, originalId);
+  const bootstrap = await db.query(
+    "select private.lukas_drawing_collaboration_bootstrap($1,$2,$3) result",
+    [OWNER, PROJECT, ids.revisionId],
+  );
+  const outcome = bootstrap.rows[0].result.recentOutcomes.find(
+    (value) => value.clientOperationId === undoId,
+  );
+  assert.equal(outcome.historyAction, "undo");
+  assert.equal(outcome.originalOperationId, originalId);
+  const serviceBootstrap = await db.query(
+    "select private.lukas_drawing_collaboration_service_bootstrap($1,$2) result",
+    [PROJECT, ids.revisionId],
+  );
+  const serviceOutcome = serviceBootstrap.rows[0].result.historyOutcomes.find(
+    (value) => value.clientOperationId === undoId,
+  );
+  assert.equal(serviceOutcome.historyAction, "undo");
+  assert.equal(serviceOutcome.originalOperationId, originalId);
+  await db.exec("reset role");
+});
+
 test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, and draft-only", async () => {
   const ids = await createDocument("P3 state");
   const firstBytes = Buffer.from([0, 1, 2, 3]);
@@ -721,7 +847,14 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   await assert.rejects(
     db.query(
       "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
-      [REVIEWER, PROJECT, ids.revisionId, Buffer.from([9]), editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
+      [
+        REVIEWER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([9]),
+        editorStore.rows[0].store_generation,
+        editorStore.rows[0].yjs_sha256,
+      ],
     ),
     (error) => error.code === "P3A02",
   );
@@ -733,7 +866,16 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     await assert.rejects(
       db.query(
         "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,$4::smallint,$5::bytea,$6::bigint,$7::bigint,$8)",
-        [OWNER, PROJECT, ids.revisionId, schema, bytes, sequence, editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
+        [
+          OWNER,
+          PROJECT,
+          ids.revisionId,
+          schema,
+          bytes,
+          sequence,
+          editorStore.rows[0].store_generation,
+          editorStore.rows[0].yjs_sha256,
+        ],
       ),
       (error) => error.code === "P3S01",
     );
@@ -765,7 +907,14 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   await db.exec("reset role; set role lukas_drawing_collaboration");
   const advanced = await db.query(
     "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
-    [OWNER, PROJECT, ids.revisionId, Buffer.from([4, 5]), editorStore.rows[0].store_generation, editorStore.rows[0].yjs_sha256],
+    [
+      OWNER,
+      PROJECT,
+      ids.revisionId,
+      Buffer.from([4, 5]),
+      editorStore.rows[0].store_generation,
+      editorStore.rows[0].yjs_sha256,
+    ],
   );
   assert.equal(advanced.rows[0].store_generation, 3);
   const current = await db.query(
@@ -775,7 +924,14 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
   await assert.rejects(
     db.query(
       "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,$5::bigint,$6)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([6]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([6]),
+        current.rows[0].store_generation,
+        current.rows[0].yjs_sha256,
+      ],
     ),
     (error) => error.code === "P3S02",
   );
@@ -793,6 +949,8 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     "base_versions",
     "forward",
     "inverse",
+    "history_action",
+    "original_operation_id",
     "sequence",
     "result_versions",
   ]);
@@ -844,31 +1002,56 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     "select public.lukas_drawing_collaboration_bootstrap($1) result",
     [ids.revisionId],
   );
-  assert.deepEqual(publicAtSequenceOne.rows[0].result, bootstrap.rows[0].result);
+  assert.deepEqual(
+    publicAtSequenceOne.rows[0].result,
+    bootstrap.rows[0].result,
+  );
 
-  await db.exec("reset role; alter table public.lukas_drawing_revisions disable trigger user");
+  await db.exec(
+    "reset role; alter table public.lukas_drawing_revisions disable trigger user",
+  );
   await db.query(
     "update public.lukas_drawing_revisions set status='review_requested',review_requested_at=now() where id=$1",
     [ids.revisionId],
   );
-  await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
+  await db.exec(
+    "alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration",
+  );
   await assert.rejects(
     db.query(
       "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([7]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([7]),
+        current.rows[0].store_generation,
+        current.rows[0].yjs_sha256,
+      ],
     ),
     (error) => error.code === "P3A02",
   );
-  await db.exec("reset role; alter table public.lukas_drawing_revisions disable trigger user");
+  await db.exec(
+    "reset role; alter table public.lukas_drawing_revisions disable trigger user",
+  );
   await db.query(
     "update public.lukas_drawing_revisions set status='approved',approved_at=now() where id=$1",
     [ids.revisionId],
   );
-  await db.exec("alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration");
+  await db.exec(
+    "alter table public.lukas_drawing_revisions enable trigger user; set role lukas_drawing_collaboration",
+  );
   await assert.rejects(
     db.query(
       "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,1::bigint,$5::bigint,$6)",
-      [OWNER, PROJECT, ids.revisionId, Buffer.from([8]), current.rows[0].store_generation, current.rows[0].yjs_sha256],
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([8]),
+        current.rows[0].store_generation,
+        current.rows[0].yjs_sha256,
+      ],
     ),
     (error) => error.code === "P3A02",
   );
@@ -907,13 +1090,15 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
     "private.lukas_drawing_collaboration_bootstrap(uuid,uuid,uuid)",
   ];
   for (const signature of privateSignatures) {
-    const grants = await db.query(`select
+    const grants = await db.query(
+      `select
       has_function_privilege('public',$1,'execute') public_execute,
       has_function_privilege('anon',$1,'execute') anon_execute,
       has_function_privilege('authenticated',$1,'execute') authenticated_execute,
       has_function_privilege('service_role',$1,'execute') service_execute,
       has_function_privilege('lukas_drawing_collaboration',$1,'execute') collaboration_execute`,
-    [signature]);
+      [signature],
+    );
     assert.deepEqual(grants.rows[0], {
       public_execute: false,
       anon_execute: false,
@@ -1663,7 +1848,12 @@ test("task 9 table identity preflight fails closed on legacy duplicate JSON befo
         PROJECT,
         [
           { id: duplicateId, name: "A", kind: "text", propertySchemaId: null },
-          { id: duplicateId, name: "B", kind: "number", propertySchemaId: null },
+          {
+            id: duplicateId,
+            name: "B",
+            kind: "number",
+            propertySchemaId: null,
+          },
         ],
         OWNER,
       ],
@@ -1671,7 +1861,8 @@ test("task 9 table identity preflight fails closed on legacy duplicate JSON befo
     await assert.rejects(
       upgradeDb.exec(await task9ContractFixesMigration()),
       (error) =>
-        error.code === "P1C01" && /duplicate.*before upgrade/i.test(error.message),
+        error.code === "P1C01" &&
+        /duplicate.*before upgrade/i.test(error.message),
     );
   } finally {
     await upgradeDb.close();
@@ -2658,11 +2849,14 @@ test("block helper persists atomic selection conversion through outbox, RPC, und
     revisionId: ids.revisionId,
     name: "Objects",
     columns: [
-      { id: columnId, name: "Name", kind: "object_name", propertySchemaId: null },
+      {
+        id: columnId,
+        name: "Name",
+        kind: "object_name",
+        propertySchemaId: null,
+      },
     ],
-    rows: [
-      { id: rowId, objectId: firstId, blockInstanceId: null, cells: {} },
-    ],
+    rows: [{ id: rowId, objectId: firstId, blockInstanceId: null, cells: {} }],
     version: 1,
   };
   await apply({
@@ -4674,7 +4868,10 @@ test("P2 mutate_structure is strict, atomic, conflict-safe, and exactly idempote
 
 test("reference-aware object deletion is one idempotent RPC transaction with exact undo and redo", async () => {
   const ids = await createDocument();
-  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
   const schema = {
     id: randomUUID(),
     revisionId: ids.revisionId,
@@ -4881,11 +5078,16 @@ test("reference-aware object deletion is one idempotent RPC transaction with exa
     "update_layer",
     { [ids.workLayerId]: 1 },
     { type: "update_layer", layerId: ids.workLayerId, patch: { locked: true } },
-    { type: "update_layer", layerId: ids.workLayerId, patch: { locked: false } },
+    {
+      type: "update_layer",
+      layerId: ids.workLayerId,
+      patch: { locked: false },
+    },
   );
   await assert.rejects(
     persist(lockedDelete),
-    (error) => error.code === "P1C01" && /snapshot|layer|cleanup/i.test(error.message),
+    (error) =>
+      error.code === "P1C01" && /snapshot|layer|cleanup/i.test(error.message),
   );
   await db.exec("reset role");
   const lockedUnchanged = await db.query(
@@ -4986,7 +5188,10 @@ test("reference-aware restore rejects every noncanonical object field and preser
       "geometry",
       (snapshot) => ({
         ...snapshot,
-        geometry: { ...snapshot.geometry, radius: snapshot.geometry.radius + 1 },
+        geometry: {
+          ...snapshot.geometry,
+          radius: snapshot.geometry.radius + 1,
+        },
       }),
     ],
     [
@@ -5010,7 +5215,10 @@ test("reference-aware restore rejects every noncanonical object field and preser
       (snapshot) => ({ ...snapshot, projectId: randomUUID() }),
     ],
     ["page identity", (snapshot) => ({ ...snapshot, pageId: randomUUID() })],
-    ["creator identity", (snapshot) => ({ ...snapshot, createdBy: randomUUID() })],
+    [
+      "creator identity",
+      (snapshot) => ({ ...snapshot, createdBy: randomUUID() }),
+    ],
   ];
   for (const [name, mutate] of mutations) {
     const forgedObject = mutate(restored.operation.forward.objects[0]);
@@ -5034,9 +5242,11 @@ test("reference-aware restore rejects every noncanonical object field and preser
        from public.lukas_drawing_objects where id=$1`,
       [object.id, clientOperationId],
     );
-    assert.deepEqual(unchanged.rows, [
-      { ...tombstone.rows[0], operation_count: 0 },
-    ], name);
+    assert.deepEqual(
+      unchanged.rows,
+      [{ ...tombstone.rows[0], operation_count: 0 }],
+      name,
+    );
   }
 
   const first = await persist(restored);
@@ -5087,11 +5297,15 @@ test("table SQL and RPC boundaries reject duplicate identity and incompatible pr
     {},
     {
       type: "mutate_structure",
-      actions: [{ kind: "put_property_schema", entity: schema, baseVersion: null }],
+      actions: [
+        { kind: "put_property_schema", entity: schema, baseVersion: null },
+      ],
     },
     {
       type: "mutate_structure",
-      actions: [{ kind: "delete_property_schema", id: schema.id, baseVersion: 1 }],
+      actions: [
+        { kind: "delete_property_schema", id: schema.id, baseVersion: 1 },
+      ],
     },
   );
   const duplicateColumnId = randomUUID();
@@ -5115,8 +5329,18 @@ test("table SQL and RPC boundaries reject duplicate identity and incompatible pr
       },
     ],
     rows: [
-      { id: duplicateRowId, objectId: circle.id, blockInstanceId: null, cells: {} },
-      { id: duplicateRowId, objectId: rectangle.id, blockInstanceId: null, cells: {} },
+      {
+        id: duplicateRowId,
+        objectId: circle.id,
+        blockInstanceId: null,
+        cells: {},
+      },
+      {
+        id: duplicateRowId,
+        objectId: rectangle.id,
+        blockInstanceId: null,
+        cells: {},
+      },
     ],
     version: 1,
   };
@@ -5127,11 +5351,15 @@ test("table SQL and RPC boundaries reject duplicate identity and incompatible pr
       {},
       {
         type: "mutate_structure",
-        actions: [{ kind: "put_table", entity: invalidTable, baseVersion: null }],
+        actions: [
+          { kind: "put_table", entity: invalidTable, baseVersion: null },
+        ],
       },
       {
         type: "mutate_structure",
-        actions: [{ kind: "delete_table", id: invalidTable.id, baseVersion: 1 }],
+        actions: [
+          { kind: "delete_table", id: invalidTable.id, baseVersion: 1 },
+        ],
       },
     ),
     (error) =>
@@ -7077,9 +7305,7 @@ test("cloned block-instance lineage survives delete and undo while forged action
         {},
         {
           type: "mutate_structure",
-          actions: [
-            { kind: "put_block_instance", entity, baseVersion: null },
-          ],
+          actions: [{ kind: "put_block_instance", entity, baseVersion: null }],
         },
         {
           type: "mutate_structure",
@@ -7138,7 +7364,9 @@ test("cloned block-instance lineage survives delete and undo while forged action
      from public.lukas_drawing_block_instances where id=$1`,
     [instance.id],
   );
-  assert.deepEqual(restored.rows, [{ lineageId: instance.lineageId, version: 3 }]);
+  assert.deepEqual(restored.rows, [
+    { lineageId: instance.lineageId, version: 3 },
+  ]);
 
   await asActor(OWNER);
   const mismatchedClientOperationId = randomUUID();
@@ -7193,17 +7421,33 @@ test("template clone request IDs return one destination and bind their payload",
   await asActor(REVIEWER);
   await db.query(
     "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','template')",
-    [source.revisionId, review.rows[0].result.subjectVersion, review.rows[0].result.snapshotSha256],
+    [
+      source.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
   );
   await asActor(OWNER);
   const requestId = randomUUID();
   const results = await Promise.all([
-    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3) result", [source.revisionId, "Retry clone", requestId]),
-    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3) result", [source.revisionId, "Retry clone", requestId]),
+    db.query(
+      "select public.lukas_drawing_create_from_template($1,$2,null,$3) result",
+      [source.revisionId, "Retry clone", requestId],
+    ),
+    db.query(
+      "select public.lukas_drawing_create_from_template($1,$2,null,$3) result",
+      [source.revisionId, "Retry clone", requestId],
+    ),
   ]);
-  assert.equal(results[0].rows[0].result.documentId, results[1].rows[0].result.documentId);
+  assert.equal(
+    results[0].rows[0].result.documentId,
+    results[1].rows[0].result.documentId,
+  );
   await assert.rejects(
-    db.query("select public.lukas_drawing_create_from_template($1,$2,null,$3)", [source.revisionId, "Different title", requestId]),
+    db.query(
+      "select public.lukas_drawing_create_from_template($1,$2,null,$3)",
+      [source.revisionId, "Different title", requestId],
+    ),
     (error) => error.code === "P1C01",
   );
   await db.exec("reset role");

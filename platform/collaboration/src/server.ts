@@ -17,6 +17,7 @@ import {
   DrawingCollaborationOperationSchema,
   DrawingCollaborationStatusSchema,
   parseDrawingRoomName,
+  type DrawingCollaborationOperation,
   validateDrawingCollaborationAppend,
 } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
 import {
@@ -107,6 +108,29 @@ const ReceiptSchema = z
       });
   });
 
+const BootstrapOutcomeSchema = z
+  .object({
+    revisionId: z.string().uuid(),
+    clientOperationId: z.string().uuid(),
+    actorId: z.string().uuid(),
+    operationType: z.string(),
+    baseVersions: z.record(z.string().uuid(), z.number().int().positive()),
+    forward: z.record(z.string(), z.unknown()),
+    inverse: z.record(z.string(), z.unknown()),
+    historyAction: z.enum(["undo", "redo"]).optional(),
+    originalOperationId: z.string().uuid().optional(),
+    sequence: z.number().int().positive(),
+    resultVersions: z.record(z.string().uuid(), z.number().int().positive()),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Boolean(value.historyAction) !== Boolean(value.originalOperationId))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Drawing bootstrap history lineage is incomplete.",
+      });
+  });
+
 function same(left: unknown, right: unknown): boolean {
   return isDeepStrictEqual(left, right);
 }
@@ -126,6 +150,44 @@ function ensureDrawingCollections(document: Y.Doc) {
   document.getMap("operationStatus");
 }
 
+function validateDrawingHistoryLedger(
+  operationOrder: string[],
+  operations: Record<string, DrawingCollaborationOperation>,
+) {
+  const undoByActor = new Map<string, string[]>();
+  const redoByActor = new Map<string, string[]>();
+  const actorByOperation = new Map<string, string>();
+  for (const operationId of operationOrder) {
+    const operation = operations[operationId];
+    const undo = undoByActor.get(operation.actorId) ?? [];
+    const redo = redoByActor.get(operation.actorId) ?? [];
+    if (operation.historyAction && operation.originalOperationId) {
+      if (
+        actorByOperation.get(operation.originalOperationId) !==
+        operation.actorId
+      )
+        throw new Error(
+          "Drawing history original must belong to the same actor.",
+        );
+      const source = operation.historyAction === "undo" ? undo : redo;
+      if (source.at(-1) !== operation.originalOperationId)
+        throw new Error(
+          "Drawing history transition does not match the actor stack.",
+        );
+      source.pop();
+      (operation.historyAction === "undo" ? redo : undo).push(
+        operation.originalOperationId,
+      );
+    } else if (operation.type !== "add_layer") {
+      undo.push(operationId);
+      redo.length = 0;
+    }
+    undoByActor.set(operation.actorId, undo);
+    redoByActor.set(operation.actorId, redo);
+    actorByOperation.set(operationId, operation.actorId);
+  }
+}
+
 function validateLedgerWithoutAppend(document: Y.Doc, roomName: string) {
   const names = [...document.share.keys()].sort();
   if (!same(names, DRAWING_COLLABORATION_COLLECTIONS))
@@ -139,6 +201,10 @@ function validateLedgerWithoutAppend(document: Y.Doc, roomName: string) {
     operationOrder: value.ledger.operationOrder,
     operations: value.ledger.operations,
   });
+  validateDrawingHistoryLedger(
+    value.ledger.operationOrder,
+    value.ledger.operations,
+  );
   for (const [operationId, status] of Object.entries(value.operationStatus)) {
     if (!(operationId in value.ledger.operations))
       throw new Error("Drawing status must reference an operation.");
@@ -179,9 +245,28 @@ export async function initializeDrawingCollaborationDocument(
     .object({
       sha256: z.string().regex(/^[0-9a-f]{64}$/),
       operationSequence: z.number().int().nonnegative(),
+      recentOutcomes: z.array(BootstrapOutcomeSchema).max(256).optional(),
+      historyOutcomes: z.array(BootstrapOutcomeSchema).max(10_000).optional(),
     })
     .passthrough()
     .parse(await input.bootstrap());
+  const outcomes = bootstrap.historyOutcomes ?? bootstrap.recentOutcomes ?? [];
+  if (
+    new Set(outcomes.map((outcome) => outcome.clientOperationId)).size !==
+      outcomes.length ||
+    new Set(outcomes.map((outcome) => outcome.sequence)).size !==
+      outcomes.length ||
+    outcomes.some(
+      (outcome, index) =>
+        index > 0 && outcomes[index - 1].sequence >= outcome.sequence,
+    ) ||
+    outcomes.some(
+      (outcome) =>
+        outcome.revisionId !== input.revisionId ||
+        outcome.sequence > bootstrap.operationSequence,
+    )
+  )
+    throw new Error("Drawing collaboration bootstrap outcomes are invalid.");
   document.transact(() => {
     const meta = document.getMap("serverMeta");
     for (const [key, value] of Object.entries({
@@ -197,7 +282,37 @@ export async function initializeDrawingCollaborationDocument(
     document.getArray("operationOrder");
     document.getArray("operations");
     document.getMap("operationStatus");
+    for (const outcome of outcomes) {
+      const operation = DrawingCollaborationOperationSchema.parse({
+        clientOperationId: outcome.clientOperationId,
+        revisionId: outcome.revisionId,
+        actorId: outcome.actorId,
+        schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+        type: outcome.operationType,
+        baseVersions: outcome.baseVersions,
+        forward: outcome.forward,
+        inverse: outcome.inverse,
+        createdAt: "1970-01-01T00:00:00.000Z",
+        ...(outcome.historyAction && outcome.originalOperationId
+          ? {
+              historyAction: outcome.historyAction,
+              originalOperationId: outcome.originalOperationId,
+            }
+          : {}),
+      });
+      appendDrawingCollaborationOperation(document, operation);
+      document.getMap("operationStatus").set(operation.clientOperationId, {
+        operationId: operation.clientOperationId,
+        status: "acked",
+        authoritativeSequence: outcome.sequence,
+        resultVersions: outcome.resultVersions,
+      });
+    }
   }, DRAWING_COLLABORATION_SERVER_ORIGIN);
+  validateLedgerWithoutAppend(
+    document,
+    `drawing:${input.projectId}:${input.revisionId}`,
+  );
   return document;
 }
 
@@ -348,6 +463,11 @@ function acceptedMatchesEnvelope(
     [accepted.baseVersions, envelope.baseVersions],
     [accepted.forward, envelope.forward],
     [accepted.inverse, envelope.inverse],
+    [accepted.historyAction ?? null, envelope.historyAction ?? null],
+    [
+      accepted.originalOperationId ?? null,
+      envelope.originalOperationId ?? null,
+    ],
   ];
   return comparisons.every(([database, client]) => same(database, client));
 }

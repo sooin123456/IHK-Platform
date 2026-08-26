@@ -27,6 +27,8 @@ export type DrawingCollaborationRecentOutcome = {
   baseVersions: DrawingOperationInput["baseVersions"];
   forward: DrawingOperationInput["forward"];
   inverse: DrawingOperationInput["inverse"];
+  originalOperationId?: string;
+  historyAction?: "undo" | "redo";
   sequence: number;
   resultVersions: Record<string, number>;
 };
@@ -282,6 +284,12 @@ function outcomeOperation(
     baseVersions: outcome.baseVersions,
     forward: outcome.forward,
     inverse: outcome.inverse,
+    ...(outcome.originalOperationId && outcome.historyAction
+      ? {
+          originalOperationId: outcome.originalOperationId,
+          historyAction: outcome.historyAction,
+        }
+      : {}),
     // Postgres intentionally does not compare client creation time. A repaired
     // accepted envelope uses the stable operation ID as its deterministic time.
     createdAt: "1970-01-01T00:00:00.000Z",

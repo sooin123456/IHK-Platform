@@ -29,6 +29,8 @@ export type DrawingAcceptedOperation = {
   baseVersions: Record<string, number>;
   forward: unknown;
   inverse: unknown;
+  historyAction: "undo" | "redo" | null;
+  originalOperationId: string | null;
   sequence: number;
   resultVersions: Record<string, number>;
 };
@@ -393,6 +395,8 @@ export function createPostgresDrawingCollaborationDatabase(
             base_versions: Record<string, number>;
             forward: unknown;
             inverse: unknown;
+            history_action: "undo" | "redo" | null;
+            original_operation_id: string | null;
             sequence: number;
             result_versions: Record<string, number>;
           }[]
@@ -405,6 +409,8 @@ export function createPostgresDrawingCollaborationDatabase(
           baseVersions: row.base_versions,
           forward: row.forward,
           inverse: row.inverse,
+          historyAction: row.history_action,
+          originalOperationId: row.original_operation_id,
           sequence: Number(row.sequence),
           resultVersions: row.result_versions,
         }));

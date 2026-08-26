@@ -1861,6 +1861,8 @@ test("operation RPC receives exact client operation fields and exposes conflicts
         p_base_versions: input.baseVersions,
         p_forward: input.forward,
         p_inverse: input.inverse,
+        p_history_action: null,
+        p_original_operation_id: null,
       },
     ],
   ]);
