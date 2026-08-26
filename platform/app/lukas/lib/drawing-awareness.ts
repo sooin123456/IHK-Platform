@@ -7,7 +7,10 @@ import type {
   DrawingCommand,
   DrawingRecordedOperation,
 } from "./drawing-commands.ts";
-import type { DrawingStructureAction } from "./drawing-workspace.types.ts";
+import {
+  DrawingOperationInputSchema,
+  type DrawingStructureAction,
+} from "./drawing-workspace.types.ts";
 
 const COLORS = [
   "#fbbf24",
@@ -324,12 +327,16 @@ function operationPayloadTargetIds(payload: unknown, allowEmpty: boolean) {
 }
 
 export function drawingRecordedOperationTargetIds(
-  operation: Pick<DrawingRecordedOperation, "forward" | "inverse">,
+  operation: DrawingRecordedOperation,
 ) {
-  const emptyInverseAllowed = operation.forward.type === "add_layer";
+  const parsed = DrawingOperationInputSchema.safeParse(operation);
+  if (!parsed.success) return invalidRecordedOperation();
+  const forward = parsed.data.forward as DrawingRecordedOperation["forward"];
+  const inverse = parsed.data.inverse as DrawingRecordedOperation["inverse"];
+  const emptyInverseAllowed = forward.type === "add_layer";
   const targets = new Set([
-    ...operationPayloadTargetIds(operation.forward, false),
-    ...operationPayloadTargetIds(operation.inverse, emptyInverseAllowed),
+    ...operationPayloadTargetIds(forward, false),
+    ...operationPayloadTargetIds(inverse, emptyInverseAllowed),
   ]);
   if (targets.size > DRAWING_COLLABORATION_LIMITS.maxActionItems * 2)
     return invalidRecordedOperation();
@@ -349,7 +356,7 @@ export function drawingCommandSoftLockConflict(
 }
 
 export function drawingRecordedOperationSoftLockConflict(
-  operation: Pick<DrawingRecordedOperation, "forward" | "inverse">,
+  operation: DrawingRecordedOperation,
   peers: DrawingAwarenessLockPeer[],
   now = Date.now(),
 ) {

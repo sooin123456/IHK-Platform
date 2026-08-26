@@ -25,6 +25,51 @@ function requireAwareness() {
   return awareness;
 }
 
+function recordedOperation(forward, inverse, overrides = {}) {
+  return {
+    clientOperationId: ids.lease,
+    revisionId: ids.me,
+    type: forward.type,
+    baseVersions: {},
+    forward,
+    inverse,
+    createdAt: "2026-08-26T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function drawingObject(id) {
+  return {
+    id,
+    name: "Object",
+    layerId: ids.canvas,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 10,
+      height: 10,
+      rotation: 0,
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+}
+
+function blockInstance(id) {
+  return {
+    id,
+    lineageId: ids.schema,
+    blockId: ids.page,
+    layerId: ids.canvas,
+    name: "Block",
+    origin: { x: 0, y: 0 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+}
+
 function peerState(overrides = {}) {
   const { drawingAwarenessColor } = requireAwareness();
   return {
@@ -286,8 +331,8 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
     drawingRecordedOperationTargetIds,
   } = requireAwareness();
   const peers = [{ ...peerState(), clientId: 2 }];
-  const propertyUndo = {
-    forward: {
+  const propertyUndo = recordedOperation(
+    {
       type: "mutate_structure",
       actions: [
         {
@@ -297,7 +342,7 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
         },
       ],
     },
-    inverse: {
+    {
       type: "mutate_structure",
       actions: [
         {
@@ -314,46 +359,50 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
         },
       ],
     },
-  };
+  );
   assert.deepEqual(drawingRecordedOperationTargetIds(propertyUndo), [
     ids.objectA,
   ]);
   assert.deepEqual(
-    drawingRecordedOperationTargetIds({
-      forward: {
-        type: "delete_objects",
-        objectIds: [ids.objectA],
-      },
-      inverse: {
-        type: "add_objects",
-        objects: [{ id: ids.objectA }],
-      },
-    }),
+    drawingRecordedOperationTargetIds(
+      recordedOperation(
+        {
+          type: "delete_objects",
+          objectIds: [ids.objectA],
+        },
+        {
+          type: "add_objects",
+          objects: [drawingObject(ids.objectA)],
+        },
+      ),
+    ),
     [ids.objectA],
   );
   assert.deepEqual(
-    drawingRecordedOperationTargetIds({
-      forward: {
-        type: "mutate_structure",
-        actions: [
-          {
-            kind: "delete_block_instance",
-            id: ids.blockInstance,
-            baseVersion: 1,
-          },
-        ],
-      },
-      inverse: {
-        type: "mutate_structure",
-        actions: [
-          {
-            kind: "put_block_instance",
-            entity: { id: ids.blockInstance },
-            baseVersion: 2,
-          },
-        ],
-      },
-    }),
+    drawingRecordedOperationTargetIds(
+      recordedOperation(
+        {
+          type: "mutate_structure",
+          actions: [
+            {
+              kind: "delete_block_instance",
+              id: ids.blockInstance,
+              baseVersion: 1,
+            },
+          ],
+        },
+        {
+          type: "mutate_structure",
+          actions: [
+            {
+              kind: "put_block_instance",
+              entity: blockInstance(ids.blockInstance),
+              baseVersion: 2,
+            },
+          ],
+        },
+      ),
+    ),
     [ids.blockInstance],
   );
   assert.equal(
@@ -363,16 +412,16 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
   );
   assert.equal(
     drawingRecordedOperationSoftLockConflict(
-      {
-        forward: {
+      recordedOperation(
+        {
           type: "delete_objects",
           objectIds: [ids.objectB],
         },
-        inverse: {
+        {
           type: "add_objects",
-          objects: [{ id: ids.objectB }],
+          objects: [drawingObject(ids.objectB)],
         },
-      },
+      ),
       peers,
       1,
     ),
@@ -384,41 +433,124 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
   );
   assert.throws(
     () =>
-      drawingRecordedOperationTargetIds({
-        forward: propertyUndo.forward,
-        inverse: { type: "forged", actions: [] },
-      }),
+      drawingRecordedOperationTargetIds(
+        recordedOperation(propertyUndo.forward, {
+          type: "forged",
+          actions: [],
+        }),
+      ),
     /recorded operation/i,
   );
   assert.throws(
     () =>
-      drawingRecordedOperationTargetIds({
-        forward: propertyUndo.forward,
-        inverse: {
+      drawingRecordedOperationTargetIds(
+        recordedOperation(propertyUndo.forward, {
           type: "mutate_structure",
           actions: [{ kind: "forged" }],
-        },
-      }),
+        }),
+      ),
     /recorded operation/i,
   );
   assert.throws(
     () =>
-      drawingRecordedOperationTargetIds({
-        forward: {
-          type: "delete_objects",
-          objectIds: [ids.objectA],
-        },
-        inverse: {},
-      }),
+      drawingRecordedOperationTargetIds(
+        recordedOperation(
+          {
+            type: "delete_objects",
+            objectIds: [ids.objectA],
+          },
+          {},
+        ),
+      ),
     /recorded operation/i,
   );
   assert.deepEqual(
-    drawingRecordedOperationTargetIds({
-      forward: { type: "add_layer", layer: {} },
-      inverse: {},
-    }),
+    drawingRecordedOperationTargetIds(
+      recordedOperation(
+        {
+          type: "add_layer",
+          layer: {
+            id: ids.objectB,
+            name: "Layer",
+            visible: true,
+            locked: false,
+            version: 1,
+          },
+        },
+        {},
+      ),
+    ),
     [],
   );
+  assert.deepEqual(
+    drawingRecordedOperationTargetIds(
+      recordedOperation(
+        {
+          type: "update_layer",
+          layerId: ids.objectB,
+          patch: { name: "Updated" },
+        },
+        {
+          type: "update_layer",
+          layerId: ids.objectB,
+          patch: { name: "Layer" },
+        },
+      ),
+    ),
+    [],
+  );
+  for (const malformed of [
+    recordedOperation({ type: "add_layer" }, {}),
+    recordedOperation({ type: "update_layer" }, { type: "update_layer" }),
+    recordedOperation(
+      {
+        type: "delete_objects",
+        objectIds: [ids.objectA],
+        forged: true,
+      },
+      { type: "add_objects", objects: [drawingObject(ids.objectA)] },
+    ),
+    recordedOperation(
+      { type: "delete_objects", objectIds: [ids.objectA] },
+      {
+        type: "add_objects",
+        objects: [drawingObject(ids.objectA)],
+        forged: true,
+      },
+    ),
+    recordedOperation(
+      {
+        type: "add_layer",
+        layer: {
+          id: ids.objectB,
+          name: "Layer",
+          visible: true,
+          locked: false,
+          version: 1,
+        },
+      },
+      {},
+      { originalOperationId: ids.objectA },
+    ),
+    recordedOperation(
+      {
+        type: "mutate_structure",
+        actions: [
+          {
+            kind: "delete_property_value",
+            id: ids.property,
+            baseVersion: 1,
+            forged: true,
+          },
+        ],
+      },
+      propertyUndo.inverse,
+    ),
+  ])
+    assert.throws(
+      () => drawingRecordedOperationTargetIds(malformed),
+      /recorded operation/i,
+    );
 });
 
 test("peer views filter cursor, selection, and locks to the active canvas", () => {

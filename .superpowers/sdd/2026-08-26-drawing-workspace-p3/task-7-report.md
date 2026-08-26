@@ -15,6 +15,7 @@ Baseline: `707d5f9`
 - Review remediation resolves both drawing objects and block instances through canonical render items, so remote block selections receive real Konva bounds and block inspector focus/blur/unmount drives the same renewable lease lifecycle.
 - Lock-only subscribers are isolated from cursor-only updates, preserving the committed drawing memo boundary at pointer frequency.
 - Final re-review remediation derives the recorded-operation lock target set from the bounded, canonical union of both forward and inverse payloads. This closes undo/redo gaps where a delete carries only the property-row ID while its inverse carries the owning drawing object or block instance; ordinary local commands still pass through their single existing gate.
+- Final re-review 2 remediation parses the complete recorded input through the existing strict `DrawingOperationInputSchema` before target extraction. Missing targetless payload fields, unknown forward/inverse fields, forged structure actions, and unpaired history metadata now fail closed; only a canonically valid `add_layer` retains the empty-inverse exception.
 
 ## TDD evidence
 
@@ -27,6 +28,7 @@ RED:
 - Review RED: focused pure/command tests failed 4 cases for same-user/different-client retention, lock-only subscription isolation, central command conflict gating, and block-instance remote bounds.
 - Review Chromium RED: the same-user/block scenario first exposed the missing block display name and then the missing inspector lease observation before those paths were completed.
 - Final re-review RED: the new recorded-operation tests failed because the central commit boundary inspected only `forward`, so a new property-value undo could not recover its locked object or block owner from `inverse`.
+- Final re-review 2 RED: direct mutation probes showed malformed `add_layer`, `update_layer`, strict payload extras, and forged actions were accepted solely from their recognized type tags before the existing operation schema was applied.
 
 GREEN:
 
