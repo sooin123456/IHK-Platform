@@ -1,6 +1,7 @@
 import type { DrawingDocumentState } from "./drawing-commands.ts";
 import {
   applyDrawingStructureActions,
+  validateDrawingReferenceAwareObjectMutation,
   validateDrawingStructureState,
 } from "./drawing-structure.ts";
 import {
@@ -767,6 +768,10 @@ function acknowledgedFinalEffects(
       inverse.actions.length !== forward.actions.length
     )
       throw new Error("Object-reference inverse is not exact.");
+    validateDrawingReferenceAwareObjectMutation(
+      forward.objects.map((object) => DrawingObjectSchema.parse(object)),
+      forward.actions,
+    );
     const expectedBases: Record<string, number> = {};
     const effects: AcknowledgedFinalEffect[] = forward.actions.map(
       (action, index) => {
@@ -1178,6 +1183,11 @@ export function recoverPendingDrawingState(
           inputObjects.length
         )
           throw new Error("Object mutation targets are duplicated.");
+        const hasReferenceAwareUpdates =
+          validateDrawingReferenceAwareObjectMutation(
+            inputObjects,
+            forward.actions,
+          );
         const structureState = {
           revisionId: candidate.revisionId,
           ...structuredClone(candidate.structure),
@@ -1232,7 +1242,10 @@ export function recoverPendingDrawingState(
           }
         }
         const applied = forward.actions.length
-          ? applyDrawingStructureActions(structureState, forward.actions)
+          ? applyDrawingStructureActions(structureState, forward.actions, {
+              allowReferenceAwareObjectMutation: hasReferenceAwareUpdates,
+              deferSemanticReferenceValidation: hasReferenceAwareUpdates,
+            })
           : {
               state: structureState,
               inverse: [],
@@ -1266,6 +1279,13 @@ export function recoverPendingDrawingState(
         if (!valuesMatch(operation.baseVersions, expectedBases))
           throw new Error("Object mutation base versions are not exact.");
         validateDrawingStructureState(applied.state);
+        for (const action of forward.actions) {
+          if (action.kind !== "put_object") continue;
+          const updated = applied.state.objects[action.entity.id];
+          if (!updated)
+            throw new Error("Object mutation update result is missing.");
+          candidateVersions.set(updated.id, updated.version);
+        }
         const { revisionId: _revisionId, ...structure } = applied.state;
         candidate.objects = applied.state.objects;
         candidate.layers = applied.state.layers;

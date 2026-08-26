@@ -611,6 +611,104 @@ test("semantic command outputs stay on the exact six-decimal grid without drift"
   assert.doesNotThrow(() =>
     drawingCommands.applyDrawingCommand(initial, nearEnd),
   );
+
+  const adversarialDelta = { x: 9609.56901, y: 5222.425933 };
+  for (const [deltaX, deltaY] of [
+    [adversarialDelta.x, adversarialDelta.y],
+    [-adversarialDelta.x, adversarialDelta.y],
+    [adversarialDelta.x, -adversarialDelta.y],
+    [-adversarialDelta.x, -adversarialDelta.y],
+  ]) {
+    const adversarialWall = wall({
+      geometry: {
+        ...wall().geometry,
+        end: { x: deltaX, y: deltaY },
+      },
+    });
+    const adversarialOpening = opening({
+      geometry: {
+        ...opening().geometry,
+        offsetMillimeters: 278.399306,
+        widthMillimeters: 556.798611,
+      },
+    });
+    const adversarialState = state([adversarialWall, adversarialOpening]);
+    const farPointer = { x: deltaX * 2, y: deltaY * 2 };
+    const farCommand = drawingCommands.moveDrawingOpeningToPoint(
+      adversarialState,
+      ids.opening,
+      ids.actor,
+      farPointer,
+    );
+    assert.equal(
+      farCommand.updates[0].patch.geometry.offsetMillimeters,
+      10658.581501,
+    );
+    assert.doesNotThrow(() =>
+      drawingCommands.applyDrawingCommand(adversarialState, farCommand),
+    );
+    const nearCommand = drawingCommands.moveDrawingOpeningToPoint(
+      adversarialState,
+      ids.opening,
+      ids.actor,
+      { x: -deltaX, y: -deltaY },
+    );
+    assert.equal(
+      nearCommand.updates[0].patch.geometry.offsetMillimeters,
+      278.399306,
+    );
+    assert.doesNotThrow(() =>
+      drawingCommands.applyDrawingCommand(adversarialState, nearCommand),
+    );
+  }
+  for (const fixture of [
+    {
+      end: { x: 3.000001, y: 4.000001 },
+      widthMillimeters: 0.000001,
+      minimumOffset: 0.000001,
+    },
+    {
+      end: { x: -123.456789, y: 987.654321 },
+      widthMillimeters: 0.000002,
+      minimumOffset: 0.000001,
+    },
+    {
+      end: { x: 2345.678901, y: -7654.321098 },
+      widthMillimeters: 12.345678,
+      minimumOffset: 6.172839,
+    },
+    {
+      end: { x: -7654.321098, y: -2345.678901 },
+      widthMillimeters: 12.345679,
+      minimumOffset: 6.17284,
+    },
+  ]) {
+    const broadWall = wall({
+      geometry: { ...wall().geometry, end: fixture.end },
+    });
+    const broadOpening = opening({
+      geometry: {
+        ...opening().geometry,
+        offsetMillimeters: fixture.minimumOffset,
+        widthMillimeters: fixture.widthMillimeters,
+      },
+    });
+    const broadState = state([broadWall, broadOpening]);
+    for (const pointer of [
+      { x: -fixture.end.x, y: -fixture.end.y },
+      { x: fixture.end.x * 2, y: fixture.end.y * 2 },
+    ]) {
+      const command = drawingCommands.moveDrawingOpeningToPoint(
+        broadState,
+        ids.opening,
+        ids.actor,
+        pointer,
+      );
+      assert.doesNotThrow(() =>
+        drawingCommands.applyDrawingCommand(broadState, command),
+      );
+    }
+  }
 });
 
 test("host walls require the explicit opening-first reference-aware delete command", () => {

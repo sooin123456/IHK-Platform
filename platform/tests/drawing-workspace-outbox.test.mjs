@@ -16,7 +16,9 @@ import {
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
+  redoDrawingCommand,
   undoDrawingCommand,
+  updateDrawingObjectsWithOpeningDeletionsCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { DrawingOperationInputSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 import { deleteDrawingObjectsWithReferencesCommand } from "../app/lukas/lib/drawing-properties.ts";
@@ -1004,6 +1006,136 @@ function referenceAwareDeleteFixture() {
     valueId,
   };
 }
+
+const semanticRecoveryIds = {
+  wall: "00000000-0000-4000-8000-000000000320",
+  retained: "00000000-0000-4000-8000-000000000321",
+  deleted: "00000000-0000-4000-8000-000000000322",
+  schema: "00000000-0000-4000-8000-000000000323",
+  value: "00000000-0000-4000-8000-000000000324",
+  table: "00000000-0000-4000-8000-000000000325",
+  column: "00000000-0000-4000-8000-000000000326",
+  row: "00000000-0000-4000-8000-000000000327",
+};
+
+function semanticRecoveryFixture() {
+  const style = { stroke: "#112233", strokeWidth: 2, fill: null };
+  const wall = {
+    id: semanticRecoveryIds.wall, name: "W-01", layerId: ids.layer, style, version: 1,
+    geometry: { type: "wall", semanticVersion: 1, start: { x: 0, y: 0 }, end: { x: 1000, y: 0 }, thicknessMillimeters: 200, heightMillimeters: 3000 },
+  };
+  const retained = {
+    id: semanticRecoveryIds.retained, name: "D-01", layerId: ids.layer, style, version: 1,
+    geometry: { type: "opening", semanticVersion: 1, hostWallId: wall.id, offsetMillimeters: 500, widthMillimeters: 200, heightMillimeters: 2100, sillHeightMillimeters: 0, openingKind: "door" },
+  };
+  const deleted = {
+    id: semanticRecoveryIds.deleted, name: "D-02", layerId: ids.layer,
+    geometry: { ...retained.geometry, offsetMillimeters: 850 },
+    style, version: 1,
+  };
+  const base = p2State();
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revisionA,
+    structure: {
+      ...base.structure,
+      objects: Object.fromEntries([wall, retained, deleted].map((object) => [object.id, object])),
+      propertySchemas: { [semanticRecoveryIds.schema]: { id: semanticRecoveryIds.schema, revisionId: ids.revisionA, name: "Mark", valueType: "text", enumOptions: [], appliesTo: ["opening"], required: false, version: 1 } },
+      propertyValues: { [semanticRecoveryIds.value]: { id: semanticRecoveryIds.value, schemaId: semanticRecoveryIds.schema, objectId: deleted.id, blockInstanceId: null, value: "D-02", version: 1 } },
+      tables: { [semanticRecoveryIds.table]: {
+        id: semanticRecoveryIds.table, revisionId: ids.revisionA, name: "Door schedule",
+        columns: [{ id: semanticRecoveryIds.column, name: "Name", kind: "object_name", propertySchemaId: null }],
+        rows: [{ id: semanticRecoveryIds.row, objectId: deleted.id, blockInstanceId: null, cells: {} }],
+        version: 1,
+      } },
+    },
+  });
+  const applied = applyDrawingCommand(initial,
+    updateDrawingObjectsWithOpeningDeletionsCommand(initial, ids.ownerA, [
+      { objectId: wall.id, baseVersion: 1, patch: { geometry: { ...wall.geometry, end: { x: 700, y: 0 } } } },
+      { objectId: retained.id, baseVersion: 1, patch: { geometry: { ...retained.geometry, offsetMillimeters: 400 } } },
+    ], [deleted.id]),
+    { createId: () => ids.operation1, now: () => "2026-08-26T01:00:00.000Z" },
+  );
+  const undone = undoDrawingCommand(applied.state, ids.ownerA, {
+    createId: () => ids.operation2, now: () => "2026-08-26T01:01:00.000Z",
+  });
+  assert.ok(undone && !("kind" in undone));
+  const redone = redoDrawingCommand(undone.state, ids.ownerA, {
+    createId: () => ids.operation3, now: () => "2026-08-26T01:02:00.000Z",
+  });
+  assert.ok(redone && !("kind" in redone));
+  return { applied, initial, redone, undone, wall };
+}
+
+async function reopenSemanticOperations(serverState, operations, acknowledgedIds = []) {
+  const acknowledged = new Set(acknowledgedIds);
+  const outbox = scopedOutbox(memoryAdapter());
+  for (const candidate of operations) await outbox.enqueue(candidate);
+  const recovered = await restoreDrawingWorkspaceState({
+    online: acknowledged.size > 0,
+    outbox,
+    send: async (operation) => {
+      if (!acknowledged.has(operation.clientOperationId)) throw new Error("offline after accepted prefix");
+      return { clientOperationId: operation.clientOperationId, status: "acked" };
+    },
+    serverState,
+  });
+  return { outbox, recovered };
+}
+
+test("mixed semantic mutation survives pending crash recovery and chained undo redo", async () => {
+  const { applied, initial, redone, undone } = semanticRecoveryFixture();
+  const cases = [
+    ["forward", [applied.operation], true],
+    ["undo", [applied.operation, undone.operation], false],
+    ["redo", [applied.operation, undone.operation, redone.operation], true],
+  ];
+  for (const [name, operations, expectedDeleted] of cases) {
+    const { recovered } = await reopenSemanticOperations(initial, operations);
+    assert.deepEqual(recovered.conflictedOperationIds, [], name);
+    assert.deepEqual(recovered.ambiguousOperationIds, [], name);
+    assert.equal(recovered.state.objects[semanticRecoveryIds.deleted] === undefined, expectedDeleted, name);
+    assert.equal(recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x, expectedDeleted ? 700 : 1000, name);
+  }
+  const followup = applyDrawingCommand(applied.state, {
+    type: "update_objects", actorId: ids.ownerA,
+    updates: [{ objectId: semanticRecoveryIds.wall, baseVersion: 2, patch: { name: "W-02" } }],
+  }, { createId: () => ids.operation3, now: () => "2026-08-26T01:03:00.000Z" });
+  const chained = await reopenSemanticOperations(initial, [applied.operation, followup.operation]);
+  assert.deepEqual(chained.recovered.ambiguousOperationIds, []);
+  assert.equal(chained.recovered.state.objects[semanticRecoveryIds.wall].name, "W-02");
+});
+
+test("mixed semantic recovery consumes an accepted prefix before pending undo", async () => {
+  const { applied, undone } = semanticRecoveryFixture();
+  const { outbox, recovered } = await reopenSemanticOperations(
+    applied.state, [applied.operation, undone.operation], [applied.operation.clientOperationId],
+  );
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.equal(recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x, 1000);
+  assert.equal(recovered.state.objects[semanticRecoveryIds.deleted].geometry.offsetMillimeters, 850);
+  assert.deepEqual((await outbox.entries()).map((entry) => entry.operation.clientOperationId), [undone.operation.clientOperationId]);
+});
+
+test("mixed semantic recovery distinguishes stale state from a malformed bypass", async () => {
+  const { applied, initial, wall } = semanticRecoveryFixture();
+  const staleState = structuredClone(initial);
+  staleState.objects[wall.id] = { ...staleState.objects[wall.id], version: 2, name: "Server divergence" };
+  staleState.structure.objects[wall.id] = staleState.objects[wall.id];
+  const stale = await reopenSemanticOperations(staleState, [applied.operation]);
+  assert.deepEqual(stale.recovered.conflictedOperationIds, []);
+  assert.deepEqual(stale.recovered.ambiguousOperationIds, [ids.operation1]);
+  assert.equal(stale.recovered.state.objects[wall.id].name, "Server divergence");
+
+  const malformed = structuredClone(applied.operation);
+  const wallAction = malformed.forward.actions.find((action) => action.kind === "put_object" && action.entity.id === wall.id);
+  wallAction.entity = rectangle({ id: wall.id, name: wall.name, version: wall.version });
+  const invalid = await reopenSemanticOperations(initial, [malformed]);
+  assert.deepEqual(invalid.recovered.conflictedOperationIds, [ids.operation1]);
+  assert.deepEqual(invalid.recovered.ambiguousOperationIds, []);
+  assert.equal((await invalid.outbox.entries())[0].status, "conflicted");
+});
 
 test("reference-aware object deletion enqueues once and pending recovery stays atomic", async () => {
   const { applied, initial, serverAfterDelete, tableId } =

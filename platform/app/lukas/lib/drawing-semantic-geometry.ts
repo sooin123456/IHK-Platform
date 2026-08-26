@@ -94,6 +94,51 @@ function integerPoint(point: Point): IntegerPoint | null {
   return x === null || y === null ? null : { x, y };
 }
 
+function integerSquareRoot(value: bigint): bigint {
+  if (value < 0n)
+    throw new DrawingSemanticGeometryError(
+      "Semantic square root requires a nonnegative value.",
+    );
+  if (value < 2n) return value;
+  let estimate = 1n << BigInt((value.toString(2).length + 1) >> 1);
+  while (true) {
+    const next = (estimate + value / estimate) >> 1n;
+    if (next >= estimate) return estimate;
+    estimate = next;
+  }
+}
+
+export type DrawingOpeningOffsetBounds = {
+  minimumScaled: bigint;
+  maximumScaled: bigint;
+};
+
+/** Derives the inclusive opening-centre interval from the exact host predicate. */
+export function drawingOpeningOffsetBounds(
+  wall: DrawingWallGeometry,
+  widthMillimeters: number,
+): DrawingOpeningOffsetBounds {
+  const start = integerPoint(wall.start);
+  const end = integerPoint(wall.end);
+  const width = drawingSemanticScaledInteger(widthMillimeters);
+  if (!start || !end || width === null || width <= 0n)
+    throw new DrawingSemanticGeometryError(
+      "Opening bounds require validated fixed-point geometry.",
+    );
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const squaredHostLength = deltaX * deltaX + deltaY * deltaY;
+  const doubledHostFloor = integerSquareRoot(4n * squaredHostLength);
+  if (doubledHostFloor < width)
+    throw new DrawingSemanticGeometryError(
+      "Opening clear width must fit inside its host wall.",
+    );
+  return {
+    minimumScaled: (width + 1n) / 2n,
+    maximumScaled: (doubledHostFloor - width) / 2n,
+  };
+}
+
 function orientation(
   first: IntegerPoint,
   second: IntegerPoint,
@@ -270,15 +315,13 @@ export function resolveDrawingOpening(
     throw new DrawingSemanticGeometryError(
       "Opening fit requires validated fixed-point geometry.",
     );
-  const integerDeltaX = integerEnd.x - integerStart.x;
-  const integerDeltaY = integerEnd.y - integerStart.y;
-  const squaredHostLength =
-    integerDeltaX * integerDeltaX + integerDeltaY * integerDeltaY;
-  const doubledLowerOffset = integerOffset * 2n - integerWidth;
-  const doubledUpperOffset = integerOffset * 2n + integerWidth;
+  const bounds = drawingOpeningOffsetBounds(
+    host.geometry,
+    opening.widthMillimeters,
+  );
   if (
-    doubledLowerOffset < 0n ||
-    doubledUpperOffset * doubledUpperOffset > squaredHostLength * 4n
+    integerOffset < bounds.minimumScaled ||
+    integerOffset > bounds.maximumScaled
   )
     throw new DrawingSemanticGeometryError(
       "Opening clear width must fit inside its host wall.",

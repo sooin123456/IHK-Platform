@@ -1015,6 +1015,44 @@ function validateObjectCompound(
   }
 }
 
+/** Validates the one mixed semantic update/delete shape shared by command replay. */
+export function validateDrawingReferenceAwareObjectMutation(
+  deletedOrRestoredObjects: readonly DrawingObject[],
+  actions: readonly DrawingStructureAction[],
+): boolean {
+  const objectActions = actions.filter(
+    (action) => action.kind === "put_object" || action.kind === "delete_object",
+  );
+  if (objectActions.length === 0) return false;
+  const outerIds = new Set(deletedOrRestoredObjects.map((object) => object.id));
+  const updatedWallIds = new Set(
+    objectActions.flatMap((action) =>
+      action.kind === "put_object" && action.entity.geometry.type === "wall"
+        ? [action.entity.id]
+        : [],
+    ),
+  );
+  if (
+    objectActions.some(
+      (action) =>
+        action.kind !== "put_object" ||
+        (action.entity.geometry.type !== "wall" &&
+          action.entity.geometry.type !== "opening") ||
+        outerIds.has(action.entity.id),
+    ) ||
+    updatedWallIds.size === 0 ||
+    deletedOrRestoredObjects.some(
+      (object) =>
+        object.geometry.type !== "opening" ||
+        !updatedWallIds.has(object.geometry.hostWallId),
+    )
+  )
+    throw new DrawingStructureError(
+      "A mixed reference-aware mutation must update semantic hosts and delete only their openings.",
+    );
+  return true;
+}
+
 /** Resolves a style definition and inline override into one validated render style. */
 export function resolveDrawingStyle(
   styled:

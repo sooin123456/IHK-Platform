@@ -13,6 +13,7 @@ import type {
 import {
   applyDrawingStructureActions,
   resolveDrawingStyle,
+  validateDrawingReferenceAwareObjectMutation,
   validateDrawingSemanticReferences as validateStructureSemanticReferences,
   validateDrawingStructureState,
   type AppliedDrawingStructureActions,
@@ -37,6 +38,7 @@ import {
 import {
   addDrawingSemanticNumbers,
   DRAWING_SEMANTIC_ABSOLUTE_MAX,
+  drawingOpeningOffsetBounds,
   drawingSemanticScaledInteger,
   DRAWING_SEMANTIC_SCALE,
   normalizeDrawingSemanticNumber,
@@ -1209,38 +1211,16 @@ function reduceCommand(
         revisionId: state.revisionId,
         ...clone(state.structure),
       };
-      const structureObjectActions = command.actions.filter(
-        (action) =>
-          action.kind === "put_object" || action.kind === "delete_object",
-      );
-      const hasReferenceAwareUpdates = structureObjectActions.length > 0;
-      if (hasReferenceAwareUpdates) {
-        const updatedWallIds = new Set(
-          structureObjectActions.flatMap((action) =>
-            action.kind === "put_object" &&
-            action.entity.geometry.type === "wall"
-              ? [action.entity.id]
-              : [],
-          ),
+      let hasReferenceAwareUpdates = false;
+      try {
+        hasReferenceAwareUpdates = validateDrawingReferenceAwareObjectMutation(
+          inputObjects,
+          command.actions,
         );
-        if (
-          structureObjectActions.some(
-            (action) =>
-              action.kind !== "put_object" ||
-              (action.entity.geometry.type !== "wall" &&
-                action.entity.geometry.type !== "opening") ||
-              objectIds.has(action.entity.id),
-          ) ||
-          updatedWallIds.size === 0 ||
-          inputObjects.some(
-            (object) =>
-              object.geometry.type !== "opening" ||
-              !updatedWallIds.has(object.geometry.hostWallId),
-          )
-        )
-          throw new DrawingCommandError(
-            "A mixed reference-aware mutation must update semantic hosts and delete only their openings.",
-          );
+      } catch (error) {
+        if (error instanceof Error)
+          throw new DrawingCommandError(error.message);
+        throw error;
       }
       if (command.objectAction === "delete") {
         for (const [index, snapshot] of inputObjects.entries()) {
@@ -2152,25 +2132,9 @@ export function moveDrawingOpeningToPoint(
   }
   const resolved = resolveDrawingOpening(opening.geometry, state.objects);
   const projection = projectPointToDrawingWall(pointer, resolved.host.geometry);
-  const hostLength = Math.hypot(
-    resolved.host.geometry.end.x - resolved.host.geometry.start.x,
-    resolved.host.geometry.end.y - resolved.host.geometry.start.y,
-  );
-  const widthScaled = drawingSemanticScaledInteger(
+  const { minimumScaled, maximumScaled } = drawingOpeningOffsetBounds(
+    resolved.host.geometry,
     opening.geometry.widthMillimeters,
-  );
-  if (widthScaled === null)
-    throw new DrawingCommandError(
-      "Opening width must use the six-decimal semantic grid.",
-    );
-  const halfWidthCeiling = (widthScaled + 1n) / 2n;
-  const maximumOffset = BigInt(
-    Math.floor(
-      Math.min(
-        DRAWING_SEMANTIC_ABSOLUTE_MAX,
-        hostLength - Number(widthScaled) / (2 * DRAWING_SEMANTIC_SCALE),
-      ) * DRAWING_SEMANTIC_SCALE,
-    ),
   );
   const projectedOffset = drawingSemanticScaledInteger(
     normalizeDrawingSemanticNumber(
@@ -2182,10 +2146,10 @@ export function moveDrawingOpeningToPoint(
       "Opening projection must use the six-decimal semantic grid.",
     );
   const offsetScaled =
-    projectedOffset < halfWidthCeiling
-      ? halfWidthCeiling
-      : projectedOffset > maximumOffset
-        ? maximumOffset
+    projectedOffset < minimumScaled
+      ? minimumScaled
+      : projectedOffset > maximumScaled
+        ? maximumScaled
         : projectedOffset;
   const offsetMillimeters = Number(offsetScaled) / DRAWING_SEMANTIC_SCALE;
   return {
