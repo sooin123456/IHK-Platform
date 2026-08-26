@@ -6,8 +6,12 @@ import { requireDrawingP3ProductionCredentials } from "./e2e/utils/drawing-colla
 const p3ProductionGate =
   process.env.npm_lifecycle_event ===
     "test:e2e:drawing-workspace-p3:production" ||
-  process.argv.some((argument) =>
-    argument.includes("drawing-workspace-p3.spec.ts"),
+  process.env.npm_lifecycle_event ===
+    "smoke:drawing-collaboration:production" ||
+  process.argv.some(
+    (argument) =>
+      argument.includes("drawing-workspace-p3.spec.ts") ||
+      argument.includes("drawing-collaboration-service-smoke.spec.ts"),
   );
 if (p3ProductionGate) requireDrawingP3ProductionCredentials(process.env);
 

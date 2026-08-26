@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -29,7 +30,8 @@ test("P3 runbook is executable, least-privilege, and forward-safe", async () => 
     "6. Service smoke",
     "7. Application preview",
     "8. P3 production fixture",
-    "9. Promote",
+    "9. Operator rollback rehearsal",
+    "10. Promote",
   ]);
 
   for (const evidence of [
@@ -44,14 +46,38 @@ test("P3 runbook is executable, least-privilege, and forward-safe", async () => 
     "/healthz",
     "test:e2e:drawing-workspace-p3:production",
     "pg_publication_tables",
-    "information_schema.role_routine_grants",
+    "pg_get_function_identity_arguments",
+    "aclexplode",
+    "acldefault",
+    "pg_default_acl",
     "lukas_drawing_collaboration_states",
     "lukas_drawing_collaboration_freeze_leases",
     "owner_token",
     "freeze_request_id",
     "missing publication",
     "lukas_qto_project_members",
-  ]) assert.match(p3, new RegExp(evidence, "i"), evidence);
+  ])
+    assert.match(p3, new RegExp(evidence, "i"), evidence);
+  assert.doesNotMatch(p3, /information_schema\.role_(?:routine|table)_grants/i);
+
+  for (const signature of [
+    "lukas_drawing_collaboration_authorize|uuid, uuid, uuid",
+    "lukas_drawing_collaboration_store_state|uuid, uuid, uuid, smallint, bytea, bigint, bigint, text",
+    "lukas_drawing_collaboration_service_store_state|uuid, uuid, smallint, bytea, bigint, bigint, text",
+    "lukas_drawing_collaboration_acquire_freeze_lease|uuid, uuid, uuid, uuid, integer, bytea, bigint",
+    "lukas_drawing_collaboration_complete_freeze|uuid, uuid, uuid, bytea, jsonb, text, integer, bigint, text, jsonb, uuid",
+  ]) {
+    const [name, args] = signature.split("|");
+    assert.match(p3, new RegExp(`${name}[\\s\\S]{0,120}${args}`), signature);
+  }
+  for (const forbidden of [
+    "PUBLIC",
+    "anon",
+    "authenticated",
+    "service_role",
+    "lukas_drawing_collaboration_runtime",
+  ])
+    assert.match(p3, new RegExp(forbidden), forbidden);
 
   for (const authority of [
     "E2E_BASE_URL",
@@ -64,8 +90,21 @@ test("P3 runbook is executable, least-privilege, and forward-safe", async () => 
     "COLLABORATION_FREEZE_SECRET",
     "P3_E2E_DATABASE_ADMIN_URL",
     "P3_E2E_RUN_ID",
-  ]) assert.match(p3, new RegExp(authority), authority);
+  ])
+    assert.match(p3, new RegExp(authority), authority);
   assert.doesNotMatch(p3, /supabase db dump[^\n]*--schema-only/);
+
+  assertOrdered(p3, [
+    "create asymmetric standby key",
+    "new kid",
+    "rotate the signing key",
+    "fresh access token",
+    "purge each replica",
+    "authenticated room admission on every replica",
+    "access-token lifetime plus the safety margin",
+    "revoke the previous key",
+  ]);
+  assert.match(p3, /restore the previous key.*if.*fails/is);
 
   assert.match(p3, /stop new room admission/i);
   assert.match(p3, /flush.*await.*Hocuspocus/is);
@@ -73,6 +112,111 @@ test("P3 runbook is executable, least-privilege, and forward-safe", async () => 
   assert.match(p3, /forward-fix migration/i);
   assert.match(p3, /backup restore.*approved incident/is);
   assert.match(p3, /frozen.*in-flight.*rejected review/is);
+});
+
+test("P3 service smoke is executable and matches endpoint authentication contracts", async () => {
+  const [deployment, packageJson, smoke, server, freeze, workspaceServer] =
+    await Promise.all([
+      read("DEPLOYMENT.md"),
+      read("package.json").then(JSON.parse),
+      read("e2e/drawing-collaboration-service-smoke.spec.ts"),
+      read("collaboration/src/server.ts"),
+      read("collaboration/src/freeze.ts"),
+      read("app/lukas/lib/drawing-workspace.server.ts"),
+    ]);
+  const p3 = deployment.slice(
+    deployment.indexOf("## Drawing Workspace P3 release runbook"),
+  );
+
+  assert.equal(
+    packageJson.scripts["smoke:drawing-collaboration:production"],
+    "npx playwright test e2e/drawing-collaboration-service-smoke.spec.ts --project=chromium --workers=1",
+  );
+  assert.match(p3, /npm run smoke:drawing-collaboration:production/);
+  for (const boundary of [
+    "authenticated admission",
+    "non-member rejection",
+    "store/reload",
+    "outcome receipt",
+    "freeze/release",
+    "restart",
+    "SIGTERM drain",
+  ])
+    assert.match(smoke, new RegExp(boundary, "i"), boundary);
+  assert.doesNotMatch(smoke, /test\.skip|\.skip\(/);
+  assert.equal(smoke.match(/await connection\.waitForClose\(\)/g)?.length, 1);
+  assert.equal(smoke.match(/await afterRestart\.waitForClose\(\)/g)?.length, 1);
+
+  assert.match(server, /x-1hk-signature/);
+  assert.match(server, /x-1hk-freeze-secret/);
+  assert.match(server, /createHmac\("sha256"/);
+  assert.match(server, /timingSafeEqual\(expected, supplied\)/);
+  assert.match(freeze, /timingSafeEqual\(expected, comparable\)/);
+  assert.match(workspaceServer, /createHmac\("sha256"/);
+  assert.match(workspaceServer, /"x-1hk-signature": signature/);
+  assert.match(workspaceServer, /"x-1hk-freeze-secret": secret/);
+  assert.match(p3, /outcomes.*HMAC-SHA-256.*x-1hk-signature/is);
+  assert.match(p3, /freeze.*constant-time.*bearer.*x-1hk-freeze-secret/is);
+});
+
+test("P3 service smoke fails closed before Playwright when authorities are absent", () => {
+  const env = { ...process.env };
+  for (const authority of [
+    "E2E_BASE_URL",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_DRAWING_COLLABORATION_URL",
+    "COLLABORATION_INTERNAL_URL",
+    "COLLABORATION_INTERNAL_SECRET",
+    "COLLABORATION_FREEZE_SECRET",
+    "P3_E2E_DATABASE_ADMIN_URL",
+    "P3_E2E_RUN_ID",
+    "P3_COLLABORATION_SIGTERM_COMMAND_JSON",
+    "P3_COLLABORATION_RESTART_COMMAND_JSON",
+  ])
+    delete env[authority];
+  const result = spawnSync(
+    "npm",
+    ["run", "smoke:drawing-collaboration:production"],
+    {
+      cwd: new URL("../", import.meta.url),
+      env,
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /UNEXECUTED/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Local:\s+http/);
+});
+
+test("P3 rollout stays single-replica and rollback evidence is a separate operator gate", async () => {
+  const [deployment, productionSpec] = await Promise.all([
+    read("DEPLOYMENT.md"),
+    read("e2e/drawing-workspace-p3.spec.ts"),
+  ]);
+  const p3 = deployment.slice(
+    deployment.indexOf("## Drawing Workspace P3 release runbook"),
+  );
+  const fixtureStage = p3.slice(
+    p3.indexOf("### 8. P3 production fixture"),
+    p3.indexOf("### 9. Operator rollback rehearsal"),
+  );
+
+  assert.match(p3, /initial release.*exactly one replica/is);
+  assert.match(
+    p3,
+    /ordinary sticky sessions.*(?:insufficient|not sufficient)/is,
+  );
+  assert.match(p3, /deterministic canonical-room affinity.*failover/is);
+  assert.match(p3, /shared Yjs\/Awareness broadcast/is);
+  assert.match(p3, /multi-replica two-client smoke/is);
+  assert.doesNotMatch(fixtureStage, /rollback rehearsal/i);
+  assert.doesNotMatch(productionSpec, /rollback rehearsal/i);
+  assert.match(p3, /### 9\. Operator rollback rehearsal/);
+  assert.match(p3, /stop new room admission.*previous.*image.*reopen/is);
 });
 
 test("P3 release record separates evidence classes and never invents production proof", async () => {
@@ -94,7 +238,10 @@ test("P3 release record separates evidence classes and never invents production 
   assert.match(report, /two-user.*UNEXECUTED/i);
   assert.match(report, /rollback rehearsal.*UNEXECUTED/i);
   assert.doesNotMatch(report, /\b(?:TBD|TODO|placeholder)\b/i);
-  assert.doesNotMatch(report, /P3 (?:operational|production) (?:complete|PASS)/i);
+  assert.doesNotMatch(
+    report,
+    /P3 (?:operational|production) (?:complete|PASS)/i,
+  );
 });
 
 test("P3 field, matrix, and project status agree on local versus production completion", async () => {

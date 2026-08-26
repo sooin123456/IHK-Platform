@@ -240,10 +240,62 @@ curl -fsS "${SUPABASE_URL%/}/auth/v1/.well-known/jwks.json" \
 
 An empty JWKS or an HS256-only project is fail-closed and remains
 `UNEXECUTED`; do not deploy the service with a legacy shared JWT secret as a
-substitute. For signing-key rotation, publish the new asymmetric key first,
-retain the old key for the maximum access-token lifetime, send `SIGHUP` to every
-collaboration replica to purge its ten-minute JWKS cache, verify `/healthz`, and
-only then retire the old key. A failed post-purge auth smoke stops admission.
+substitute.
+
+Signing-key rotation is reversible until the final retirement step. Execute and
+record this exact sequence:
+
+1. In Supabase Auth, **create asymmetric standby key** and record its exact
+   `NEW_KID`; do not rotate it yet.
+2. Poll the discovery endpoint from the same network path as every service
+   replica until the **new kid** is visible on every path. For a container
+   rollout, run this for every ID in `COLLABORATION_REPLICA_IDS`:
+
+   ```sh
+   for replica in $COLLABORATION_REPLICA_IDS; do
+     docker exec -e SUPABASE_URL -e NEW_KID "$replica" node -e '
+       fetch(process.env.SUPABASE_URL.replace(/\/$/, "") +
+         "/auth/v1/.well-known/jwks.json")
+         .then(r => { if (!r.ok) throw new Error("JWKS unavailable"); return r.json() })
+         .then(j => { if (!j.keys?.some(k => k.kid === process.env.NEW_KID))
+           throw new Error("standby kid absent") })
+     '
+   done
+   ```
+
+3. Only after every probe passes, **rotate the signing key** so the standby key
+   becomes current. If any later check fails before retirement, restore the
+   previous key as current and stop the release.
+4. Complete a new login/refresh and obtain a **fresh access token**. Decode only
+   its JOSE header locally and require its `kid` to equal `NEW_KID`; never print
+   the token:
+
+   ```sh
+   P3_JWKS_FRESH_ACCESS_TOKEN="$P3_JWKS_FRESH_ACCESS_TOKEN" \
+   NEW_KID="$NEW_KID" node -e '
+     const h = JSON.parse(Buffer.from(process.env.P3_JWKS_FRESH_ACCESS_TOKEN
+       .split(".")[0], "base64url"));
+     if (h.kid !== process.env.NEW_KID) process.exit(1)
+   '
+   ```
+
+5. Send `SIGHUP` to **purge each replica** JWKS cache; `/healthz` is an
+   additional database/readiness check, not key proof.
+6. Target each replica directly and run **authenticated room admission on every replica**
+   with that fresh token. Use
+   `npm run smoke:drawing-collaboration:production`; one failure restores the
+   previous current key and leaves admission closed.
+7. Keep the previous key valid for the configured **access-token lifetime plus the safety margin**.
+   Set and record `JWT_EXP_SECONDS` and a minimum
+   `JWKS_SAFETY_MARGIN_SECONDS=600`; do not shorten the interval because the
+   discovery endpoint or service cache appeared fast once.
+8. After that interval and another fresh-token admission pass on every replica,
+   **revoke the previous key**. Revocation before all evidence above exists is a
+   release failure.
+
+Restore the previous key as current if any pre-retirement probe fails; because
+the previous key remains valid through the safety window, this recovery does not
+require accepting an unverified signing key.
 
 ### 3. Collaboration login
 
@@ -324,7 +376,7 @@ full join actual a using (schemaname, tablename)
 where e.tablename is null or a.tablename is null
 order by schemaname, tablename;
 
--- Dedicated roles and exact function grants.
+-- Dedicated roles.
 select rolname, rolcanlogin, rolinherit
 from pg_catalog.pg_roles
 where rolname in (
@@ -333,20 +385,130 @@ where rolname in (
 )
 order by rolname;
 
-select grantee, routine_schema, routine_name, privilege_type
-from information_schema.role_routine_grants
-where routine_schema = 'private'
-  and routine_name like 'lukas_drawing_collaboration_%'
-order by routine_name, grantee;
-
-select grantee, table_schema, table_name, privilege_type
-from information_schema.role_table_grants
-where table_schema = 'private'
-  and table_name in (
-    'lukas_drawing_collaboration_states',
-    'lukas_drawing_collaboration_freeze_leases'
-  )
-order by table_name, grantee;
+-- Exact routine/table/default ACL: this must return zero rows.
+with expected_routine(proname, argument_types) as (values
+  ('lukas_drawing_collaboration_authorize',
+    'uuid, uuid, uuid'),
+  ('lukas_drawing_collaboration_load_state',
+    'uuid, uuid, uuid'),
+  ('lukas_drawing_collaboration_store_state',
+    'uuid, uuid, uuid, smallint, bytea, bigint, bigint, text'),
+  ('lukas_drawing_collaboration_lookup_operations',
+    'uuid, uuid[]'),
+  ('lukas_drawing_collaboration_bootstrap',
+    'uuid, uuid, uuid'),
+  ('lukas_drawing_collaboration_service_load_state',
+    'uuid, uuid'),
+  ('lukas_drawing_collaboration_service_store_state',
+    'uuid, uuid, smallint, bytea, bigint, bigint, text'),
+  ('lukas_drawing_collaboration_service_bootstrap',
+    'uuid, uuid'),
+  ('lukas_drawing_collaboration_read_freeze',
+    'uuid, uuid'),
+  ('lukas_drawing_collaboration_acquire_freeze_lease',
+    'uuid, uuid, uuid, uuid, integer, bytea, bigint'),
+  ('lukas_drawing_collaboration_renew_freeze_lease',
+    'uuid, uuid, uuid, uuid, integer'),
+  ('lukas_drawing_collaboration_release_freeze_lease',
+    'uuid, uuid, uuid, uuid'),
+  ('lukas_drawing_collaboration_begin_freeze',
+    'uuid, uuid, uuid, bytea, bigint, uuid'),
+  ('lukas_drawing_collaboration_complete_freeze',
+    'uuid, uuid, uuid, bytea, jsonb, text, integer, bigint, text, jsonb, uuid'),
+  ('lukas_drawing_collaboration_release_freeze',
+    'uuid, uuid, uuid, bytea, uuid'),
+  ('lukas_drawing_collaboration_sync_released_state',
+    'uuid, uuid, uuid, bytea, uuid')
+), collaboration_role as (
+  select oid from pg_catalog.pg_roles
+  where rolname = 'lukas_drawing_collaboration'
+), routines as (
+  select p.oid, p.proowner, p.proname,
+    pg_catalog.oidvectortypes(p.proargtypes) as argument_types,
+    pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
+    coalesce(
+      p.proacl,
+      pg_catalog.acldefault('f', p.proowner)
+    ) as effective_acl
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'private'
+    and p.proname like 'lukas_drawing_collaboration_%'
+), routine_acl as (
+  select r.*, x.grantee, x.privilege_type, x.is_grantable,
+    coalesce(g.rolname, 'PUBLIC') as grantee_name
+  from routines r
+  cross join lateral pg_catalog.aclexplode(r.effective_acl) x
+  left join pg_catalog.pg_roles g on g.oid = x.grantee
+), expected_binding as (
+  select e.*, r.oid, r.identity_arguments,
+    exists (
+      select 1 from routine_acl a, collaboration_role c
+      where a.oid = r.oid and a.grantee = c.oid
+        and a.privilege_type = 'EXECUTE' and not a.is_grantable
+    ) as exact_grant_present
+  from expected_routine e
+  left join routines r using (proname, argument_types)
+), routine_violation as (
+  select 'missing dedicated routine grant'::text as violation,
+    e.proname as object_name,
+    coalesce(e.identity_arguments, e.argument_types) as identity_arguments,
+    'lukas_drawing_collaboration'::text as grantee_name
+  from expected_binding e
+  where e.oid is null or not e.exact_grant_present
+  union all
+  select 'forbidden routine grant', a.proname,
+    a.identity_arguments, a.grantee_name
+  from routine_acl a
+  left join expected_routine e
+    on e.proname = a.proname and e.argument_types = a.argument_types
+  left join collaboration_role c on true
+  where a.privilege_type = 'EXECUTE'
+    and a.grantee <> a.proowner
+    and (a.grantee <> c.oid or e.proname is null or a.is_grantable)
+), protected_table as (
+  select c.oid, c.relowner, c.relname,
+    coalesce(
+      c.relacl,
+      pg_catalog.acldefault('r', c.relowner)
+    ) as effective_acl
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'private'
+    and c.relname in (
+      'lukas_drawing_collaboration_states',
+      'lukas_drawing_collaboration_freeze_leases'
+    )
+), table_violation as (
+  select 'forbidden table grant'::text as violation,
+    t.relname as object_name, null::text as identity_arguments,
+    coalesce(g.rolname, 'PUBLIC') as grantee_name
+  from protected_table t
+  cross join lateral pg_catalog.aclexplode(t.effective_acl) x
+  left join pg_catalog.pg_roles g on g.oid = x.grantee
+  where x.grantee <> t.relowner
+), object_owner(role_oid) as (
+  select proowner from routines
+  union
+  select relowner from protected_table
+), default_acl_violation as (
+  select 'forbidden default ACL'::text as violation,
+    case d.defaclobjtype when 'f' then 'function' else 'table' end as object_name,
+    null::text as identity_arguments,
+    coalesce(g.rolname, 'PUBLIC') as grantee_name
+  from pg_catalog.pg_default_acl d
+  join object_owner o on o.role_oid = d.defaclrole
+  left join pg_catalog.pg_namespace n on n.oid = d.defaclnamespace
+  cross join lateral pg_catalog.aclexplode(d.defaclacl) x
+  left join pg_catalog.pg_roles g on g.oid = x.grantee
+  where d.defaclobjtype in ('f', 'r')
+    and (d.defaclnamespace = 0 or n.nspname = 'private')
+    and x.grantee <> d.defaclrole
+)
+select * from routine_violation
+union all select * from table_violation
+union all select * from default_acl_violation
+order by violation, object_name, identity_arguments, grantee_name;
 
 -- Stored-byte integrity, lease ownership, and freeze boundaries.
 select revision_id, freeze_state, freeze_request_id,
@@ -373,10 +535,16 @@ join private.lukas_drawing_collaboration_states s
 order by l.revision_id;
 ```
 
-The publication violation query must return zero rows. The private-table grant
-query must show no direct table
-grant. The dedicated role is `NOLOGIN NOINHERIT`; the runtime role is
-`LOGIN NOINHERIT`. Any false byte/hash check, mismatched owner/request pair, or
+The publication and ACL violation queries must both return zero rows. The ACL
+query expands `PUBLIC` and built-in defaults with `acldefault`/`aclexplode`,
+checks owner-specific global/private `pg_default_acl`, includes
+`pg_get_function_identity_arguments` in every routine finding, and accepts only
+the 16 exact dedicated-role signatures above. `PUBLIC`, `anon`, `authenticated`,
+`service_role`, `lukas_drawing_collaboration_runtime`, and every other non-owner
+role must have no direct private-table privilege and no forbidden direct routine
+execute privilege. The dedicated role is `NOLOGIN NOINHERIT`; the runtime role
+is `LOGIN NOINHERIT` and reaches the allowlist only after the explicit role
+transition. Any false byte/hash check, mismatched owner/request pair, or
 unexpected expired in-flight lease stops the release for investigation.
 
 ### 5. Collaboration image
@@ -393,30 +561,66 @@ docker image inspect "$COLLABORATION_IMAGE" \
 ```
 
 The image must retain the non-root user, one exposed port, healthcheck, and
-minimal collaboration-only manifest. One replica is the rollout default, not a
-correctness dependency: cross-instance freeze ownership is protected by the
-Postgres lease. Before increasing replicas, verify shared database reachability,
-lease heartbeat/takeover, graceful drain, and sticky-session or shared transport
-requirements for the chosen WebSocket ingress.
+minimal collaboration-only manifest. The initial release is capped at exactly one replica.
+The Postgres lease protects freeze ownership only; it does not
+broadcast Yjs updates or Awareness. Ordinary sticky sessions are not sufficient
+because two clients for one room can still land on different instances.
+
+Do not remove the cap until either (a) deterministic canonical-room affinity
+routes every connection for one room to the same healthy instance and documents
+failover without split-room admission, or (b) an implemented shared Yjs/Awareness broadcast
+transport converges document and presence state across
+instances. The scale-up gate also requires a multi-replica two-client smoke that
+proves bidirectional Yjs and Awareness reflection during normal operation and
+instance failover. Cross-instance freeze-lease tests alone do not satisfy it.
 
 ### 6. Service smoke
 
 Start the exact pushed image with its secret-manager bindings and allowed app
-origin. Verify live/readiness, authenticated room admission, denied invalid token
-and non-member admission, one draft store/reload, outcome receipt, freeze/read
-reconciliation, and SIGTERM drain. Do not log tokens, database URLs, Yjs bytes,
-or source hashes.
+origin. The smoke creates and cleans a disposable fixture in the target Supabase
+project and requires real editor/non-member tokens, WebSocket storage, internal
+endpoints and operator lifecycle commands. It returns nonzero unless authenticated admission,
+non-member rejection, store/reload, outcome receipt, freeze/release, restart and
+SIGTERM drain all complete:
 
 ```sh
-curl -fsS "$COLLABORATION_HTTP_URL/livez"
-curl -fsS "$COLLABORATION_HTTP_URL/healthz"
+E2E_BASE_URL="$E2E_BASE_URL" \
+SUPABASE_URL="$SUPABASE_URL" \
+SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+VITE_DRAWING_COLLABORATION_URL="$VITE_DRAWING_COLLABORATION_URL" \
+COLLABORATION_INTERNAL_URL="$COLLABORATION_INTERNAL_URL" \
+COLLABORATION_INTERNAL_SECRET="$COLLABORATION_INTERNAL_SECRET" \
+COLLABORATION_FREEZE_SECRET="$COLLABORATION_FREEZE_SECRET" \
+P3_E2E_DATABASE_ADMIN_URL="$P3_E2E_DATABASE_ADMIN_URL" \
+P3_E2E_RUN_ID="$P3_E2E_RUN_ID" \
+P3_COLLABORATION_SIGTERM_COMMAND_JSON="$P3_COLLABORATION_SIGTERM_COMMAND_JSON" \
+P3_COLLABORATION_RESTART_COMMAND_JSON="$P3_COLLABORATION_RESTART_COMMAND_JSON" \
+npm run smoke:drawing-collaboration:production
 ```
 
-Internal `/internal/outcomes` and `/internal/freeze` smoke requests must be
-issued by the React server fixture with their distinct signed credentials; a
-browser or operator curl without those credentials must be rejected. Confirm a
-frozen room survives restart, a rejected review becomes a writable released
-draft, and a persisted accepted operation remains authoritative after reload.
+Each lifecycle variable is a JSON string array whose first item is the approved
+orchestrator executable and whose remaining items are arguments. The SIGTERM
+command must signal the exact smoke replica and wait for graceful Hocuspocus
+flush/drain; the restart command must start the exact image digest. The smoke
+waits for `/healthz` itself after each restart and suppresses lifecycle command
+output. Do not put secrets in command arguments or output.
+
+The endpoint contracts are intentionally different:
+
+- `/internal/outcomes` uses **HMAC-SHA-256** over the exact UTF-8 request body
+  with `COLLABORATION_INTERNAL_SECRET`; the lowercase hexadecimal MAC is sent in
+  `x-1hk-signature` and compared in constant time.
+- `/internal/freeze` does not use HMAC. It sends the raw
+  `COLLABORATION_FREEZE_SECRET` as a constant-time compared bearer secret in
+  `x-1hk-freeze-secret` over the private service network.
+
+The smoke reconnects after restart and after SIGTERM drain to prove the accepted
+operation/status survived store/reload. A missing/masked variable, failed
+non-member denial, lifecycle command, persistence boundary, cleanup, or endpoint
+response is `UNEXECUTED`/failure, never PASS. Record only the command exit status,
+fixture cleanup result and non-secret IDs; do not log tokens, database URLs, Yjs
+bytes, internal secrets, or source hashes.
 
 ### 7. Application preview
 
@@ -447,17 +651,37 @@ npm run test:e2e:drawing-workspace-p3:production
 Retain the generated owner/editor/reviewer/viewer/nonmember results, three-browser
 warm reflection p95, exact 100-operation offline recovery set, conflict winner,
 review/approval/frozen denial, restored child draft, source before/after hashes,
-quantity lineage, cleanup, and rollback rehearsal. Missing or masked authorities
-make the entire production fixture `UNEXECUTED`; they never become local PASS.
+quantity lineage, and cleanup. This fixture does not change deployment images and
+does not exercise deployment recovery. Missing or masked authorities make the
+entire production fixture `UNEXECUTED`; they never become local PASS.
 
-### 9. Promote
+### 9. Operator rollback rehearsal
+
+Run this as a separate operator-controlled gate against the isolated release
+environment; the production fixture above is not its substitute. **Stop new room admission**,
+record frozen and in-flight rooms, flush and await Hocuspocus
+persistence, gracefully drain WebSockets, and promote the previous compatible
+application and collaboration image digests without a down migration. Verify
+that the additive database state, accepted operations, snapshots, source bytes,
+freeze state, and rejected-draft recovery remain authoritative. Run health,
+authenticated/non-member, store/reload, freeze/release, source-invariance, and
+two-user checks on those previous images. Restore the candidate's exact tested
+digests, repeat those checks, and reopen admission only after both recovery
+directions pass. Retain orchestrator events, image digests, room recovery
+results, command exit statuses, and cleanup result; never record secrets.
+
+Any incomplete direction is a failed or `UNEXECUTED` rehearsal. A document-only
+walkthrough, the Stage 8 fixture, or the general recovery procedure below is not
+operator rollback evidence.
+
+### 10. Promote
 
 Promote the already-tested app and collaboration image digests only after the
 production fixture and two-user field checklist both pass. Record deployment and
 image IDs, migration list, type diff, source hashes, browser/OS/viewport,
 CPU/memory conditions, object mix, cold/warm annotation, p95, offline loss count,
-role denials, cleanup, and rollback rehearsal. P3 is not operationally complete
-until those deployed records exist.
+role denials, cleanup, and the separate Stage 9 rollback rehearsal. P3 is not
+operationally complete until those deployed records exist.
 
 ### P3 rollback and recovery
 

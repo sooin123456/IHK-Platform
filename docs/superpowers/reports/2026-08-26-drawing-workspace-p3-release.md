@@ -19,10 +19,18 @@ source evidence only.
   cursor/selection overlays and soft locks, comments/mentions/history/restore,
   cross-instance leased atomic review freeze, and the fail-closed production P3
   fixture.
-- `platform/DEPLOYMENT.md` now gives an executable backup→JWKS→database
-  login→migration/types→image→service smoke→application preview→production
-  fixture→promotion order plus forward-safe rollback and frozen/in-flight/rejected
-  review recovery.
+- `platform/DEPLOYMENT.md` now gives an executable backup→reversible JWKS
+  rotation→database login→migration/types→one-replica image→fail-closed service
+  smoke→application preview→production fixture→operator rollback rehearsal→
+  promotion order plus forward-safe frozen/in-flight/rejected review recovery.
+- The release ACL gate expands effective `pg_proc`/`pg_class` ACLs, `PUBLIC`,
+  built-in defaults and owner `pg_default_acl`, and accepts only the 16 exact
+  dedicated-role function signatures. It does not use the `information_schema`
+  role-grant views that omit `PUBLIC`.
+- The service smoke contract covers authenticated admission, non-member denial,
+  storage/reload, HMAC outcome receipt, constant-time bearer freeze/release,
+  restart and SIGTERM drain. It exits `UNEXECUTED` before Playwright when the
+  real authorities are absent.
 - The release status contract prevents local evidence from being presented as
   hosted proof and rejects missing ordering, security queries, rollback
   invariants, evidence categories, or invented external results.
@@ -36,9 +44,9 @@ Fresh Task 11 verification from the source baseline and documentation diff:
 
 | Gate | Result |
 | --- | --- |
-| P3 release documentation contract | PASS, 3 tests |
-| Whole Node `node --test tests/*.test.mjs` | 735 total; 734 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
-| Drawing Workspace `npm run test:drawing-workspace` | 503 total; 502 passed, 0 failed, the same 1 environment-only gate `UNEXECUTED` |
+| P3 release documentation contract | PASS, 6 tests, including credential-free service-smoke fail-closed execution |
+| Whole Node `node --test tests/*.test.mjs` | 738 total; 737 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
+| Drawing Workspace `npm run test:drawing-workspace` | 506 total; 505 passed, 0 failed, the same 1 environment-only gate `UNEXECUTED` |
 | Collaboration service tests | PASS, 32 tests |
 | IFC pinned geometry smoke | PASS: 413,681 bytes, 120 elements, 115 geometric elements, 119 placements, 14,694 triangles |
 | Application TypeScript | PASS |
@@ -63,7 +71,7 @@ Locally available artifact SHA-256 evidence at the Task 11 baseline:
 | `platform/collaboration/package-lock.json` | `3f166266d8ca3a67308b34c9789c471cdbe9c53a7515406622dfd7dc35b00516` |
 | `platform/package-lock.json` | `a262c8f4a3155ba37adc987598025bf6e388e4b736dca25f7be44d783b38621e` |
 | built collaboration `dist/collaboration/src/server.js` | `b6003db0a09068103ce06764214f45425662cce4152d845107a1a1fe4b7f8fa5` |
-| built application `build/server/index.js` | `7263236de2122b3cf6fe8e2d6206da9b111ec06fc2c2f0bd5bf7a2197887a54f` |
+| built application `build/server/index.js` | `34facd4dab665e386094d512ed8e8322cea4a19c2d208b9ffc9b3b761f873c77` |
 
 These are local source artifacts, not pushed OCI digests or deployed assets.
 
@@ -78,12 +86,13 @@ These are local source artifacts, not pushed OCI digests or deployed assets.
   and the disposable two-connection PostgreSQL concurrency gate are
   `UNEXECUTED`.
 - No asymmetric target JWKS or collaboration runtime secret is available, so
-  hosted RS256/ES256 preflight, signing-key rotation, JWKS cache purge, database
-  LOGIN/`SET ROLE`, and running service health/auth/storage/freeze smoke are
+  hosted RS256/ES256 preflight, signing-key rotation, per-replica new-`kid`
+  discovery/token admission, JWKS cache purge, database LOGIN/`SET ROLE`, and
+  the credentialed service auth/storage/freeze/restart/drain smoke are
   `UNEXECUTED`. An empty or HS256-only JWKS remains fail-closed.
 - No deployment host/image registry is configured. Collaboration build/push,
-  one-replica rollout, lease takeover across deployed replicas, application
-  preview, promotion, graceful drain, and rollback rehearsal are `UNEXECUTED`.
+  the capped one-replica rollout, application preview, promotion, graceful
+  drain, and the separate operator rollback rehearsal are `UNEXECUTED`.
 
 ## PRODUCTION UNEXECUTED
 
