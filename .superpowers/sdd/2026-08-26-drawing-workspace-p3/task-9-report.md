@@ -40,8 +40,19 @@
 - The HTTP service also acquires a ref-counted same-request room owner before awaiting detached storage load, then hands ownership to the coordinator only after `freeze()` has synchronously registered it. The shared load/periodic seam short-circuits ordinary recovery while preparation owns the room and fences concurrent live documents across persisted active, released, freezing, and frozen-draft states.
 - If detached storage load fails before that handoff, the last preparation owner is removed and the already-loaded room is immediately reconciled back to the authoritative active state. A deterministic failure/retry test proves there is no stranded read-only room and the same request can subsequently freeze normally.
 - Periodic and load-time reconciliation now holds an exact matching in-flight owner read-only instead of completing or releasing it. A successful freeze retains a bounded 60-second completion lease until the application commits review; the application then sends an authenticated authority reconciliation that observes `review_requested` and clears ownership while preserving frozen state.
-- Completed abandoned leases recover once after expiry with an injected-clock deterministic boundary. A genuinely crashed process has no local owner, so a fresh process still resolves persisted abandoned `freezing`/`frozen draft` state immediately. The collaboration service remains a single active coordinator process; overlapping multi-replica room ownership would require a persisted cross-instance lease before enabling multiple writers.
+- Completed abandoned leases recover once after expiry with an injected-clock deterministic boundary. A genuinely crashed process has no local owner, so a fresh process still resolves persisted abandoned `freezing`/`frozen draft` state immediately.
 - Deferred-promise races pause the original request both before `beginFreeze` commits and after begin. A separately loaded Y.Doc is fenced to the exact owner request even while Postgres still reads `active`; periodic reconciliation, same/different request retries, release, and client updates then prove no writable interval, one begin/complete, permanent frozen review success, and no double cleanup release.
+
+## Cross-instance freeze ownership follow-up
+
+- Generated the forward-only Supabase CLI migration `20260826063603_drawing_workspace_p3_cross_instance_freeze_lease.sql`; no prior migration was edited.
+- Persisted an exact service-instance owner token, request ID and bounded expiry on the collaboration state. Acquisition, renewal, release, begin, complete and recovery lock the revision before the state row and reject missing, foreign, stale or expired ownership.
+- A private revision-scoped lease row binds the exact subject revision version before any detached Yjs/storage load and heartbeats throughout that load. Same-request preparations share one in-flight acquisition/refcount; one failed loader cannot release another loader's fence. After load, the same owner atomically binds an absent collaboration-state row from the loaded Yjs bytes and base operation sequence, or resumes only the same interrupted request after lease expiry.
+- The coordinator uses a random owner token, a 30-second lease and 10-second heartbeat. Lease duration is also constrained by PostgreSQL to 5–300 seconds. Every authoritative mutation renews first; a stale original completion is denied after a bounded takeover.
+- Exact new signatures are granted only to `lukas_drawing_collaboration`. Public, `anon`, `authenticated` and `service_role` execution are explicitly revoked, including the superseded mutation signatures.
+- Deterministic two-coordinator races pause owner A before its first read and after begin. They prove B cannot release or complete a live foreign request, updates remain rejected throughout, an expired same-request takeover performs one completion, and A cannot commit stale work. An injected-clock heartbeat test proves the persisted fence is renewed beyond the original expiry.
+- A real two-server deferred-load race proves the lease exists while owner A is still awaiting storage. Every foreign `beforeSync` now reconciles that persisted fence before validating an update, immediately makes the connection read-only, closes it and rejects the update; an already-live room therefore cannot wait for the periodic 30-second reconciliation.
+- Freeze ownership no longer relies on a singleton collaboration service: multi-replica coordinators fail closed behind the persisted lease while the existing revision-to-state lock order and maker-checker rules remain intact.
 
 ## TDD evidence
 
@@ -70,6 +81,15 @@ Follow-up verification on the changes-required fixes:
 - Fresh Chromium review-freeze/bootstrap selection: passed (exit 0).
 - `git diff --check`: passed.
 - The earlier six-file independent Node/PGlite review passed 222/222. A final independent read-only review of the active-owner and detached-load-failure cleanup found no remaining critical or important issue; its focused freeze suite passed 17/17, collaboration typecheck passed, and the diff was clean.
+
+Final cross-instance lease verification:
+
+- `npm run test:drawing-workspace`: 490 tests, 489 passed, 1 existing environment-dependent test skipped, 0 failed.
+- Focused freeze/service suite: 57 passed, 0 failed, including both deterministic two-coordinator races, coalesced same-request preparation and active-owner retry/failure handoff, preparation/active heartbeat renewal and the real two-server deferred-load/live-update fence.
+- Focused PGlite runtime and migration-contract suites: 129 passed, 0 failed, including absent-state acquisition, dedicated-role privilege boundaries, foreign-owner exclusion, expired takeover and stale-owner completion denial.
+- `npm run typecheck`, `npm run typecheck:collaboration` and `npm run build`: passed; only the previously documented build warnings were emitted.
+- `git diff --check`: passed.
+- Final independent read-only rereview found no remaining critical or important issue after the preload, foreign-sync and same-request preparation/owner handoff races were covered.
 
 ## Production gates not claimed
 

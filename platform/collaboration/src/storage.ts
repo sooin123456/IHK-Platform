@@ -438,6 +438,9 @@ export function createPostgresDrawingCollaborationDatabase(
                 frozen_operation_statuses:
                   DrawingFreezeState["operationStatuses"] | null;
                 review_committed: boolean;
+                freeze_owner_token: string | null;
+                freeze_owner_request_id: string | null;
+                freeze_owner_lease_expires_at: Date | string | null;
               }[]
             >`select * from private.lukas_drawing_collaboration_read_freeze(${scope.projectId}::uuid,${scope.revisionId}::uuid)`,
           );
@@ -463,8 +466,37 @@ export function createPostgresDrawingCollaborationDatabase(
                 stateVectorBase64: row.frozen_yjs_state_vector,
                 operationStatuses: row.frozen_operation_statuses,
                 reviewCommitted: row.review_committed,
+                ownerToken: row.freeze_owner_token,
+                ownerRequestId: row.freeze_owner_request_id,
+                leaseExpiresAtMs:
+                  row.freeze_owner_lease_expires_at === null
+                    ? null
+                    : new Date(row.freeze_owner_lease_expires_at).getTime(),
               }
             : null;
+        }),
+      acquireFreezeLease: (value) =>
+        inRole(async (tx) => {
+          await tx`select private.lukas_drawing_collaboration_acquire_freeze_lease(
+            ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+            ${value.ownerToken}::uuid,${Math.ceil(value.leaseMs / 1000)}::integer,
+            ${value.yjsState ? Buffer.from(value.yjsState) : null}::bytea,
+            ${value.baseOperationSequence ?? null}::bigint
+          )`;
+        }),
+      renewFreezeLease: (value) =>
+        inRole(async (tx) => {
+          await tx`select private.lukas_drawing_collaboration_renew_freeze_lease(
+            ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+            ${value.ownerToken}::uuid,${Math.ceil(value.leaseMs / 1000)}::integer
+          )`;
+        }),
+      releaseFreezeLease: (value) =>
+        inRole(async (tx) => {
+          await tx`select private.lukas_drawing_collaboration_release_freeze_lease(
+            ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+            ${value.ownerToken}::uuid
+          )`;
         }),
       beginFreeze: (value) =>
         inRole(async (tx) => {
@@ -473,7 +505,8 @@ export function createPostgresDrawingCollaborationDatabase(
               { result: DrawingFreezeState }[]
             >`select private.lukas_drawing_collaboration_begin_freeze(
               ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
-              ${Buffer.from(value.yjsState)}::bytea,${value.baseOperationSequence}::bigint
+              ${Buffer.from(value.yjsState)}::bytea,${value.baseOperationSequence}::bigint,
+              ${value.ownerToken}::uuid
             ) result`,
           );
           if (!row) throw new Error("Drawing freeze returned no state.");
@@ -490,7 +523,8 @@ export function createPostgresDrawingCollaborationDatabase(
               ${tx.json(JSON.parse(JSON.stringify(value.manifest.operations)))}::jsonb,${value.manifest.sha256},
               ${value.manifest.count}::integer,${value.manifest.baseOperationSequence}::bigint,
               ${value.manifest.stateVectorBase64},
-              ${tx.json(JSON.parse(JSON.stringify(value.manifest.operationStatuses)))}::jsonb
+              ${tx.json(JSON.parse(JSON.stringify(value.manifest.operationStatuses)))}::jsonb,
+              ${value.ownerToken}::uuid
             ) result`,
           );
           if (!row) throw new Error("Drawing freeze returned no state.");
@@ -503,7 +537,7 @@ export function createPostgresDrawingCollaborationDatabase(
               { result: DrawingFreezeState }[]
             >`select private.lukas_drawing_collaboration_release_freeze(
               ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
-              ${Buffer.from(value.yjsState)}::bytea
+              ${Buffer.from(value.yjsState)}::bytea,${value.ownerToken}::uuid
             ) result`,
           );
           if (!row)
@@ -517,7 +551,7 @@ export function createPostgresDrawingCollaborationDatabase(
               { result: DrawingFreezeState }[]
             >`select private.lukas_drawing_collaboration_sync_released_state(
               ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
-              ${Buffer.from(value.yjsState)}::bytea
+              ${Buffer.from(value.yjsState)}::bytea,${value.ownerToken}::uuid
             ) result`,
           );
           if (!row) throw new Error("Drawing released sync returned no state.");

@@ -51,6 +51,13 @@ const reviewRejectionRecoveryMigration = await readFile(
   ),
   "utf8",
 );
+const crossInstanceFreezeLeaseMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260826063603_drawing_workspace_p3_cross_instance_freeze_lease.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(
@@ -327,4 +334,65 @@ test("P3 review rejection recovery is version-bound and forward-only", () => {
     /lukas_drawing_collaboration_sync_released_state/i,
   );
   assert.doesNotMatch(reviewRejectionRecoveryMigration, /\brealtime\./i);
+});
+
+test("P3 cross-instance freeze lease is private, bounded, and owner-fenced", () => {
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /create table private\.lukas_drawing_collaboration_freeze_leases/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /revoke all on table private\.lukas_drawing_collaboration_freeze_leases\s+from public,anon,authenticated,service_role,lukas_drawing_collaboration/i,
+  );
+  assert.match(crossInstanceFreezeLeaseMigration, /freeze_owner_token uuid/i);
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /freeze_owner_lease_expires_at timestamptz/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /p_lease_seconds not between 5 and 300/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /freeze_owner_lease_expires_at>pg_catalog\.clock_timestamp\(\)/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /if p_yjs_state is null and p_base_operation_sequence is null then return/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /when l\.revision_id is not null then 'freezing'/i,
+  );
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /subject_revision_version bigint not null check\(subject_revision_version>0\)/i,
+  );
+  for (const name of [
+    "acquire_freeze_lease",
+    "renew_freeze_lease",
+    "release_freeze_lease",
+  ]) {
+    assert.match(
+      crossInstanceFreezeLeaseMigration,
+      new RegExp(
+        `revoke all on function private\\.lukas_drawing_collaboration_${name}\\([\\s\\S]*?from public,anon,authenticated,service_role`,
+        "i",
+      ),
+    );
+    assert.match(
+      crossInstanceFreezeLeaseMigration,
+      new RegExp(
+        `grant execute on function private\\.lukas_drawing_collaboration_${name}\\([\\s\\S]*?to lukas_drawing_collaboration`,
+        "i",
+      ),
+    );
+  }
+  assert.match(
+    crossInstanceFreezeLeaseMigration,
+    /revoke all on function private\.lukas_drawing_collaboration_begin_freeze\(uuid,uuid,uuid,bytea,bigint\) from lukas_drawing_collaboration/i,
+  );
+  assert.doesNotMatch(crossInstanceFreezeLeaseMigration, /\brealtime\./i);
 });

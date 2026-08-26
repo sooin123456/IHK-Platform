@@ -6,11 +6,11 @@ import * as Y from "yjs";
 
 import {
   createDrawingFreezeSecretVerifier,
-  createDrawingFreezeCoordinator,
+  createDrawingFreezeCoordinator as createProductionFreezeCoordinator,
   drawingFreezeManifest,
 } from "../collaboration/src/freeze.ts";
 import {
-  createDrawingCollaborationServer,
+  createDrawingCollaborationServer as createProductionCollaborationServer,
   validateDrawingClientUpdate,
 } from "../collaboration/src/server.ts";
 import { requestDrawingCollaborativeReview } from "../app/lukas/lib/drawing-workspace.server.ts";
@@ -76,6 +76,482 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+function createDrawingFreezeCoordinator(input) {
+  if (input.database.acquireFreezeLease)
+    return createProductionFreezeCoordinator({
+      ...input,
+      setInterval: input.setInterval ?? (() => 1),
+      clearInterval: input.clearInterval ?? (() => {}),
+    });
+  const testOwnerToken = input.ownerToken ?? randomUUID();
+  let leaseRequestId = null;
+  let leaseExpiresAtMs = null;
+  const now = input.now ?? Date.now;
+  const readFreeze = input.database.readFreeze.bind(input.database);
+  const releaseFreeze = input.database.releaseFreeze?.bind(input.database);
+  const syncReleasedState = input.database.syncReleasedState?.bind(
+    input.database,
+  );
+  return createProductionFreezeCoordinator({
+    ...input,
+    ownerToken: testOwnerToken,
+    setInterval: input.setInterval ?? (() => 1),
+    clearInterval: input.clearInterval ?? (() => {}),
+    database: {
+      ...input.database,
+      acquireFreezeLease: async (value) => {
+        leaseRequestId = value.requestId;
+        leaseExpiresAtMs = now() + value.leaseMs;
+      },
+      renewFreezeLease: async (value) => {
+        leaseExpiresAtMs = now() + value.leaseMs;
+      },
+      releaseFreezeLease: async () => {
+        leaseRequestId = null;
+        leaseExpiresAtMs = null;
+      },
+      async readFreeze(scope) {
+        const state = await readFreeze(scope);
+        return state && leaseRequestId
+          ? {
+              ...state,
+              ownerToken: testOwnerToken,
+              ownerRequestId: leaseRequestId,
+              leaseExpiresAtMs,
+            }
+          : state;
+      },
+      async releaseFreeze(value) {
+        const state = await releaseFreeze(value);
+        leaseRequestId = null;
+        leaseExpiresAtMs = null;
+        return state;
+      },
+      async syncReleasedState(value) {
+        const state = await syncReleasedState(value);
+        leaseRequestId = null;
+        leaseExpiresAtMs = null;
+        return state;
+      },
+    },
+  });
+}
+
+function createDrawingCollaborationServer(input) {
+  return createProductionCollaborationServer({
+    ...input,
+    setInterval: input.setInterval ?? (() => 1),
+    clearInterval: input.clearInterval ?? (() => {}),
+    storage: {
+      ...input.storage,
+      freeze: input.storage.freeze
+        ? {
+            acquireFreezeLease: async () => {},
+            renewFreezeLease: async () => {},
+            releaseFreezeLease: async () => {},
+            ...input.storage.freeze,
+          }
+        : undefined,
+    },
+  });
+}
+
+function leasedFreezeStore(now) {
+  let state = {
+    state: "active",
+    requestId: null,
+    revisionStatus: "draft",
+    revisionVersion: 1,
+  };
+  let lease = null;
+  const calls = { begins: 0, completes: 0, releases: 0 };
+  const snapshot = () => ({
+    ...state,
+    ownerToken: lease?.ownerToken ?? null,
+    ownerRequestId: lease?.requestId ?? null,
+    leaseExpiresAtMs: lease?.expiresAtMs ?? null,
+  });
+  const owns = (input) =>
+    lease?.ownerToken === input.ownerToken &&
+    lease.requestId === input.requestId &&
+    lease.expiresAtMs > now();
+  const requireOwner = (input) => {
+    if (input.ownerToken === undefined) return;
+    if (!owns(input)) throw new Error("Drawing freeze lease is not owned.");
+  };
+  const shared = {
+    async acquireFreezeLease(input) {
+      if (
+        lease?.expiresAtMs > now() &&
+        (lease.ownerToken !== input.ownerToken ||
+          lease.requestId !== input.requestId)
+      )
+        throw new Error("Drawing freeze lease is busy.");
+      if (
+        lease?.expiresAtMs <= now() &&
+        ["freezing", "frozen"].includes(state.state) &&
+        state.requestId !== input.requestId
+      )
+        throw new Error("Drawing freeze recovery request does not match.");
+      lease = {
+        ownerToken: input.ownerToken,
+        requestId: input.requestId,
+        expiresAtMs: now() + input.leaseMs,
+      };
+      return snapshot();
+    },
+    async renewFreezeLease(input) {
+      requireOwner(input);
+      lease.expiresAtMs = now() + input.leaseMs;
+      return snapshot();
+    },
+    async releaseFreezeLease(input) {
+      requireOwner(input);
+      lease = null;
+      return snapshot();
+    },
+    async readFreeze() {
+      return snapshot();
+    },
+    async beginFreeze(input) {
+      requireOwner(input);
+      if (state.state === "freezing" && state.requestId === input.requestId)
+        return snapshot();
+      calls.begins += 1;
+      state = {
+        state: "freezing",
+        requestId: input.requestId,
+        revisionStatus: "draft",
+        revisionVersion: 1,
+        frozenSubjectRevisionVersion: 1,
+      };
+      return snapshot();
+    },
+    async completeFreeze(input) {
+      requireOwner(input);
+      if (state.state !== "frozen") calls.completes += 1;
+      state = {
+        ...state,
+        state: "frozen",
+        manifestSha256: input.manifest.sha256,
+        manifestCount: input.manifest.count,
+        frozenBaseOperationSequence: input.manifest.baseOperationSequence,
+        stateVectorBase64: input.manifest.stateVectorBase64,
+        operationStatuses: input.manifest.operationStatuses,
+      };
+      return snapshot();
+    },
+    async releaseFreeze(input) {
+      requireOwner(input);
+      calls.releases += 1;
+      state = {
+        state: "released",
+        requestId: input.requestId,
+        revisionStatus: "draft",
+        revisionVersion: 1,
+      };
+      lease = null;
+      return snapshot();
+    },
+    async syncReleasedState(input) {
+      requireOwner(input);
+      lease = null;
+      return snapshot();
+    },
+  };
+  return {
+    calls,
+    database(overrides = {}) {
+      return { ...shared, ...overrides };
+    },
+    snapshot,
+  };
+}
+
+test("a foreign persisted lease fences a second coordinator before the owner reads", async () => {
+  let clock = 0;
+  const store = leasedFreezeStore(() => clock);
+  const readStarted = deferred();
+  const allowRead = deferred();
+  let firstRead = true;
+  const ownerDocument = document();
+  const foreignDocument = document();
+  const requestId = randomUUID();
+  const owner = createDrawingFreezeCoordinator({
+    database: store.database({
+      async readFreeze() {
+        if (firstRead) {
+          firstRead = false;
+          readStarted.resolve();
+          await allowRead.promise;
+        }
+        return store.snapshot();
+      },
+    }),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const foreign = createDrawingFreezeCoordinator({
+    database: store.database(),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const freezing = owner.freeze({
+    document: ownerDocument,
+    roomName,
+    requestId,
+  });
+  await readStarted.promise;
+  try {
+    const held = await foreign.reconcileLoaded({
+      document: foreignDocument,
+      roomName,
+    });
+    assert.equal(held.freezeState, "freezing");
+    assert.equal(held.freezeRequestId, requestId);
+    assert.equal(
+      foreignDocument.getMap("serverMeta").get("freezeState"),
+      "freezing",
+    );
+    assert.throws(() =>
+      validateDrawingClientUpdate(
+        foreignDocument,
+        Y.encodeStateAsUpdate(document()),
+        {
+          userId: ids.actor,
+          projectId: ids.project,
+          revisionId: ids.revision,
+          canWrite: true,
+        },
+      ),
+    );
+    assert.deepEqual(store.calls, { begins: 0, completes: 0, releases: 0 });
+  } finally {
+    allowRead.resolve();
+    await freezing.catch(() => undefined);
+  }
+  const frozen = await freezing;
+  assert.equal(frozen.freezeState, "frozen");
+  assert.deepEqual(store.calls, { begins: 1, completes: 1, releases: 0 });
+  clock += 1;
+});
+
+test("an expired persisted lease permits one takeover and denies stale completion", async () => {
+  let clock = 0;
+  const store = leasedFreezeStore(() => clock);
+  const ownerPaused = deferred();
+  const resumeOwner = deferred();
+  const requestId = randomUUID();
+  const ownerDocument = document();
+  const takeoverDocument = document();
+  const owner = createDrawingFreezeCoordinator({
+    database: store.database(),
+    reconcile: async () => {
+      ownerPaused.resolve();
+      await resumeOwner.promise;
+    },
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const takeover = createDrawingFreezeCoordinator({
+    database: store.database(),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const original = owner.freeze({
+    document: ownerDocument,
+    roomName,
+    requestId,
+  });
+  await ownerPaused.promise;
+  const held = await takeover.reconcileLoaded({
+    document: takeoverDocument,
+    roomName,
+  });
+  assert.equal(held.freezeState, "freezing");
+  assert.deepEqual(store.calls, { begins: 1, completes: 0, releases: 0 });
+  assert.throws(() =>
+    validateDrawingClientUpdate(
+      takeoverDocument,
+      Y.encodeStateAsUpdate(document()),
+      {
+        userId: ids.actor,
+        projectId: ids.project,
+        revisionId: ids.revision,
+        canWrite: true,
+      },
+    ),
+  );
+  clock = 101;
+  const recovered = await takeover.reconcileLoaded({
+    document: takeoverDocument,
+    roomName,
+  });
+  assert.equal(recovered.freezeState, "released");
+  assert.deepEqual(store.calls, { begins: 1, completes: 1, releases: 1 });
+  resumeOwner.resolve();
+  await assert.rejects(original, /lease|owned/i);
+  assert.deepEqual(store.calls, { begins: 1, completes: 1, releases: 1 });
+});
+
+test("the active owner heartbeat renews the persisted cross-instance fence", async () => {
+  let clock = 0;
+  let heartbeat = null;
+  const store = leasedFreezeStore(() => clock);
+  const paused = deferred();
+  const resume = deferred();
+  const requestId = randomUUID();
+  const owner = createDrawingFreezeCoordinator({
+    database: store.database(),
+    reconcile: async () => {
+      paused.resolve();
+      await resume.promise;
+    },
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    heartbeatMs: 25,
+    setInterval(callback) {
+      heartbeat = callback;
+      return 1;
+    },
+    clearInterval: () => {},
+  });
+  const foreign = createDrawingFreezeCoordinator({
+    database: store.database(),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    leaseMs: 100,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const freezing = owner.freeze({
+    document: document(),
+    roomName,
+    requestId,
+  });
+  await paused.promise;
+  clock = 50;
+  heartbeat();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.snapshot().leaseExpiresAtMs, 150);
+  clock = 101;
+  const held = await foreign.reconcileLoaded({
+    document: document(),
+    roomName,
+  });
+  assert.equal(held.freezeState, "freezing");
+  assert.deepEqual(store.calls, { begins: 1, completes: 0, releases: 0 });
+  resume.resolve();
+  assert.equal((await freezing).freezeState, "frozen");
+  assert.deepEqual(store.calls, { begins: 1, completes: 1, releases: 0 });
+});
+
+test("a detached-load preparation heartbeat persists until cancel", async () => {
+  let clock = 2_000;
+  const intervals = [];
+  const store = leasedFreezeStore(() => clock);
+  const coordinator = createProductionFreezeCoordinator({
+    database: store.database(),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    setInterval(callback) {
+      intervals.push(callback);
+      return intervals.length;
+    },
+    clearInterval() {},
+  });
+  const requestId = randomUUID();
+  await coordinator.prepare({ roomName, requestId });
+  const initialExpiry = store.snapshot().leaseExpiresAtMs;
+  clock += 20_000;
+  intervals[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(store.snapshot().leaseExpiresAtMs > initialExpiry);
+  await coordinator.cancelPreparation({ roomName, requestId });
+  assert.equal(store.snapshot().ownerToken, null);
+});
+
+test("same-request preparations share acquisition and only the last cancel releases", async () => {
+  const clock = 4_000;
+  const acquireStarted = deferred();
+  const allowAcquire = deferred();
+  const store = leasedFreezeStore(() => clock);
+  const database = store.database();
+  const acquire = database.acquireFreezeLease.bind(database);
+  let acquires = 0;
+  database.acquireFreezeLease = async (input) => {
+    acquires += 1;
+    acquireStarted.resolve();
+    await allowAcquire.promise;
+    return acquire(input);
+  };
+  const coordinator = createProductionFreezeCoordinator({
+    database,
+    ownerToken: randomUUID(),
+    now: () => clock,
+    setInterval: () => 1,
+    clearInterval() {},
+  });
+  const requestId = randomUUID();
+  const first = coordinator.prepare({ roomName, requestId });
+  await acquireStarted.promise;
+  const second = coordinator.prepare({ roomName, requestId });
+  assert.equal(acquires, 1);
+  allowAcquire.resolve();
+  await Promise.all([first, second]);
+  await coordinator.cancelPreparation({ roomName, requestId });
+  assert.equal(store.snapshot().ownerRequestId, requestId);
+  await coordinator.cancelPreparation({ roomName, requestId });
+  assert.equal(store.snapshot().ownerToken, null);
+});
+
+test("an owner failure cannot release a same-request handoff preparation", async () => {
+  const clock = 6_000;
+  const completeStarted = deferred();
+  const allowComplete = deferred();
+  const store = leasedFreezeStore(() => clock);
+  const coordinator = createProductionFreezeCoordinator({
+    database: store.database({
+      async completeFreeze() {
+        completeStarted.resolve();
+        await allowComplete.promise;
+        throw new Error("forced owner failure");
+      },
+    }),
+    ownerToken: randomUUID(),
+    now: () => clock,
+    setInterval: () => 1,
+    clearInterval() {},
+  });
+  const requestId = randomUUID();
+  const freezing = coordinator.freeze({
+    document: document(),
+    roomName,
+    requestId,
+  });
+  await completeStarted.promise;
+  await coordinator.prepare({ roomName, requestId });
+  allowComplete.resolve();
+  await assert.rejects(freezing, /forced owner failure/);
+  assert.equal(store.calls.releases, 0);
+  assert.equal(store.snapshot().ownerRequestId, requestId);
+  await coordinator.cancelPreparation({ roomName, requestId });
+  assert.equal(store.snapshot().ownerToken, null);
+});
 
 test("freeze manifest compares only immutable business fields and authoritative outcome", () => {
   const first = drawingFreezeManifest(document());
@@ -426,6 +902,189 @@ test("the server owns a room before deferred detached storage load", async () =>
   await runtime.stop();
 });
 
+test("a persisted preparation lease rejects foreign live updates during detached load", async () => {
+  let currentTime = 1_000;
+  const store = leasedFreezeStore(() => currentTime);
+  const loadStarted = deferred();
+  const allowLoad = deferred();
+  const source = document();
+  const runtime = (loadService) =>
+    createProductionCollaborationServer({
+      config: {
+        port: 0,
+        supabaseUrl: "https://example.supabase.co",
+        databaseUrl: "postgres://unused",
+        allowedOrigins: new Set(["https://app.example.com"]),
+        internalSecret: "i".repeat(32),
+        freezeSecret: "f".repeat(32),
+        authorizationIntervalMs: 30_000,
+        debounceMs: 10,
+        maxDebounceMs: 20,
+      },
+      verifyToken: async () => ({
+        userId: ids.actor,
+        email: null,
+        expiresAtMs: currentTime + 60_000,
+      }),
+      authorize: async () => ({
+        capability: "editor",
+        canWrite: true,
+        revisionStatus: "draft",
+      }),
+      storage: {
+        load: async () => null,
+        loadService,
+        store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+        bootstrap: async () => ({
+          sha256: "a".repeat(64),
+          operationSequence: 0,
+        }),
+        freeze: store.database(),
+      },
+      now: () => currentTime,
+      setInterval: () => 1,
+      clearInterval: () => {},
+    });
+  const owner = runtime(async () => {
+    loadStarted.resolve();
+    await allowLoad.promise;
+    return { yjsState: Y.encodeStateAsUpdate(source) };
+  });
+  const foreign = runtime(async () => ({
+    yjsState: Y.encodeStateAsUpdate(source),
+  }));
+  const requestId = randomUUID();
+  const freezing = owner.applyFreezeRequest(
+    JSON.stringify({ action: "freeze", roomName, freezeRequestId: requestId }),
+    "f".repeat(32),
+  );
+  await loadStarted.promise;
+  assert.equal(store.snapshot().ownerRequestId, requestId);
+
+  const foreignDocument = document();
+  const connection = {
+    readOnly: false,
+    closeCalls: [],
+    close(event) {
+      this.closeCalls.push(event);
+    },
+    requestToken() {},
+  };
+  await assert.rejects(
+    foreign.hooks.beforeSync({
+      context: {
+        userId: ids.actor,
+        email: null,
+        expiresAtMs: currentTime + 60_000,
+        projectId: ids.project,
+        revisionId: ids.revision,
+        roomName,
+        displayName: "Editor",
+        color: "#000000",
+        lastAuthorizedAt: currentTime,
+        capability: "editor",
+        canWrite: true,
+        revisionStatus: "draft",
+      },
+      document: foreignDocument,
+      connection,
+      type: 2,
+      payload: Y.encodeStateAsUpdate(document()),
+    }),
+    /frozen for review/,
+  );
+  assert.equal(connection.readOnly, true);
+  assert.equal(connection.closeCalls[0]?.reason, "review-freeze");
+  assert.equal(
+    foreignDocument.getMap("serverMeta").get("freezeState"),
+    "freezing",
+  );
+  assert.equal(
+    foreignDocument.getMap("serverMeta").get("freezeRequestId"),
+    requestId,
+  );
+
+  allowLoad.resolve();
+  const frozen = await freezing;
+  assert.equal(frozen.freezeState, "frozen");
+  assert.equal(store.calls.begins, 1);
+  assert.equal(store.calls.completes, 1);
+  await owner.stop();
+  await foreign.stop();
+});
+
+test("a same-request server retry shares the active owner before detached load", async () => {
+  const clock = 8_000;
+  let loads = 0;
+  const completeStarted = deferred();
+  const allowComplete = deferred();
+  const store = leasedFreezeStore(() => clock);
+  const database = store.database({
+    async completeFreeze() {
+      completeStarted.resolve();
+      await allowComplete.promise;
+      throw new Error("forced complete failure");
+    },
+  });
+  const runtime = createProductionCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl: "https://example.supabase.co",
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "i".repeat(32),
+      freezeSecret: "f".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: clock + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      async loadService() {
+        loads += 1;
+        return { yjsState: Y.encodeStateAsUpdate(document()) };
+      },
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+      bootstrap: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      freeze: database,
+    },
+    now: () => clock,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const requestId = randomUUID();
+  const body = JSON.stringify({
+    action: "freeze",
+    roomName,
+    freezeRequestId: requestId,
+  });
+  const first = runtime.applyFreezeRequest(body, "f".repeat(32));
+  await completeStarted.promise;
+  const retry = runtime.applyFreezeRequest(body, "f".repeat(32));
+  assert.equal(loads, 1);
+  allowComplete.resolve();
+  await Promise.all([
+    assert.rejects(first, /forced complete failure/),
+    assert.rejects(retry, /forced complete failure/),
+  ]);
+  assert.equal(loads, 1);
+  assert.equal(store.calls.releases, 1);
+  await runtime.stop();
+});
+
 test("an active freeze owner fences periodic recovery until review commits", async () => {
   const doc = document();
   const requestId = randomUUID();
@@ -590,6 +1249,7 @@ test("a completed owner lease expires deterministically and recovers once", asyn
     database,
     now: () => clock,
     completedLeaseMs: 100,
+    leaseMs: 100,
   });
   await coordinator.freeze({ document: doc, roomName, requestId });
   clock = 1_099;

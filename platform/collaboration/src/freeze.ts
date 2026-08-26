@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import * as Y from "yjs";
 
@@ -49,6 +49,9 @@ export type DrawingFreezeState = {
   operationStatuses?: DrawingFreezeManifest["operationStatuses"] | null;
   revisionVersion?: number;
   reviewCommitted?: boolean;
+  ownerToken?: string | null;
+  ownerRequestId?: string | null;
+  leaseExpiresAtMs?: number | null;
 };
 
 export type DrawingFreezeDatabase = {
@@ -56,12 +59,35 @@ export type DrawingFreezeDatabase = {
     projectId: string;
     revisionId: string;
   }): Promise<DrawingFreezeState | null>;
+  acquireFreezeLease(input: {
+    projectId: string;
+    revisionId: string;
+    requestId: string;
+    ownerToken: string;
+    leaseMs: number;
+    yjsState?: Uint8Array;
+    baseOperationSequence?: number;
+  }): Promise<void>;
+  renewFreezeLease(input: {
+    projectId: string;
+    revisionId: string;
+    requestId: string;
+    ownerToken: string;
+    leaseMs: number;
+  }): Promise<void>;
+  releaseFreezeLease(input: {
+    projectId: string;
+    revisionId: string;
+    requestId: string;
+    ownerToken: string;
+  }): Promise<void>;
   beginFreeze(input: {
     projectId: string;
     revisionId: string;
     requestId: string;
     yjsState: Uint8Array;
     baseOperationSequence: number;
+    ownerToken: string;
   }): Promise<DrawingFreezeState>;
   completeFreeze(input: {
     projectId: string;
@@ -69,18 +95,21 @@ export type DrawingFreezeDatabase = {
     requestId: string;
     yjsState: Uint8Array;
     manifest: DrawingFreezeManifest;
+    ownerToken: string;
   }): Promise<DrawingFreezeState>;
   releaseFreeze(input: {
     projectId: string;
     revisionId: string;
     requestId: string;
     yjsState: Uint8Array;
+    ownerToken: string;
   }): Promise<DrawingFreezeState>;
   syncReleasedState(input: {
     projectId: string;
     revisionId: string;
     requestId: string;
     yjsState: Uint8Array;
+    ownerToken: string;
   }): Promise<DrawingFreezeState>;
 };
 
@@ -197,16 +226,171 @@ export function createDrawingFreezeCoordinator(input: {
   reconcile?: (document: Y.Doc) => Promise<void>;
   now?: () => number;
   completedLeaseMs?: number;
+  ownerToken?: string;
+  leaseMs?: number;
+  heartbeatMs?: number;
+  setInterval?: typeof globalThis.setInterval;
+  clearInterval?: typeof globalThis.clearInterval;
 }) {
   const now = input.now ?? Date.now;
   const completedLeaseMs = input.completedLeaseMs ?? 60_000;
+  const ownerToken = input.ownerToken ?? randomUUID();
+  const leaseMs = input.leaseMs ?? 30_000;
+  const heartbeatMs = input.heartbeatMs ?? 10_000;
+  const setInterval = input.setInterval ?? globalThis.setInterval;
+  const clearInterval = input.clearInterval ?? globalThis.clearInterval;
   type FreezeOwner = {
     requestId: string;
     phase: "in_flight" | "completed";
     expiresAt: number;
     promise: Promise<ReturnType<typeof result>>;
+    heartbeat: ReturnType<typeof setInterval> | null;
+    leaseError: unknown;
+  };
+  type FreezePreparation = {
+    requestId: string;
+    count: number;
+    heartbeat: ReturnType<typeof setInterval> | null;
+    promise: Promise<void>;
   };
   const owners = new Map<string, FreezeOwner>();
+  const preparations = new Map<string, FreezePreparation>();
+  const forgetOwner = (roomName: string, owner?: FreezeOwner) => {
+    const current = owners.get(roomName);
+    if (!current || (owner && current !== owner)) return;
+    if (current.heartbeat !== null) clearInterval(current.heartbeat);
+    owners.delete(roomName);
+  };
+  const fenceDocument = (document: Y.Doc, state: DrawingFreezeState) => {
+    const requestId = state.ownerRequestId ?? state.requestId;
+    if (!requestId) throw new Error("Drawing freeze lease request is missing.");
+    const freezeState = state.state === "frozen" ? "frozen" : "freezing";
+    document.transact(() => {
+      document.getMap("serverMeta").set("freezeState", freezeState);
+      document.getMap("serverMeta").set("freezeRequestId", requestId);
+    });
+    return result({ ...state, state: freezeState, requestId });
+  };
+  const leaseIsLive = (state: DrawingFreezeState) =>
+    Boolean(state.ownerToken && (state.leaseExpiresAtMs ?? 0) > now());
+  const acquireRecovery = async (
+    scope: { projectId: string; revisionId: string },
+    document: Y.Doc,
+    requestId: string,
+  ) => {
+    const meta = DrawingCollaborationMetaSchema.parse(
+      document.getMap("serverMeta").toJSON(),
+    );
+    try {
+      await input.database.acquireFreezeLease({
+        ...scope,
+        requestId,
+        ownerToken,
+        leaseMs,
+        yjsState: Y.encodeStateAsUpdate(document),
+        baseOperationSequence: meta.baseOperationSequence,
+      });
+    } catch (error) {
+      const authoritative = await input.database
+        .readFreeze(scope)
+        .catch(() => null);
+      if (authoritative && leaseIsLive(authoritative))
+        fenceDocument(document, authoritative);
+      throw error;
+    }
+  };
+  const prepare = async ({
+    roomName,
+    requestId,
+  }: {
+    roomName: string;
+    requestId: string;
+  }) => {
+    const scope = parseDrawingRoomName(roomName);
+    const existing = preparations.get(roomName);
+    if (existing) {
+      if (existing.requestId !== requestId)
+        throw new Error("Drawing freeze lease is busy.");
+      existing.count += 1;
+      return existing.promise;
+    }
+    const preparation: FreezePreparation = {
+      requestId,
+      count: 1,
+      heartbeat: null,
+      promise: Promise.resolve(),
+    };
+    preparations.set(roomName, preparation);
+    preparation.promise = input.database
+      .acquireFreezeLease({
+        ...scope,
+        requestId,
+        ownerToken,
+        leaseMs,
+      })
+      .then(() => {
+        if (preparations.get(roomName) !== preparation) return;
+        preparation.heartbeat = setInterval(() => {
+          void input.database
+            .renewFreezeLease({
+              ...scope,
+              requestId,
+              ownerToken,
+              leaseMs,
+            })
+            .catch(() => undefined);
+        }, heartbeatMs);
+      })
+      .catch((error) => {
+        if (preparations.get(roomName) === preparation)
+          preparations.delete(roomName);
+        throw error;
+      });
+    return preparation.promise;
+  };
+  const finishPreparation = (roomName: string, requestId: string) => {
+    const preparation = preparations.get(roomName);
+    if (!preparation || preparation.requestId !== requestId) return false;
+    preparation.count -= 1;
+    if (preparation.count > 0) return false;
+    if (preparation.heartbeat !== null)
+      clearInterval(preparation.heartbeat);
+    preparations.delete(roomName);
+    return true;
+  };
+  const cancelPreparation = async ({
+    roomName,
+    requestId,
+  }: {
+    roomName: string;
+    requestId: string;
+  }) => {
+    const scope = parseDrawingRoomName(roomName);
+    const finished = finishPreparation(roomName, requestId);
+    if (!finished || owners.get(roomName)?.requestId === requestId) return;
+    await input.database.releaseFreezeLease({
+      ...scope,
+      requestId,
+      ownerToken,
+    });
+  };
+  const shareOwner = ({
+    roomName,
+    requestId,
+  }: {
+    roomName: string;
+    requestId: string;
+  }) => {
+    let owner = owners.get(roomName);
+    if (owner?.phase === "completed" && owner.expiresAt <= now()) {
+      forgetOwner(roomName, owner);
+      owner = undefined;
+    }
+    if (!owner) return null;
+    if (owner.requestId !== requestId)
+      throw new Error("Drawing freeze is already in progress.");
+    return owner.promise;
+  };
   const releaseDocument = async (
     scope: { projectId: string; revisionId: string },
     document: Y.Doc,
@@ -222,6 +406,7 @@ export function createDrawingFreezeCoordinator(input: {
       const released = await input.database.releaseFreeze({
         ...scope,
         requestId,
+        ownerToken,
         yjsState: Y.encodeStateAsUpdate(candidate),
       });
       Y.applyUpdate(document, Y.encodeStateAsUpdate(candidate));
@@ -251,10 +436,12 @@ export function createDrawingFreezeCoordinator(input: {
     document,
     roomName,
     requestId,
+    owner,
   }: {
     document: Y.Doc;
     roomName: string;
     requestId: string;
+    owner: FreezeOwner;
   }) => {
     const scope = parseDrawingRoomName(roomName);
     const meta = DrawingCollaborationMetaSchema.parse(
@@ -265,6 +452,53 @@ export function createDrawingFreezeCoordinator(input: {
       meta.revisionId !== scope.revisionId
     )
       throw new Error("Drawing freeze scope is invalid.");
+    document.transact(() => {
+      document.getMap("serverMeta").set("freezeState", "freezing");
+      document.getMap("serverMeta").set("freezeRequestId", requestId);
+    });
+    try {
+      await input.database.acquireFreezeLease({
+        ...scope,
+        requestId,
+        ownerToken,
+        leaseMs,
+        yjsState: Y.encodeStateAsUpdate(document),
+        baseOperationSequence: meta.baseOperationSequence,
+      });
+    } catch (error) {
+      const authoritative = await input.database
+        .readFreeze(scope)
+        .catch(() => null);
+      if (authoritative && leaseIsLive(authoritative))
+        fenceDocument(document, authoritative);
+      throw error;
+    }
+    if (owner.heartbeat === null)
+      owner.heartbeat = setInterval(() => {
+        if (owner.phase === "completed" && owner.expiresAt <= now()) {
+          forgetOwner(roomName, owner);
+          return;
+        }
+        void input.database
+          .renewFreezeLease({
+            ...scope,
+            requestId,
+            ownerToken,
+            leaseMs,
+          })
+          .catch((error) => {
+            owner.leaseError = error;
+          });
+      }, heartbeatMs);
+    const renew = async () => {
+      if (owner.leaseError) throw owner.leaseError;
+      await input.database.renewFreezeLease({
+        ...scope,
+        requestId,
+        ownerToken,
+        leaseMs,
+      });
+    };
     const existing = await input.database.readFreeze(scope);
     if (existing?.state === "frozen") {
       if (existing.requestId !== requestId)
@@ -286,6 +520,7 @@ export function createDrawingFreezeCoordinator(input: {
         const upgraded = await input.database.completeFreeze({
           ...scope,
           requestId,
+          ownerToken,
           yjsState: Y.encodeStateAsUpdate(document),
           manifest,
         });
@@ -297,22 +532,22 @@ export function createDrawingFreezeCoordinator(input: {
       throw new Error("Drawing freeze is already in progress.");
     if (existing?.revisionStatus && existing.revisionStatus !== "draft")
       throw new Error("Drawing revision is permanently frozen.");
-    document.transact(() => {
-      document.getMap("serverMeta").set("freezeState", "freezing");
-      document.getMap("serverMeta").set("freezeRequestId", requestId);
-    });
     let started = false;
     try {
+      await renew();
       const beginning = await input.database.beginFreeze({
         ...scope,
         requestId,
+        ownerToken,
         yjsState: Y.encodeStateAsUpdate(document),
         baseOperationSequence: meta.baseOperationSequence,
       });
       started = true;
       if (beginning.state === "frozen")
         return frozenResult(beginning, document);
+      await renew();
       await input.reconcile?.(document);
+      await renew();
       document.transact(() => {
         document.getMap("serverMeta").set("freezeState", "frozen");
       });
@@ -320,6 +555,7 @@ export function createDrawingFreezeCoordinator(input: {
       const frozen = await input.database.completeFreeze({
         ...scope,
         requestId,
+        ownerToken,
         yjsState: Y.encodeStateAsUpdate(document),
         manifest,
       });
@@ -330,15 +566,35 @@ export function createDrawingFreezeCoordinator(input: {
         .catch(() => null);
       if (
         authoritative?.state === "frozen" &&
-        authoritative.requestId === requestId
+        authoritative.requestId === requestId &&
+        authoritative.ownerToken === ownerToken &&
+        leaseIsLive(authoritative)
       )
         return frozenResult(authoritative, document);
       if (
         started &&
         authoritative?.revisionStatus === "draft" &&
-        authoritative.requestId === requestId
+        authoritative.requestId === requestId &&
+        authoritative.ownerToken === ownerToken &&
+        leaseIsLive(authoritative) &&
+        preparations.get(roomName)?.requestId !== requestId
       )
         await releaseDocument(scope, document, requestId);
+      else if (
+        !started &&
+        authoritative?.ownerToken === ownerToken &&
+        authoritative.ownerRequestId === requestId &&
+        leaseIsLive(authoritative) &&
+        ["active", "released"].includes(authoritative.state) &&
+        preparations.get(roomName)?.requestId !== requestId
+      )
+        await input.database.releaseFreezeLease({
+          ...scope,
+          requestId,
+          ownerToken,
+        });
+      else if (authoritative && leaseIsLive(authoritative))
+        fenceDocument(document, authoritative);
       throw error;
     }
   };
@@ -351,9 +607,10 @@ export function createDrawingFreezeCoordinator(input: {
     roomName: string;
     requestId: string;
   }) => {
+    finishPreparation(roomName, requestId);
     let existing = owners.get(roomName);
     if (existing?.phase === "completed" && existing.expiresAt <= now()) {
-      owners.delete(roomName);
+      forgetOwner(roomName, existing);
       existing = undefined;
     }
     if (existing) {
@@ -368,8 +625,11 @@ export function createDrawingFreezeCoordinator(input: {
       phase: "in_flight",
       expiresAt: Number.POSITIVE_INFINITY,
       promise: Promise.resolve(null as never),
+      heartbeat: null,
+      leaseError: null,
     };
-    owner.promise = freezeDocument({ document, roomName, requestId })
+    owners.set(roomName, owner);
+    owner.promise = freezeDocument({ document, roomName, requestId, owner })
       .then((value) => {
         const current = owners.get(roomName);
         if (current === owner) {
@@ -379,13 +639,24 @@ export function createDrawingFreezeCoordinator(input: {
         return value;
       })
       .catch((error) => {
-        if (owners.get(roomName) === owner) owners.delete(roomName);
+        forgetOwner(roomName, owner);
         throw error;
       });
-    owners.set(roomName, owner);
     return owner.promise;
   };
   return {
+    prepare,
+    cancelPreparation,
+    shareOwner,
+    dispose() {
+      for (const preparation of preparations.values())
+        if (preparation.heartbeat !== null)
+          clearInterval(preparation.heartbeat);
+      preparations.clear();
+      for (const owner of owners.values())
+        if (owner.heartbeat !== null) clearInterval(owner.heartbeat);
+      owners.clear();
+    },
     async reconcileLoaded({
       document,
       roomName,
@@ -397,19 +668,38 @@ export function createDrawingFreezeCoordinator(input: {
       const state = await input.database.readFreeze(scope);
       if (!state) return null;
       const owner = owners.get(roomName);
-      if (
-        owner &&
-        (state.state === "released" ||
-          ["review_requested", "approved"].includes(state.revisionStatus ?? ""))
-      )
-        owners.delete(roomName);
+      const committed = ["review_requested", "approved"].includes(
+        state.revisionStatus ?? "",
+      );
+      if (committed) {
+        if (
+          leaseIsLive(state) &&
+          state.ownerToken === ownerToken &&
+          state.ownerRequestId
+        )
+          await input.database.releaseFreezeLease({
+            ...scope,
+            requestId: state.ownerRequestId,
+            ownerToken,
+          });
+        forgetOwner(roomName);
+      } else if (
+        leaseIsLive(state) &&
+        (!owner ||
+          state.ownerToken !== ownerToken ||
+          state.ownerRequestId !== owner.requestId)
+      ) {
+        return fenceDocument(document, state);
+      }
+      if (owner && (state.state === "released" || committed))
+        forgetOwner(roomName, owner);
       else if (owner) {
         if (state.requestId && state.requestId !== owner.requestId)
           throw new Error(
             "Drawing freeze owner does not match persisted state.",
           );
         if (owner.phase === "completed" && owner.expiresAt <= now())
-          owners.delete(roomName);
+          forgetOwner(roomName, owner);
         else if (["active", "freezing"].includes(state.state)) {
           document.transact(() => {
             document.getMap("serverMeta").set("freezeState", "freezing");
@@ -446,6 +736,7 @@ export function createDrawingFreezeCoordinator(input: {
           serverMeta.get("freezeRequestId") === state.requestId
         )
           return result(state);
+        await acquireRecovery(scope, document, state.requestId);
         const candidate = new Y.Doc();
         try {
           Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document));
@@ -458,6 +749,7 @@ export function createDrawingFreezeCoordinator(input: {
           const synchronized = await input.database.syncReleasedState({
             ...scope,
             requestId: state.requestId,
+            ownerToken,
             yjsState: Y.encodeStateAsUpdate(candidate),
           });
           Y.applyUpdate(document, Y.encodeStateAsUpdate(candidate));
@@ -472,7 +764,7 @@ export function createDrawingFreezeCoordinator(input: {
         if (state.frozenSubjectRevisionVersion !== state.revisionVersion)
           throw new Error("Drawing freeze subject version changed.");
         if (state.revisionStatus === "draft") {
-          await freezeDocument({
+          await ownedFreeze({
             document,
             roomName,
             requestId: state.requestId,
@@ -495,9 +787,13 @@ export function createDrawingFreezeCoordinator(input: {
             throw new Error(
               "Interrupted drawing freeze changed during recovery.",
             );
-          return result(
-            await releaseDocument(scope, document, state.requestId),
+          const released = await releaseDocument(
+            scope,
+            document,
+            state.requestId,
           );
+          forgetOwner(roomName);
+          return result(released);
         }
         document.transact(() => {
           document.getMap("serverMeta").set("freezeState", "freezing");
@@ -513,9 +809,14 @@ export function createDrawingFreezeCoordinator(input: {
         if (state.revisionStatus === "draft") {
           if (state.reviewCommitted)
             throw new Error("Rejected drawing freeze was not released.");
-          return result(
-            await releaseDocument(scope, document, state.requestId),
+          await acquireRecovery(scope, document, state.requestId);
+          const released = await releaseDocument(
+            scope,
+            document,
+            state.requestId,
           );
+          forgetOwner(roomName);
+          return result(released);
         }
         const serverMeta = document.getMap("serverMeta");
         if (
@@ -563,9 +864,17 @@ export function createDrawingFreezeCoordinator(input: {
         !["freezing", "frozen"].includes(authoritative.state)
       )
         throw new Error("Drawing freeze cannot be released.");
+      if (
+        leaseIsLive(authoritative) &&
+        authoritative.ownerToken !== ownerToken
+      ) {
+        fenceDocument(document, authoritative);
+        throw new Error("Drawing freeze lease is busy.");
+      }
+      if (!leaseIsLive(authoritative))
+        await acquireRecovery(scope, document, requestId);
       const released = await releaseDocument(scope, document, requestId);
-      if (owners.get(roomName)?.requestId === requestId)
-        owners.delete(roomName);
+      if (owners.get(roomName)?.requestId === requestId) forgetOwner(roomName);
       return released;
     },
   };

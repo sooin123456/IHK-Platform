@@ -634,6 +634,18 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       await reauthorize(input.context, input.connection);
       input.connection.readOnly = !input.context.canWrite;
       if (!input.context.canWrite) return;
+      const freeze = await reconcileLoadedDocument(
+        input.document,
+        input.context.roomName,
+      );
+      if (
+        freeze &&
+        ["freezing", "frozen"].includes(freeze.freezeState)
+      ) {
+        input.connection.readOnly = true;
+        input.connection.close({ code: 4403, reason: "review-freeze" });
+        throw new Error("Drawing revision is frozen for review.");
+      }
       validateDrawingClientUpdate(input.document, input.payload, input.context);
     },
     async beforeAwareness(input: {
@@ -744,6 +756,9 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   const freezeCoordinator = dependencies.storage.freeze
     ? createDrawingFreezeCoordinator({
         database: dependencies.storage.freeze,
+        now,
+        setInterval: dependencies.setInterval,
+        clearInterval: dependencies.clearInterval,
         reconcile: async (document) => {
           if (!dependencies.storage.lookupOperations) return;
           const revisionId = String(
@@ -930,6 +945,22 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           .strict(),
       ])
       .parse(JSON.parse(body));
+    if (request.action === "freeze" || request.action === "reconcile") {
+      const shared = freezeCoordinator.shareOwner({
+        roomName: request.roomName,
+        requestId: request.freezeRequestId,
+      });
+      if (shared) {
+        const frozen = await shared;
+        for (const connection of [...connections])
+          if (connection.context.roomName === request.roomName) {
+            connection.readOnly = true;
+            connection.close({ code: 4403, reason: "review-freeze" });
+            connections.delete(connection);
+          }
+        return frozen;
+      }
+    }
     let releasePreparation = () => {};
     if (
       request.action === "release" &&
@@ -957,7 +988,15 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       };
     }
     let loaded: Awaited<ReturnType<typeof loadServiceDocument>> | null = null;
+    let prepared = false;
     try {
+      if (request.action === "freeze" || request.action === "reconcile") {
+        await freezeCoordinator.prepare({
+          roomName: request.roomName,
+          requestId: request.freezeRequestId,
+        });
+        prepared = true;
+      }
       loaded = await loadServiceDocument(request.roomName);
       if (request.action === "authority")
         return await reconcileLoadedDocument(loaded.document, request.roomName);
@@ -972,6 +1011,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         roomName: request.roomName,
         requestId: request.freezeRequestId,
       });
+      prepared = false;
       releasePreparation();
       const frozen = await freezing;
       for (const connection of [...connections])
@@ -982,6 +1022,13 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         }
       return frozen;
     } catch (error) {
+      if (prepared && "freezeRequestId" in request)
+        await freezeCoordinator
+          .cancelPreparation({
+            roomName: request.roomName,
+            requestId: request.freezeRequestId,
+          })
+          .catch(() => undefined);
       releasePreparation();
       const liveDocument = hocuspocus.documents.get(request.roomName);
       if (liveDocument)
@@ -1278,6 +1325,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     stopPromise = (async () => {
       live = false;
       (dependencies.clearInterval ?? globalThis.clearInterval)(interval);
+      freezeCoordinator?.dispose();
       await dependencies.flush?.();
       if (dependencies.destroy) await dependencies.destroy();
       else if (started) await server.destroy();
