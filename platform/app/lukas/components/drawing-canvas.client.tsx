@@ -26,6 +26,8 @@ import {
   drawingCanvasCursor,
   drawingGeometryHitTest,
   drawingOpeningMarkerSegments,
+  drawingSemanticLabelLayout,
+  DRAWING_SEMANTIC_RENDER_METRICS,
   drawingPanGestureTransition,
   geometryBounds,
   geometrySnapPoints,
@@ -1879,25 +1881,32 @@ function geometryShape(
             {...common}
             points={points}
             stroke="#ffffff"
-            strokeWidth={resolved.host.geometry.thicknessMillimeters + 4}
+            strokeWidth={
+              resolved.host.geometry.thicknessMillimeters +
+              DRAWING_SEMANTIC_RENDER_METRICS.openingCutExtra
+            }
           />
           <Line
             {...common}
             points={points}
-            strokeWidth={geometry.openingKind === "void" ? 2 : 10}
+            strokeWidth={
+              geometry.openingKind === "void"
+                ? DRAWING_SEMANTIC_RENDER_METRICS.voidWidth
+                : DRAWING_SEMANTIC_RENDER_METRICS.openingWidth
+            }
           />
           {geometry.openingKind === "window" ? (
             <Line
               {...common}
               points={marker.flatMap((point) => [point.x, point.y])}
-              strokeWidth={5}
+              strokeWidth={DRAWING_SEMANTIC_RENDER_METRICS.windowMarkerWidth}
             />
           ) : null}
           {geometry.openingKind === "door" ? (
             <Line
               {...common}
               points={marker.flatMap((point) => [point.x, point.y])}
-              strokeWidth={6}
+              strokeWidth={DRAWING_SEMANTIC_RENDER_METRICS.doorMarkerWidth}
             />
           ) : null}
         </>
@@ -1905,11 +1914,7 @@ function geometryShape(
     }
     case "space":
     case "area": {
-      const centroid = polygonCentroid(geometry.boundary);
-      const label =
-        geometry.type === "space"
-          ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
-          : objectName || "영역";
+      const label = drawingSemanticLabelLayout(geometry, objectName);
       return (
         <>
           <Line
@@ -1917,37 +1922,33 @@ function geometryShape(
             closed
             fill={
               style.fill ??
-              (geometry.type === "space" ? "#dbeafe66" : "#fde68a66")
+              (geometry.type === "space"
+                ? DRAWING_SEMANTIC_RENDER_METRICS.spaceFill
+                : DRAWING_SEMANTIC_RENDER_METRICS.areaFill)
             }
             points={geometry.boundary.flatMap((point) => [point.x, point.y])}
           />
           <KonvaText
             align="center"
             fill={style.stroke}
-            fontSize={14}
+            fontSize={label.fontSize}
             listening={false}
             name="drawing-semantic-label"
-            text={label}
-            width={180}
-            x={centroid.x - 90}
-            y={centroid.y - 7}
+            text={label.text}
+            width={label.width}
+            x={label.x}
+            y={label.y}
           />
         </>
       );
     }
     case "grid": {
-      const angle =
-        (Math.atan2(
-          geometry.end.y - geometry.start.y,
-          geometry.end.x - geometry.start.x,
-        ) *
-          180) /
-        Math.PI;
+      const label = drawingSemanticLabelLayout(geometry, objectName);
       return (
         <>
           <Line
             {...common}
-            dash={[16, 8]}
+            dash={[...DRAWING_SEMANTIC_RENDER_METRICS.gridDash]}
             points={[
               geometry.start.x,
               geometry.start.y,
@@ -1957,23 +1958,23 @@ function geometryShape(
           />
           <Circle
             fill="#ffffff"
-            radius={18}
+            radius={DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius}
             stroke={style.stroke}
-            strokeWidth={2}
+            strokeWidth={DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth}
             x={geometry.end.x}
             y={geometry.end.y}
           />
           <KonvaText
             align="center"
             fill={style.stroke}
-            fontSize={14}
+            fontSize={label.fontSize}
             listening={false}
             name="drawing-semantic-label"
-            rotation={angle > 90 || angle < -90 ? angle + 180 : angle}
-            text={objectName || "Grid"}
-            width={80}
-            x={geometry.end.x - 40}
-            y={geometry.end.y - 7}
+            rotation={label.rotation}
+            text={label.text}
+            width={label.width}
+            x={label.x}
+            y={label.y}
           />
         </>
       );
@@ -1988,23 +1989,6 @@ function geometryShape(
         />
       );
   }
-}
-
-function polygonCentroid(points: readonly Point[]): Point {
-  let doubledArea = 0;
-  let x = 0;
-  let y = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const point = points[index];
-    const next = points[(index + 1) % points.length];
-    const cross = point.x * next.y - next.x * point.y;
-    doubledArea += cross;
-    x += (point.x + next.x) * cross;
-    y += (point.y + next.y) * cross;
-  }
-  return doubledArea === 0
-    ? points[0]
-    : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
 }
 
 type SemanticRenderView = {

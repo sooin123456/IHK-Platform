@@ -6,7 +6,9 @@ import {
 import type { DrawingDocumentState } from "./drawing-commands.ts";
 import { drawingDimensionLayout, drawingTextLayout } from "./drawing-layout.ts";
 import {
+  DRAWING_SEMANTIC_RENDER_METRICS,
   drawingOpeningMarkerSegments,
+  drawingSemanticLabelLayout,
   sampleDrawingArcPoints,
 } from "./drawing-geometry.ts";
 import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
@@ -397,7 +399,7 @@ function svgGeometry(
     }
     case "wall":
       return [
-        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(geometry.thicknessMillimeters)}"/>`,
+        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(geometry.thicknessMillimeters)}" stroke-linecap="square"/>`,
       ];
     case "opening": {
       const resolved = resolveDrawingOpening(geometry, objects);
@@ -415,11 +417,24 @@ function svgGeometry(
         line(
           opening,
           "#ffffff",
-          resolved.host.geometry.thicknessMillimeters + 4,
+          resolved.host.geometry.thicknessMillimeters +
+            DRAWING_SEMANTIC_RENDER_METRICS.openingCutExtra,
         ),
-        line(opening, style.stroke, geometry.openingKind === "void" ? 2 : 10),
+        line(
+          opening,
+          style.stroke,
+          geometry.openingKind === "void"
+            ? DRAWING_SEMANTIC_RENDER_METRICS.voidWidth
+            : DRAWING_SEMANTIC_RENDER_METRICS.openingWidth,
+        ),
         ...markers.map((marker) =>
-          line(marker, style.stroke, geometry.openingKind === "window" ? 5 : 6),
+          line(
+            marker,
+            style.stroke,
+            geometry.openingKind === "window"
+              ? DRAWING_SEMANTIC_RENDER_METRICS.windowMarkerWidth
+              : DRAWING_SEMANTIC_RENDER_METRICS.doorMarkerWidth,
+          ),
         ),
       ];
     }
@@ -428,29 +443,18 @@ function svgGeometry(
       const points = geometry.boundary
         .map((p) => `${exportNumber(p.x)},${exportNumber(p.y)}`)
         .join(" ");
-      const center = polygonCentroid(geometry.boundary);
-      const label =
-        geometry.type === "space"
-          ? `${geometry.number} · ${primitive.name}`
-          : primitive.name;
+      const label = drawingSemanticLabelLayout(geometry, primitive.name);
       return [
-        `<polygon points="${points}" fill="${style.fill ?? (geometry.type === "space" ? "rgba(59,130,246,0.12)" : "rgba(14,165,233,0.1)")}" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
-        `<text x="${exportNumber(center.x)}" y="${exportNumber(center.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(label)}</text>`,
+        `<polygon points="${points}" fill="${style.fill ?? (geometry.type === "space" ? DRAWING_SEMANTIC_RENDER_METRICS.spaceFill : DRAWING_SEMANTIC_RENDER_METRICS.areaFill)}" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
+        `<text x="${exportNumber(label.x + label.width / 2)}" y="${exportNumber(label.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="${label.fontSize}" text-anchor="middle" dominant-baseline="text-before-edge">${escapeXml(label.text)}</text>`,
       ];
     }
     case "grid": {
-      const rawAngle =
-        (Math.atan2(
-          geometry.end.y - geometry.start.y,
-          geometry.end.x - geometry.start.x,
-        ) *
-          180) /
-        Math.PI;
-      const angle = rawAngle > 90 || rawAngle < -90 ? rawAngle + 180 : rawAngle;
+      const label = drawingSemanticLabelLayout(geometry, primitive.name);
       return [
-        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}" stroke-dasharray="16 8"/>`,
-        `<circle cx="${exportNumber(geometry.end.x)}" cy="${exportNumber(geometry.end.y)}" r="18" fill="#ffffff" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
-        `<text x="${exportNumber(geometry.end.x)}" y="${exportNumber(geometry.end.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="14" text-anchor="middle" dominant-baseline="middle" transform="rotate(${exportNumber(angle)} ${exportNumber(geometry.end.x)} ${exportNumber(geometry.end.y)})">${escapeXml(primitive.name || "Grid")}</text>`,
+        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}" stroke-dasharray="${DRAWING_SEMANTIC_RENDER_METRICS.gridDash.join(" ")}"/>`,
+        `<circle cx="${exportNumber(geometry.end.x)}" cy="${exportNumber(geometry.end.y)}" r="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius}" fill="#ffffff" stroke="${style.stroke}" stroke-width="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth}"/>`,
+        `<text x="${exportNumber(label.x + label.width / 2)}" y="${exportNumber(label.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="${label.fontSize}" text-anchor="middle" dominant-baseline="text-before-edge" transform="rotate(${exportNumber(label.rotation)} ${exportNumber(label.x)} ${exportNumber(label.y)})">${escapeXml(label.text)}</text>`,
       ];
     }
     case "arc": {
@@ -537,23 +541,6 @@ function canvasLine(
   context.moveTo(start.x, start.y);
   context.lineTo(end.x, end.y);
   context.stroke();
-}
-
-function polygonCentroid(points: readonly { x: number; y: number }[]) {
-  let doubledArea = 0;
-  let x = 0;
-  let y = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const point = points[index];
-    const next = points[(index + 1) % points.length];
-    const cross = point.x * next.y - next.x * point.y;
-    doubledArea += cross;
-    x += (point.x + next.x) * cross;
-    y += (point.y + next.y) * cross;
-  }
-  return doubledArea === 0
-    ? points[0]
-    : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
 }
 
 function canvasPath(
@@ -671,6 +658,7 @@ function paintGeometry(
       break;
     }
     case "wall":
+      context.lineCap = "square";
       context.lineWidth = geometry.thicknessMillimeters;
       canvasLine(context, geometry.start, geometry.end);
       break;
@@ -681,12 +669,20 @@ function paintGeometry(
         resolved,
       );
       context.strokeStyle = "#ffffff";
-      context.lineWidth = resolved.host.geometry.thicknessMillimeters + 4;
+      context.lineWidth =
+        resolved.host.geometry.thicknessMillimeters +
+        DRAWING_SEMANTIC_RENDER_METRICS.openingCutExtra;
       canvasLine(context, ...opening);
       context.strokeStyle = style.stroke;
-      context.lineWidth = geometry.openingKind === "void" ? 2 : 10;
+      context.lineWidth =
+        geometry.openingKind === "void"
+          ? DRAWING_SEMANTIC_RENDER_METRICS.voidWidth
+          : DRAWING_SEMANTIC_RENDER_METRICS.openingWidth;
       canvasLine(context, ...opening);
-      context.lineWidth = geometry.openingKind === "window" ? 5 : 6;
+      context.lineWidth =
+        geometry.openingKind === "window"
+          ? DRAWING_SEMANTIC_RENDER_METRICS.windowMarkerWidth
+          : DRAWING_SEMANTIC_RENDER_METRICS.doorMarkerWidth;
       for (const marker of markers) canvasLine(context, ...marker);
       break;
     }
@@ -696,47 +692,43 @@ function paintGeometry(
       context.fillStyle =
         style.fill ??
         (geometry.type === "space"
-          ? "rgba(59,130,246,0.12)"
-          : "rgba(14,165,233,0.1)");
+          ? DRAWING_SEMANTIC_RENDER_METRICS.spaceFill
+          : DRAWING_SEMANTIC_RENDER_METRICS.areaFill);
       context.fill();
       context.stroke();
-      const center = polygonCentroid(geometry.boundary);
+      const label = drawingSemanticLabelLayout(geometry, primitive.name);
       context.fillStyle = style.stroke;
-      context.font = "14px sans-serif";
+      context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillText(
-        geometry.type === "space"
-          ? `${geometry.number} · ${primitive.name}`
-          : primitive.name,
-        center.x,
-        center.y,
-      );
+      context.textBaseline = "top";
+      context.fillText(label.text, label.x + label.width / 2, label.y);
       break;
     }
     case "grid": {
-      context.setLineDash([16, 8]);
+      context.setLineDash([...DRAWING_SEMANTIC_RENDER_METRICS.gridDash]);
       canvasLine(context, geometry.start, geometry.end);
       context.setLineDash([]);
       context.beginPath();
-      context.arc(geometry.end.x, geometry.end.y, 18, 0, Math.PI * 2);
+      context.arc(
+        geometry.end.x,
+        geometry.end.y,
+        DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius,
+        0,
+        Math.PI * 2,
+      );
       context.fillStyle = "#ffffff";
       context.fill();
+      context.lineWidth = DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth;
       context.stroke();
+      const label = drawingSemanticLabelLayout(geometry, primitive.name);
       context.fillStyle = style.stroke;
-      context.font = "14px sans-serif";
+      context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
-      context.textBaseline = "middle";
+      context.textBaseline = "top";
       context.save();
-      context.translate(geometry.end.x, geometry.end.y);
-      const angle = Math.atan2(
-        geometry.end.y - geometry.start.y,
-        geometry.end.x - geometry.start.x,
-      );
-      context.rotate(
-        angle > Math.PI / 2 || angle < -Math.PI / 2 ? angle + Math.PI : angle,
-      );
-      context.fillText(primitive.name || "Grid", 0, 0);
+      context.translate(label.x, label.y);
+      context.rotate((label.rotation * Math.PI) / 180);
+      context.fillText(label.text, label.width / 2, 0);
       context.restore();
       break;
     }

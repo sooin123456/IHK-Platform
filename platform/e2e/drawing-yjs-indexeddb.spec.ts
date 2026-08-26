@@ -8,6 +8,8 @@ const fakeSupabase = "http://127.0.0.1:54321";
 const browserModules = [
   "/app/lukas/lib/drawing-yjs-persistence.client.ts",
   "/app/lukas/lib/drawing-yjs-draft.ts",
+  "/app/lukas/lib/drawing-outbox.ts",
+  "/app/lukas/lib/drawing-collaboration-client.ts",
 ];
 const ids = {
   project: "00000000-0000-4000-8000-000000000601",
@@ -161,26 +163,36 @@ function authoritativeActiveAndFreeze(revisionId: string) {
   return { initialUpdate, freezeUpdate };
 }
 
-test("revision-scoped adapter recovers 100 canonical offline operations before network", async ({
+test("offline command bridge recovers 100 ordered outbox and Yjs operations before reconnect ack", async ({
+  context,
   page,
 }) => {
-  const revision = "00000000-0000-4000-8000-000000000602";
+  const revision = "00000000-0000-4000-8000-000000000004";
   const fakeRequests: string[] = [];
   page.on("request", (request) => {
     if (request.url().startsWith(fakeSupabase))
       fakeRequests.push(request.url());
   });
   await openPreview(page);
+  await page.evaluate(
+    (modulePaths) => Promise.all(modulePaths.map((path) => import(path))),
+    browserModules,
+  );
+  await context.setOffline(true);
 
-  const result = await page.evaluate(
+  const written = await page.evaluate(
     async ({ initialUpdate, fixtureIds }) => {
       const persistencePath =
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
       const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const collaborationPath =
+        "/app/lukas/lib/drawing-collaboration-client.ts";
       const persistence = await import(persistencePath);
       const draft = await import(draftPath);
-      const revision = "00000000-0000-4000-8000-000000000602";
-      const otherRevision = "00000000-0000-4000-8000-000000000603";
+      const outboxModule = await import(outboxPath);
+      const collaboration = await import(collaborationPath);
+      const revision = "00000000-0000-4000-8000-000000000004";
       const baseState = {
         revisionId: revision,
         objects: {},
@@ -218,7 +230,6 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
       });
       if (!firstHandle) throw new Error("Browser persistence did not open.");
       await firstHandle.whenSynced();
-      const events = ["local-synced"];
       const adapter = draft.createDrawingDraftAdapter({
         document: first,
         authoritativeState: baseState,
@@ -231,9 +242,18 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
             Date.UTC(2026, 7, 26) + operationIndex * 3_000,
           ).toISOString(),
       });
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      const bridge = collaboration.createDrawingCollaborationCommandBridge({
+        adapter,
+        outbox,
+      });
       for (let index = 0; index < 100; index += 1) {
         const objectId = objectIds[index];
-        const prepared = adapter.prepareLocal({
+        await bridge.applyCommand({
           type: "add_objects",
           actorId: fixtureIds.actor,
           objects: [
@@ -252,12 +272,67 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
             },
           ],
         });
-        adapter.appendDurableLocal(prepared);
       }
       await firstHandle.flush();
+      const snapshot = adapter.getSnapshot();
+      const result = {
+        online: navigator.onLine,
+        outboxIds: (await outbox.entries()).map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+        operationIds: adapter
+          .operations()
+          .map((operation: any) => operation.clientOperationId),
+        pendingIds: snapshot.pendingOperationIds,
+        objectIds: Object.keys(snapshot.state.objects),
+        expectedOperationIds: operationIds,
+        expectedObjectIds: objectIds,
+      };
+      outbox.dispose();
       adapter.dispose();
       await firstHandle.dispose();
+      first.destroy();
+      return result;
+    },
+    {
+      initialUpdate: authoritativeFixture(revision, "active"),
+      fixtureIds: ids,
+    },
+  );
 
+  expect(written.online).toBe(false);
+  expect(written.outboxIds).toEqual(written.expectedOperationIds);
+  expect(written.operationIds).toEqual(written.expectedOperationIds);
+  expect(written.pendingIds).toEqual(written.expectedOperationIds);
+  expect(written.objectIds).toEqual(written.expectedObjectIds);
+
+  const reopened = await page.evaluate(
+    async ({ initialUpdate, fixtureIds }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const outboxModule = await import(outboxPath);
+      const revision = "00000000-0000-4000-8000-000000000004";
+      const baseState = {
+        revisionId: revision,
+        objects: {},
+        layers: {
+          [fixtureIds.layer]: {
+            id: fixtureIds.layer,
+            name: "Work",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            version: 1,
+          },
+        },
+        operations: [],
+        undoStackByActor: {},
+        redoStackByActor: {},
+      };
       const reopened = persistence.createDrawingYjsDocument(
         Uint8Array.from(initialUpdate),
       );
@@ -275,23 +350,29 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
         authorization: "editor",
         frozen: false,
       });
-      events.push("network-enabled");
       const snapshot = recovered.getSnapshot();
-      const names = [
-        persistence.drawingYjsPersistenceName(revision),
-        persistence.drawingYjsPersistenceName(otherRevision),
-      ];
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      const result = {
+        online: navigator.onLine,
+        quarantine: snapshot.quarantine,
+        outboxIds: (await outbox.entries()).map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+        operationIds: recovered
+          .operations()
+          .map((operation: any) => operation.clientOperationId),
+        pendingIds: snapshot.pendingOperationIds,
+        objectIds: Object.keys(snapshot.state.objects),
+      };
+      outbox.dispose();
       recovered.dispose();
       await reopenedHandle.dispose();
-      return {
-        events,
-        names,
-        quarantine: snapshot.quarantine,
-        operationIds: snapshot.pendingOperationIds,
-        objectIds: Object.keys(snapshot.state.objects),
-        expectedOperationIds: operationIds,
-        expectedObjectIds: objectIds,
-      };
+      reopened.destroy();
+      return result;
     },
     {
       initialUpdate: authoritativeFixture(revision, "active"),
@@ -299,12 +380,132 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
     },
   );
 
-  expect(result.events).toEqual(["local-synced", "network-enabled"]);
-  expect(result.names[0]).not.toBe(result.names[1]);
-  expect(result.quarantine).toBeNull();
-  expect(result.operationIds).toEqual(result.expectedOperationIds);
-  expect(result.objectIds).toEqual(result.expectedObjectIds);
+  expect(reopened.online).toBe(false);
+  expect(reopened.quarantine).toBeNull();
+  expect(reopened.outboxIds).toEqual(written.expectedOperationIds);
+  expect(reopened.operationIds).toEqual(written.expectedOperationIds);
+  expect(reopened.pendingIds).toEqual(written.expectedOperationIds);
+  expect(reopened.objectIds).toEqual(written.expectedObjectIds);
   expect(fakeRequests).toEqual([]);
+
+  const applyRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes(previewPath))
+      applyRequests.push(request.url());
+  });
+  await context.setOffline(false);
+  const converged = await page.evaluate(
+    async ({ initialUpdate, fixtureIds }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const outboxModule = await import(outboxPath);
+      const revision = "00000000-0000-4000-8000-000000000004";
+      const baseState = {
+        revisionId: revision,
+        objects: {},
+        layers: {
+          [fixtureIds.layer]: {
+            id: fixtureIds.layer,
+            name: "Work",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            version: 1,
+          },
+        },
+        operations: [],
+        undoStackByActor: {},
+        redoStackByActor: {},
+      };
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const handle = await persistence.openDrawingYjsPersistence({
+        revisionId: revision,
+        document,
+      });
+      if (!handle) throw new Error("Browser persistence did not reconnect.");
+      await handle.whenSynced();
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+      });
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      await outbox.flush((operation: any, context: any) =>
+        outboxModule.sendDrawingOperation(
+          operation,
+          `${window.location.pathname}.data`,
+          async (input: string, init: RequestInit) => {
+            const response = await fetch(input, init);
+            const wireBody = await response.text();
+            if (!response.ok || !wireBody.includes(operation.clientOperationId))
+              throw new Error("Reconnect action did not echo the operation.");
+            return {
+              ok: true,
+              status: response.status,
+              async json() {
+                return {
+                  ok: true,
+                  clientOperationId: operation.clientOperationId,
+                };
+              },
+            };
+          },
+          context?.signal,
+        ),
+      );
+      const operations = adapter.operations();
+      document.transact(() => {
+        const statuses = document.getMap("operationStatus");
+        operations.forEach((operation: any, index: number) => {
+          const objectId = `00000000-0000-4000-8000-${String(
+            index + 900,
+          ).padStart(12, "0")}`;
+          statuses.set(operation.clientOperationId, {
+            operationId: operation.clientOperationId,
+            status: "acked",
+            authoritativeSequence: index + 1,
+            resultVersions: { [objectId]: 1 },
+          });
+        });
+      });
+      await handle.flush();
+      const snapshot = adapter.getSnapshot();
+      const result = {
+        online: navigator.onLine,
+        outboxIds: (await outbox.entries()).map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+        pendingIds: snapshot.pendingOperationIds,
+        objectIds: Object.keys(snapshot.state.objects),
+      };
+      outbox.dispose();
+      adapter.dispose();
+      await handle.dispose();
+      document.destroy();
+      return result;
+    },
+    {
+      initialUpdate: authoritativeFixture(revision, "active"),
+      fixtureIds: ids,
+    },
+  );
+  expect(converged.online).toBe(true);
+  expect(converged.outboxIds).toEqual([]);
+  expect(converged.pendingIds).toEqual([]);
+  expect(converged.objectIds).toEqual(written.expectedObjectIds);
+  expect(applyRequests).toHaveLength(100);
 });
 
 test("valid frozen adapter recovery survives version-change close", async ({

@@ -660,6 +660,58 @@ test("PNG export has deterministic 1x, 2x, and 4x dimensions", async () => {
   }
 });
 
+test("host walls render before their openings regardless of UUID order", () => {
+  for (const [wallId, openingId] of [
+    [
+      "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "00000000-0000-4000-8000-000000000001",
+    ],
+    [
+      "9d08a18d-50a2-4a46-a61e-884db17267c8",
+      "29ef2234-f751-45a9-a5bc-95c81d2fe668",
+    ],
+    [
+      "be2c5ea0-dc2a-4e07-ae62-e7c962505c76",
+      "37c251c4-e9a0-4711-964c-61391529afdd",
+    ],
+  ]) {
+    const document = semanticExportFixture();
+    const wall = structuredClone(document.structure.objects[ids.semanticWall]);
+    const door = structuredClone(document.structure.objects[ids.semanticDoor]);
+    delete document.structure.objects[ids.semanticWall];
+    delete document.structure.objects[ids.semanticDoor];
+    delete document.structure.objects[ids.semanticWindow];
+    wall.id = wallId;
+    door.id = openingId;
+    door.geometry.hostWallId = wallId;
+    document.structure.objects[wallId] = wall;
+    document.structure.objects[openingId] = door;
+    const semanticOrder = collectExportPrimitives(document, ids.canvasSecond)
+      .primitives.filter((primitive) =>
+        [wallId, openingId].includes(primitive.id),
+      )
+      .map((primitive) => primitive.id);
+    assert.deepEqual(semanticOrder, [wallId, openingId]);
+    const svg = exportDrawingSvg(document, ids.canvasSecond);
+    assert.ok(
+      svg.indexOf(`data-export-id="${wallId}"`) <
+        svg.indexOf(`data-export-id="${openingId}"`),
+    );
+  }
+});
+
+test("semantic export matches the live canvas render metrics and label layout", () => {
+  const document = semanticExportFixture();
+  document.structure.objects[ids.semanticSpace].style.fill = null;
+  document.structure.objects[ids.semanticArea].style.fill = null;
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  assert.match(svg, /stroke-linecap="square"/);
+  assert.match(svg, /fill="#dbeafe66"/);
+  assert.match(svg, /fill="#fde68a66"/);
+  assert.match(svg, /<circle[^>]+r="18"[^>]+stroke-width="2"/);
+  assert.match(svg, /x="270" y="293"[^>]+>101 · 회의실<\/text>/);
+});
+
 test("P4 mixed geometry has one canonical SVG PNG and PDF render plan", async () => {
   const document = semanticExportFixture();
   const before = structuredClone(document);
@@ -1235,6 +1287,42 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
     style: { stroke: "#ff00ff", strokeWidth: 1, fill: "#ff00ff" },
     version: 1,
   };
+  const inverseOpeningId = "00000000-0000-4000-8000-000000001001";
+  const inverseWallId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  document.structure.objects[inverseWallId] = {
+    id: inverseWallId,
+    name: "Inverse ordered wall",
+    layerId: ids.layerSecond,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 10, y: 38 },
+      end: { x: 70, y: 38 },
+      thicknessMillimeters: 4,
+      heightMillimeters: 3000,
+    },
+    styleId: null,
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  document.structure.objects[inverseOpeningId] = {
+    id: inverseOpeningId,
+    name: "Inverse ordered opening",
+    layerId: ids.layerSecond,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      openingKind: "void",
+      hostWallId: inverseWallId,
+      offsetMillimeters: 30,
+      widthMillimeters: 12,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+    },
+    styleId: null,
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
 
   const sourcePdf = await PDFDocument.create();
   sourcePdf
@@ -1494,6 +1582,10 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
               pageNumber === 1
                 ? sample({ canvas, context }, 35, 10, 100, 60)
                 : sample({ canvas, context }, 60, 27, 80, 40),
+            hostedCut:
+              pageNumber === 2
+                ? sample({ canvas, context }, 40, 35.5, 80, 40)
+                : null,
           });
           rendered.cleanup();
         }
@@ -1544,10 +1636,12 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
               .querySelector("clipPath rect")
               ?.getAttribute("width"),
             marker: sample(svgDecoded, 60, 27, 80, 40),
+            hostedCut: sample(svgDecoded, 40, 35.5, 80, 40),
             parserErrors: parsedSvg.querySelectorAll("parsererror").length,
             rightOfTextClip: sample(svgDecoded, 30, 8, 80, 40),
           },
           textPixels: {
+            hostedCut: sample(second, 40, 35.5, 80, 40),
             pngFirstLineInk: inkCount(
               second,
               { x: 2, y: 2, width: 20, height: 11 },
@@ -1616,6 +1710,8 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
     assert.ok(result.textPixels.svgFirstLineInk > 5);
     assert.ok(result.textPixels.svgSecondLineInk > 5);
     assert.deepEqual(result.svg.marker, [255, 0, 255, 255]);
+    assert.deepEqual(result.svg.hostedCut, [255, 255, 255, 255]);
+    assert.deepEqual(result.textPixels.hostedCut, [255, 255, 255, 255]);
     const assertPageEvidence = (pages) => {
       assert.equal(pages.length, 2);
       assert.ok(Math.abs(pages[0].canvasSize.width - 400) < 0.01);
@@ -1624,6 +1720,7 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
       assert.ok(Math.abs(pages[1].canvasSize.height - 200) < 0.01);
       assert.deepEqual(pages[0].marker, [0, 255, 0, 255]);
       assert.deepEqual(pages[1].marker, [255, 0, 255, 255]);
+      assert.deepEqual(pages[1].hostedCut, [255, 255, 255, 255]);
       assert.ok(pages[0].dimensionInk > 10);
     };
     assertPageEvidence(result.pdfPages);

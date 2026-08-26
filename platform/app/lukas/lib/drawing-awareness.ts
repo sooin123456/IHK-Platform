@@ -302,7 +302,10 @@ export function drawingCommandTargetIds(
     );
   if (command.type === "delete_objects")
     return boundedItems(command.objectIds).map(canonicalTargetId);
-  if (command.type === "mutate_structure")
+  if (
+    command.type === "mutate_structure" ||
+    command.type === "restore_checkpoint"
+  )
     return boundedItems(command.actions).flatMap(structureActionTargetIds);
   if (command.type === "mutate_objects_with_references")
     return [

@@ -134,6 +134,17 @@ test("P4 preview is visibly populated with canonical hosted objects and schedule
     [...new Set(semantic.map((object) => object.geometry.type))].sort(),
     ["arc", "area", "grid", "opening", "space", "wall"],
   );
+  const walls = semantic.filter((object) => object.geometry.type === "wall");
+  assert.equal(walls.length, 2);
+  assert.ok(
+    walls.some((wall, index) =>
+      walls.slice(index + 1).some(
+        (other) =>
+          wall.geometry.end.x === other.geometry.start.x &&
+          wall.geometry.end.y === other.geometry.start.y,
+      ),
+    ),
+  );
   const openings = semantic.filter(
     (object) => object.geometry.type === "opening",
   );

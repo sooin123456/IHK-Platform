@@ -187,6 +187,77 @@ export function drawingOpeningMarkerSegments(
   return segments;
 }
 
+export const DRAWING_SEMANTIC_RENDER_METRICS = {
+  areaFill: "#fde68a66",
+  doorMarkerWidth: 6,
+  gridBubbleRadius: 18,
+  gridBubbleStrokeWidth: 2,
+  gridDash: [16, 8] as const,
+  gridLabelWidth: 80,
+  labelFontSize: 14,
+  labelYOffset: 7,
+  openingCutExtra: 4,
+  openingWidth: 10,
+  spaceFill: "#dbeafe66",
+  spaceLabelWidth: 180,
+  voidWidth: 2,
+  windowMarkerWidth: 5,
+} as const;
+
+export function drawingPolygonCentroid(points: readonly Point[]): Point {
+  let doubledArea = 0;
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = point.x * next.y - next.x * point.y;
+    doubledArea += cross;
+    x += (point.x + next.x) * cross;
+    y += (point.y + next.y) * cross;
+  }
+  return doubledArea === 0
+    ? points[0]
+    : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
+}
+
+export function drawingSemanticLabelLayout(
+  geometry: Extract<DrawingGeometry, { type: "space" | "area" | "grid" }>,
+  objectName: string,
+) {
+  const metrics = DRAWING_SEMANTIC_RENDER_METRICS;
+  if (geometry.type === "grid") {
+    const angle =
+      (Math.atan2(
+        geometry.end.y - geometry.start.y,
+        geometry.end.x - geometry.start.x,
+      ) *
+        180) /
+      Math.PI;
+    return {
+      fontSize: metrics.labelFontSize,
+      rotation: angle > 90 || angle < -90 ? angle + 180 : angle,
+      text: objectName || "Grid",
+      width: metrics.gridLabelWidth,
+      x: geometry.end.x - metrics.gridLabelWidth / 2,
+      y: geometry.end.y - metrics.labelYOffset,
+    };
+  }
+  const centroid = drawingPolygonCentroid(geometry.boundary);
+  const width = metrics.spaceLabelWidth;
+  return {
+    fontSize: metrics.labelFontSize,
+    rotation: 0,
+    text:
+      geometry.type === "space"
+        ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
+        : objectName || "영역",
+    width,
+    x: centroid.x - width / 2,
+    y: centroid.y - metrics.labelYOffset,
+  };
+}
+
 function pointToSegmentDistance(point: Point, start: Point, end: Point) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;

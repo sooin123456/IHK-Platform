@@ -361,7 +361,7 @@ export function drawingCanvasRenderAdapter(input: {
   const objectMap = Object.fromEntries(
     input.objects.map((object) => [object.id, object]),
   );
-  const items: DrawingCanvasRenderItem[] = [
+  const sortedItems: DrawingCanvasRenderItem[] = [
     ...input.objects.flatMap((object) =>
       input.layers[object.layerId]?.visible
         ? [
@@ -394,6 +394,20 @@ export function drawingCanvasRenderAdapter(input: {
         (input.layers[right.layerId]?.sortOrder ?? 0) ||
       left.id.localeCompare(right.id),
   );
+  const remaining = [...sortedItems];
+  const items: DrawingCanvasRenderItem[] = [];
+  while (remaining.length) {
+    const readyIndex = remaining.findIndex((item) => {
+      if (item.kind !== "object" || item.object.geometry.type !== "opening")
+        return true;
+      const host = objectMap[item.object.geometry.hostWallId];
+      return (
+        host?.layerId !== item.layerId ||
+        !remaining.some((candidate) => candidate.id === host.id)
+      );
+    });
+    items.push(...remaining.splice(readyIndex < 0 ? 0 : readyIndex, 1));
+  }
   const tolerance = 6 / input.zoom;
   const hitItems = items.flatMap((item) => {
     const layer = input.layers[item.layerId];

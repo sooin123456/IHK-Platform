@@ -35,6 +35,9 @@ const workspace = await vite.ssrLoadModule(
 const drawingCommands = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-commands.ts",
 );
+const drawingAwareness = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-awareness.ts",
+);
 const drawingHistory = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-history.server.ts",
 );
@@ -381,6 +384,32 @@ test("checkpoint restore emits one exact compound delta with current versions", 
   assert.equal(applied.operation.forward.actions.length, 1);
   assert.equal(applied.operation.undoable, false);
   assert.equal(drawingCommands.undoDrawingCommand(applied.state, ids.actor), null);
+});
+
+test("checkpoint restore resolves structural object targets for soft-lock checks", () => {
+  const current = basicState();
+  const target = structuredClone(current);
+  target.objects[ids.comment] = rectangle("Checkpoint", 1);
+  const command = drawingCommands.createDrawingCheckpointRestoreCommand(
+    current,
+    target,
+    ids.actor,
+    ids.operation,
+  );
+  const conflict = drawingAwareness.drawingCommandSoftLockConflict(
+    command,
+    [
+      {
+        clientId: 2,
+        user: { id: ids.member, displayName: "Peer", color: "#fff" },
+        softLocks: [
+          { entityId: ids.comment, leaseId: ids.canvas, expiresAt: 10_000 },
+        ],
+      },
+    ],
+    1,
+  );
+  assert.equal(conflict.lock.entityId, ids.comment);
 });
 
 test("checkpoint restore revives a modified tombstone into checkpoint content", () => {
