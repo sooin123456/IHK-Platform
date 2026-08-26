@@ -352,6 +352,99 @@ test("large equivalent arc angles have exact cardinal snap points and bounds", (
   );
 });
 
+test("ordinary decimal arc operands compose without losing fixed-point validity", () => {
+  const pointAt = (angleDegrees) => {
+    const radians = (angleDegrees * Math.PI) / 180;
+    return {
+      x: arc.center.x + arc.radius * Math.cos(radians),
+      y: arc.center.y + arc.radius * Math.sin(radians),
+    };
+  };
+  const assertPointClose = (actual, expected, label) => {
+    assert.ok(Math.abs(actual.x - expected.x) < 1e-12, `${label} x`);
+    assert.ok(Math.abs(actual.y - expected.y) < 1e-12, `${label} y`);
+  };
+
+  for (const [startAngleDegrees, sweepAngleDegrees, endAngleDegrees] of [
+    [0.1, 0.2, 0.3],
+    [-0.1, 0.2, 0.1],
+  ]) {
+    const geometry = DrawingGeometrySchema.parse({
+      ...arc,
+      startAngleDegrees,
+      sweepAngleDegrees,
+    });
+    const snaps = geometrySnapPoints(geometry);
+    const bounds = geometryBounds(geometry);
+    assertPointClose(
+      snaps[1],
+      pointAt(startAngleDegrees),
+      `${startAngleDegrees} start`,
+    );
+    assertPointClose(
+      snaps[2],
+      pointAt(endAngleDegrees),
+      `${startAngleDegrees} end`,
+    );
+    assert.ok(Object.values(bounds).every(Number.isFinite));
+  }
+});
+
+test("all 420 representative schema-valid decimal arcs have finite snaps and bounds", () => {
+  const starts = [
+    -9_000_000_000, -8_999_999_999.9, -8_999_999_640.1, -720.123456, -360.1,
+    -359.999999, -90.1, -1.123456, -0.1, -0.000001, 0, 0.000001, 0.1, 1.123456,
+    90.1, 359.999999, 360.1, 720.123456, 8_999_999_280.1, 8_999_999_640.1,
+    9_000_000_000,
+  ];
+  const sweeps = [
+    -360, -359.999999, -270.2, -180.1, -90.2, -45.123456, -1.1, -0.2, -0.1,
+    -0.000001, 0.000001, 0.1, 0.2, 1.1, 45.123456, 90.2, 180.1, 270.2,
+    359.999999, 360,
+  ];
+  assert.equal(starts.length * sweeps.length, 420);
+
+  for (const startAngleDegrees of starts) {
+    for (const sweepAngleDegrees of sweeps) {
+      const label = `start=${startAngleDegrees}, sweep=${sweepAngleDegrees}`;
+      const geometry = DrawingGeometrySchema.parse({
+        ...arc,
+        startAngleDegrees,
+        sweepAngleDegrees,
+      });
+      const snaps = geometrySnapPoints(geometry);
+      const bounds = geometryBounds(geometry);
+      assert.ok(
+        snaps.every(
+          (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+        ),
+        `${label} snaps`,
+      );
+      assert.ok(
+        Object.values(bounds).every(Number.isFinite),
+        `${label} bounds`,
+      );
+    }
+  }
+
+  const canonical = DrawingGeometrySchema.parse({
+    ...arc,
+    startAngleDegrees: 0.1,
+    sweepAngleDegrees: 0.2,
+  });
+  for (const startAngleDegrees of [-8_999_999_999.9, 8_999_999_640.1]) {
+    const equivalent = DrawingGeometrySchema.parse({
+      ...canonical,
+      startAngleDegrees,
+    });
+    assert.deepEqual(
+      geometrySnapPoints(equivalent),
+      geometrySnapPoints(canonical),
+    );
+    assert.deepEqual(geometryBounds(equivalent), geometryBounds(canonical));
+  }
+});
+
 test("every valid P4 type has finite snap points and bounds with opening context", () => {
   const cases = [wall, opening, space, area, grid, arc];
   for (const geometry of cases) {

@@ -59,40 +59,48 @@ function dimensionOffsetPoints(
   ];
 }
 
-function arcPoint(
+const MICRODEGREES_PER_DEGREE = 1_000_000;
+const FULL_TURN_MICRODEGREES = 360_000_000n;
+
+function toMicrodegrees(value: number): bigint {
+  const scaled = value * MICRODEGREES_PER_DEGREE;
+  if (!Number.isSafeInteger(scaled))
+    throw new RangeError("Arc angles must be validated six-decimal numbers.");
+  return BigInt(scaled);
+}
+
+function normalizeMicrodegrees(value: bigint): bigint {
+  const remainder = value % FULL_TURN_MICRODEGREES;
+  return remainder < 0n ? remainder + FULL_TURN_MICRODEGREES : remainder;
+}
+
+function arcPointAtMicrodegrees(
   geometry: Extract<DrawingGeometry, { type: "arc" }>,
-  angleDegrees: number,
+  angleMicrodegrees: bigint,
 ): Point {
-  const normalized = normalizedDegrees(angleDegrees);
-  if (normalized === 0)
+  const normalized = normalizeMicrodegrees(angleMicrodegrees);
+  if (normalized === 0n)
     return { x: geometry.center.x + geometry.radius, y: geometry.center.y };
-  if (normalized === 90)
+  if (normalized === 90_000_000n)
     return { x: geometry.center.x, y: geometry.center.y + geometry.radius };
-  if (normalized === 180)
+  if (normalized === 180_000_000n)
     return { x: geometry.center.x - geometry.radius, y: geometry.center.y };
-  if (normalized === 270)
+  if (normalized === 270_000_000n)
     return { x: geometry.center.x, y: geometry.center.y - geometry.radius };
-  const radians = (normalized * Math.PI) / 180;
+  const normalizedDegrees = Number(normalized) / MICRODEGREES_PER_DEGREE;
+  const radians = (normalizedDegrees * Math.PI) / 180;
   return {
     x: geometry.center.x + geometry.radius * Math.cos(radians),
     y: geometry.center.y + geometry.radius * Math.sin(radians),
   };
 }
 
-function normalizedDegrees(value: number): number {
-  const scaled = value * 1_000_000;
-  if (!Number.isSafeInteger(scaled))
-    throw new RangeError("Arc angles must be validated six-decimal numbers.");
-  const fullTurn = 360_000_000n;
-  const remainder = BigInt(scaled) % fullTurn;
-  return Number(remainder < 0n ? remainder + fullTurn : remainder) / 1_000_000;
-}
-
-function arcEndAngle(
+function arcEndMicrodegrees(
   geometry: Extract<DrawingGeometry, { type: "arc" }>,
-): number {
-  return (
-    normalizedDegrees(geometry.startAngleDegrees) + geometry.sweepAngleDegrees
+): bigint {
+  return normalizeMicrodegrees(
+    toMicrodegrees(geometry.startAngleDegrees) +
+      toMicrodegrees(geometry.sweepAngleDegrees),
   );
 }
 
@@ -100,23 +108,30 @@ function arcContainsAngle(
   geometry: Extract<DrawingGeometry, { type: "arc" }>,
   angleDegrees: number,
 ): boolean {
-  if (Math.abs(geometry.sweepAngleDegrees) === 360) return true;
-  const start = normalizedDegrees(geometry.startAngleDegrees);
-  const angle = normalizedDegrees(angleDegrees);
+  const sweep = toMicrodegrees(geometry.sweepAngleDegrees);
+  const absoluteSweep = sweep < 0n ? -sweep : sweep;
+  if (absoluteSweep === FULL_TURN_MICRODEGREES) return true;
+  const start = normalizeMicrodegrees(
+    toMicrodegrees(geometry.startAngleDegrees),
+  );
+  const angle = normalizeMicrodegrees(toMicrodegrees(angleDegrees));
   const travelled =
-    geometry.sweepAngleDegrees > 0
-      ? normalizedDegrees(angle - start)
-      : normalizedDegrees(start - angle);
-  return travelled <= Math.abs(geometry.sweepAngleDegrees);
+    sweep > 0n
+      ? normalizeMicrodegrees(angle - start)
+      : normalizeMicrodegrees(start - angle);
+  return travelled <= absoluteSweep;
 }
 
 function arcBounds(geometry: Extract<DrawingGeometry, { type: "arc" }>) {
   const points = [
-    arcPoint(geometry, geometry.startAngleDegrees),
-    arcPoint(geometry, arcEndAngle(geometry)),
+    arcPointAtMicrodegrees(
+      geometry,
+      toMicrodegrees(geometry.startAngleDegrees),
+    ),
+    arcPointAtMicrodegrees(geometry, arcEndMicrodegrees(geometry)),
     ...[0, 90, 180, 270]
       .filter((angle) => arcContainsAngle(geometry, angle))
-      .map((angle) => arcPoint(geometry, angle)),
+      .map((angle) => arcPointAtMicrodegrees(geometry, toMicrodegrees(angle))),
   ];
   return boundsForPoints(points);
 }
@@ -157,8 +172,11 @@ export function geometrySnapPoints(
     case "arc":
       return [
         geometry.center,
-        arcPoint(geometry, geometry.startAngleDegrees),
-        arcPoint(geometry, arcEndAngle(geometry)),
+        arcPointAtMicrodegrees(
+          geometry,
+          toMicrodegrees(geometry.startAngleDegrees),
+        ),
+        arcPointAtMicrodegrees(geometry, arcEndMicrodegrees(geometry)),
       ];
     case "opening": {
       const resolved = resolveDrawingOpening(geometry, objects ?? {});
