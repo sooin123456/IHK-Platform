@@ -2,6 +2,11 @@ import os from "node:os";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import {
+  drawingP4SourceCommitSha,
+  writeDrawingP4PerformanceEvidence,
+} from "../scripts/drawing-p4-performance-evidence.mjs";
+
 const previewPath = "/workspace-preview/drawing-workspace?performanceTest=1";
 
 function percentile(values: number[], ratio: number) {
@@ -175,8 +180,10 @@ test("P4 10,000 mixed semantic desktop baseline records first usable target and 
   expect(frames.selection).toHaveLength(30);
 
   const evidence = {
+    schemaVersion: 1,
     status: "MEASURED",
     authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
+    sourceCommitSha: drawingP4SourceCommitSha(),
     browserName,
     browserVersion: browser.version(),
     userAgent: await page.evaluate(() => navigator.userAgent),
@@ -218,6 +225,11 @@ test("P4 10,000 mixed semantic desktop baseline records first usable target and 
     p7SixtyFpsGate: "UNEXECUTED",
     productionProviderP95: "UNEXECUTED",
   };
+  const evidencePath = writeDrawingP4PerformanceEvidence(evidence);
+  await test.info().attach("P4 production-build performance evidence", {
+    path: evidencePath,
+    contentType: "application/json",
+  });
   test.info().annotations.push({
     type: "P4 performance baseline",
     description: JSON.stringify(evidence),

@@ -6,6 +6,7 @@ import * as Y from "yjs";
 import {
   applyDrawingCommand,
   createDrawingDocumentState,
+  deleteDrawingWallWithOpeningsCommand,
   redoDrawingCommand,
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
@@ -18,12 +19,14 @@ import {
 const draftModule = await import("../app/lukas/lib/drawing-yjs-draft.ts").catch(
   () => null,
 );
-const persistenceModule = await import(
-  "../app/lukas/lib/drawing-yjs-persistence.client.ts"
-).catch(() => null);
-const yjsModule = await import(
-  "../app/lukas/lib/drawing-collaboration-yjs.ts"
-).catch(() => null);
+const persistenceModule =
+  await import("../app/lukas/lib/drawing-yjs-persistence.client.ts").catch(
+    () => null,
+  );
+const yjsModule =
+  await import("../app/lukas/lib/drawing-collaboration-yjs.ts").catch(
+    () => null,
+  );
 
 const ids = {
   project: "00000000-0000-4000-8000-000000000501",
@@ -79,6 +82,111 @@ function baseState(objects = [object(ids.objectA), object(ids.objectB, 20)]) {
       },
     ],
     objects,
+  });
+}
+
+function hostedState() {
+  const wallId = ids.objectA;
+  const openings = [
+    {
+      id: ids.objectB,
+      name: "D",
+      layerId: ids.layer,
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: wallId,
+        offsetMillimeters: 300,
+        widthMillimeters: 200,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "door",
+      },
+      style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      version: 1,
+    },
+    {
+      id: ids.operationC,
+      name: "W",
+      layerId: ids.layer,
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: wallId,
+        offsetMillimeters: 800,
+        widthMillimeters: 200,
+        heightMillimeters: 1200,
+        sillHeightMillimeters: 900,
+        openingKind: "window",
+      },
+      style: { stroke: "#111111", strokeWidth: 2, fill: null },
+      version: 1,
+    },
+  ];
+  const wall = {
+    id: wallId,
+    name: "Host",
+    layerId: ids.layer,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 1200, y: 0 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
+    style: { stroke: "#111111", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const pageId = "00000000-0000-4000-8000-000000000520";
+  const canvasId = "00000000-0000-4000-8000-000000000521";
+  return createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revision,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [canvasId]: {
+          id: canvasId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: Object.fromEntries(
+        [wall, ...openings].map((value) => [value.id, value]),
+      ),
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
   });
 }
 
@@ -483,6 +591,38 @@ test("bridge normalizes recorded undo and redo while every local and remote tran
   assert.equal(queued.length, 3);
   assert.deepEqual(Object.keys(queued[1]).sort(), exactInputFields);
   assert.deepEqual(Object.keys(queued[2]).sort(), exactInputFields);
+});
+
+test("bridge durably projects atomic host and two-opening delete undo", async () => {
+  const doc = initializedDoc();
+  let operationNumber = 0;
+  const operationIds = [
+    "00000000-0000-4000-8000-000000000522",
+    "00000000-0000-4000-8000-000000000523",
+  ];
+  const adapter = create(doc, {
+    authoritativeState: hostedState(),
+    createId: () => operationIds[operationNumber++],
+  });
+  const bridge = createDrawingCollaborationCommandBridge({
+    adapter,
+    outbox: { async enqueue() {} },
+  });
+  await bridge.applyCommand(
+    deleteDrawingWallWithOpeningsCommand(
+      adapter.getSnapshot().state,
+      ids.actorA,
+      ids.objectA,
+    ),
+  );
+  assert.deepEqual(adapter.getSnapshot().state.objects, {});
+  const undone = undoDrawingCommand(adapter.getSnapshot().state, ids.actorA);
+  assert.ok(undone && !("kind" in undone));
+  await bridge.applyRecorded(undone);
+  assert.deepEqual(
+    Object.keys(adapter.getSnapshot().state.objects).sort(),
+    [ids.objectA, ids.objectB, ids.operationC].sort(),
+  );
 });
 
 test("persisted history reconstructs redo after reload and same-actor cross-tab sync", async () => {

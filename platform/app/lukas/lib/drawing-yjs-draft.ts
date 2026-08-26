@@ -2,6 +2,7 @@ import * as Y from "yjs";
 
 import {
   applyDrawingCommand,
+  applyDrawingCommandForReplay,
   type DrawingCommand,
   type DrawingCommandEnvironment,
   type DrawingDocumentState,
@@ -157,10 +158,19 @@ function replay(
   operation: DrawingCollaborationOperation,
   authoritativeResultVersions?: Record<string, number>,
 ): DrawingDocumentState {
-  const applied = applyDrawingCommand(state, commandFor(operation), {
-    createId: () => operation.clientOperationId,
-    now: () => operation.createdAt,
-  });
+  const applied = applyDrawingCommandForReplay(
+    state,
+    commandFor(operation),
+    {
+      createId: () => operation.clientOperationId,
+      now: () => operation.createdAt,
+    },
+    {
+      originalOperationId: operation.originalOperationId,
+      historyAction: operation.historyAction,
+    },
+    operation.baseVersions,
+  );
   const reproduced = envelopeFor({
     ...applied.operation,
     originalOperationId: operation.originalOperationId,
@@ -262,8 +272,22 @@ function hasVersionConflict(
   state: DrawingDocumentState,
   operation: DrawingCollaborationOperation,
 ) {
+  const forward = operation.forward as { type?: string; objectAction?: string };
+  const restoresDeletedObjects =
+    Boolean(operation.historyAction) &&
+    (forward.type === "add_objects" ||
+      (forward.type === "mutate_objects_with_references" &&
+        forward.objectAction === "restore"));
   return Object.entries(operation.baseVersions).some(([entityId, version]) => {
-    const current = entityVersion(state, entityId);
+    const current =
+      entityVersion(state, entityId) ??
+      (restoresDeletedObjects
+        ? [...state.operations]
+            .reverse()
+            .find(
+              (candidate) => candidate.realizedVersions[entityId] !== undefined,
+            )?.realizedVersions[entityId]
+        : undefined);
     if (
       operation.type === "add_layer" &&
       current === undefined &&

@@ -1732,6 +1732,37 @@ export function applyDrawingCommand(
   };
 }
 
+/** Replays one canonical collaboration envelope with its recorded history authority. */
+export function applyDrawingCommandForReplay(
+  state: DrawingDocumentState,
+  command: DrawingCommand,
+  environment: DrawingCommandEnvironment,
+  metadata: {
+    originalOperationId?: string;
+    historyAction?: "undo" | "redo";
+  },
+  baseVersions: Record<string, number | null>,
+): AppliedDrawingCommand {
+  const restoreBaseVersions = Object.fromEntries(
+    Object.entries(baseVersions).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number",
+    ),
+  );
+  const applied = appendOperation(state, command, environment, metadata, {
+    restoreBaseVersions,
+    allowHostedWallDelete:
+      Boolean(metadata.historyAction) && command.type === "delete_objects",
+  });
+  if (metadata.historyAction) return applied;
+  const undoStack = [...(state.undoStackByActor[command.actorId] ?? [])];
+  if (applied.operation.undoable)
+    undoStack.push(applied.operation.clientOperationId);
+  return {
+    ...applied,
+    state: updateHistory(applied.state, command.actorId, undoStack, []),
+  };
+}
+
 /**
  * Appends an inverse of the requesting actor's latest undoable operation.
  * add_layer remains non-undoable until the command union supports delete_layer.

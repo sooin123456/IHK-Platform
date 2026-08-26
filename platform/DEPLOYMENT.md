@@ -785,6 +785,11 @@ grid/arc, server `P4_MEASUREMENT_V1`, read-only schedules, draft-only editor
 mutation, reviewer/viewer/nonmember denial, approved immutability, and source
 re-read. It has no `test.skip` production path.
 
+The local functional launcher rejects an occupied fixed loopback port and strips
+inherited target/server variables. The production-build performance step writes
+`task-7-performance.json`; the next gate validates its exact schema and current
+source commit before the local release can pass.
+
 Rollback is forward-safe: stop new admission, flush and await Hocuspocus,
 preserve operations/snapshots/approved evidence/source rows, drain the one
 replica, and restore the previous compatible web and collaboration image pair.

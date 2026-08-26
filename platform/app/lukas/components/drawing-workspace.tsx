@@ -46,6 +46,7 @@ import {
   copyDrawingSelection,
   createDrawingCheckpointRestoreCommand,
   createDrawingDocumentState,
+  deleteDrawingWallWithOpeningsCommand,
   duplicateDrawingSelection,
   isEditableDrawingLayer,
   moveDrawingSelection,
@@ -1755,6 +1756,31 @@ export default function DrawingWorkspaceClient({
       );
     }
   }, [currentUserId, selectedIds]);
+  const runVerticalHostedWallDelete = useCallback(() => {
+    const wall = selectedIds
+      .map((id) => drawingStateRef.current.objects[id])
+      .find((object) => object?.geometry.type === "wall");
+    if (!wall) {
+      setVerticalTestStatus("원자 삭제 대상을 찾지 못함");
+      return;
+    }
+    try {
+      const accepted = applyCommand(
+        deleteDrawingWallWithOpeningsCommand(
+          drawingStateRef.current,
+          currentUserId,
+          wall.id,
+        ),
+      );
+      setVerticalTestStatus(
+        accepted ? "호스트와 개구부 원자 삭제됨" : "원자 삭제 거부됨",
+      );
+    } catch (error) {
+      setVerticalTestStatus(
+        `원자 삭제 거부됨 · ${error instanceof Error ? error.message : "검증 오류"}`,
+      );
+    }
+  }, [applyCommand, currentUserId, selectedIds]);
   const runVerticalDirectMutation = useCallback(() => {
     const wall = Object.values(drawingStateRef.current.objects).find(
       (object) => object.geometry.type === "wall",
@@ -1956,7 +1982,7 @@ export default function DrawingWorkspaceClient({
   );
 
   const queueHistoryMutation = useCallback(
-    (direction: "undo" | "redo") => {
+    (direction: "undo" | "redo", onComplete?: () => void) => {
       if (
         !outboxReady ||
         !authorityCanWrite ||
@@ -1989,6 +2015,7 @@ export default function DrawingWorkspaceClient({
           return latest;
         }
         await persistDrawingRecordedOperation(bridge, result);
+        onComplete?.();
         return result.state;
       }, markStorageFailed);
       return true;
@@ -2017,6 +2044,16 @@ export default function DrawingWorkspaceClient({
     () => queueHistoryMutation("redo"),
     [queueHistoryMutation],
   );
+
+  const runVerticalHostedWallUndo = useCallback(() => {
+    setVerticalTestStatus("원자 삭제 실행 취소 대기");
+    if (
+      !queueHistoryMutation("undo", () =>
+        setVerticalTestStatus("호스트와 개구부 원자 삭제 실행 취소됨"),
+      )
+    )
+      setVerticalTestStatus("원자 삭제 실행 취소 거부됨");
+  }, [queueHistoryMutation]);
 
   const copySelection = useCallback(() => {
     if (!selectionMutationAllowed()) return false;
@@ -2411,6 +2448,23 @@ export default function DrawingWorkspaceClient({
         >
           <button onClick={() => void runVerticalInvalidShrink()} type="button">
             P4 선택 벽 잘못 축소 시도
+          </button>
+          <button onClick={runVerticalHostedWallDelete} type="button">
+            P4 선택 벽과 개구부 원자 삭제
+          </button>
+          <button onClick={runVerticalHostedWallUndo} type="button">
+            P4 원자 삭제 복원
+          </button>
+          <button
+            onClick={() => {
+              const opening = Object.values(
+                drawingStateRef.current.objects,
+              ).find((object) => object.geometry.type === "opening");
+              if (opening) setAuthorizedSelection([opening.id]);
+            }}
+            type="button"
+          >
+            P4 첫 개구부 선택
           </button>
           <button onClick={runVerticalDirectMutation} type="button">
             P4 직접 변경 시도

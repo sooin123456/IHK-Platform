@@ -116,6 +116,18 @@ function semanticContent(snapshot: MountedSnapshot) {
   );
 }
 
+function hostedOpeningCenter(snapshot: MountedSnapshot, openingId: string) {
+  const opening = snapshot.objects[openingId].geometry;
+  const wall = snapshot.objects[opening.hostWallId].geometry;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const length = Math.hypot(dx, dy);
+  return {
+    x: wall.start.x + (dx / length) * opening.offsetMillimeters,
+    y: wall.start.y + (dy / length) * opening.offsetMillimeters,
+  };
+}
+
 test("P4 populated preview exports every semantic object", async ({ page }) => {
   const ifcPath = path.resolve("../samples/sample.ifc");
   const ifcBefore = createHash("sha256")
@@ -215,8 +227,7 @@ test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
     before.objects[openingId].geometry,
   );
   await expect(page.getByLabel("공동 편집 작업 차단 안내")).toHaveCount(0);
-  await page.getByRole("button", { name: "선택 도구" }).click();
-  await clickWorld(page, { x: 420, y: 760 });
+  await page.getByRole("button", { name: "P4 첫 개구부 선택" }).click();
   await expect
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
     .toEqual([openingId]);
@@ -386,6 +397,18 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     "data-rendered-semantic-object-count",
     "10",
   );
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 900, y: 400 });
+  await page.getByLabel("벽 기준 오프셋").fill("1150");
+  await page.getByLabel("개구부 너비").fill("200");
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  await expect(page.getByLabel("벽 기준 오프셋")).toHaveValue("1150");
+  await useSemanticTool(page, "개구부 도구");
+  await clickWorld(page, { x: 600, y: 400 });
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "11",
+  );
 
   for (const [tool, points, count] of [
     [
@@ -396,7 +419,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
         { x: 300, y: 650 },
         { x: 100, y: 650 },
       ],
-      "11",
+      "12",
     ],
     [
       "영역 도구",
@@ -406,7 +429,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
         { x: 600, y: 650 },
         { x: 400, y: 650 },
       ],
-      "12",
+      "13",
     ],
   ] as const) {
     await useSemanticTool(page, tool);
@@ -423,7 +446,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   await clickWorld(page, { x: 1400, y: 550 });
   await expect(surface).toHaveAttribute(
     "data-rendered-semantic-object-count",
-    "13",
+    "14",
   );
 
   await useSemanticTool(page, "호 도구");
@@ -432,35 +455,52 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   await clickWorld(page, { x: 1000, y: 800 });
   await expect(surface).toHaveAttribute(
     "data-rendered-semantic-object-count",
-    "14",
+    "15",
   );
 
   const authored = await mountedSnapshot(page);
   const authoredIds = Object.keys(authored.objects).filter(
     (id) => !initialIds.includes(id),
   );
-  expect(authoredIds).toHaveLength(6);
+  expect(authoredIds).toHaveLength(7);
   expect(
     authoredIds.map((id) => authored.objects[id].geometry.type).sort(),
-  ).toEqual(["arc", "area", "grid", "opening", "space", "wall"]);
+  ).toEqual(["arc", "area", "grid", "opening", "opening", "space", "wall"]);
   const wallId = authoredIds.find(
     (id) => authored.objects[id].geometry.type === "wall",
   )!;
-  const openingId = authoredIds.find(
-    (id) => authored.objects[id].geometry.type === "opening",
-  )!;
+  const [openingId, windowId] = authoredIds
+    .filter((id) => authored.objects[id].geometry.type === "opening")
+    .sort(
+      (left, right) =>
+        authored.objects[left].geometry.offsetMillimeters -
+        authored.objects[right].geometry.offsetMillimeters,
+    );
   expect(authored.objects[openingId].geometry.hostWallId).toBe(wallId);
+  expect(authored.objects[windowId].geometry.hostWallId).toBe(wallId);
+  expect(authored.objects[openingId].geometry.openingKind).toBe("door");
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, hostedOpeningCenter(authored, windowId));
+  await page.getByLabel("개구부 종류").selectOption("window");
+  await page.getByRole("button", { name: "건축 속성 적용" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await mountedSnapshot(page)).objects[windowId].geometry.openingKind,
+    )
+    .toBe("window");
 
+  const authoredDoorAndWindow = await mountedSnapshot(page);
   const beforeReload = {
-    objects: authored.objects,
-    objectIds: Object.keys(authored.objects),
-    operationIds: authored.operationIds,
+    objects: authoredDoorAndWindow.objects,
+    objectIds: Object.keys(authoredDoorAndWindow.objects),
+    operationIds: authoredDoorAndWindow.operationIds,
   };
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
   await expect(surface).toHaveAttribute(
     "data-rendered-semantic-object-count",
-    "14",
+    "15",
   );
   const reloaded = await mountedSnapshot(page);
   expect(Object.keys(reloaded.objects)).toEqual(beforeReload.objectIds);
@@ -468,7 +508,48 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   expect(reloaded.operationIds).toEqual(beforeReload.operationIds);
 
   await page.getByRole("button", { name: "선택 도구" }).click();
-  await clickWorld(page, { x: 300, y: 400 });
+  await clickWorld(page, { x: 1380, y: 400 });
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([wallId]);
+  await page
+    .getByRole("button", { name: "P4 선택 벽과 개구부 원자 삭제" })
+    .click();
+  await expect(page.getByLabel("P4 mounted command result")).toHaveText(
+    "호스트와 개구부 원자 삭제됨",
+  );
+  await expect
+    .poll(async () => {
+      const snapshot = await mountedSnapshot(page);
+      return [wallId, openingId, windowId].map((id) => id in snapshot.objects);
+    })
+    .toEqual([false, false, false]);
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "12",
+  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await page.getByRole("button", { name: "P4 원자 삭제 복원" }).click();
+  await expect(page.getByLabel("P4 mounted command result")).toHaveText(
+    "호스트와 개구부 원자 삭제 실행 취소됨",
+  );
+  await expect
+    .poll(async () => {
+      const snapshot = await mountedSnapshot(page);
+      return [wallId, openingId, windowId].map((id) => id in snapshot.objects);
+    })
+    .toEqual([true, true, true]);
+  await expect(surface).toHaveAttribute(
+    "data-rendered-semantic-object-count",
+    "15",
+  );
+  expect(
+    (await mountedSnapshot(page)).objects[windowId].geometry.openingKind,
+  ).toBe("window");
+
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  await clickWorld(page, { x: 1380, y: 400 });
   await expect
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
     .toEqual([wallId]);
@@ -486,7 +567,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   const beforeWallMove = await mountedSnapshot(page);
   const wallBefore = beforeWallMove.objects[wallId].geometry;
   const openingBefore = beforeWallMove.objects[openingId].geometry;
-  await clickWorld(page, { x: 300, y: 400 });
+  await clickWorld(page, { x: 1380, y: 400 });
   await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
   await expect
@@ -510,18 +591,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     openingBefore.offsetMillimeters,
   );
 
-  const openingCenter = (snapshot: MountedSnapshot) => {
-    const opening = snapshot.objects[openingId].geometry;
-    const wall = snapshot.objects[opening.hostWallId].geometry;
-    const dx = wall.end.x - wall.start.x;
-    const dy = wall.end.y - wall.start.y;
-    const length = Math.hypot(dx, dy);
-    return {
-      x: wall.start.x + (dx / length) * opening.offsetMillimeters,
-      y: wall.start.y + (dy / length) * opening.offsetMillimeters,
-    };
-  };
-  const followedCenter = openingCenter(afterWallMove);
+  const followedCenter = hostedOpeningCenter(afterWallMove, openingId);
   await clickWorld(page, followedCenter);
   await expect
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
@@ -560,7 +630,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     )
     .toBe(offsetAfterOpeningMove);
 
-  await clickWorld(page, { x: 310, y: 410 });
+  await clickWorld(page, { x: 1390, y: 410 });
   const validWallGeometry = structuredClone(
     (await mountedSnapshot(page)).objects[wallId].geometry,
   );
@@ -606,10 +676,10 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   await openPreview(page, "?verticalTest=1");
   await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
     "data-rendered-semantic-object-count",
-    "14",
+    "15",
   );
-  expect(Object.keys((await mountedSnapshot(page)).objects)).toEqual(
-    beforeReload.objectIds,
+  expect(Object.keys((await mountedSnapshot(page)).objects).sort()).toEqual(
+    [...beforeReload.objectIds].sort(),
   );
 
   await page.getByRole("tab", { name: "페이지·레이어" }).click();
@@ -712,7 +782,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   expect(sourceRendered).toBeGreaterThan(0);
 
   const changedBeforeRestore = await mountedSnapshot(page);
-  expect(semanticObjects(changedBeforeRestore)).toHaveLength(14);
+  expect(semanticObjects(changedBeforeRestore)).toHaveLength(15);
   await page.getByRole("tab", { name: "변경 이력" }).click();
   await page.getByRole("button", { name: /상태로 복원/ }).click();
   await expect(

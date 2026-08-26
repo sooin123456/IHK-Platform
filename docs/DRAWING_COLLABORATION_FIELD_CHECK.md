@@ -48,9 +48,9 @@ record에 함께 남긴다.
 - P4 local implementation은 여섯 건축 객체, hosted reference, 서버
   `P4_MEASUREMENT_V1`, Room/Door/Finish schedule, semantic export와 실제
   IndexedDB/outbox reload/action-ACK 경계를 포함한다.
-- P4 local production-build baseline은 Chromium 151, Apple M3 Max, 1440×900,
-  10,000 mixed semantic objects에서 first usable 5,434.0 ms로 측정되어
-  `<= 2.5s` 목표를 **충족하지 못했다**. 60 fps는 P7 gate다.
+- P4 local production-build baseline과 `<= 2.5s` 판정은 source SHA와 실행
+  조건을 함께 보존·검증하는 `task-7-performance.json`을 확인한다. 60 fps는
+  P7 gate이며 이 P4 문서가 별도 측정값을 주장하지 않는다.
 - P4 production은 **UNEXECUTED / 미실행**이다. 실제 owner/editor/reviewer/
   viewer/nonmember RLS, hosted provider convergence, three-context provider p95
   `<= 500 ms`, freeze/approved immutability, source hash, cleanup과 rollback을

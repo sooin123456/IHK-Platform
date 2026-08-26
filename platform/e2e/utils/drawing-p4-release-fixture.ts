@@ -1,6 +1,149 @@
 export { buildDrawingP4PerformanceFixture } from "../../app/lukas/lib/drawing-p4-performance.ts";
 
-import type { DrawingObject } from "../../app/lukas/lib/drawing-workspace.types";
+import type { DrawingObject } from "../../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  resolveDrawingServerEvidenceStatus,
+  type DrawingMeasurementEvidenceCurrent,
+  type DrawingMeasurementEvidenceError,
+  type DrawingServerMeasurementEvidence,
+} from "../../app/lukas/lib/drawing-semantic-schedules.ts";
+
+function exact(value: unknown, expected: unknown, label: string) {
+  if (JSON.stringify(value) !== JSON.stringify(expected))
+    throw new Error(`P4 hosted ${label} is not exact`);
+}
+
+export function assertDrawingP4HostedServerEvidence({
+  evidence,
+  evidenceError,
+  current,
+  objects,
+}: {
+  evidence: DrawingServerMeasurementEvidence | null;
+  evidenceError: DrawingMeasurementEvidenceError | null;
+  current: DrawingMeasurementEvidenceCurrent | null;
+  objects: DrawingObject[];
+}) {
+  if (evidenceError) throw new Error("P4 hosted measurement derivation failed");
+  if (!evidence) throw new Error("P4 hosted measurement evidence is absent");
+  if (
+    resolveDrawingServerEvidenceStatus(evidence, current).status !== "confirmed"
+  )
+    throw new Error("P4 hosted measurement evidence is stale");
+  if (evidence.ruleVersion !== "P4_MEASUREMENT_V1")
+    throw new Error("P4 hosted measurement rule is not V1");
+
+  const sortedObjects = [...objects].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  exact(
+    evidence.objectIds,
+    sortedObjects.map(({ id }) => id),
+    "object IDs",
+  );
+  exact(
+    evidence.objectLineage,
+    sortedObjects.map(({ id, version }) => ({
+      objectId: id,
+      objectVersion: version,
+    })),
+    "object lineage",
+  );
+
+  const exactMeasurements = [
+    { lengthMillimeters: "200", areaSquareMillimeters: null, count: "1" },
+    {
+      lengthMillimeters: "90",
+      areaSquareMillimeters: "189000",
+      count: "1",
+    },
+    {
+      lengthMillimeters: "640",
+      areaSquareMillimeters: "24000",
+      count: "1",
+    },
+    {
+      lengthMillimeters: "400",
+      areaSquareMillimeters: "10000",
+      count: "1",
+    },
+    { lengthMillimeters: "400", areaSquareMillimeters: null, count: "1" },
+    {
+      lengthMillimeters: "125.663706",
+      areaSquareMillimeters: null,
+      count: "1",
+    },
+  ];
+  sortedObjects.forEach((object, index) => {
+    const item = evidence.measurements[object.id];
+    if (
+      !item ||
+      item.documentId !== evidence.documentId ||
+      item.revisionId !== evidence.revisionId ||
+      item.revisionVersion !== evidence.revisionVersion ||
+      item.snapshotSha256 !== evidence.snapshotSha256 ||
+      item.operationCheckpoint !== evidence.operationCheckpoint ||
+      item.objectId !== object.id ||
+      item.objectVersion !== object.version ||
+      item.ruleVersion !== "P4_MEASUREMENT_V1"
+    )
+      throw new Error("P4 hosted measurement item lineage is not exact");
+    exact(
+      item.measurement,
+      { ruleVersion: "P4_MEASUREMENT_V1", ...exactMeasurements[index] },
+      `${object.geometry.type} measurement`,
+    );
+  });
+
+  exact(
+    evidence.schedules.room.rows,
+    [
+      {
+        objectId: objects[2].id,
+        cells: {
+          number: "P4-101",
+          name: "P4 hosted room",
+          area: "0.024 m²",
+          count: "1",
+        },
+      },
+    ],
+    "room schedule",
+  );
+  exact(
+    evidence.schedules.door.rows,
+    [
+      {
+        objectId: objects[1].id,
+        cells: {
+          mark: "P4 hosted door",
+          width: "90 mm",
+          height: "2100 mm",
+          count: "1",
+        },
+      },
+    ],
+    "door schedule",
+  );
+  exact(
+    evidence.schedules.finish.rows,
+    [
+      {
+        objectId: objects[2].id,
+        cells: {
+          number: "P4-101",
+          name: "P4 hosted room",
+          floor: "tile",
+          wall: "paint",
+          ceiling: "acoustic",
+          area: "0.024 m²",
+        },
+      },
+    ],
+    "finish schedule",
+  );
+  return evidence;
+}
 
 export function buildDrawingP4ProductionObjects(
   layerId: string,

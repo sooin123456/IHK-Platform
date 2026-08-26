@@ -54,7 +54,7 @@ rollback rehearsal 증거가 모두 있어야 별도로 완료된다. 기존 운
 | 상태 구분               | 증거                                                                                                                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | P4 local implementation | wall/opening/space/area/grid/arc, hosted-reference command/DB authority, `P4_MEASUREMENT_V1`, Room/Door/Finish schedule, semantic export, 실제 IndexedDB/outbox 100-operation action-ACK 경계가 구현됨 |
-| P4 local measured       | production build를 로컬로 serve한 Chromium 151, 1440×900, 10,000 mixed semantic objects에서 first usable 5,434.0 ms. 제품 목표 `<= 2.5s`는 **NOT MET**이며 P7 최적화 전까지 완료로 바꾸지 않음         |
+| P4 local measured       | production-build Chromium의 source-SHA/browser/hardware/viewport/object mix/샘플/`<= 2.5s` 판정은 생성·검증되는 `task-7-performance.json`이 단일 증거이며, 문서에는 분리된 측정값을 복사하지 않음 |
 | P4 local environment    | disposable real PostgreSQL과 linked Supabase가 없어 해당 DB authority는 **LOCAL ENV UNEXECUTED**                                                                                                       |
 | P4 production           | 실제 hosted provider/RLS/freeze/source/deployment/cleanup/rollback과 provider p95 `<= 500 ms`는 **UNEXECUTED / 미실행**                                                                                |
 

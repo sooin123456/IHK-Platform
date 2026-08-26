@@ -20,7 +20,7 @@
     "test:e2e:drawing-workspace:production": "npx playwright test e2e/drawing-workspace.spec.ts --project=chromium",
     "test:e2e:drawing-workspace-p2:production": "npx playwright test e2e/drawing-workspace-p2.spec.ts --project=chromium",
     "test:e2e:drawing-workspace-p3:production": "npx playwright test e2e/drawing-workspace-p3.spec.ts --project=chromium",
-    "test:e2e:drawing-workspace-p4:local": "npx playwright test e2e/drawing-workspace-p4.spec.ts e2e/drawing-yjs-indexeddb.spec.ts --project=chromium --workers=1",
+    "test:e2e:drawing-workspace-p4:local": "node scripts/run-drawing-p4-functional.mjs",
     "test:e2e:drawing-workspace-p4:performance": "P4_RELEASE_PRODUCTION_BUILD=1 npx playwright test e2e/drawing-workspace-p4-release.spec.ts --config=playwright.p4-release.config.ts --project=chromium --workers=1",
     "test:e2e:drawing-workspace-p4:production": "npx playwright test e2e/drawing-workspace-p4-production.spec.ts --project=chromium --workers=1",
     "release:drawing-workspace-p4:local": "node scripts/run-drawing-workspace-p4-release.mjs local",

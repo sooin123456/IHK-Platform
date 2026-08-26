@@ -8,7 +8,7 @@ Task 7 started from source commit `ea7885c257f3b5cbae314d25ae31d86c553d6a51`.
 ## IMPLEMENTED
 
 - `npm run release:drawing-workspace-p4:local` runs the whole Node and Drawing
-  suites, collaboration service, dev-served Chromium P4/IndexedDB regressions,
+  suites, collaboration service, fixed-port hermetic Chromium P4/IndexedDB regressions,
   a separate production-build Chromium performance gate, pinned IFC smoke,
   explicit IFC/PDF/quantity/approval/Revit regressions, both typechecks/builds,
   license closure, both high-severity audits, and diff check.
@@ -23,7 +23,7 @@ Task 7 started from source commit `ea7885c257f3b5cbae314d25ae31d86c553d6a51`.
 
 ## LOCAL PASS
 
-- Release contract: 8 executable tests, including fixture mutation boundaries,
+- Release contract tests include exact argv/credential/browser/evidence mutation boundaries,
   fail-fast runner behavior, credential-free production guard, and durable
   source bytes.
 - Production-build Chromium benchmark: 1 scenario with 10,000 mixed semantic
@@ -59,19 +59,18 @@ Task 7 started from source commit `ea7885c257f3b5cbae314d25ae31d86c553d6a51`.
 
 ## MEASURED
 
-- Authority: local production application build served to Chromium 151.0.7922.34.
-- Hardware: Apple M3 Max, 14 logical CPUs, 36 GiB memory; viewport 1440×900.
-- Composition: 10,000 mixed semantic objects (2,000 wall, 2,000 opening, 1,500
-  space, 1,500 area, 1,500 grid, 1,500 arc).
-- First usable after warm application assets and cold 10,000-object document:
-  5,434.0 ms. Product target first usable `<= 2.5 s`: **NOT MET**.
-- Warm samples: zoom 30, pan 31, selection 30. p95: zoom 0.2 ms, pan 0.3 ms,
-  selection 72.7 ms. These event-to-animation-frame samples are a baseline, not
-  a P7 60 fps claim.
+- The generated, source-commit-bound machine record is
+  `.superpowers/sdd/2026-08-26-drawing-workspace-p4/task-7-performance.json`.
+  The release runner validates its exact browser/hardware/viewport/object-mix/
+  conditions/sample schema, source SHA, and computed first usable `<= 2.5 s` decision after
+  the production-build Chromium run. Documentation does not duplicate an
+  uncoupled sample value.
+- Warm event-to-animation-frame samples are a baseline, not a P7 60 fps claim;
+  that field remains `UNEXECUTED` in the generated record.
 - Production provider p95, cold provider reflection, deployed offline loss, and
   field-user measurements: `UNEXECUTED`; no values recorded.
 
 Disposition: P4's local semantic release contracts can be reviewed separately
-from the unmet 2.5-second product target and all hosted/field gates. P7 owns the
+from the generated 2.5-second target decision and all hosted/field gates. P7 owns the
 broader 10,000-object 60 fps optimization; Task 7 does not hide or relabel the
 measured shortfall.

@@ -73,28 +73,36 @@ async function appendRecoveredOperation(
         createId: () => fixtureIds.frozenOperation,
         now: () => "2026-08-26T00:00:00.000Z",
       });
-      adapter.appendDurableLocal(
-        adapter.prepareLocal({
-          type: "add_objects",
-          actorId: fixtureIds.actor,
-          objects: [
-            {
-              id: fixtureIds.frozenObject,
-              name: "Recovered",
-              layerId: fixtureIds.layer,
-              geometry: {
-                type: "rectangle",
-                origin: { x: 0, y: 0 },
-                width: 10,
-                height: 10,
-                rotation: 0,
-              },
-              style: { stroke: "#111111", strokeWidth: 1, fill: null },
-              version: 1,
-            },
-          ],
-        }),
+      const snapshot = adapter.getSnapshot();
+      const alreadyRecovered = snapshot.state.operations.some(
+        (operation: { clientOperationId: string }) =>
+          operation.clientOperationId === fixtureIds.frozenOperation,
       );
+      if (!alreadyRecovered)
+        adapter.appendDurableLocal(
+          adapter.prepareLocal({
+            type: "add_objects",
+            actorId: fixtureIds.actor,
+            objects: [
+              {
+                id: fixtureIds.frozenObject,
+                name: "Recovered",
+                layerId: fixtureIds.layer,
+                geometry: {
+                  type: "rectangle",
+                  origin: { x: 0, y: 0 },
+                  width: 10,
+                  height: 10,
+                  rotation: 0,
+                },
+                style: { stroke: "#111111", strokeWidth: 1, fill: null },
+                version: 1,
+              },
+            ],
+          }),
+        );
+      else if (!snapshot.state.objects[fixtureIds.frozenObject])
+        throw new Error("Recovered operation is missing its canonical object.");
       await handle.flush();
       adapter.dispose();
       await handle.dispose();

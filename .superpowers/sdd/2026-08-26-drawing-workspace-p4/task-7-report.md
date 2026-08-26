@@ -61,10 +61,11 @@ Base: `ea7885c257f3b5cbae314d25ae31d86c553d6a51`
 
 ## Status and disposition
 
-- **MEASURED:** production-build Chromium 151.0.7922.34, Apple M3 Max, 14
-  logical CPUs, 36 GiB, 1440×900. First usable was 5,434.0 ms, so the product
-  target `<= 2.5 s` is **NOT MET**. Warm p95 was zoom 0.2 ms, pan 0.3 ms, and
-  selection 72.7 ms from 30/31/30 samples. This is not a P7 60 fps claim.
+- **MEASURED:** the generated, source-commit-bound
+  `task-7-performance.json` is the authoritative browser/hardware/viewport/
+  object-mix/conditions/samples and computed `<= 2.5 s` decision record. This
+  prose report intentionally does not duplicate an uncoupled sample. It is not
+  a P7 60 fps claim.
 - **LOCAL ENV UNEXECUTED:** disposable PostgreSQL, linked Supabase, deployment,
   and rollback authorities are unavailable.
 - **PRODUCTION UNEXECUTED:** real hosted provider convergence and p95 `<= 500
@@ -72,3 +73,6 @@ ms`, real provider/offline recovery, hosted org/RLS/freeze/approval/source,
   cleanup, deploy, and rollback were not executed and are not counted as pass.
 
 Requested commit message: `test: verify drawing workspace P4 semantics`.
+
+This initial report is supplemented by `task-7-fix-report.md`, which records
+the official-review corrections and fresh executable evidence.

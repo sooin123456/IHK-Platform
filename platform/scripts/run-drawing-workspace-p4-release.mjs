@@ -1,62 +1,107 @@
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 
-import { drawingP3ProductionCredentialStatus } from "../e2e/utils/drawing-collaboration-fixture.ts";
+import { requireDrawingP3ProductionCredentials } from "../e2e/utils/drawing-collaboration-fixture.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-export const P4_LOCAL_RELEASE_GATES = [
-  { label: "whole Node suite", command: "node --test tests/*.test.mjs" },
-  {
-    label: "Drawing Workspace suite",
-    command: "npm run test:drawing-workspace",
-  },
-  {
-    label: "collaboration service suite",
-    command: "node --test tests/drawing-collaboration-service.test.mjs",
-  },
-  { label: "IFC geometry smoke", command: "npm run test:ifc" },
-  {
-    label: "IFC/PDF/quantity/approval/Revit regressions",
-    command:
-      "node --test tests/drawing-collaboration.test.mjs tests/drawing-approvals.test.mjs tests/drawing-workspace-export.test.mjs tests/verified-boq.test.mjs tests/element-ledger-suggestions.test.mjs tests/public-site-contract.test.mjs",
-  },
-  { label: "application typecheck", command: "npm run typecheck" },
-  {
-    label: "collaboration typecheck",
-    command: "npm run typecheck:collaboration",
-  },
-  { label: "application build", command: "npm run build" },
-  { label: "collaboration build", command: "npm run build:collaboration" },
-  {
-    label: "P4 Chromium functional and IndexedDB",
-    command: "npm run test:e2e:drawing-workspace-p4:local",
-  },
-  {
-    label: "P4 production-build performance",
-    command: "npm run test:e2e:drawing-workspace-p4:performance",
-  },
-  {
-    label: "license closure",
-    command: "node --test tests/drawing-workspace-license.test.mjs",
-  },
-  {
-    label: "application audit",
-    command: "npm audit --omit=dev --audit-level=high",
-  },
-  {
-    label: "collaboration audit",
-    command: "npm --prefix collaboration audit --omit=dev --audit-level=high",
-  },
-  { label: "diff check", command: "git diff --check" },
-];
+function wholeNodeFiles() {
+  return readdirSync(fileURLToPath(new URL("../tests/", import.meta.url)))
+    .filter((file) => file.endsWith(".test.mjs"))
+    .sort()
+    .map((file) => `tests/${file}`);
+}
 
-function execute({ command }) {
+function exactLocalManifest() {
+  return [
+    {
+      label: "whole Node suite",
+      argv: ["node", "--test", ...wholeNodeFiles()],
+    },
+    {
+      label: "Drawing Workspace suite",
+      argv: ["npm", "run", "test:drawing-workspace"],
+    },
+    {
+      label: "collaboration service suite",
+      argv: ["node", "--test", "tests/drawing-collaboration-service.test.mjs"],
+    },
+    { label: "IFC geometry smoke", argv: ["npm", "run", "test:ifc"] },
+    {
+      label: "IFC/PDF/quantity/approval/Revit regressions",
+      argv: [
+        "node",
+        "--test",
+        "tests/drawing-collaboration.test.mjs",
+        "tests/drawing-approvals.test.mjs",
+        "tests/drawing-workspace-export.test.mjs",
+        "tests/verified-boq.test.mjs",
+        "tests/element-ledger-suggestions.test.mjs",
+        "tests/public-site-contract.test.mjs",
+      ],
+    },
+    { label: "application typecheck", argv: ["npm", "run", "typecheck"] },
+    {
+      label: "collaboration typecheck",
+      argv: ["npm", "run", "typecheck:collaboration"],
+    },
+    { label: "application build", argv: ["npm", "run", "build"] },
+    {
+      label: "collaboration build",
+      argv: ["npm", "run", "build:collaboration"],
+    },
+    {
+      label: "P4 Chromium functional and IndexedDB",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p4:local"],
+    },
+    {
+      label: "P4 production-build performance",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p4:performance"],
+    },
+    {
+      label: "P4 performance evidence",
+      argv: ["node", "scripts/drawing-p4-performance-evidence.mjs", "validate"],
+    },
+    {
+      label: "license closure",
+      argv: ["node", "--test", "tests/drawing-workspace-license.test.mjs"],
+    },
+    {
+      label: "application audit",
+      argv: ["npm", "audit", "--omit=dev", "--audit-level=high"],
+    },
+    {
+      label: "collaboration audit",
+      argv: [
+        "npm",
+        "--prefix",
+        "collaboration",
+        "audit",
+        "--omit=dev",
+        "--audit-level=high",
+      ],
+    },
+    { label: "diff check", argv: ["git", "diff", "--check"] },
+  ];
+}
+
+export const P4_LOCAL_RELEASE_GATES = exactLocalManifest();
+
+export function assertExactP4LocalGateManifest(gates) {
+  if (!isDeepStrictEqual(gates, exactLocalManifest()))
+    throw new Error(
+      "P4 local release manifest does not match the exact gate contract",
+    );
+}
+
+function execute({ argv }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, {
+    const child = spawn(argv[0], argv.slice(1), {
       cwd: root,
       env: process.env,
-      shell: true,
+      shell: false,
       stdio: "inherit",
     });
     child.once("error", reject);
@@ -68,9 +113,14 @@ function execute({ command }) {
   });
 }
 
-export async function runReleaseGates(gates, runner = execute) {
+export async function runReleaseGates(
+  gates,
+  { phase, runner = execute, log = (message) => process.stdout.write(message) },
+) {
+  if (phase !== "LOCAL" && phase !== "PRODUCTION")
+    throw new Error("P4 release phase must be LOCAL or PRODUCTION");
   for (const gate of gates) {
-    process.stdout.write(`P4 LOCAL ${gate.label}\n`);
+    log(`P4 ${phase} ${gate.label}\n`);
     const status = await runner(gate);
     if (status !== 0)
       throw new Error(
@@ -79,9 +129,23 @@ export async function runReleaseGates(gates, runner = execute) {
   }
 }
 
+export function requireP4ProductionAuthorities(environment) {
+  try {
+    return requireDrawingP3ProductionCredentials(environment);
+  } catch (error) {
+    throw new Error(
+      (error instanceof Error ? error.message : String(error)).replace(
+        /^P3 production gate/,
+        "P4 production gate",
+      ),
+    );
+  }
+}
+
 async function main(mode) {
   if (mode === "local") {
-    await runReleaseGates(P4_LOCAL_RELEASE_GATES);
+    assertExactP4LocalGateManifest(P4_LOCAL_RELEASE_GATES);
+    await runReleaseGates(P4_LOCAL_RELEASE_GATES, { phase: "LOCAL" });
     process.stdout.write("P4 LOCAL PASS\n");
     return;
   }
@@ -90,19 +154,16 @@ async function main(mode) {
       "Usage: run-drawing-workspace-p4-release.mjs local|production",
     );
 
-  const status = drawingP3ProductionCredentialStatus(process.env);
-  if (status.status !== "READY")
-    throw new Error(
-      `P4 production gate is UNEXECUTED: real values are required for ${status.missing.join(
-        ", ",
-      )}`,
-    );
-  await runReleaseGates([
-    {
-      label: "hosted P4 semantic and P3 collaboration authorities",
-      command: "npm run test:e2e:drawing-workspace-p4:production",
-    },
-  ]);
+  requireP4ProductionAuthorities(process.env);
+  await runReleaseGates(
+    [
+      {
+        label: "hosted P4 semantic and P3 collaboration authorities",
+        argv: ["npm", "run", "test:e2e:drawing-workspace-p4:production"],
+      },
+    ],
+    { phase: "PRODUCTION" },
+  );
   process.stdout.write("P4 PRODUCTION PASS\n");
 }
 

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { deriveAuthorizedDrawingMeasurementEvidence } from "../app/lukas/lib/drawing-workspace.server";
+import { drawingMeasurementEvidenceCurrent } from "../app/lukas/lib/drawing-semantic-schedules";
 import "./drawing-workspace-p3.spec";
 import {
   authenticateApiClient,
@@ -12,7 +14,10 @@ import {
   requireDrawingP3ProductionCredentials,
   type DrawingFixture,
 } from "./utils/drawing-collaboration-fixture";
-import { buildDrawingP4ProductionObjects } from "./utils/drawing-p4-release-fixture";
+import {
+  assertDrawingP4HostedServerEvidence,
+  buildDrawingP4ProductionObjects,
+} from "./utils/drawing-p4-release-fixture";
 
 const credentials = requireDrawingP3ProductionCredentials(process.env);
 const baseUrl = credentials.E2E_BASE_URL;
@@ -102,6 +107,31 @@ test.describe.serial("P4 hosted semantic authority", () => {
         .hostWallId,
     ).toBe(objects[0].id);
 
+    const bootstrapResult = await owner.rpc(
+      "lukas_drawing_collaboration_bootstrap",
+      { p_revision_id: fixture.blankWorkspace.revisionId },
+    );
+    if (bootstrapResult.error) throw bootstrapResult.error;
+    const bootstrap = bootstrapResult.data;
+    const evidence = deriveAuthorizedDrawingMeasurementEvidence(bootstrap);
+    const lineage = {
+      documentId: bootstrap.canonicalJson.revision.documentId,
+      revisionId: bootstrap.canonicalJson.revision.id,
+      revisionVersion: bootstrap.canonicalJson.revision.version,
+      snapshotSha256: bootstrap.sha256,
+      operationCheckpoint: bootstrap.operationSequence,
+    };
+    const state = {
+      revisionId: lineage.revisionId,
+      objects: Object.fromEntries(objects.map((object) => [object.id, object])),
+    };
+    assertDrawingP4HostedServerEvidence({
+      evidence,
+      evidenceError: null,
+      current: drawingMeasurementEvidenceCurrent(lineage, state, false),
+      objects,
+    });
+
     const path = `/projects/${fixture.projectId}/drawings/${fixture.blankWorkspace.fileId}/workspace`;
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
@@ -121,19 +151,28 @@ test.describe.serial("P4 hosted semantic authority", () => {
     );
     await page.getByRole("button", { name: "선택 도구" }).click();
     await clickWorld(page, { x: 50, y: 40 });
+    await expect(page.getByText(/^확정 · 200 mm · 수량 1$/)).toBeVisible();
     await expect(
-      page.getByText("P4_MEASUREMENT_V1", { exact: false }),
+      page.getByText(
+        `P4_MEASUREMENT_V1 · 체크포인트 ${lineage.operationCheckpoint} · Postgres 권한 확인 로드 · revision ${lineage.revisionId} · 객체 ${objects[0].id}`,
+        { exact: true },
+      ),
     ).toBeVisible();
     await page.getByRole("tab", { name: "Schedule" }).click();
     await expect(
-      page.getByRole("table", { name: /^Room schedule/ }),
-    ).toContainText("P4 hosted room");
+      page.getByRole("status").filter({ hasText: "서버 증거" }),
+    ).toHaveText(
+      `서버 증거 · P4_MEASUREMENT_V1 · 체크포인트 ${lineage.operationCheckpoint} · Postgres 권한 확인 로드 · revision ${lineage.revisionId}`,
+    );
     await expect(
-      page.getByRole("table", { name: /^Door schedule/ }),
-    ).toContainText("P4 hosted door");
+      page.getByRole("table", { name: "Room schedule · 서버 증거" }),
+    ).toContainText("P4-101 P4 hosted room 0.024 m² 1");
     await expect(
-      page.getByRole("table", { name: /^Finish schedule/ }),
-    ).toContainText("tile");
+      page.getByRole("table", { name: "Door schedule · 서버 증거" }),
+    ).toContainText("P4 hosted door 90 mm 2100 mm 1");
+    await expect(
+      page.getByRole("table", { name: "Finish schedule · 서버 증거" }),
+    ).toContainText("P4-101 P4 hosted room tile paint acoustic 0.024 m²");
 
     const forbiddenUpdate = {
       ...objects[0],

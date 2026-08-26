@@ -39,10 +39,9 @@ Viewport: 1440x900
 Condition: application assets warmed; cold exact 10,000-object document
 Composition: wall 2000, opening 2000, space 1500, area 1500, grid 1500,
   arc 1500
-First usable: 5434.0 ms
-Product target <=2500 ms: NOT MET
-Warm samples: zoom 30, pan 31, selection 30
-Warm p95: zoom 0.2 ms, pan 0.3 ms, selection 72.7 ms
+Generated evidence: task-7-performance.json
+Decision: validator computes firstUsableTargetMet from measured firstUsableMs
+Warm samples/p95: preserved in the same source-commit-bound JSON artifact
 P7 10k/60fps gate: UNEXECUTED
 
 DURABLE SOURCE EVIDENCE
