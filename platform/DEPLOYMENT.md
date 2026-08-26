@@ -281,13 +281,19 @@ record this exact sequence:
 
 5. Send `SIGHUP` to **purge each replica** JWKS cache; `/healthz` is an
    additional database/readiness check, not key proof.
-6. Target each replica directly and run **authenticated room admission on every replica**
-   with that fresh token. Use
-   `npm run smoke:drawing-collaboration:production`; one failure restores the
-   previous current key and leaves admission closed.
+6. Set `P3_COLLABORATION_REPLICAS_JSON` to a JSON array containing the unique,
+   non-secret `id`, direct `wss://` `websocketUrl`, and direct `https://`
+   `healthUrl` for every listed replica. Load-balancer or shared ingress URLs are
+   forbidden. Set `P3_JWKS_NEW_KID="$NEW_KID"`, then run
+   `npm run smoke:drawing-collaboration:production`. The smoke iterates the list,
+   verifies that the fresh token header equals `NEW_KID`, completes
+   **authenticated room admission on every replica**, and records each successful
+   replica `id` as a Playwright annotation. A missing, duplicate, indirect, or
+   unadmitted replica restores the previous current key and leaves admission
+   closed.
 7. Keep the previous key valid for the configured **access-token lifetime plus the safety margin**.
    Set and record `JWT_EXP_SECONDS` and a minimum
-   `JWKS_SAFETY_MARGIN_SECONDS=600`; do not shorten the interval because the
+   `JWKS_SAFETY_MARGIN_SECONDS=900`; do not shorten the interval because the
    discovery endpoint or service cache appeared fast once.
 8. After that interval and another fresh-token admission pass on every replica,
    **revoke the previous key**. Revocation before all evidence above exists is a
@@ -386,6 +392,7 @@ where rolname in (
 order by rolname;
 
 -- Exact routine/table/default ACL: this must return zero rows.
+-- BEGIN P3 ACL AUDIT
 with expected_routine(proname, argument_types) as (values
   ('lukas_drawing_collaboration_authorize',
     'uuid, uuid, uuid'),
@@ -491,24 +498,45 @@ with expected_routine(proname, argument_types) as (values
   select proowner from routines
   union
   select relowner from protected_table
+), default_scope(role_oid, schema_oid, object_type) as (
+  select o.role_oid, n.oid, k.object_type
+  from object_owner o
+  cross join pg_catalog.pg_namespace n
+  cross join (values ('f'::"char"), ('r'::"char")) k(object_type)
+  where n.nspname = 'private'
+), effective_default_acl as (
+  select s.*,
+    coalesce(
+      global_acl.defaclacl,
+      pg_catalog.acldefault(s.object_type, s.role_oid)
+    ) || coalesce(
+      schema_acl.defaclacl,
+      '{}'::pg_catalog.aclitem[]
+    ) as effective_acl
+  from default_scope s
+  left join pg_catalog.pg_default_acl global_acl
+    on global_acl.defaclrole = s.role_oid
+    and global_acl.defaclnamespace = 0
+    and global_acl.defaclobjtype = s.object_type
+  left join pg_catalog.pg_default_acl schema_acl
+    on schema_acl.defaclrole = s.role_oid
+    and schema_acl.defaclnamespace = s.schema_oid
+    and schema_acl.defaclobjtype = s.object_type
 ), default_acl_violation as (
   select 'forbidden default ACL'::text as violation,
-    case d.defaclobjtype when 'f' then 'function' else 'table' end as object_name,
+    case d.object_type when 'f' then 'function' else 'table' end as object_name,
     null::text as identity_arguments,
     coalesce(g.rolname, 'PUBLIC') as grantee_name
-  from pg_catalog.pg_default_acl d
-  join object_owner o on o.role_oid = d.defaclrole
-  left join pg_catalog.pg_namespace n on n.oid = d.defaclnamespace
-  cross join lateral pg_catalog.aclexplode(d.defaclacl) x
+  from effective_default_acl d
+  cross join lateral pg_catalog.aclexplode(d.effective_acl) x
   left join pg_catalog.pg_roles g on g.oid = x.grantee
-  where d.defaclobjtype in ('f', 'r')
-    and (d.defaclnamespace = 0 or n.nspname = 'private')
-    and x.grantee <> d.defaclrole
+  where x.grantee <> d.role_oid
 )
 select * from routine_violation
 union all select * from table_violation
 union all select * from default_acl_violation
 order by violation, object_name, identity_arguments, grantee_name;
+-- END P3 ACL AUDIT
 
 -- Stored-byte integrity, lease ownership, and freeze boundaries.
 select revision_id, freeze_state, freeze_request_id,
@@ -596,6 +624,8 @@ P3_E2E_DATABASE_ADMIN_URL="$P3_E2E_DATABASE_ADMIN_URL" \
 P3_E2E_RUN_ID="$P3_E2E_RUN_ID" \
 P3_COLLABORATION_SIGTERM_COMMAND_JSON="$P3_COLLABORATION_SIGTERM_COMMAND_JSON" \
 P3_COLLABORATION_RESTART_COMMAND_JSON="$P3_COLLABORATION_RESTART_COMMAND_JSON" \
+P3_COLLABORATION_REPLICAS_JSON="$P3_COLLABORATION_REPLICAS_JSON" \
+P3_JWKS_NEW_KID="$P3_JWKS_NEW_KID" \
 npm run smoke:drawing-collaboration:production
 ```
 
@@ -605,6 +635,13 @@ command must signal the exact smoke replica and wait for graceful Hocuspocus
 flush/drain; the restart command must start the exact image digest. The smoke
 waits for `/healthz` itself after each restart and suppresses lifecycle command
 output. Do not put secrets in command arguments or output.
+
+`P3_COLLABORATION_REPLICAS_JSON` is the release inventory, for example
+`[{"id":"collab-a","websocketUrl":"wss://collab-a.internal.example/ws","healthUrl":"https://collab-a.internal.example/healthz"}]`.
+Every listed direct target must admit the fresh `P3_JWKS_NEW_KID` token in the
+first serial smoke test. Retain the non-secret `jwks-replica-admission`
+annotations and compare their unique IDs to the inventory before old-key
+retirement; one shared ingress admission is never sufficient.
 
 The endpoint contracts are intentionally different:
 

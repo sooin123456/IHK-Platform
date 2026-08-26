@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { PGlite } from "@electric-sql/pglite";
+
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
 
@@ -13,6 +15,29 @@ function assertOrdered(source, labels) {
     assert.ok(next > cursor, `${label} must appear in the documented order`);
     cursor = next;
   }
+}
+
+function extractAclAudit(deployment) {
+  const match = deployment.match(
+    /-- BEGIN P3 ACL AUDIT\n([\s\S]+?)\n-- END P3 ACL AUDIT/,
+  );
+  assert.ok(
+    match,
+    "P3 ACL audit must be extractable for runtime mutation tests",
+  );
+  return match[1];
+}
+
+function assertJwksRotationContract(deployment, smoke) {
+  assert.match(deployment, /P3_COLLABORATION_REPLICAS_JSON/);
+  assert.match(deployment, /P3_JWKS_NEW_KID/);
+  assert.match(smoke, /for \(const replica of replicas\)/);
+  assert.match(smoke, /replica\.websocketUrl/);
+  assert.match(smoke, /replica\.id/);
+  assert.match(smoke, /expectedKid/);
+  const margin = deployment.match(/JWKS_SAFETY_MARGIN_SECONDS=(\d+)/)?.[1];
+  assert.ok(margin, "JWKS safety margin must be explicit");
+  assert.ok(Number(margin) >= 900, "JWKS safety margin must be at least 900s");
 }
 
 test("P3 runbook is executable, least-privilege, and forward-safe", async () => {
@@ -114,6 +139,56 @@ test("P3 runbook is executable, least-privilege, and forward-safe", async () => 
   assert.match(p3, /frozen.*in-flight.*rejected review/is);
 });
 
+test("P3 ACL audit exposes built-in PUBLIC execute when owner hardening is removed", async () => {
+  const deployment = await read("DEPLOYMENT.md");
+  const audit = extractAclAudit(deployment);
+  const database = new PGlite();
+  try {
+    await database.exec(`
+      create schema private;
+      create role lukas_drawing_collaboration nologin noinherit;
+      create table private.lukas_drawing_collaboration_states (id uuid);
+      create table private.lukas_drawing_collaboration_freeze_leases (id uuid);
+      alter default privileges for role postgres
+        revoke execute on functions from public;
+    `);
+    const hardened = await database.query(audit);
+    assert.equal(
+      hardened.rows.some(
+        (row) =>
+          row.violation === "forbidden default ACL" &&
+          row.object_name === "function" &&
+          row.grantee_name === "PUBLIC",
+      ),
+      false,
+    );
+
+    await database.exec(`
+      alter default privileges for role postgres
+        grant execute on functions to public;
+    `);
+    const defaultRows = await database.query(`
+      select count(*)::int as count
+      from pg_catalog.pg_default_acl d
+      join pg_catalog.pg_roles r on r.oid = d.defaclrole
+      where r.rolname = 'postgres' and d.defaclobjtype = 'f'
+    `);
+    assert.equal(defaultRows.rows[0].count, 0);
+    const mutated = await database.query(audit);
+    assert.equal(
+      mutated.rows.some(
+        (row) =>
+          row.violation === "forbidden default ACL" &&
+          row.object_name === "function" &&
+          row.grantee_name === "PUBLIC",
+      ),
+      true,
+    );
+  } finally {
+    await database.close();
+  }
+});
+
 test("P3 service smoke is executable and matches endpoint authentication contracts", async () => {
   const [deployment, packageJson, smoke, server, freeze, workspaceServer] =
     await Promise.all([
@@ -157,6 +232,26 @@ test("P3 service smoke is executable and matches endpoint authentication contrac
   assert.match(workspaceServer, /"x-1hk-freeze-secret": secret/);
   assert.match(p3, /outcomes.*HMAC-SHA-256.*x-1hk-signature/is);
   assert.match(p3, /freeze.*constant-time.*bearer.*x-1hk-freeze-secret/is);
+
+  assertJwksRotationContract(p3, smoke);
+  assert.throws(() =>
+    assertJwksRotationContract(
+      p3,
+      smoke.replace(
+        "for (const replica of replicas)",
+        "for (const replica of [])",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertJwksRotationContract(
+      p3.replace(
+        "JWKS_SAFETY_MARGIN_SECONDS=900",
+        "JWKS_SAFETY_MARGIN_SECONDS=899",
+      ),
+      smoke,
+    ),
+  );
 });
 
 test("P3 service smoke fails closed before Playwright when authorities are absent", () => {
@@ -174,6 +269,8 @@ test("P3 service smoke fails closed before Playwright when authorities are absen
     "P3_E2E_RUN_ID",
     "P3_COLLABORATION_SIGTERM_COMMAND_JSON",
     "P3_COLLABORATION_RESTART_COMMAND_JSON",
+    "P3_COLLABORATION_REPLICAS_JSON",
+    "P3_JWKS_NEW_KID",
   ])
     delete env[authority];
   const result = spawnSync(
@@ -190,6 +287,38 @@ test("P3 service smoke fails closed before Playwright when authorities are absen
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /UNEXECUTED/);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Local:\s+http/);
+
+  const missingReplicaInventory = spawnSync(
+    "npm",
+    ["run", "smoke:drawing-collaboration:production"],
+    {
+      cwd: new URL("../", import.meta.url),
+      env: {
+        PATH: process.env.PATH,
+        E2E_BASE_URL: "https://p3-app.invalid",
+        SUPABASE_URL: "https://round2fixture.supabase.co",
+        SUPABASE_ANON_KEY: "anon-round2-credential-value-1234567890",
+        SUPABASE_SERVICE_ROLE_KEY: "service-round2-credential-value-1234567890",
+        VITE_DRAWING_COLLABORATION_URL: "wss://p3-collab.invalid",
+        COLLABORATION_INTERNAL_URL: "https://p3-collab.invalid",
+        COLLABORATION_INTERNAL_SECRET:
+          "internal-round2-credential-value-1234567890",
+        COLLABORATION_FREEZE_SECRET:
+          "freeze-round2-credential-value-123456789012",
+        P3_E2E_DATABASE_ADMIN_URL:
+          "postgresql://operator:secret@p3-db.invalid/postgres",
+        P3_E2E_RUN_ID: "round2-abcdef12",
+        P3_COLLABORATION_SIGTERM_COMMAND_JSON: '["/usr/bin/true"]',
+        P3_COLLABORATION_RESTART_COMMAND_JSON: '["/usr/bin/true"]',
+      },
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
+  const inventoryOutput = `${missingReplicaInventory.stdout}\n${missingReplicaInventory.stderr}`;
+  assert.notEqual(missingReplicaInventory.status, 0);
+  assert.match(inventoryOutput, /P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED/);
+  assert.doesNotMatch(inventoryOutput, /Running \d+ tests|Local:\s+http/);
 });
 
 test("P3 rollout stays single-replica and rollback evidence is a separate operator gate", async () => {

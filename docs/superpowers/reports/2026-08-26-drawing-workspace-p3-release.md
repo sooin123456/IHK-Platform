@@ -24,13 +24,17 @@ source evidence only.
   smoke→application preview→production fixture→operator rollback rehearsal→
   promotion order plus forward-safe frozen/in-flight/rejected review recovery.
 - The release ACL gate expands effective `pg_proc`/`pg_class` ACLs, `PUBLIC`,
-  built-in defaults and owner `pg_default_acl`, and accepts only the 16 exact
-  dedicated-role function signatures. It does not use the `information_schema`
-  role-grant views that omit `PUBLIC`.
+  built-in defaults and owner/schema `pg_default_acl` even when no default row
+  exists, and accepts only the 16 exact dedicated-role function signatures. A
+  PGlite mutation removing function-default hardening exposes future-function
+  `PUBLIC EXECUTE`. The audit does not use the `information_schema` role-grant
+  views that omit `PUBLIC`.
 - The service smoke contract covers authenticated admission, non-member denial,
   storage/reload, HMAC outcome receipt, constant-time bearer freeze/release,
-  restart and SIGTERM drain. It exits `UNEXECUTED` before Playwright when the
-  real authorities are absent.
+  restart and SIGTERM drain. Its direct WSS/HTTPS replica inventory admits a
+  fresh token with the exact new `kid` on every recorded replica identity, and
+  the old key remains for token lifetime plus at least 900 seconds. It exits
+  `UNEXECUTED` before Playwright when the real authorities are absent.
 - The release status contract prevents local evidence from being presented as
   hosted proof and rejects missing ordering, security queries, rollback
   invariants, evidence categories, or invented external results.
@@ -44,8 +48,8 @@ Fresh Task 11 verification from the source baseline and documentation diff:
 
 | Gate | Result |
 | --- | --- |
-| P3 release documentation contract | PASS, 6 tests, including credential-free service-smoke fail-closed execution |
-| Whole Node `node --test tests/*.test.mjs` | 738 total; 737 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
+| P3 release documentation contract | PASS, 7 tests, including live PGlite default-ACL mutation and credential-free service-smoke fail-closed execution |
+| Whole Node `node --test tests/*.test.mjs` | 739 total; 738 passed, 0 failed, 1 environment-only PostgreSQL gate `UNEXECUTED` |
 | Drawing Workspace `npm run test:drawing-workspace` | 506 total; 505 passed, 0 failed, the same 1 environment-only gate `UNEXECUTED` |
 | Collaboration service tests | PASS, 32 tests |
 | IFC pinned geometry smoke | PASS: 413,681 bytes, 120 elements, 115 geometric elements, 119 placements, 14,694 triangles |
