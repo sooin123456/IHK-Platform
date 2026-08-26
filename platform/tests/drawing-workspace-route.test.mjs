@@ -4,9 +4,8 @@ import test from "node:test";
 
 import routes from "../app/routes.ts";
 
-const workspaceView = await import(
-  "../app/lukas/lib/drawing-workspace-view.ts"
-).catch(() => null);
+const workspaceView =
+  await import("../app/lukas/lib/drawing-workspace-view.ts").catch(() => null);
 
 function flatten(routesToFlatten) {
   return routesToFlatten.flatMap((route) => [
@@ -64,10 +63,7 @@ test("workspace document renders the accessible editor shell", async () => {
       "utf8",
     ),
     readFile(
-      new URL(
-        "../app/lukas/components/drawing-workspace.tsx",
-        import.meta.url,
-      ),
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
       "utf8",
     ),
   ]);
@@ -118,10 +114,7 @@ test("same-session saved drawing objects become linkable without a loader reload
 
 test("workspace wires durable collaborative recovery and the four visible save states", async () => {
   const shell = await readFile(
-    new URL(
-      "../app/lukas/components/drawing-workspace.tsx",
-      import.meta.url,
-    ),
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(shell, /createDrawingOutbox/);
@@ -146,10 +139,7 @@ test("workspace wires durable collaborative recovery and the four visible save s
 test("layers and inspector expose native labeled controls", async () => {
   const [shell, layers, inspector] = await Promise.all([
     readFile(
-      new URL(
-        "../app/lukas/components/drawing-workspace.tsx",
-        import.meta.url,
-      ),
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -203,10 +193,7 @@ test("layers and inspector expose native labeled controls", async () => {
 test("page tree and canvas-scoped layer controls use native labeled interactions", async () => {
   const [shell, pages, layers] = await Promise.all([
     readFile(
-      new URL(
-        "../app/lukas/components/drawing-workspace.tsx",
-        import.meta.url,
-      ),
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -501,10 +488,7 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
       "utf8",
     ),
     readFile(
-      new URL(
-        "../app/lukas/components/drawing-workspace.tsx",
-        import.meta.url,
-      ),
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -537,10 +521,7 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
 test("workspace exposes six authoring tools, transient previews, and an accessible native command menu", async () => {
   const [shell, canvas, menu] = await Promise.all([
     readFile(
-      new URL(
-        "../app/lukas/components/drawing-workspace.tsx",
-        import.meta.url,
-      ),
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -566,7 +547,7 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
     "텍스트 도구",
     "치수 도구",
   ]) {
-    assert.match(shell, new RegExp(`aria-label="${label}"`));
+    assert.match(shell, new RegExp(label));
   }
   assert.match(shell, /DrawingCommandMenu/);
   assert.match(shell, /event\.(metaKey \|\| event\.ctrlKey)/);
@@ -587,12 +568,70 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.doesNotMatch(menu, /role="option"/);
 });
 
+test("workspace exposes grouped architectural tools and a focused semantic inspector", async () => {
+  const [shell, canvas, menu, inspector] = await Promise.all([
+    readFile(
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-canvas.client.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-command-menu.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-semantic-inspector.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(shell, /aria-label="건축 객체"/);
+  for (const label of [
+    "벽 도구",
+    "개구부 도구",
+    "공간 도구",
+    "영역 도구",
+    "그리드 도구",
+    "호 도구",
+  ]) {
+    assert.match(shell, new RegExp(label));
+    assert.match(menu, new RegExp(label));
+  }
+  assert.match(shell, /max-w-\[calc\(100%-2rem\)\]/);
+  assert.match(shell, /objects=\{resolvedObjects\.objects\}/);
+  assert.match(canvas, /name="drawing-semantic-label"/);
+  assert.match(canvas, /data-rendered-semantic-object-count/);
+  assert.match(canvas, /resolveDrawingOpening/);
+  for (const label of [
+    "벽 두께",
+    "벽 높이",
+    "개구부 종류",
+    "벽 기준 오프셋",
+    "공간 번호",
+    "바닥 마감",
+    "호 반지름",
+    "미리보기",
+    "서버 계산 · V1",
+  ])
+    assert.match(inspector, new RegExp(label));
+  assert.match(inspector, /type: "update_objects"/);
+  assert.match(inspector, /baseVersion: object\.version/);
+});
+
 test("workspace remounts Canvas with sanitized transient props at each authorization boundary", async () => {
   const shell = await readFile(
-    new URL(
-      "../app/lukas/components/drawing-workspace.tsx",
-      import.meta.url,
-    ),
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(shell, /drawingTransientAuthorizationKey\(drawingState/);

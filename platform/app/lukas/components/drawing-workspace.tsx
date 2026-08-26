@@ -10,6 +10,7 @@ import {
 
 import {
   ArrowLeft,
+  Building2,
   Check,
   Circle as CircleIcon,
   Cloud,
@@ -710,6 +711,7 @@ export default function DrawingWorkspaceClient({
   >({ status: "loading" });
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [semanticMenuOpen, setSemanticMenuOpen] = useState(false);
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
@@ -1008,18 +1010,6 @@ export default function DrawingWorkspaceClient({
     }
     return { objects, styleError };
   }, [activeDrawingState.objects, activeDrawingState.structure?.styles]);
-  const visibleObjects = useMemo(
-    () =>
-      resolvedObjects.objects
-        .filter((object) => activeDrawingState.layers[object.layerId]?.visible)
-        .sort((left, right) => {
-          const layerOrder =
-            (activeDrawingState.layers[left.layerId]?.sortOrder ?? 0) -
-            (activeDrawingState.layers[right.layerId]?.sortOrder ?? 0);
-          return layerOrder || left.id.localeCompare(right.id);
-        }),
-    [activeDrawingState.layers, resolvedObjects.objects],
-  );
   const blockStructure = drawingState.structure;
   const resolvedBlockInstances = useMemo(
     () =>
@@ -2036,7 +2026,13 @@ export default function DrawingWorkspaceClient({
         commandId === "rectangle" ||
         commandId === "circle" ||
         commandId === "text" ||
-        commandId === "dimension"
+        commandId === "dimension" ||
+        commandId === "wall" ||
+        commandId === "opening" ||
+        commandId === "space" ||
+        commandId === "area" ||
+        commandId === "grid" ||
+        commandId === "arc"
       ) {
         setAuthorizedTool(commandId);
       } else if (commandId === "undo") undo();
@@ -3059,7 +3055,7 @@ export default function DrawingWorkspaceClient({
                   layerId={editing.layerId}
                   layers={Object.values(activeDrawingState.layers)}
                   blockInstances={resolvedBlockInstances.instances}
-                  objects={visibleObjects}
+                  objects={resolvedObjects.objects}
                   onCommand={applyCommand}
                   onCursorWorldChange={(cursorWorld) => {
                     awarenessCursorRef.current = cursorWorld;
@@ -3240,7 +3236,7 @@ export default function DrawingWorkspaceClient({
 
           <nav
             aria-label="캔버스 도구"
-            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur"
+            className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur"
           >
             <Button
               aria-label="선택 도구"
@@ -3266,6 +3262,87 @@ export default function DrawingWorkspaceClient({
                 >
                   <Minus className="size-4" />
                 </Button>
+                <div className="relative">
+                  <Button
+                    aria-expanded={semanticMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label="건축 객체"
+                    onClick={() => setSemanticMenuOpen((open) => !open)}
+                    size="icon"
+                    variant={
+                      [
+                        "wall",
+                        "opening",
+                        "space",
+                        "area",
+                        "grid",
+                        "arc",
+                      ].includes(transient.activeTool)
+                        ? "secondary"
+                        : "ghost"
+                    }
+                  >
+                    <Building2 className="size-4" />
+                  </Button>
+                  {semanticMenuOpen ? (
+                    <div
+                      aria-label="건축 객체 도구"
+                      className="absolute bottom-full left-1/2 mb-2 grid w-40 -translate-x-1/2 gap-1 rounded-lg border border-white/15 bg-slate-900 p-1.5 shadow-2xl"
+                      role="menu"
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setSemanticMenuOpen(false);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        event.preventDefault();
+                        const items = Array.from(
+                          event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                            '[role="menuitem"]',
+                          ),
+                        );
+                        const index = items.indexOf(
+                          document.activeElement as HTMLButtonElement,
+                        );
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        items[
+                          (index + offset + items.length) % items.length
+                        ]?.focus();
+                      }}
+                    >
+                      {(
+                        [
+                          ["wall", "벽 도구"],
+                          ["opening", "개구부 도구"],
+                          ["space", "공간 도구"],
+                          ["area", "영역 도구"],
+                          ["grid", "그리드 도구"],
+                          ["arc", "호 도구"],
+                        ] as const
+                      ).map(([tool, label], index) => (
+                        <button
+                          aria-label={label}
+                          autoFocus={index === 0}
+                          className="min-h-10 rounded-md px-3 text-left text-sm hover:bg-white/10 focus:bg-white/10"
+                          key={tool}
+                          onClick={() => {
+                            setAuthorizedTool(tool);
+                            setSemanticMenuOpen(false);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <Button
                   aria-label="폴리라인 도구"
                   aria-pressed={transient.activeTool === "polyline"}

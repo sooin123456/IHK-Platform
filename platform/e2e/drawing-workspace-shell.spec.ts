@@ -404,3 +404,79 @@ test("1280px structure panel keeps disabled explanations readable below controls
     );
   }
 });
+
+test("architectural object tools remain accessible without toolbar overflow on desktop and tablet", async ({
+  page,
+}) => {
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 768, height: 1024 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openPreview(page);
+    const surface = page.getByLabel(/도면 화면/);
+    const initialSemanticCount = Number(
+      await surface.getAttribute("data-rendered-semantic-object-count"),
+    );
+    await page.getByRole("button", { name: "건축 객체" }).click();
+    await page.getByRole("menuitem", { name: "벽 도구" }).click();
+    const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
+    const viewportX = Number(await surface.getAttribute("data-viewport-x"));
+    const viewportY = Number(await surface.getAttribute("data-viewport-y"));
+    await surface.click({
+      position: { x: viewportX + 100 * zoom, y: viewportY + 700 * zoom },
+    });
+    await surface.click({
+      position: { x: viewportX + 900 * zoom, y: viewportY + 700 * zoom },
+    });
+    await expect(surface).toHaveAttribute(
+      "data-rendered-semantic-object-count",
+      String(initialSemanticCount + 1),
+    );
+    await expect(
+      page.getByRole("list", { name: "건축 객체 목록" }),
+    ).toContainText("Wall · wall");
+    if (viewport.width === 1440) {
+      await page.getByRole("button", { name: "선택 도구" }).click();
+      await surface.click({
+        position: { x: viewportX + 500 * zoom, y: viewportY + 700 * zoom },
+      });
+      await expect(
+        page.getByRole("heading", { name: "건축 객체" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("벽 두께")).toHaveValue("200");
+      await expect(page.getByText("미리보기", { exact: true })).toBeVisible();
+      await expect(
+        page.getByText("서버 계산 · V1", { exact: true }),
+      ).toBeVisible();
+    }
+    await page.getByRole("button", { name: "건축 객체" }).click();
+    for (const name of [
+      "벽 도구",
+      "개구부 도구",
+      "공간 도구",
+      "영역 도구",
+      "그리드 도구",
+      "호 도구",
+    ])
+      await expect(page.getByRole("menuitem", { name })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(
+      page.getByRole("menuitem", { name: "개구부 도구" }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeHidden();
+    const overflow = await page.evaluate(() => {
+      const toolbar = document.querySelector('[aria-label="캔버스 도구"]');
+      return {
+        document:
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+        toolbar: toolbar ? toolbar.scrollWidth - toolbar.clientWidth : 1,
+      };
+    });
+    expect(overflow.document).toBeLessThanOrEqual(0);
+    expect(overflow.toolbar).toBeLessThanOrEqual(0);
+  }
+});

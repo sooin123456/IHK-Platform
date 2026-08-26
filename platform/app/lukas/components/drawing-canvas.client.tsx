@@ -34,7 +34,7 @@ import {
   type DrawingPanGesture,
 } from "~/lukas/lib/drawing-geometry";
 import {
-  moveDrawingSnapshots,
+  moveDrawingOpeningToPoint,
   translateDrawingGeometry,
   type DrawingCommand,
   type DrawingMoveSnapshot,
@@ -66,7 +66,15 @@ import type {
   Point,
   Viewport,
 } from "~/lukas/lib/drawing-workspace.types";
-import { defaultDrawingObjectName } from "~/lukas/lib/drawing-workspace.types";
+import {
+  DrawingGeometrySchema,
+  defaultDrawingObjectName,
+} from "~/lukas/lib/drawing-workspace.types";
+import {
+  normalizeDrawingSemanticNumber,
+  projectPointToDrawingWall,
+  resolveDrawingOpening,
+} from "~/lukas/lib/drawing-semantic-geometry";
 import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
 import { DrawingCollaborationOverlay } from "~/lukas/components/drawing-collaboration-overlay.client";
 import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
@@ -84,7 +92,13 @@ export type DrawingTool =
   | "rectangle"
   | "circle"
   | "text"
-  | "dimension";
+  | "dimension"
+  | "wall"
+  | "opening"
+  | "space"
+  | "area"
+  | "grid"
+  | "arc";
 
 export type ToolSession =
   | { tool: "idle" }
@@ -93,7 +107,15 @@ export type ToolSession =
   | { tool: "rectangle"; start: Point }
   | { tool: "circle"; center: Point }
   | { tool: "text"; origin: Point }
-  | { tool: "dimension"; start: Point; end?: Point };
+  | { tool: "dimension"; start: Point; end?: Point }
+  | { tool: "wall" | "grid"; start: Point }
+  | { tool: "space" | "area"; points: Point[] }
+  | {
+      tool: "arc";
+      center: Point;
+      radius?: number;
+      startAngleDegrees?: number;
+    };
 
 export type DrawingSnapContext = {
   gridSize: number;
@@ -108,6 +130,8 @@ type DrawingCommitOptions = {
   constrain?: boolean;
   layerId: string;
   objectId: string;
+  objects?: Readonly<Record<string, DrawingObject>>;
+  lockedEntityIds?: ReadonlySet<string>;
   repeatMode: boolean;
   snap: DrawingSnapContext;
   text?: string;
@@ -134,7 +158,10 @@ function snapPoint(point: Point, context: DrawingSnapContext) {
   }).point;
 }
 
-function nextTool(tool: Exclude<ToolSession["tool"], "idle">, repeat: boolean) {
+function nextTool(
+  tool: Exclude<DrawingTool, "select" | "pan">,
+  repeat: boolean,
+) {
   return repeat ? tool : "select";
 }
 
@@ -160,9 +187,23 @@ function drawingObject(
     geometry,
     styleId: null,
     style: {
-      stroke: "#2563eb",
+      stroke:
+        geometry.type === "wall" || geometry.type === "opening"
+          ? "#0f172a"
+          : geometry.type === "grid"
+            ? "#64748b"
+            : geometry.type === "arc"
+              ? "#7c3aed"
+              : "#2563eb",
       strokeWidth: 2,
-      fill: geometry.type === "text" ? "#2563eb" : null,
+      fill:
+        geometry.type === "text"
+          ? "#2563eb"
+          : geometry.type === "space"
+            ? "#dbeafe66"
+            : geometry.type === "area"
+              ? "#fde68a66"
+              : null,
       ...(geometry.type === "text" ? { fontSize: 14 } : {}),
     },
     version: 1,
@@ -170,7 +211,7 @@ function drawingObject(
 }
 
 function completedResult(
-  tool: Exclude<ToolSession["tool"], "idle">,
+  tool: Exclude<DrawingTool, "select" | "pan">,
   geometry: DrawingGeometry | null,
   options: DrawingCommitOptions,
 ): DrawingToolResult {
@@ -196,8 +237,12 @@ export function beginDrawingToolSession(
   switch (tool) {
     case "line":
     case "rectangle":
+    case "wall":
+    case "grid":
       return { tool, start: committed };
     case "polyline":
+    case "space":
+    case "area":
       return { tool, points: [committed] };
     case "circle":
       return { tool, center: committed };
@@ -205,7 +250,22 @@ export function beginDrawingToolSession(
       return { tool, origin: committed };
     case "dimension":
       return { tool, start: committed };
+    case "arc":
+      return { tool, center: committed };
+    case "opening":
+      return { tool: "idle" };
   }
+}
+
+function semanticPoint(point: Point) {
+  return {
+    x: normalizeDrawingSemanticNumber(point.x),
+    y: normalizeDrawingSemanticNumber(point.y),
+  };
+}
+
+function validSemanticGeometry(geometry: DrawingGeometry) {
+  return DrawingGeometrySchema.safeParse(geometry).success ? geometry : null;
 }
 
 export function commitDrawingPoint(
@@ -219,12 +279,19 @@ export function commitDrawingPoint(
   let candidate = point;
   if (
     options.constrain &&
-    (session.tool === "line" || session.tool === "dimension")
+    (session.tool === "line" ||
+      session.tool === "dimension" ||
+      session.tool === "wall" ||
+      session.tool === "grid")
   ) {
     candidate = constrainTo45Degrees(session.start, candidate);
   }
   const committed = snapPoint(candidate, options.snap);
-  if (session.tool === "polyline") {
+  if (
+    session.tool === "polyline" ||
+    session.tool === "space" ||
+    session.tool === "area"
+  ) {
     const lastPoint = session.points.at(-1);
     const points =
       lastPoint?.x === committed.x && lastPoint.y === committed.y
@@ -232,8 +299,8 @@ export function commitDrawingPoint(
         : [...session.points, committed];
     return {
       command: null,
-      nextTool: "polyline",
-      session: { tool: "polyline", points },
+      nextTool: session.tool,
+      session: { tool: session.tool, points },
     };
   }
   if (session.tool === "line") {
@@ -242,6 +309,69 @@ export function commitDrawingPoint(
         ? null
         : ({ type: "line", start: session.start, end: committed } as const);
     return completedResult(session.tool, geometry, options);
+  }
+  if (session.tool === "wall" || session.tool === "grid") {
+    const start = semanticPoint(session.start);
+    const end = semanticPoint(committed);
+    const geometry =
+      start.x === end.x && start.y === end.y
+        ? null
+        : session.tool === "wall"
+          ? ({
+              type: "wall",
+              semanticVersion: 1,
+              start,
+              end,
+              thicknessMillimeters: 200,
+              heightMillimeters: 3000,
+            } as const)
+          : ({ type: "grid", semanticVersion: 1, start, end } as const);
+    return completedResult(session.tool, geometry, options);
+  }
+  if (session.tool === "arc") {
+    const center = semanticPoint(session.center);
+    const arcPoint = semanticPoint(committed);
+    if (
+      session.radius === undefined ||
+      session.startAngleDegrees === undefined
+    ) {
+      const radius = normalizeDrawingSemanticNumber(
+        Math.hypot(arcPoint.x - center.x, arcPoint.y - center.y),
+      );
+      if (radius === 0) return { command: null, nextTool: "arc", session };
+      return {
+        command: null,
+        nextTool: "arc",
+        session: {
+          tool: "arc",
+          center,
+          radius,
+          startAngleDegrees: normalizeDrawingSemanticNumber(
+            (Math.atan2(arcPoint.y - center.y, arcPoint.x - center.x) * 180) /
+              Math.PI,
+          ),
+        },
+      };
+    }
+    const endAngle =
+      (Math.atan2(arcPoint.y - center.y, arcPoint.x - center.x) * 180) /
+      Math.PI;
+    let sweep = ((endAngle - session.startAngleDegrees + 540) % 360) - 180;
+    if (sweep === -180) sweep = 180;
+    sweep = normalizeDrawingSemanticNumber(sweep);
+    if (sweep === 0) return { command: null, nextTool: "arc", session };
+    return completedResult(
+      session.tool,
+      validSemanticGeometry({
+        type: "arc",
+        semanticVersion: 1,
+        center,
+        radius: session.radius,
+        startAngleDegrees: session.startAngleDegrees,
+        sweepAngleDegrees: sweep,
+      }),
+      options,
+    );
   }
   if (session.tool === "rectangle") {
     const width = Math.abs(committed.x - session.start.x);
@@ -272,33 +402,58 @@ export function commitDrawingPoint(
         : ({ type: "circle", center: session.center, radius } as const);
     return completedResult(session.tool, geometry, options);
   }
-  const geometry =
-    session.start.x === committed.x && session.start.y === committed.y
-      ? null
-      : ({
-          type: "dimension",
-          start: session.start,
-          end: committed,
-          offset: 12,
-          calibrationId: options.calibrationId ?? null,
-        } as const);
-  return completedResult(session.tool, geometry, options);
+  if (session.tool === "dimension") {
+    const geometry =
+      session.start.x === committed.x && session.start.y === committed.y
+        ? null
+        : ({
+            type: "dimension",
+            start: session.start,
+            end: committed,
+            offset: 12,
+            calibrationId: options.calibrationId ?? null,
+          } as const);
+    return completedResult(session.tool, geometry, options);
+  }
+  return { command: null, nextTool: "select", session };
 }
 
 export function completeDrawingToolSession(
   session: ToolSession,
   options: DrawingCommitOptions,
 ): DrawingToolResult {
-  if (session.tool === "polyline") {
+  if (
+    session.tool === "polyline" ||
+    session.tool === "space" ||
+    session.tool === "area"
+  ) {
     const distinct = session.points.some(
       (point) =>
         point.x !== session.points[0]?.x || point.y !== session.points[0]?.y,
     );
     return completedResult(
       session.tool,
-      session.points.length >= 2 && distinct
-        ? { type: "polyline", points: session.points, closed: false }
-        : null,
+      session.tool === "polyline"
+        ? session.points.length >= 2 && distinct
+          ? { type: "polyline", points: session.points, closed: false }
+          : null
+        : session.points.length >= 3
+          ? validSemanticGeometry(
+              session.tool === "space"
+                ? {
+                    type: "space",
+                    semanticVersion: 1,
+                    boundary: session.points.map(semanticPoint),
+                    number: "",
+                    finishes: { floor: null, wall: null, ceiling: null },
+                  }
+                : {
+                    type: "area",
+                    semanticVersion: 1,
+                    boundary: session.points.map(semanticPoint),
+                  },
+            )
+          : null,
       options,
     );
   }
@@ -314,8 +469,10 @@ export function completeDrawingToolSession(
 }
 
 export function removeLastPolylinePoint(session: ToolSession): ToolSession {
-  return session.tool === "polyline"
-    ? { tool: "polyline", points: session.points.slice(0, -1) }
+  return session.tool === "polyline" ||
+    session.tool === "space" ||
+    session.tool === "area"
+    ? { tool: session.tool, points: session.points.slice(0, -1) }
     : session;
 }
 
@@ -329,7 +486,10 @@ export type DrawingToolControllerContext = {
   calibrationId: string | null;
   canEdit: boolean;
   layerId: string | null;
+  layers?: Readonly<Record<string, DrawingLayer>>;
   objectId: string;
+  objects?: Readonly<Record<string, DrawingObject>>;
+  lockedEntityIds?: ReadonlySet<string>;
   repeatMode: boolean;
   snap: Omit<DrawingSnapContext, "zoom">;
   viewport: Viewport;
@@ -404,7 +564,12 @@ export function drawingToolSessionOwnsKey(
 ) {
   if (state.session.tool === "idle") return false;
   if (key === "Backspace")
-    return state.session.tool === "polyline" || state.session.tool === "text";
+    return (
+      state.session.tool === "polyline" ||
+      state.session.tool === "space" ||
+      state.session.tool === "area" ||
+      state.session.tool === "text"
+    );
   return key === "Escape" || key === "Enter";
 }
 
@@ -465,6 +630,8 @@ function controllerCommitOptions(
     constrain,
     layerId,
     objectId: context.objectId,
+    objects: context.objects,
+    lockedEntityIds: context.lockedEntityIds,
     repeatMode: context.repeatMode,
     snap: controllerSnapContext(context),
     text,
@@ -498,6 +665,82 @@ function controllerWorldPoint(
   return screenToWorld(screenPoint, context.viewport);
 }
 
+function placeDrawingOpening(
+  point: Point,
+  context: DrawingToolControllerContext,
+): DrawingToolResult {
+  const options = controllerCommitOptions(context);
+  if (!options) return cancelDrawingToolSession();
+  const tolerance = context.snap.tolerancePixels / context.viewport.zoom;
+  const candidates = Object.values(context.objects ?? {})
+    .filter(
+      (
+        object,
+      ): object is DrawingObject & {
+        geometry: Extract<DrawingGeometry, { type: "wall" }>;
+      } =>
+        object.geometry.type === "wall" &&
+        context.layers?.[object.layerId]?.visible !== false &&
+        context.layers?.[object.layerId]?.locked !== true &&
+        !context.lockedEntityIds?.has(object.id),
+    )
+    .map((host) => ({
+      host,
+      projection: projectPointToDrawingWall(point, host.geometry),
+    }))
+    .filter(({ host, projection }) => {
+      if (projection.distanceMillimeters > tolerance) return false;
+      const geometry = {
+        type: "opening" as const,
+        semanticVersion: 1 as const,
+        hostWallId: host.id,
+        offsetMillimeters: normalizeDrawingSemanticNumber(
+          projection.offsetMillimeters,
+        ),
+        widthMillimeters: 900,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "door" as const,
+      };
+      if (!validSemanticGeometry(geometry)) return false;
+      try {
+        resolveDrawingOpening(geometry, context.objects ?? {});
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .sort(
+      (left, right) =>
+        left.projection.distanceMillimeters -
+          right.projection.distanceMillimeters ||
+        left.host.id.localeCompare(right.host.id),
+    );
+  const nearest = candidates[0];
+  if (!nearest)
+    return {
+      command: null,
+      nextTool: context.activeTool,
+      session: { tool: "idle" },
+    };
+  return completedResult(
+    "opening",
+    {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: nearest.host.id,
+      offsetMillimeters: normalizeDrawingSemanticNumber(
+        nearest.projection.offsetMillimeters,
+      ),
+      widthMillimeters: 900,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    options,
+  );
+}
+
 export function drawingToolEventTransition(
   state: DrawingToolControllerState,
   event: DrawingToolControllerEvent,
@@ -518,6 +761,12 @@ export function drawingToolEventTransition(
     )
       return controllerResult(state);
     const worldPoint = controllerWorldPoint(event.screenPoint, context);
+    if (context.activeTool === "opening") {
+      return completedControllerResult(
+        state,
+        placeDrawingOpening(worldPoint, context),
+      );
+    }
     if (context.activeTool === "text") {
       return controllerResult({
         ...state,
@@ -525,8 +774,12 @@ export function drawingToolEventTransition(
         session: beginDrawingToolSession("text", worldPoint, snap),
       });
     }
-    if (context.activeTool === "polyline") {
-      if (state.session.tool === "polyline") {
+    if (
+      context.activeTool === "polyline" ||
+      context.activeTool === "space" ||
+      context.activeTool === "area"
+    ) {
+      if (state.session.tool === context.activeTool) {
         const options = controllerCommitOptions(context);
         if (!options) return controllerResult(state);
         const added = commitDrawingPoint(state.session, worldPoint, options);
@@ -539,10 +792,16 @@ export function drawingToolEventTransition(
       return controllerResult({
         ...state,
         previewPoint: null,
-        session: beginDrawingToolSession("polyline", worldPoint, snap),
+        session: beginDrawingToolSession(context.activeTool, worldPoint, snap),
       });
     }
-    if (context.activeTool === "line" || context.activeTool === "dimension") {
+    if (
+      context.activeTool === "line" ||
+      context.activeTool === "dimension" ||
+      context.activeTool === "wall" ||
+      context.activeTool === "grid" ||
+      context.activeTool === "arc"
+    ) {
       if (state.session.tool === context.activeTool) {
         const options = controllerCommitOptions(context, event.shiftKey);
         return options
@@ -579,7 +838,10 @@ export function drawingToolEventTransition(
     let candidate = controllerWorldPoint(event.screenPoint, context);
     if (
       event.shiftKey &&
-      (state.session.tool === "line" || state.session.tool === "dimension")
+      (state.session.tool === "line" ||
+        state.session.tool === "dimension" ||
+        state.session.tool === "wall" ||
+        state.session.tool === "grid")
     ) {
       candidate = constrainTo45Degrees(state.session.start, candidate);
     }
@@ -620,7 +882,12 @@ export function drawingToolEventTransition(
   }
 
   if (event.type === "double_click") {
-    if (state.session.tool !== "polyline") return controllerResult(state);
+    if (
+      state.session.tool !== "polyline" &&
+      state.session.tool !== "space" &&
+      state.session.tool !== "area"
+    )
+      return controllerResult(state);
     const options = controllerCommitOptions(context);
     return options
       ? completedControllerResult(
@@ -640,7 +907,12 @@ export function drawingToolEventTransition(
         : { type: "release", pointerId: state.dragPointerId },
     );
   }
-  if (event.key === "Backspace" && state.session.tool === "polyline") {
+  if (
+    event.key === "Backspace" &&
+    (state.session.tool === "polyline" ||
+      state.session.tool === "space" ||
+      state.session.tool === "area")
+  ) {
     return controllerResult({
       ...state,
       previewPoint: null,
@@ -649,7 +921,10 @@ export function drawingToolEventTransition(
   }
   if (
     event.key === "Enter" &&
-    (state.session.tool === "polyline" || state.session.tool === "text")
+    (state.session.tool === "polyline" ||
+      state.session.tool === "space" ||
+      state.session.tool === "area" ||
+      state.session.tool === "text")
   ) {
     const options = controllerCommitOptions(context, false, event.text);
     return options
@@ -733,10 +1008,11 @@ export function drawingSelectionHitBounds(
   geometry: DrawingGeometry,
   zoom: number,
   tolerancePixels = SELECTION_HIT_TOLERANCE_PIXELS,
+  objects?: Readonly<Record<string, DrawingObject>>,
 ) {
   if (!Number.isFinite(zoom) || zoom <= 0)
     throw new Error("확대 배율이 올바르지 않습니다.");
-  const bounds = geometryBounds(geometry);
+  const bounds = geometryBounds(geometry, objects);
   const tolerance = tolerancePixels / zoom;
   return {
     x: bounds.x - tolerance,
@@ -751,13 +1027,21 @@ export function drawingSelectionCandidates(
   layers: Record<string, DrawingLayer>,
   zoom: number,
 ) {
+  const objectMap = Object.fromEntries(
+    objects.map((candidate) => [candidate.id, candidate]),
+  );
   return objects.flatMap((object) => {
     const layer = layers[object.layerId];
     return layer?.visible && !layer.locked
       ? [
           {
             id: object.id,
-            bounds: drawingSelectionHitBounds(object.geometry, zoom),
+            bounds: drawingSelectionHitBounds(
+              object.geometry,
+              zoom,
+              SELECTION_HIT_TOLERANCE_PIXELS,
+              objectMap,
+            ),
           },
         ]
       : [];
@@ -873,6 +1157,35 @@ function selectionPointerMove(
   return state;
 }
 
+function moveSelectionSnapshotsWithOpenings(
+  snapshots: DrawingMoveSnapshot[],
+  context: DrawingSelectionContext,
+  delta: Point,
+) {
+  const selected = new Set(snapshots.map((snapshot) => snapshot.id));
+  const updates = snapshots.flatMap((snapshot) => {
+    if (snapshot.geometry.type !== "opening")
+      return [
+        {
+          objectId: snapshot.id,
+          baseVersion: snapshot.version,
+          patch: {
+            geometry: translateDrawingGeometry(snapshot.geometry, delta),
+          },
+        },
+      ];
+    if (selected.has(snapshot.geometry.hostWallId)) return [];
+    const resolved = resolveDrawingOpening(snapshot.geometry, context.objects);
+    return moveDrawingOpeningToPoint(context, snapshot.id, context.actorId, {
+      x: resolved.center.x + delta.x,
+      y: resolved.center.y + delta.y,
+    }).updates;
+  });
+  return updates.length
+    ? ({ type: "update_objects", actorId: context.actorId, updates } as const)
+    : null;
+}
+
 /** Pure selection gesture adapter; renderer nodes are only candidate hints. */
 export function drawingSelectionEventTransition(
   state: DrawingSelectionState,
@@ -885,8 +1198,8 @@ export function drawingSelectionEventTransition(
     );
     const invalidDrag = Boolean(
       state.drag &&
-        (!drawingSelectionDragIsValid(state, context) ||
-          selectedIds.length !== state.selectedIds.length),
+      (!drawingSelectionDragIsValid(state, context) ||
+        selectedIds.length !== state.selectedIds.length),
     );
     return {
       command: null,
@@ -938,7 +1251,12 @@ export function drawingSelectionEventTransition(
         !candidate ||
         !pointInBounds(
           point,
-          drawingSelectionHitBounds(candidate.geometry, context.viewport.zoom),
+          drawingSelectionHitBounds(
+            candidate.geometry,
+            context.viewport.zoom,
+            SELECTION_HIT_TOLERANCE_PIXELS,
+            context.objects,
+          ),
         )
       )
         return { command: null, state };
@@ -999,9 +1317,9 @@ export function drawingSelectionEventTransition(
     const valid = drawingSelectionDragIsValid(moved, context);
     const command =
       valid && (moved.previewDelta.x !== 0 || moved.previewDelta.y !== 0)
-        ? moveDrawingSnapshots(
+        ? moveSelectionSnapshotsWithOpenings(
             moved.drag.snapshots,
-            context.actorId,
+            context,
             moved.previewDelta,
           )
         : null;
@@ -1026,7 +1344,10 @@ export function drawingSelectionEventTransition(
       .filter(
         (object) =>
           selectableDrawingObject(context, object.id) &&
-          boundsIntersect(marquee, geometryBounds(object.geometry)),
+          boundsIntersect(
+            marquee,
+            geometryBounds(object.geometry, context.objects),
+          ),
       )
       .map((object) => object.id);
     return {
@@ -1189,6 +1510,12 @@ function geometryShape(
   style: DrawingStyle,
   preview = false,
   calibration?: DimensionCalibrationEvidence | null,
+  objects: Readonly<Record<string, DrawingObject>> = {},
+  objectName = "",
+  semanticView?: {
+    opening?: ReturnType<typeof resolveDrawingOpening>;
+    arcPoints?: Point[];
+  },
 ) {
   const common = {
     dash: preview ? [8, 5] : undefined,
@@ -1305,12 +1632,231 @@ function geometryShape(
         </>
       );
     }
+    case "wall":
+      return (
+        <Line
+          {...common}
+          lineCap="square"
+          points={[
+            geometry.start.x,
+            geometry.start.y,
+            geometry.end.x,
+            geometry.end.y,
+          ]}
+          strokeWidth={geometry.thicknessMillimeters}
+        />
+      );
+    case "opening": {
+      const resolved =
+        semanticView?.opening ?? resolveDrawingOpening(geometry, objects);
+      const points = [
+        resolved.start.x,
+        resolved.start.y,
+        resolved.end.x,
+        resolved.end.y,
+      ];
+      const radians = (resolved.wallAngleDegrees * Math.PI) / 180;
+      const normal = {
+        x: -Math.sin(radians) * 35,
+        y: Math.cos(radians) * 35,
+      };
+      return (
+        <>
+          <Line
+            {...common}
+            points={points}
+            stroke="#ffffff"
+            strokeWidth={resolved.host.geometry.thicknessMillimeters + 4}
+          />
+          <Line
+            {...common}
+            points={points}
+            strokeWidth={geometry.openingKind === "void" ? 2 : 10}
+          />
+          {geometry.openingKind === "window" ? (
+            <Line
+              {...common}
+              points={[
+                resolved.start.x + normal.x,
+                resolved.start.y + normal.y,
+                resolved.end.x + normal.x,
+                resolved.end.y + normal.y,
+              ]}
+              strokeWidth={5}
+            />
+          ) : null}
+          {geometry.openingKind === "door" ? (
+            <Line
+              {...common}
+              points={[
+                resolved.start.x,
+                resolved.start.y,
+                resolved.start.x + normal.x * 2.5,
+                resolved.start.y + normal.y * 2.5,
+              ]}
+              strokeWidth={6}
+            />
+          ) : null}
+        </>
+      );
+    }
+    case "space":
+    case "area": {
+      const centroid = polygonCentroid(geometry.boundary);
+      const label =
+        geometry.type === "space"
+          ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
+          : objectName || "영역";
+      return (
+        <>
+          <Line
+            {...common}
+            closed
+            fill={
+              style.fill ??
+              (geometry.type === "space" ? "#dbeafe66" : "#fde68a66")
+            }
+            points={geometry.boundary.flatMap((point) => [point.x, point.y])}
+          />
+          <KonvaText
+            align="center"
+            fill={style.stroke}
+            fontSize={14}
+            listening={false}
+            name="drawing-semantic-label"
+            text={label}
+            width={180}
+            x={centroid.x - 90}
+            y={centroid.y - 7}
+          />
+        </>
+      );
+    }
+    case "grid": {
+      const angle =
+        (Math.atan2(
+          geometry.end.y - geometry.start.y,
+          geometry.end.x - geometry.start.x,
+        ) *
+          180) /
+        Math.PI;
+      return (
+        <>
+          <Line
+            {...common}
+            dash={[16, 8]}
+            points={[
+              geometry.start.x,
+              geometry.start.y,
+              geometry.end.x,
+              geometry.end.y,
+            ]}
+          />
+          <Circle
+            fill="#ffffff"
+            radius={18}
+            stroke={style.stroke}
+            strokeWidth={2}
+            x={geometry.end.x}
+            y={geometry.end.y}
+          />
+          <KonvaText
+            align="center"
+            fill={style.stroke}
+            fontSize={14}
+            listening={false}
+            name="drawing-semantic-label"
+            rotation={angle > 90 || angle < -90 ? angle + 180 : angle}
+            text={objectName || "Grid"}
+            width={80}
+            x={geometry.end.x - 40}
+            y={geometry.end.y - 7}
+          />
+        </>
+      );
+    }
+    case "arc":
+      return (
+        <Line
+          {...common}
+          points={(
+            semanticView?.arcPoints ?? sampleDrawingArc(geometry)
+          ).flatMap((point) => [point.x, point.y])}
+        />
+      );
   }
+}
+
+function polygonCentroid(points: readonly Point[]): Point {
+  let doubledArea = 0;
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = point.x * next.y - next.x * point.y;
+    doubledArea += cross;
+    x += (point.x + next.x) * cross;
+    y += (point.y + next.y) * cross;
+  }
+  return doubledArea === 0
+    ? points[0]
+    : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
+}
+
+function sampleDrawingArc(
+  geometry: Extract<DrawingGeometry, { type: "arc" }>,
+): Point[] {
+  const segments = Math.max(
+    8,
+    Math.ceil(Math.abs(geometry.sweepAngleDegrees) / 8),
+  );
+  return Array.from({ length: segments + 1 }, (_, index) => {
+    const angle =
+      ((geometry.startAngleDegrees +
+        (geometry.sweepAngleDegrees * index) / segments) *
+        Math.PI) /
+      180;
+    return {
+      x: geometry.center.x + geometry.radius * Math.cos(angle),
+      y: geometry.center.y + geometry.radius * Math.sin(angle),
+    };
+  });
+}
+
+const semanticRenderCache = new Map<
+  string,
+  {
+    opening?: ReturnType<typeof resolveDrawingOpening>;
+    arcPoints?: Point[];
+  }
+>();
+
+function semanticRenderView(
+  object: DrawingObject,
+  objects: Readonly<Record<string, DrawingObject>>,
+) {
+  const hostVersion =
+    object.geometry.type === "opening"
+      ? (objects[object.geometry.hostWallId]?.version ?? "missing")
+      : "";
+  const key = `${object.id}:${object.version}:${hostVersion}`;
+  const cached = semanticRenderCache.get(key);
+  if (cached) return cached;
+  const view =
+    object.geometry.type === "opening"
+      ? { opening: resolveDrawingOpening(object.geometry, objects) }
+      : object.geometry.type === "arc"
+        ? { arcPoints: sampleDrawingArc(object.geometry) }
+        : {};
+  semanticRenderCache.set(key, view);
+  return view;
 }
 
 type CommittedDrawingLayerProps = {
   calibration: DimensionCalibrationEvidence | null;
   items: DrawingCanvasRenderItem[];
+  objects: Readonly<Record<string, DrawingObject>>;
   viewportX: number;
   viewportY: number;
   viewportZoom: number;
@@ -1321,6 +1867,7 @@ type CommittedDrawingLayerProps = {
 const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
   calibration,
   items,
+  objects,
   viewportX,
   viewportY,
   viewportZoom,
@@ -1342,6 +1889,9 @@ const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
               item.object.style,
               false,
               calibration,
+              objects,
+              item.object.name,
+              semanticRenderView(item.object, objects),
             )}
           </Group>
         ) : (
@@ -1381,11 +1931,25 @@ function previewGeometry(
     return session.start.x === point.x && session.start.y === point.y
       ? null
       : { type: "line", start: session.start, end: point };
-  if (session.tool === "polyline") {
+  if (
+    session.tool === "polyline" ||
+    session.tool === "space" ||
+    session.tool === "area"
+  ) {
     const points = [...session.points, point];
     return points.length < 2
       ? null
-      : { type: "polyline", points, closed: false };
+      : session.tool === "polyline"
+        ? { type: "polyline", points, closed: false }
+        : session.tool === "space"
+          ? {
+              type: "space",
+              semanticVersion: 1,
+              boundary: points,
+              number: "",
+              finishes: { floor: null, wall: null, ceiling: null },
+            }
+          : { type: "area", semanticVersion: 1, boundary: points };
   }
   if (session.tool === "rectangle") {
     const width = Math.abs(point.x - session.start.x);
@@ -1412,15 +1976,62 @@ function previewGeometry(
       ? null
       : { type: "circle", center: session.center, radius };
   }
-  return session.start.x === point.x && session.start.y === point.y
-    ? null
-    : {
+  if (session.tool === "wall" || session.tool === "grid")
+    return session.tool === "wall"
+      ? {
+          type: "wall",
+          semanticVersion: 1,
+          start: session.start,
+          end: point,
+          thicknessMillimeters: 200,
+          heightMillimeters: 3000,
+        }
+      : {
+          type: "grid",
+          semanticVersion: 1,
+          start: session.start,
+          end: point,
+        };
+  if (session.tool === "arc") {
+    if (
+      session.radius === undefined ||
+      session.startAngleDegrees === undefined
+    ) {
+      const radius = Math.hypot(
+        point.x - session.center.x,
+        point.y - session.center.y,
+      );
+      return radius === 0
+        ? null
+        : { type: "circle", center: session.center, radius };
+    }
+    const endAngle =
+      (Math.atan2(point.y - session.center.y, point.x - session.center.x) *
+        180) /
+      Math.PI;
+    let sweep = ((endAngle - session.startAngleDegrees + 540) % 360) - 180;
+    if (sweep === -180) sweep = 180;
+    return sweep === 0
+      ? null
+      : {
+          type: "arc",
+          semanticVersion: 1,
+          center: session.center,
+          radius: session.radius,
+          startAngleDegrees: session.startAngleDegrees,
+          sweepAngleDegrees: sweep,
+        };
+  }
+  return session.tool === "dimension" &&
+    (session.start.x !== point.x || session.start.y !== point.y)
+    ? {
         type: "dimension",
         start: session.start,
         end: point,
         offset: 12,
         calibrationId,
-      };
+      }
+    : null;
 }
 
 export const DrawingCanvas = forwardRef<
@@ -1476,6 +2087,11 @@ export const DrawingCanvas = forwardRef<
     () => Object.fromEntries(objects.map((object) => [object.id, object])),
     [objects],
   );
+  const visibleObjects = useMemo(
+    () =>
+      objects.filter((object) => layersById[object.layerId]?.visible === true),
+    [layersById, objects],
+  );
   const blockInstancesById = useMemo(
     () =>
       Object.fromEntries(
@@ -1484,16 +2100,19 @@ export const DrawingCanvas = forwardRef<
     [blockInstances],
   );
   const objectIdSet = useMemo(
-    () => new Set(Object.keys(objectsById)),
-    [objectsById],
+    () => new Set(visibleObjects.map((object) => object.id)),
+    [visibleObjects],
   );
   const blockInstanceIdSet = useMemo(
     () => new Set(Object.keys(blockInstancesById)),
     [blockInstancesById],
   );
   const objectCandidates = useMemo(
-    () => objects.flatMap((object) => geometrySnapPoints(object.geometry)),
-    [objects],
+    () =>
+      visibleObjects.flatMap((object) =>
+        geometrySnapPoints(object.geometry, objectsById),
+      ),
+    [objectsById, visibleObjects],
   );
   const [controllerState, setControllerState] =
     useState<DrawingToolControllerState>(() =>
@@ -1503,7 +2122,10 @@ export const DrawingCanvas = forwardRef<
         calibrationId,
         canEdit,
         layerId,
+        layers: layersById,
         objectId: "",
+        objects: objectsById,
+        lockedEntityIds: remotelyLockedIds,
         repeatMode,
         snap: {
           gridSize: BASE_GRID_SIZE,
@@ -1534,7 +2156,10 @@ export const DrawingCanvas = forwardRef<
     calibrationId,
     canEdit,
     layerId,
+    layers: layersById,
     objectId: "",
+    objects: objectsById,
+    lockedEntityIds: remotelyLockedIds,
     repeatMode,
     snap: {
       gridSize: BASE_GRID_SIZE,
@@ -1549,7 +2174,10 @@ export const DrawingCanvas = forwardRef<
     calibrationId,
     canEdit,
     layerId,
+    layers: layersById,
     objectId: "",
+    objects: objectsById,
+    lockedEntityIds: remotelyLockedIds,
     repeatMode,
     snap: {
       gridSize: BASE_GRID_SIZE,
@@ -1889,6 +2517,48 @@ export const DrawingCanvas = forwardRef<
       )
     : null;
   const handleSize = drawingSelectionHandleSize(viewport.zoom);
+  const previewObjectsById = useMemo(() => {
+    if (
+      selectionState.previewDelta.x === 0 &&
+      selectionState.previewDelta.y === 0
+    )
+      return objectsById;
+    const selected = new Set(selectionState.selectedIds);
+    const next = { ...objectsById };
+    for (const object of selectedObjects) {
+      if (object.geometry.type === "opening") {
+        if (selected.has(object.geometry.hostWallId)) continue;
+        const resolved = resolveDrawingOpening(object.geometry, objectsById);
+        next[object.id] = {
+          ...object,
+          geometry: moveDrawingOpeningToPoint(
+            selectionContextRef.current,
+            object.id,
+            actorId,
+            {
+              x: resolved.center.x + selectionState.previewDelta.x,
+              y: resolved.center.y + selectionState.previewDelta.y,
+            },
+          ).updates[0].patch.geometry!,
+        };
+      } else {
+        next[object.id] = {
+          ...object,
+          geometry: translateDrawingGeometry(
+            object.geometry,
+            selectionState.previewDelta,
+          ),
+        };
+      }
+    }
+    return next;
+  }, [
+    actorId,
+    objectsById,
+    selectedObjects,
+    selectionState.previewDelta,
+    selectionState.selectedIds,
+  ]);
 
   function runToolEvent(
     event: DrawingToolControllerEvent,
@@ -2003,7 +2673,12 @@ export const DrawingCanvas = forwardRef<
   }
 
   function onDoubleClick(event: KonvaEventObject<MouseEvent>) {
-    if (activeTool !== "polyline") return;
+    if (
+      activeTool !== "polyline" &&
+      activeTool !== "space" &&
+      activeTool !== "area"
+    )
+      return;
     event.evt.preventDefault();
     runToolEvent({ type: "double_click" });
   }
@@ -2095,7 +2770,14 @@ export const DrawingCanvas = forwardRef<
       data-drag-preview={`${selectionState.previewDelta.x},${selectionState.previewDelta.y}`}
       data-rendered-instance-count={blockInstances.length}
       data-rendered-layer-count={layers.length}
-      data-rendered-object-count={objects.length}
+      data-rendered-object-count={visibleObjects.length}
+      data-rendered-semantic-object-count={
+        visibleObjects.filter((object) =>
+          ["wall", "opening", "space", "area", "grid", "arc"].includes(
+            object.geometry.type,
+          ),
+        ).length
+      }
       data-remote-block-selection-count={
         remoteSelections.filter((selection) => selection.kind === "block")
           .length
@@ -2277,6 +2959,7 @@ export const DrawingCanvas = forwardRef<
           <CommittedDrawingLayer
             calibration={calibration}
             items={renderAdapter.items}
+            objects={objectsById}
             viewportX={viewport.x}
             viewportY={viewport.y}
             viewportZoom={viewport.zoom}
@@ -2310,13 +2993,12 @@ export const DrawingCanvas = forwardRef<
               ? selectedObjects.map((object) => (
                   <Group key={`preview-${object.id}`} listening={false}>
                     {geometryShape(
-                      translateDrawingGeometry(
-                        object.geometry,
-                        selectionState.previewDelta,
-                      ),
+                      previewObjectsById[object.id].geometry,
                       previewStyle,
                       true,
                       calibration,
+                      previewObjectsById,
+                      object.name,
                     )}
                   </Group>
                 ))
@@ -2325,12 +3007,9 @@ export const DrawingCanvas = forwardRef<
               const geometry =
                 selectionState.previewDelta.x !== 0 ||
                 selectionState.previewDelta.y !== 0
-                  ? translateDrawingGeometry(
-                      object.geometry,
-                      selectionState.previewDelta,
-                    )
+                  ? previewObjectsById[object.id].geometry
                   : object.geometry;
-              const bounds = geometryBounds(geometry);
+              const bounds = geometryBounds(geometry, previewObjectsById);
               const corners = [
                 { x: bounds.x, y: bounds.y },
                 { x: bounds.x + bounds.width, y: bounds.y },
@@ -2398,7 +3077,13 @@ export const DrawingCanvas = forwardRef<
             y={viewport.y}
           >
             {preview
-              ? geometryShape(preview, previewStyle, true, calibration)
+              ? geometryShape(
+                  preview,
+                  previewStyle,
+                  true,
+                  calibration,
+                  objectsById,
+                )
               : null}
           </Layer>
         </Stage>
@@ -2441,6 +3126,19 @@ export const DrawingCanvas = forwardRef<
       <p className="sr-only" role="status">
         {pdfMessage || "빈 도면 배경을 표시하고 있습니다."}
       </p>
+      <ul className="sr-only" aria-label="건축 객체 목록">
+        {visibleObjects.flatMap((object) =>
+          ["wall", "opening", "space", "area", "grid", "arc"].includes(
+            object.geometry.type,
+          )
+            ? [
+                <li key={object.id}>
+                  {object.name} · {object.geometry.type}
+                </li>,
+              ]
+            : [],
+        )}
+      </ul>
     </div>
   );
 });

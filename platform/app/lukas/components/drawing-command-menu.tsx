@@ -9,6 +9,12 @@ export type DrawingCommandId =
   | "circle"
   | "text"
   | "dimension"
+  | "wall"
+  | "opening"
+  | "space"
+  | "area"
+  | "grid"
+  | "arc"
   | "undo"
   | "redo"
   | "duplicate"
@@ -29,6 +35,12 @@ export const DRAWING_COMMAND_REGISTRY: readonly DrawingCommandRegistryItem[] = [
   { id: "circle", label: "원 도구" },
   { id: "text", label: "텍스트 도구" },
   { id: "dimension", label: "치수 도구" },
+  { id: "wall", label: "벽 도구" },
+  { id: "opening", label: "개구부 도구" },
+  { id: "space", label: "공간 도구" },
+  { id: "area", label: "영역 도구" },
+  { id: "grid", label: "그리드 도구" },
+  { id: "arc", label: "호 도구" },
   { id: "undo", label: "실행 취소" },
   { id: "redo", label: "다시 실행" },
   { id: "duplicate", label: "복제" },

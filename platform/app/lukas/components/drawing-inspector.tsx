@@ -14,6 +14,7 @@ import {
   updateDrawingBlockInstanceCommand,
 } from "~/lukas/lib/drawing-blocks";
 import { DrawingPropertyFields } from "~/lukas/components/drawing-properties-panel";
+import { DrawingSemanticInspector } from "~/lukas/components/drawing-semantic-inspector";
 
 import {
   applyDrawingStyleSelection,
@@ -142,12 +143,31 @@ export function DrawingInspector({
   );
   const selectedObject =
     selectedObjects.length === 1 ? selectedObjects[0] : null;
+  const selectedSemanticObject =
+    selectedObject &&
+    ["wall", "opening", "space", "area", "grid", "arc"].includes(
+      selectedObject.geometry.type,
+    )
+      ? (selectedObject as DrawingObject & {
+          geometry: Extract<DrawingObject["geometry"], { semanticVersion: 1 }>;
+        })
+      : null;
   const inspectorLeaseEntityId =
     selectedInstance?.id ?? selectedObject?.id ?? null;
   const lockConflict = selectedIds
     .map((id) => drawingSoftLockConflict(id, awarenessPeers))
     .find(Boolean);
   const canEdit = capabilityCanEdit && !lockConflict;
+  const semanticInspector = selectedSemanticObject ? (
+    <DrawingSemanticInspector
+      actorId={actorId}
+      canEdit={canEdit && selectionEligible}
+      key={`${selectedSemanticObject.id}:${selectedSemanticObject.version}`}
+      object={selectedSemanticObject}
+      onCommand={onCommand}
+      state={state}
+    />
+  ) : null;
   useEffect(
     () => () => {
       if (!inspectorLeaseRef.current) return;
@@ -587,6 +607,7 @@ export function DrawingInspector({
           selectedIds={selectedIds}
           state={state}
         />
+        {semanticInspector}
         {issueSection}
       </section>
     );
@@ -669,6 +690,7 @@ export function DrawingInspector({
           selectedIds={selectedIds}
           state={state}
         />
+        {semanticInspector}
         {issueSection}
       </section>
     );
@@ -876,6 +898,7 @@ export function DrawingInspector({
         selectedIds={selectedIds}
         state={state}
       />
+      {semanticInspector}
       {error ? (
         <p className="mt-3 text-xs text-red-300" role="alert">
           {error}

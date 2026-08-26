@@ -358,12 +358,15 @@ export function drawingCanvasRenderAdapter(input: {
 }) {
   if (!Number.isFinite(input.zoom) || input.zoom <= 0)
     throw new DrawingBlockError("Drawing canvas zoom must be positive.");
+  const objectMap = Object.fromEntries(
+    input.objects.map((object) => [object.id, object]),
+  );
   const items: DrawingCanvasRenderItem[] = [
     ...input.objects.flatMap((object) =>
       input.layers[object.layerId]?.visible
         ? [
             {
-              bounds: geometryBounds(object.geometry),
+              bounds: geometryBounds(object.geometry, objectMap),
               id: object.id,
               kind: "object" as const,
               layerId: object.layerId,
