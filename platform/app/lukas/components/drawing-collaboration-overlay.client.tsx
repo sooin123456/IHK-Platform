@@ -20,6 +20,7 @@ export function DrawingCollaborationOverlay({
           <div
             aria-label={`${peer.user.displayName} 커서`}
             className="absolute max-w-40 rounded-md px-2 py-1 text-xs font-semibold text-slate-950 shadow-lg"
+            data-remote-selection-ids={peer.selectedIds.join(" ")}
             key={peer.clientId}
             style={{
               backgroundColor: peer.user.color,

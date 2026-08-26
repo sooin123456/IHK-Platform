@@ -52,7 +52,7 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   expect(collaborationSockets).toEqual([]);
 });
 
-test("two verified collaborators render cursor selection and advisory lock accessibly", async ({
+test("two Awareness clients including the same verified user render object and block collaboration safely", async ({
   page,
 }) => {
   const supabaseRequests: string[] = [];
@@ -76,12 +76,26 @@ test("two verified collaborators render cursor selection and advisory lock acces
   ).toBeVisible();
   const participants = page.getByRole("list", { name: "참여자 목록" });
   await expect(participants.getByText("김도윤", { exact: true })).toBeVisible();
-  await expect(participants.getByText("박서연", { exact: true })).toBeVisible();
+  await expect(participants.getByText("나", { exact: true })).toHaveCount(2);
   await expect(page.getByLabel("김도윤 커서")).toBeVisible();
+  await expect(page.getByLabel("나 커서")).toBeVisible();
   await expect(page.locator('[data-remote-selection="김도윤"]')).toBeVisible();
+  await expect(page.getByLabel("나 커서")).toHaveAttribute(
+    "data-remote-selection-ids",
+    /00000000-0000-4000-8000-000000000080/,
+  );
+  const surface = page.getByLabel(/도면 화면/);
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "2");
+  await expect(surface).toHaveAttribute(
+    "data-remote-block-selection-count",
+    "1",
+  );
   await expect(
     page.getByRole("status", { name: "객체 잠금 상태" }),
   ).toContainText("김도윤님이 코어 편집 중");
+  await expect(
+    page.getByRole("status", { name: "객체 잠금 상태" }),
+  ).toContainText("나님이 D-01 북측 편집 중");
   await expect(
     page.getByRole("status", { name: /공동 편집 상태/ }),
   ).toContainText("3명");
@@ -97,6 +111,34 @@ test("two verified collaborators render cursor selection and advisory lock acces
   }));
   expect(overflow.document).toBeLessThanOrEqual(0);
   expect(overflow.inspector).toBeLessThanOrEqual(0);
+
+  await page.getByRole("tab", { name: "블록" }).click();
+  await page
+    .getByRole("button", { name: /단문 D-01 Instance 1개 보기/ })
+    .click();
+  const lockedInstance = page.getByRole("button", {
+    name: "D-01 북측 instance 선택",
+  });
+  await lockedInstance.click();
+  await expect(
+    page.getByRole("status", { name: "선택 블록 잠금 상태" }),
+  ).toContainText("나님이 편집 중");
+  await page.keyboard.press("Delete");
+  await expect(
+    page.getByRole("status", { name: "공동 편집 작업 차단 안내" }),
+  ).toContainText("D-01 북측");
+  await expect(lockedInstance).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /창호 W-01 Instance 2개 보기/ })
+    .click();
+  await page.getByRole("button", { name: "W-01 동측 instance 선택" }).click();
+  await page.getByRole("textbox", { name: "이름", exact: true }).focus();
+  await expect(page.getByLabel("로컬 advisory 잠금")).toHaveText(
+    "00000000-0000-4000-8000-000000000082",
+  );
+  await page.getByRole("tab", { name: "페이지·레이어" }).click();
+  await expect(page.getByLabel("로컬 advisory 잠금")).toHaveText("없음");
   expect(supabaseRequests).toEqual([]);
   expect(collaborationSockets).toEqual([]);
 });

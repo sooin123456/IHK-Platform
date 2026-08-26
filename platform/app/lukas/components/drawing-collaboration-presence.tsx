@@ -5,7 +5,9 @@ import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
 const EMPTY_PEERS: ReturnType<DrawingAwarenessPeerStore["getSnapshot"]> = [];
 const EMPTY_STORE: DrawingAwarenessPeerStore = {
   getSnapshot: () => EMPTY_PEERS,
+  getLocksSnapshot: () => EMPTY_PEERS,
   subscribe: () => () => false,
+  subscribeLocks: () => () => false,
   replace: () => undefined,
 };
 
@@ -15,6 +17,15 @@ export function useDrawingAwarenessPeers(store?: DrawingAwarenessPeerStore) {
     resolvedStore.subscribe,
     resolvedStore.getSnapshot,
     resolvedStore.getSnapshot,
+  );
+}
+
+export function useDrawingAwarenessLocks(store?: DrawingAwarenessPeerStore) {
+  const resolvedStore = store ?? EMPTY_STORE;
+  return useSyncExternalStore(
+    resolvedStore.subscribeLocks,
+    resolvedStore.getLocksSnapshot,
+    resolvedStore.getLocksSnapshot,
   );
 }
 

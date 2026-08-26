@@ -100,7 +100,7 @@ function previewCollaborationConnectionFactory(testPeers = false) {
       softLocks,
     });
     const peerOne = "00000000-0000-4000-8000-000000000701";
-    const peerTwo = "00000000-0000-4000-8000-000000000702";
+    const peerTwo = ids.user;
     const states = new Map<number, unknown>(
       testPeers
         ? [
@@ -120,7 +120,22 @@ function previewCollaborationConnectionFactory(testPeers = false) {
                 ],
               ),
             ],
-            [3, peer(peerTwo, "박서연", { x: 700, y: 470 }, [], [])],
+            [
+              3,
+              peer(
+                peerTwo,
+                "나",
+                { x: 700, y: 470 },
+                [blockInstances[0].id],
+                [
+                  {
+                    entityId: blockInstances[0].id,
+                    leaseId: "00000000-0000-4000-8000-000000000704",
+                    expiresAt,
+                  },
+                ],
+              ),
+            ],
           ]
         : [],
     );
@@ -849,6 +864,9 @@ export default function LocalDrawingWorkspacePreview({
   const [retryLifecycle, setRetryLifecycle] = useState("starting");
   const [localSyncs, setLocalSyncs] = useState(0);
   const [providerFailures, setProviderFailures] = useState(0);
+  const [previewSoftLockRequest, setPreviewSoftLockRequest] = useState<
+    string | null
+  >(null);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
@@ -857,6 +875,10 @@ export default function LocalDrawingWorkspacePreview({
     [],
   );
   const previewHarness = useMemo(() => ({ onInvalidate }), [onInvalidate]);
+  const awarenessPreviewHarness = useMemo(
+    () => ({ onSoftLockChange: setPreviewSoftLockRequest }),
+    [],
+  );
   useEffect(() => {
     if (!loaderData.realtimeTest) return;
     let active = true;
@@ -953,13 +975,26 @@ export default function LocalDrawingWorkspacePreview({
         realtimeAdapter={
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
         }
-        previewHarness={loaderData.realtimeTest ? previewHarness : undefined}
+        previewHarness={
+          loaderData.realtimeTest
+            ? previewHarness
+            : loaderData.awarenessTest
+              ? awarenessPreviewHarness
+              : undefined
+        }
       />
       <aside
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"
       >
         P3 공동 편집 미리보기 · 로컬 복구 사용
+        {loaderData.awarenessTest ? (
+          <>
+            <output aria-label="로컬 advisory 잠금" className="sr-only">
+              {previewSoftLockRequest ?? "없음"}
+            </output>
+          </>
+        ) : null}
       </aside>
       {loaderData.realtimeTest ? (
         <aside className="fixed bottom-3 left-3 z-50 flex items-center gap-2 rounded-md bg-slate-950 p-2 text-xs text-white">

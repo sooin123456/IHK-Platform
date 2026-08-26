@@ -128,6 +128,9 @@ import {
   createDrawingAwarenessPeerStore,
   createDrawingAwarenessPublisher,
   createDrawingSoftLockLease,
+  drawingCommandSoftLockConflict,
+  drawingSelectionSoftLockConflict,
+  drawingSoftLockConflict,
   parseDrawingAwarenessPeers,
   type DrawingAwarenessLocalInput,
 } from "~/lukas/lib/drawing-awareness";
@@ -147,6 +150,7 @@ import {
   DrawingCollaborationConnectionStatus,
   DrawingCollaborationLockStatus,
   DrawingCollaborationParticipants,
+  useDrawingAwarenessLocks,
 } from "./drawing-collaboration-presence";
 
 const drawingBlockRenderCache = createDrawingBlockRenderCache();
@@ -369,6 +373,7 @@ export function drawingWorkspaceCommandEnabled(
     canEdit: boolean;
     canRedo: boolean;
     canUndo: boolean;
+    selectionHasRemoteLock?: boolean;
     selectionKind: ReturnType<typeof drawingSelectionEntityKind>;
   },
 ) {
@@ -376,6 +381,11 @@ export function drawingWorkspaceCommandEnabled(
   if (commandId === "zoom_to_fit") return true;
   if (commandId === "undo") return input.canEdit && input.canUndo;
   if (commandId === "redo") return input.canEdit && input.canRedo;
+  if (
+    (commandId === "duplicate" || commandId === "delete") &&
+    input.selectionHasRemoteLock
+  )
+    return false;
   if (commandId === "duplicate" || commandId === "delete")
     return input.selectionKind === "block_instance"
       ? input.blockSelectionCanMutate
@@ -531,7 +541,10 @@ type Props = {
   currentUserId: string;
   previewMode?: boolean;
   realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
-  previewHarness?: { onInvalidate: () => void };
+  previewHarness?: {
+    onInvalidate?: () => void;
+    onSoftLockChange?: (entityId: string | null) => void;
+  };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
   collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
   collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
@@ -674,6 +687,9 @@ export default function DrawingWorkspaceClient({
   const collaborationConnectionRef =
     useRef<DrawingCollaborationConnection | null>(null);
   const awarenessStoreRef = useRef(createDrawingAwarenessPeerStore());
+  const awarenessLockPeers = useDrawingAwarenessLocks(
+    awarenessStoreRef.current,
+  );
   const awarenessPublisherRef = useRef<ReturnType<
     typeof createDrawingAwarenessPublisher
   > | null>(null);
@@ -694,6 +710,9 @@ export default function DrawingWorkspaceClient({
   const [collaborationPhase, setCollaborationPhase] = useState<
     DrawingCollaborationConnection["phase"]
   >(previewMode ? "connected" : "connecting");
+  const [collaborationEditNotice, setCollaborationEditNotice] = useState<
+    string | null
+  >(null);
   const initializedPersistenceLifecycleKeyRef = useRef<string | null>(null);
   const drawingState = useSyncExternalStore(
     documentStore.subscribe,
@@ -771,6 +790,27 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const activeDrawingState = transient.state;
+  const selectionLockConflict = useMemo(
+    () =>
+      drawingSelectionSoftLockConflict(
+        transient.selectedIds,
+        awarenessLockPeers,
+      ),
+    [awarenessLockPeers, transient.selectedIds],
+  );
+  const reportLockConflict = useCallback(
+    (conflict: NonNullable<ReturnType<typeof drawingSoftLockConflict>>) => {
+      const entityId = conflict.lock.entityId;
+      const name =
+        drawingState.objects[entityId]?.name ??
+        drawingState.structure?.blockInstances[entityId]?.name ??
+        "선택 항목";
+      setCollaborationEditNotice(
+        `${conflict.user.displayName}님이 ${name} 편집 중이어서 이 작업을 실행하지 않았습니다. advisory 잠금이며 서버 권한은 별도로 확인됩니다.`,
+      );
+    },
+    [drawingState],
+  );
   const publishAwareness = useCallback(
     (patch: Partial<DrawingAwarenessLocalInput>) => {
       const next = { ...awarenessLocalRef.current, ...patch };
@@ -779,23 +819,40 @@ export default function DrawingWorkspaceClient({
     },
     [],
   );
-  const setAwarenessSoftLock = useCallback((entityId: string | null) => {
-    if (awarenessRenewalRef.current !== null) {
-      window.clearInterval(awarenessRenewalRef.current);
-      awarenessRenewalRef.current = null;
-    }
-    const lease = awarenessLeaseRef.current;
-    if (!lease) return;
-    if (!entityId) {
-      lease.release();
-      return;
-    }
-    lease.acquire(entityId);
-    awarenessRenewalRef.current = window.setInterval(
-      () => lease.renew(),
-      5_000,
-    );
-  }, []);
+  const setAwarenessSoftLock = useCallback(
+    (entityId: string | null) => {
+      previewHarness?.onSoftLockChange?.(entityId);
+      if (awarenessRenewalRef.current !== null) {
+        window.clearInterval(awarenessRenewalRef.current);
+        awarenessRenewalRef.current = null;
+      }
+      const lease =
+        awarenessLeaseRef.current ??
+        createDrawingSoftLockLease({
+          onChange: (softLocks) => publishAwareness({ softLocks }),
+        });
+      awarenessLeaseRef.current = lease;
+      if (!entityId) {
+        lease.release();
+        return;
+      }
+      lease.acquire(entityId);
+      awarenessRenewalRef.current = window.setInterval(
+        () => lease.renew(),
+        5_000,
+      );
+    },
+    [previewHarness, publishAwareness],
+  );
+  const selectionMutationAllowed = useCallback(() => {
+    if (!selectionLockConflict) return true;
+    reportLockConflict(selectionLockConflict);
+    setAwarenessSoftLock(null);
+    return false;
+  }, [reportLockConflict, selectionLockConflict, setAwarenessSoftLock]);
+  useEffect(() => {
+    if (!selectionLockConflict) setCollaborationEditNotice(null);
+  }, [selectionLockConflict]);
   const resolvedObjects = useMemo(() => {
     const resolver = createDrawingStyleResolutionCache(
       activeDrawingState.structure?.styles ?? {},
@@ -1078,7 +1135,6 @@ export default function DrawingWorkspaceClient({
               const now = Date.now();
               const peers = parseDrawingAwarenessPeers(remote.getStates(), {
                 localClientId: remote.clientId,
-                localUserId: currentUserId,
                 pageId: awarenessLocalRef.current.pageId,
                 canvasId: awarenessLocalRef.current.canvasId,
                 now,
@@ -1096,7 +1152,7 @@ export default function DrawingWorkspaceClient({
               user: { id: currentUserId, displayName: "나" },
               publish: (state) => remote.setLocalState(state),
             });
-            awarenessLeaseRef.current = createDrawingSoftLockLease({
+            awarenessLeaseRef.current ??= createDrawingSoftLockLease({
               onChange: (softLocks) => publishAwareness({ softLocks }),
             });
             awarenessPublisherRef.current.update(awarenessLocalRef.current);
@@ -1322,6 +1378,15 @@ export default function DrawingWorkspaceClient({
 
   const commitApplied = useCallback(
     (applied: AppliedDrawingCommand) => {
+      const lockConflict = drawingCommandSoftLockConflict(
+        applied.operation.forward,
+        awarenessLockPeers,
+      );
+      if (lockConflict) {
+        reportLockConflict(lockConflict);
+        setAwarenessSoftLock(null);
+        return;
+      }
       if (
         reviewFrozenRef.current ||
         !authority.canWrite ||
@@ -1339,14 +1404,26 @@ export default function DrawingWorkspaceClient({
     },
     [
       authority.canWrite,
+      awarenessLockPeers,
       effectiveCapability,
       effectiveRevisionStatus,
       persistenceState,
+      reportLockConflict,
+      setAwarenessSoftLock,
     ],
   );
 
   const applyCommand = useCallback(
     (command: DrawingCommand) => {
+      const lockConflict = drawingCommandSoftLockConflict(
+        command,
+        awarenessLockPeers,
+      );
+      if (lockConflict) {
+        reportLockConflict(lockConflict);
+        setAwarenessSoftLock(null);
+        return false;
+      }
       if (
         reviewFrozenRef.current ||
         !authority.canWrite ||
@@ -1357,17 +1434,22 @@ export default function DrawingWorkspaceClient({
           effectiveRevisionStatus,
         )
       )
-        return;
+        return false;
       const bridge = collaborationCommandRef.current;
-      if (!bridge) return;
+      if (!bridge) return false;
+      setCollaborationEditNotice(null);
       void bridge.applyCommand(command).catch(markStorageFailed);
+      return true;
     },
     [
       authority.canWrite,
+      awarenessLockPeers,
       effectiveCapability,
       effectiveRevisionStatus,
       outboxReady,
       persistenceState,
+      reportLockConflict,
+      setAwarenessSoftLock,
     ],
   );
   const blockMutationAdapter = useMemo(
@@ -1375,7 +1457,7 @@ export default function DrawingWorkspaceClient({
       createDrawingWorkspaceBlockMutationAdapter({
         activeCanvasId: drawingState.activeCanvasId,
         actorId: currentUserId,
-        canEdit: editing.canEdit,
+        canEdit: editing.canEdit && !selectionLockConflict,
         onCommand: applyCommand,
         onSelectionChange: setAuthorizedSelection,
         selectedIds: transient.selectedIds,
@@ -1386,6 +1468,7 @@ export default function DrawingWorkspaceClient({
       currentUserId,
       drawingState,
       editing.canEdit,
+      selectionLockConflict,
       setAuthorizedSelection,
       transient.selectedIds,
     ],
@@ -1440,6 +1523,7 @@ export default function DrawingWorkspaceClient({
   ]);
 
   const copySelection = useCallback(() => {
+    if (!selectionMutationAllowed()) return false;
     const kind = drawingSelectionEntityKind(
       drawingState,
       transient.selectedIds,
@@ -1469,7 +1553,7 @@ export default function DrawingWorkspaceClient({
     clipboardRef.current = clipboard;
     setClipboardError(null);
     return true;
-  }, [drawingState, transient.selectedIds]);
+  }, [drawingState, selectionMutationAllowed, transient.selectedIds]);
 
   const pasteSelection = useCallback(() => {
     if (!editing.canEdit) return false;
@@ -1527,7 +1611,7 @@ export default function DrawingWorkspaceClient({
   ]);
 
   const duplicateSelection = useCallback(() => {
-    if (!editing.canEdit) return false;
+    if (!editing.canEdit || !selectionMutationAllowed()) return false;
     const kind = blockMutationAdapter.selectionKind;
     if (kind === "block_instance") {
       return blockMutationAdapter.duplicateSelection();
@@ -1548,12 +1632,13 @@ export default function DrawingWorkspaceClient({
     currentUserId,
     drawingState,
     editing.canEdit,
+    selectionMutationAllowed,
     setAuthorizedSelection,
     transient.selectedIds,
   ]);
 
   const deleteSelection = useCallback(() => {
-    if (!editing.canEdit) return false;
+    if (!editing.canEdit || !selectionMutationAllowed()) return false;
     const kind = blockMutationAdapter.selectionKind;
     if (kind === "block_instance") {
       return blockMutationAdapter.deleteSelection();
@@ -1575,12 +1660,13 @@ export default function DrawingWorkspaceClient({
     currentUserId,
     drawingState,
     editing.canEdit,
+    selectionMutationAllowed,
     transient.selectedIds,
   ]);
 
   const moveSelection = useCallback(
     (delta: { x: number; y: number }) => {
-      if (!editing.canEdit) return false;
+      if (!editing.canEdit || !selectionMutationAllowed()) return false;
       const kind = blockMutationAdapter.selectionKind;
       if (kind === "block_instance") {
         return blockMutationAdapter.moveSelection(delta);
@@ -1602,6 +1688,7 @@ export default function DrawingWorkspaceClient({
       currentUserId,
       drawingState,
       editing.canEdit,
+      selectionMutationAllowed,
       transient.selectedIds,
     ],
   );
@@ -1662,6 +1749,7 @@ export default function DrawingWorkspaceClient({
         canUndo:
           (drawingState.undoStackByActor[currentUserId]?.length ?? 0) > 0,
         selectionKind: blockMutationAdapter.selectionKind,
+        selectionHasRemoteLock: Boolean(selectionLockConflict),
       }),
     [
       currentUserId,
@@ -1669,6 +1757,7 @@ export default function DrawingWorkspaceClient({
       blockMutationAdapter.canMutate,
       blockMutationAdapter.selectionKind,
       editing.canEdit,
+      selectionLockConflict,
     ],
   );
 
@@ -2482,12 +2571,23 @@ export default function DrawingWorkspaceClient({
           aria-label="속성 검사기"
           className="order-3 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
         >
+          {collaborationEditNotice ? (
+            <p
+              aria-label="공동 편집 작업 차단 안내"
+              className="mb-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+              role="status"
+            >
+              {collaborationEditNotice}
+            </p>
+          ) : null}
           <DrawingCollaborationLockStatus
             objectNames={Object.fromEntries(
-              Object.values(activeDrawingState.objects).map((object) => [
-                object.id,
-                object.name,
-              ]),
+              [
+                ...Object.values(activeDrawingState.objects),
+                ...Object.values(
+                  activeDrawingState.structure?.blockInstances ?? {},
+                ),
+              ].map((entity) => [entity.id, entity.name]),
             )}
             store={awarenessStoreRef.current}
           />

@@ -1884,6 +1884,36 @@ test("an advisory peer lock preserves selection but blocks and cancels only its 
   assert.equal(cancelled.command, null);
 });
 
+test("remote selection bounds include canonical block-instance render items", () => {
+  assert.equal(typeof drawingTools.drawingRemoteSelectionBounds, "function");
+  const bounds = { x: 12, y: 34, width: 56, height: 78 };
+  const selected = drawingTools.drawingRemoteSelectionBounds(
+    [ids.rectangle, ids.circle],
+    [
+      {
+        id: ids.rectangle,
+        kind: "object",
+        layerId: ids.layer,
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
+      {
+        id: ids.circle,
+        kind: "block",
+        layerId: ids.layer,
+        bounds,
+      },
+    ],
+  );
+  assert.deepEqual(selected, [
+    {
+      id: ids.rectangle,
+      kind: "object",
+      bounds: { x: 0, y: 0, width: 10, height: 10 },
+    },
+    { id: ids.circle, kind: "block", bounds },
+  ]);
+});
+
 test("selection handles stay screen-sized across zoom levels", () => {
   assert.equal(typeof drawingTools.drawingSelectionHandleSize, "function");
   assert.equal(drawingTools.drawingSelectionHandleSize(0.5), 16);
@@ -2250,6 +2280,28 @@ test("workspace block mutation adapter no-ops hidden, locked, and mixed selectio
       selectionKind: "object",
     }),
     true,
+  );
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("delete", {
+      blockSelectionCanMutate: true,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionHasRemoteLock: true,
+      selectionKind: "object",
+    }),
+    false,
+  );
+  assert.equal(
+    shell.drawingWorkspaceCommandEnabled("duplicate", {
+      blockSelectionCanMutate: true,
+      canEdit: true,
+      canRedo: false,
+      canUndo: false,
+      selectionHasRemoteLock: true,
+      selectionKind: "block_instance",
+    }),
+    false,
   );
   assert.equal(hiddenLocked.deleteSelection(), false);
   assert.equal(hiddenLocked.duplicateSelection(), false);

@@ -1104,6 +1104,21 @@ type DrawingCanvasProps = {
 
 type CanvasSize = { width: number; height: number };
 
+export function drawingRemoteSelectionBounds(
+  selectedIds: readonly string[],
+  items: readonly {
+    bounds: Bounds;
+    id: string;
+    kind: "object" | "block";
+  }[],
+) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return selectedIds.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [{ id, kind: item.kind, bounds: item.bounds }] : [];
+  });
+}
+
 function clampZoom(zoom: number) {
   if (!Number.isFinite(zoom)) return 1;
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
@@ -1852,6 +1867,11 @@ export const DrawingCanvas = forwardRef<
     id: item.id,
     bounds: item.hitBounds,
   }));
+  const remoteSelections = awarenessPeers.flatMap((peer) =>
+    drawingRemoteSelectionBounds(peer.selectedIds, renderAdapter.items).map(
+      (selection) => ({ ...selection, peer }),
+    ),
+  );
   const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
     const object = objectsById[objectId];
     return object ? [object] : [];
@@ -2073,6 +2093,11 @@ export const DrawingCanvas = forwardRef<
       data-rendered-instance-count={blockInstances.length}
       data-rendered-layer-count={layers.length}
       data-rendered-object-count={objects.length}
+      data-remote-block-selection-count={
+        remoteSelections.filter((selection) => selection.kind === "block")
+          .length
+      }
+      data-remote-selection-count={remoteSelections.length}
       data-selected-object-name={selectedObjects[0]?.name ?? ""}
       data-selection-count={selectionState.selectedIds.length}
       data-viewport-x={viewport.x}
@@ -2196,26 +2221,19 @@ export const DrawingCanvas = forwardRef<
             x={viewport.x}
             y={viewport.y}
           >
-            {awarenessPeers.flatMap((peer) =>
-              peer.selectedIds.flatMap((objectId) => {
-                const object = objectsById[objectId];
-                if (!object) return [];
-                const bounds = geometryBounds(object.geometry);
-                return [
-                  <Rect
-                    dash={[7 / viewport.zoom, 5 / viewport.zoom]}
-                    height={bounds.height}
-                    key={`${peer.clientId}:${objectId}`}
-                    listening={false}
-                    stroke={peer.user.color}
-                    strokeWidth={2 / viewport.zoom}
-                    width={bounds.width}
-                    x={bounds.x}
-                    y={bounds.y}
-                  />,
-                ];
-              }),
-            )}
+            {remoteSelections.map(({ bounds, id, peer }) => (
+              <Rect
+                dash={[7 / viewport.zoom, 5 / viewport.zoom]}
+                height={bounds.height}
+                key={`${peer.clientId}:${id}`}
+                listening={false}
+                stroke={peer.user.color}
+                strokeWidth={2 / viewport.zoom}
+                width={bounds.width}
+                x={bounds.x}
+                y={bounds.y}
+              />
+            ))}
           </Layer>
           <Layer
             listening={false}

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type FormEvent,
+} from "react";
 import { Form } from "react-router";
 
 import {
@@ -35,7 +42,7 @@ import {
   drawingSoftLockConflict,
   type DrawingAwarenessPeerStore,
 } from "~/lukas/lib/drawing-awareness";
-import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
+import { useDrawingAwarenessLocks } from "~/lukas/components/drawing-collaboration-presence";
 
 type Props = {
   actorId: string;
@@ -82,7 +89,8 @@ export function DrawingInspector({
   selectedIds,
   state,
 }: Props) {
-  const awarenessPeers = useDrawingAwarenessPeers(awarenessStore);
+  const awarenessPeers = useDrawingAwarenessLocks(awarenessStore);
+  const inspectorLeaseRef = useRef<string | null>(null);
   const dirtyFields = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [issueSearch, setIssueSearch] = useState("");
@@ -134,10 +142,32 @@ export function DrawingInspector({
   );
   const selectedObject =
     selectedObjects.length === 1 ? selectedObjects[0] : null;
+  const inspectorLeaseEntityId =
+    selectedInstance?.id ?? selectedObject?.id ?? null;
   const lockConflict = selectedIds
     .map((id) => drawingSoftLockConflict(id, awarenessPeers))
     .find(Boolean);
   const canEdit = capabilityCanEdit && !lockConflict;
+  useEffect(
+    () => () => {
+      if (!inspectorLeaseRef.current) return;
+      inspectorLeaseRef.current = null;
+      onSoftLockChange?.(null);
+    },
+    [inspectorLeaseEntityId, onSoftLockChange],
+  );
+  const inspectorLeaseHandlers = {
+    onBlurCapture(event: FocusEvent<HTMLElement>) {
+      if (event.currentTarget.contains(event.relatedTarget)) return;
+      inspectorLeaseRef.current = null;
+      onSoftLockChange?.(null);
+    },
+    onFocusCapture() {
+      if (!inspectorLeaseEntityId) return;
+      inspectorLeaseRef.current = inspectorLeaseEntityId;
+      onSoftLockChange?.(inspectorLeaseEntityId);
+    },
+  };
   const linkedIssueIds = new Set(
     selectedObject
       ? issueLinks
@@ -306,6 +336,16 @@ export function DrawingInspector({
             블록 Instance
           </h2>
           <p className="mt-1 text-xs text-slate-400">읽기 전용</p>
+          {lockConflict ? (
+            <p
+              aria-label="선택 블록 잠금 상태"
+              className="mt-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+              role="status"
+            >
+              {lockConflict.user.displayName}님이 편집 중입니다. 이 잠금은
+              충돌을 줄이기 위한 안내이며 서버 권한은 별도로 확인됩니다.
+            </p>
+          ) : null}
           <dl className="mt-4 grid gap-3 text-sm">
             <div>
               <dt className="text-xs text-slate-400">이름</dt>
@@ -339,7 +379,10 @@ export function DrawingInspector({
       );
     }
     return (
-      <section aria-labelledby="drawing-inspector-title">
+      <section
+        aria-labelledby="drawing-inspector-title"
+        {...inspectorLeaseHandlers}
+      >
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
           블록 Instance
         </h2>
@@ -634,13 +677,7 @@ export function DrawingInspector({
   return (
     <section
       aria-labelledby="drawing-inspector-title"
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget))
-          onSoftLockChange?.(null);
-      }}
-      onFocusCapture={() => {
-        if (selectedObject) onSoftLockChange?.(selectedObject.id);
-      }}
+      {...inspectorLeaseHandlers}
     >
       <h2 className="text-sm font-bold" id="drawing-inspector-title">
         속성

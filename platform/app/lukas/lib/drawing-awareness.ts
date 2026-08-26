@@ -2,6 +2,11 @@ import {
   DrawingAwarenessStateSchema,
   type DrawingAwarenessState,
 } from "./drawing-collaboration-protocol.ts";
+import type {
+  DrawingCommand,
+  DrawingRecordedOperation,
+} from "./drawing-commands.ts";
+import type { DrawingStructureAction } from "./drawing-workspace.types.ts";
 
 const COLORS = [
   "#fbbf24",
@@ -18,6 +23,10 @@ const MAX_LEASE_MS = 10_000;
 export type DrawingAwarenessPeer = DrawingAwarenessState & {
   clientId: number;
 };
+export type DrawingAwarenessLockPeer = Pick<
+  DrawingAwarenessPeer,
+  "clientId" | "softLocks" | "user"
+>;
 
 export type DrawingAwarenessLocalInput = Omit<DrawingAwarenessState, "user">;
 
@@ -29,16 +38,34 @@ export type DrawingAwarenessPeerStore = ReturnType<
 
 export function createDrawingAwarenessPeerStore() {
   let peers = EMPTY_PEERS;
+  let lockPeers: DrawingAwarenessLockPeer[] = [];
+  let encodedLocks = "[]";
   const listeners = new Set<() => void>();
+  const lockListeners = new Set<() => void>();
   return {
     getSnapshot: () => peers,
+    getLocksSnapshot: () => lockPeers,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    subscribeLocks(listener: () => void) {
+      lockListeners.add(listener);
+      return () => lockListeners.delete(listener);
+    },
     replace(next: DrawingAwarenessPeer[]) {
       peers = next.length ? next : EMPTY_PEERS;
       for (const listener of listeners) listener();
+      const nextLockPeers = peers.map(({ clientId, softLocks, user }) => ({
+        clientId,
+        softLocks,
+        user,
+      }));
+      const nextEncodedLocks = JSON.stringify(nextLockPeers);
+      if (nextEncodedLocks === encodedLocks) return;
+      lockPeers = nextLockPeers;
+      encodedLocks = nextEncodedLocks;
+      for (const listener of lockListeners) listener();
     },
   };
 }
@@ -142,7 +169,6 @@ export function parseDrawingAwarenessPeers(
   states: Map<number, unknown>,
   scope: {
     localClientId: number;
-    localUserId: string;
     pageId: string | null;
     canvasId: string | null;
     now?: number;
@@ -157,7 +183,6 @@ export function parseDrawingAwarenessPeers(
       if (!parsed.success) return [];
       const state = parsed.data;
       if (
-        state.user.id === scope.localUserId ||
         state.user.color.toLowerCase() !== drawingAwarenessColor(state.user.id)
       )
         return [];
@@ -179,7 +204,7 @@ export function parseDrawingAwarenessPeers(
 
 export function drawingSoftLockConflict(
   entityId: string,
-  peers: DrawingAwarenessPeer[],
+  peers: DrawingAwarenessLockPeer[],
   now = Date.now(),
 ) {
   for (const peer of peers) {
@@ -188,6 +213,69 @@ export function drawingSoftLockConflict(
         candidate.entityId === entityId && candidate.expiresAt > now,
     );
     if (lock) return { advisory: true as const, lock, user: peer.user };
+  }
+  return null;
+}
+
+function structureActionTargetIds(action: DrawingStructureAction) {
+  if (action.kind === "put_object" || action.kind === "put_block_instance")
+    return [action.entity.id];
+  if (
+    action.kind === "delete_object" ||
+    action.kind === "delete_block_instance"
+  )
+    return [action.id];
+  if (action.kind === "put_property_value")
+    return [action.entity.objectId, action.entity.blockInstanceId].filter(
+      (id): id is string => id !== null,
+    );
+  if (action.kind === "put_table")
+    return action.entity.rows.flatMap((row) =>
+      [row.objectId, row.blockInstanceId].filter(
+        (id): id is string => id !== null,
+      ),
+    );
+  return [];
+}
+
+export function drawingCommandTargetIds(
+  command: DrawingCommand | DrawingRecordedOperation["forward"],
+) {
+  if (command.type === "add_objects")
+    return command.objects.map((object) => object.id);
+  if (command.type === "update_objects")
+    return command.updates.map((update) => update.objectId);
+  if (command.type === "delete_objects") return command.objectIds;
+  if (command.type === "mutate_structure")
+    return command.actions.flatMap(structureActionTargetIds);
+  if (command.type === "mutate_objects_with_references")
+    return [
+      ...command.objects.map((object) => object.id),
+      ...command.actions.flatMap(structureActionTargetIds),
+    ];
+  return [];
+}
+
+export function drawingCommandSoftLockConflict(
+  command: DrawingCommand | DrawingRecordedOperation["forward"],
+  peers: DrawingAwarenessLockPeer[],
+  now = Date.now(),
+) {
+  for (const entityId of new Set(drawingCommandTargetIds(command))) {
+    const conflict = drawingSoftLockConflict(entityId, peers, now);
+    if (conflict) return conflict;
+  }
+  return null;
+}
+
+export function drawingSelectionSoftLockConflict(
+  entityIds: readonly string[],
+  peers: DrawingAwarenessLockPeer[],
+  now = Date.now(),
+) {
+  for (const entityId of entityIds) {
+    const conflict = drawingSoftLockConflict(entityId, peers, now);
+    if (conflict) return conflict;
   }
   return null;
 }
