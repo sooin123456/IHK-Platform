@@ -34,6 +34,15 @@
 - Browser retry identity is now keyed by revision ID and version, so a rejected revision cannot reuse its previous session proof.
 - A mistaken `pnpm exec` verification attempt created untracked `platform/pnpm-lock.yaml` and `platform/pnpm-workspace.yaml` in this npm-lock repository. Those two known generated artifacts were removed immediately; subsequent verification used `./node_modules/.bin/tsc` and npm scripts.
 
+## Active-freeze race follow-up
+
+- Added coordinator-local room/request ownership before the first authoritative freeze read/begin. Same-request calls share one promise, different requests fail closed, and release cannot interrupt an in-flight owner.
+- The HTTP service also acquires a ref-counted same-request room owner before awaiting detached storage load, then hands ownership to the coordinator only after `freeze()` has synchronously registered it. The shared load/periodic seam short-circuits ordinary recovery while preparation owns the room and fences concurrent live documents across persisted active, released, freezing, and frozen-draft states.
+- If detached storage load fails before that handoff, the last preparation owner is removed and the already-loaded room is immediately reconciled back to the authoritative active state. A deterministic failure/retry test proves there is no stranded read-only room and the same request can subsequently freeze normally.
+- Periodic and load-time reconciliation now holds an exact matching in-flight owner read-only instead of completing or releasing it. A successful freeze retains a bounded 60-second completion lease until the application commits review; the application then sends an authenticated authority reconciliation that observes `review_requested` and clears ownership while preserving frozen state.
+- Completed abandoned leases recover once after expiry with an injected-clock deterministic boundary. A genuinely crashed process has no local owner, so a fresh process still resolves persisted abandoned `freezing`/`frozen draft` state immediately. The collaboration service remains a single active coordinator process; overlapping multi-replica room ownership would require a persisted cross-instance lease before enabling multiple writers.
+- Deferred-promise races pause the original request both before `beginFreeze` commits and after begin. A separately loaded Y.Doc is fenced to the exact owner request even while Postgres still reads `active`; periodic reconciliation, same/different request retries, release, and client updates then prove no writable interval, one begin/complete, permanent frozen review success, and no double cleanup release.
+
 ## TDD evidence
 
 - RED tests reproduced missing freeze contracts, exact-manifest noise handling, pending/conflicted rejection, update-versus-freeze, direct review without freeze, request/digest mismatch, released draft writability and separate-secret authentication.
@@ -55,12 +64,12 @@ Follow-up verification on the changes-required fixes:
 
 - `npm run test:drawing-workspace`: 488 tests, 487 passed, 1 existing environment-dependent test skipped, 0 failed.
 - Full PGlite drawing database runtime: 118 passed, 0 failed, including `freeze -> request -> reject -> edit -> new-request refreeze -> approve`, old-proof denial, released proof clearing, and permanent approval freeze.
-- Focused service/freeze suites: 45 passed, 0 failed; fresh server instances cover interrupted, rejected-draft, review-requested, approved, and already-loaded live-room boundaries, including repeated released-state idempotency.
+- Focused service/freeze suites after the active-owner race fix: 49 passed, 0 failed; fresh server instances cover interrupted, rejected-draft, review-requested, approved, deferred detached-load, and already-loaded live-room boundaries, including repeated released-state idempotency.
 - Real one-port HTTP oversized-valid-JSON tests: both `/internal/outcomes` and `/internal/freeze` return 413 with no parser/storage/coordinator side effect.
 - `npm run typecheck`, direct collaboration `tsc --noEmit`, and `npm run build`: passed.
 - Fresh Chromium review-freeze/bootstrap selection: passed (exit 0).
 - `git diff --check`: passed.
-- Final independent read-only review found no remaining critical or important issue; its focused six-file Node/PGlite suite passed 222/222.
+- The earlier six-file independent Node/PGlite review passed 222/222. A final independent read-only review of the active-owner and detached-load-failure cleanup found no remaining critical or important issue; its focused freeze suite passed 17/17, collaboration typecheck passed, and the diff was clean.
 
 ## Production gates not claimed
 

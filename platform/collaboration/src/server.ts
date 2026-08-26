@@ -737,6 +737,10 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     },
   };
 
+  const preparingFreezeRequests = new Map<
+    string,
+    { requestId: string; count: number }
+  >();
   const freezeCoordinator = dependencies.storage.freeze
     ? createDrawingFreezeCoordinator({
         database: dependencies.storage.freeze,
@@ -751,9 +755,24 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
         },
       })
     : null;
-  const reconcileLoadedDocument = (document: Y.Doc, roomName: string) =>
-    freezeCoordinator?.reconcileLoaded({ document, roomName }) ??
-    Promise.resolve(null);
+  const reconcileLoadedDocument = async (document: Y.Doc, roomName: string) => {
+    const preparing = preparingFreezeRequests.get(roomName);
+    if (preparing) {
+      document.transact(() => {
+        document.getMap("serverMeta").set("freezeState", "freezing");
+        document
+          .getMap("serverMeta")
+          .set("freezeRequestId", preparing.requestId);
+      });
+      return {
+        freezeState: "freezing" as const,
+        freezeRequestId: preparing.requestId,
+      };
+    }
+    return (
+      (await freezeCoordinator?.reconcileLoaded({ document, roomName })) ?? null
+    );
+  };
 
   const server = new Server<DrawingRuntimeContext>({
     port: dependencies.config.port,
@@ -911,24 +930,50 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           .strict(),
       ])
       .parse(JSON.parse(body));
-    const loaded = await loadServiceDocument(request.roomName);
+    let releasePreparation = () => {};
+    if (
+      request.action === "release" &&
+      preparingFreezeRequests.get(request.roomName)?.requestId ===
+        request.freezeRequestId
+    )
+      throw new Error("Drawing freeze is still preparing.");
+    if (request.action === "freeze" || request.action === "reconcile") {
+      const existing = preparingFreezeRequests.get(request.roomName);
+      if (existing && existing.requestId !== request.freezeRequestId)
+        throw new Error("Drawing freeze is preparing another request.");
+      preparingFreezeRequests.set(request.roomName, {
+        requestId: request.freezeRequestId,
+        count: (existing?.count ?? 0) + 1,
+      });
+      let released = false;
+      releasePreparation = () => {
+        if (released) return;
+        released = true;
+        const current = preparingFreezeRequests.get(request.roomName);
+        if (current?.requestId !== request.freezeRequestId) return;
+        if (current.count === 1)
+          preparingFreezeRequests.delete(request.roomName);
+        else current.count -= 1;
+      };
+    }
+    let loaded: Awaited<ReturnType<typeof loadServiceDocument>> | null = null;
     try {
+      loaded = await loadServiceDocument(request.roomName);
       if (request.action === "authority")
-        return await freezeCoordinator.reconcileLoaded({
-          document: loaded.document,
-          roomName: request.roomName,
-        });
+        return await reconcileLoadedDocument(loaded.document, request.roomName);
       if (request.action === "release")
         return await freezeCoordinator.release({
           document: loaded.document,
           roomName: request.roomName,
           requestId: request.freezeRequestId,
         });
-      const frozen = await freezeCoordinator.freeze({
+      const freezing = freezeCoordinator.freeze({
         document: loaded.document,
         roomName: request.roomName,
         requestId: request.freezeRequestId,
       });
+      releasePreparation();
+      const frozen = await freezing;
       for (const connection of [...connections])
         if (connection.context.roomName === request.roomName) {
           connection.readOnly = true;
@@ -936,8 +981,17 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           connections.delete(connection);
         }
       return frozen;
+    } catch (error) {
+      releasePreparation();
+      const liveDocument = hocuspocus.documents.get(request.roomName);
+      if (liveDocument)
+        await reconcileLoadedDocument(liveDocument, request.roomName).catch(
+          () => undefined,
+        );
+      throw error;
     } finally {
-      if (loaded.detached) loaded.document.destroy();
+      releasePreparation();
+      if (loaded?.detached) loaded.document.destroy();
     }
   }
 
@@ -982,10 +1036,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
       [...hocuspocus.documents.values()].map((document) =>
         (async () => {
           const context = persistenceContext(document);
-          await freezeCoordinator?.reconcileLoaded({
-            document,
-            roomName: context.roomName,
-          });
+          await reconcileLoadedDocument(document, context.roomName);
           const changed = dependencies.storage.lookupOperations
             ? await reconcileAcceptedDrawingOperations(
                 document,

@@ -195,7 +195,18 @@ function result(state: DrawingFreezeState, manifest?: DrawingFreezeManifest) {
 export function createDrawingFreezeCoordinator(input: {
   database: DrawingFreezeDatabase;
   reconcile?: (document: Y.Doc) => Promise<void>;
+  now?: () => number;
+  completedLeaseMs?: number;
 }) {
+  const now = input.now ?? Date.now;
+  const completedLeaseMs = input.completedLeaseMs ?? 60_000;
+  type FreezeOwner = {
+    requestId: string;
+    phase: "in_flight" | "completed";
+    expiresAt: number;
+    promise: Promise<ReturnType<typeof result>>;
+  };
+  const owners = new Map<string, FreezeOwner>();
   const releaseDocument = async (
     scope: { projectId: string; revisionId: string },
     document: Y.Doc,
@@ -331,6 +342,49 @@ export function createDrawingFreezeCoordinator(input: {
       throw error;
     }
   };
+  const ownedFreeze = ({
+    document,
+    roomName,
+    requestId,
+  }: {
+    document: Y.Doc;
+    roomName: string;
+    requestId: string;
+  }) => {
+    let existing = owners.get(roomName);
+    if (existing?.phase === "completed" && existing.expiresAt <= now()) {
+      owners.delete(roomName);
+      existing = undefined;
+    }
+    if (existing) {
+      if (existing.requestId !== requestId)
+        return Promise.reject(
+          new Error("Drawing freeze is owned by another request."),
+        );
+      return existing.promise;
+    }
+    const owner: FreezeOwner = {
+      requestId,
+      phase: "in_flight",
+      expiresAt: Number.POSITIVE_INFINITY,
+      promise: Promise.resolve(null as never),
+    };
+    owner.promise = freezeDocument({ document, roomName, requestId })
+      .then((value) => {
+        const current = owners.get(roomName);
+        if (current === owner) {
+          current.phase = "completed";
+          current.expiresAt = now() + completedLeaseMs;
+        }
+        return value;
+      })
+      .catch((error) => {
+        if (owners.get(roomName) === owner) owners.delete(roomName);
+        throw error;
+      });
+    owners.set(roomName, owner);
+    return owner.promise;
+  };
   return {
     async reconcileLoaded({
       document,
@@ -342,6 +396,47 @@ export function createDrawingFreezeCoordinator(input: {
       const scope = parseDrawingRoomName(roomName);
       const state = await input.database.readFreeze(scope);
       if (!state) return null;
+      const owner = owners.get(roomName);
+      if (
+        owner &&
+        (state.state === "released" ||
+          ["review_requested", "approved"].includes(state.revisionStatus ?? ""))
+      )
+        owners.delete(roomName);
+      else if (owner) {
+        if (state.requestId && state.requestId !== owner.requestId)
+          throw new Error(
+            "Drawing freeze owner does not match persisted state.",
+          );
+        if (owner.phase === "completed" && owner.expiresAt <= now())
+          owners.delete(roomName);
+        else if (["active", "freezing"].includes(state.state)) {
+          document.transact(() => {
+            document.getMap("serverMeta").set("freezeState", "freezing");
+            document
+              .getMap("serverMeta")
+              .set("freezeRequestId", owner.requestId);
+          });
+          return result({
+            ...state,
+            state: "freezing",
+            requestId: owner.requestId,
+          });
+        } else if (state.state === "frozen") {
+          const serverMeta = document.getMap("serverMeta");
+          if (
+            serverMeta.get("freezeState") !== "frozen" ||
+            serverMeta.get("freezeRequestId") !== owner.requestId
+          )
+            document.transact(() => {
+              serverMeta.set("freezeState", "frozen");
+              serverMeta.set("freezeRequestId", owner.requestId);
+            });
+          return frozenResult(state, document);
+        } else {
+          return result(state);
+        }
+      }
       if (state.state === "released") {
         if (!state.requestId)
           throw new Error("Released drawing freeze request is missing.");
@@ -433,9 +528,20 @@ export function createDrawingFreezeCoordinator(input: {
           });
         return frozenResult(state, document);
       }
+      if (state.state === "active") {
+        const serverMeta = document.getMap("serverMeta");
+        if (
+          serverMeta.get("freezeState") !== "active" ||
+          serverMeta.get("freezeRequestId") !== null
+        )
+          document.transact(() => {
+            serverMeta.set("freezeState", "active");
+            serverMeta.set("freezeRequestId", null);
+          });
+      }
       return result(state);
     },
-    freeze: freezeDocument,
+    freeze: ownedFreeze,
     async release({
       document,
       roomName,
@@ -446,6 +552,9 @@ export function createDrawingFreezeCoordinator(input: {
       requestId: string;
     }) {
       const scope = parseDrawingRoomName(roomName);
+      const owner = owners.get(roomName);
+      if (owner?.requestId === requestId && owner.phase === "in_flight")
+        throw new Error("Drawing freeze is still in progress.");
       const authoritative = await input.database.readFreeze(scope);
       if (
         !authoritative ||
@@ -454,7 +563,10 @@ export function createDrawingFreezeCoordinator(input: {
         !["freezing", "frozen"].includes(authoritative.state)
       )
         throw new Error("Drawing freeze cannot be released.");
-      return releaseDocument(scope, document, requestId);
+      const released = await releaseDocument(scope, document, requestId);
+      if (owners.get(roomName)?.requestId === requestId)
+        owners.delete(roomName);
+      return released;
     },
   };
 }

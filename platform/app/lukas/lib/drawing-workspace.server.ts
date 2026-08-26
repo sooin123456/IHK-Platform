@@ -2583,14 +2583,23 @@ export async function requestDrawingCollaborativeReview({
     throw new DrawingWorkspaceRetryableError(
       "공동 편집 동결 서비스 주소가 올바르지 않습니다.",
     );
-  const callService = async (action: "freeze" | "reconcile" | "release") => {
+  const callService = async (
+    action: "freeze" | "reconcile" | "release" | "authority",
+  ) => {
     const response = await fetcher(endpoint.toString(), {
       method: "POST",
-      body: JSON.stringify({
-        action,
-        roomName: drawingRoomName(scope.projectId, scope.revisionId),
-        freezeRequestId: scope.requestId,
-      }),
+      body: JSON.stringify(
+        action === "authority"
+          ? {
+              action,
+              roomName: drawingRoomName(scope.projectId, scope.revisionId),
+            }
+          : {
+              action,
+              roomName: drawingRoomName(scope.projectId, scope.revisionId),
+              freezeRequestId: scope.requestId,
+            },
+      ),
       headers: {
         "content-type": "application/json",
         "x-1hk-freeze-secret": secret,
@@ -2639,7 +2648,9 @@ export async function requestDrawingCollaborativeReview({
     return rpcResult(data, error);
   };
   try {
-    return await transition();
+    const committed = await transition();
+    await callService("authority").catch(() => undefined);
+    return committed;
   } catch (error) {
     if (error instanceof DrawingWorkspaceConflictError) {
       await callService("release").catch(() => undefined);
@@ -2649,7 +2660,9 @@ export async function requestDrawingCollaborativeReview({
     // Reconcile the persisted request, then repeat the idempotent transaction.
     await callService("reconcile");
     try {
-      return await transition();
+      const committed = await transition();
+      await callService("authority").catch(() => undefined);
+      return committed;
     } catch (retryError) {
       // Release is authoritative and safe to attempt for every final failure:
       // the DB refuses it if either review attempt actually committed.
