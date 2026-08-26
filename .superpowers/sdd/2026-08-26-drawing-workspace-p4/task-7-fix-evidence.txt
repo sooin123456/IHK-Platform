@@ -1,0 +1,45 @@
+P4 Task 7 official-review fix evidence — 2026-08-27
+Source implementation commit: 6d32d9decb101d6881329536110e7c0ae534f773
+
+LOCAL PASS
+  cd platform
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:local
+  exit 0; terminal: P4 LOCAL PASS
+
+Included executable phases, in exact structured-argv order:
+  whole Node suite; Drawing Workspace suite; collaboration service; IFC smoke;
+  explicit IFC/PDF/quantity/approval/Revit regressions; both typechecks; both
+  builds; hermetic fixed-port Chromium P4/IndexedDB; production-build Chromium;
+  generated performance evidence validator; license; both audits; diff check.
+
+FOCUSED / MUTATION
+  release contract + Yjs replay: 36 pass, 0 fail
+  functional Chromium + IndexedDB: 9 pass, 0 fail
+  production-build Chromium: 1 pass, 0 fail
+  occupied fixed port: rejected
+  same-ID two-realm repeated probe: 5 pass, 0 fail
+  mounted rapid wall/opening repeated probe: 5 pass, 0 fail
+
+GENERATED MEASUREMENT EVIDENCE
+  file: task-7-performance.json
+  schema: 1
+  authority: LOCAL_PRODUCTION_BUILD_CHROMIUM
+  sourceCommitSha: 6d32d9decb101d6881329536110e7c0ae534f773
+  validator: PASS
+  firstUsableTargetMs: 2500
+  firstUsableTargetMet: false
+  p7SixtyFpsGate: UNEXECUTED
+  productionProviderP95: UNEXECUTED
+
+DURABLE SOURCE EVIDENCE
+  PDF bytes 62602
+  PDF sha256 4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326
+  IFC bytes 222
+  IFC sha256 30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93
+
+PRODUCTION UNEXECUTED
+  cd platform
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:production
+  exit 1 before Playwright/server; P4 production gate is UNEXECUTED
+  No production p95, provider convergence, provider-backed offline-loss,
+  hosted RLS/freeze/source, deployment, cleanup, or rollback result exists.
