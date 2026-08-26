@@ -1,0 +1,36 @@
+P4 Task 6 evidence — 2026-08-27 Asia/Seoul
+Base: 0c62ff150812081c1b71edf6584b465a6924a362
+
+node --test tests/drawing-workspace-export.test.mjs
+  PASS 21/21
+node --test tests/local-drawing-workspace-preview.test.mjs
+  PASS 6/6
+node --test tests/drawing-workspace-collaboration.test.mjs
+  PASS 16/16
+npm run test:drawing-workspace
+  PASS 591, FAIL 0, UNEXECUTED 1 disposable PostgreSQL fixture (592 discovered)
+npm run typecheck
+  PASS
+npm run typecheck:collaboration
+  PASS
+npm run build
+  PASS
+npm run build:collaboration
+  PASS
+npx playwright test e2e/drawing-workspace-p4.spec.ts --project=chromium --workers=1 --timeout=60000
+  PASS 2/2
+npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --workers=1 --grep 'Awareness|review freeze|architectural object tools'
+  PASS 3/3
+npx playwright test e2e/drawing-yjs-indexeddb.spec.ts --project=chromium --workers=1 --grep '100 canonical offline operations'
+  PASS 1/1, exact 100 ordered semantic operation IDs and 100 ordered object IDs
+git diff --check
+  PASS
+
+SHA-256 samples/sample.ifc
+  30c157d118a3be377cd592d520e163ff9249781fb002c4c81be64240672c8b93
+SHA-256 representative-drawing.pdf
+  4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326
+SHA-256 task-6-desktop.png
+  20c8789baeb2c5aad9fc8f2cb86e8962b6ff87c4ed8eba513ae6cd315595bc1b
+SHA-256 task-6-tablet.png
+  ca0665b7697ffa129de4c11aeacef596cbc648012d0b2596e26713c572da32f7

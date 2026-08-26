@@ -87,7 +87,7 @@ test("two Awareness clients including the same verified user render object and b
     /00000000-0000-4000-8000-000000000080/,
   );
   const surface = page.getByLabel(/도면 화면/);
-  await expect(surface).toHaveAttribute("data-remote-selection-count", "2");
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
   await expect(surface).toHaveAttribute(
     "data-remote-block-selection-count",
     "1",
@@ -95,6 +95,9 @@ test("two Awareness clients including the same verified user render object and b
   await expect(
     page.getByRole("status", { name: "객체 잠금 상태" }),
   ).toContainText("김도윤님이 코어 편집 중");
+  await expect(
+    page.getByRole("status", { name: "객체 잠금 상태" }),
+  ).toContainText("김도윤님이 D-101 편집 중");
   await expect(
     page.getByRole("status", { name: "객체 잠금 상태" }),
   ).toContainText("나님이 D-01 북측 편집 중");

@@ -66,13 +66,20 @@ const ids = {
   blockDoor: "00000000-0000-4000-8000-000000000050",
   blockWindow: "00000000-0000-4000-8000-000000000051",
   issue: "00000000-0000-4000-8000-000000000060",
+  semanticWall: "00000000-0000-4000-8000-000000000100",
+  semanticDoor: "00000000-0000-4000-8000-000000000101",
+  semanticWindow: "00000000-0000-4000-8000-000000000102",
+  semanticSpace: "00000000-0000-4000-8000-000000000103",
+  semanticArea: "00000000-0000-4000-8000-000000000104",
+  semanticGrid: "00000000-0000-4000-8000-000000000105",
+  semanticArc: "00000000-0000-4000-8000-000000000106",
+  checkpoint: "00000000-0000-4000-8000-000000000107",
 };
 
 const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
-const previewCollaborationPersistenceFactory = async () => null;
 function previewCollaborationConnectionFactory(testPeers = false) {
   return async ({
     onPhase,
@@ -111,11 +118,16 @@ function previewCollaborationConnectionFactory(testPeers = false) {
                 peerOne,
                 "김도윤",
                 { x: 450, y: 310 },
-                [objects[1].id],
+                [objects[1].id, ids.semanticDoor],
                 [
                   {
                     entityId: objects[1].id,
                     leaseId: "00000000-0000-4000-8000-000000000703",
+                    expiresAt,
+                  },
+                  {
+                    entityId: ids.semanticDoor,
+                    leaseId: "00000000-0000-4000-8000-000000000705",
                     expiresAt,
                   },
                 ],
@@ -457,6 +469,126 @@ const objects: DrawingObject[] = [
     style: {},
     version: 1,
   },
+  {
+    id: ids.semanticWall,
+    name: "회의실 외벽",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 120, y: 720 },
+      end: { x: 900, y: 720 },
+      thicknessMillimeters: 18,
+      heightMillimeters: 3000,
+    },
+    styleId: ids.styleWall,
+    style: {},
+    version: 1,
+  },
+  {
+    id: ids.semanticDoor,
+    name: "D-101",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      openingKind: "door",
+      hostWallId: ids.semanticWall,
+      offsetMillimeters: 230,
+      widthMillimeters: 90,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+    },
+    styleId: ids.styleWall,
+    style: {},
+    version: 1,
+  },
+  {
+    id: ids.semanticWindow,
+    name: "W-101",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      openingKind: "window",
+      hostWallId: ids.semanticWall,
+      offsetMillimeters: 570,
+      widthMillimeters: 140,
+      heightMillimeters: 1200,
+      sillHeightMillimeters: 900,
+    },
+    styleId: ids.styleWall,
+    style: {},
+    version: 1,
+  },
+  {
+    id: ids.semanticSpace,
+    name: "회의실",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "space",
+      semanticVersion: 1,
+      number: "101",
+      finishes: { floor: "카펫 타일", wall: "도장", ceiling: "흡음 텍스" },
+      boundary: [
+        { x: 140, y: 540 },
+        { x: 430, y: 540 },
+        { x: 430, y: 680 },
+        { x: 140, y: 680 },
+      ],
+    },
+    styleId: null,
+    style: { stroke: "#2563eb", strokeWidth: 2, fill: "#dbeafe66" },
+    version: 1,
+  },
+  {
+    id: ids.semanticArea,
+    name: "외부 포장",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 500, y: 530 },
+        { x: 830, y: 530 },
+        { x: 830, y: 680 },
+        { x: 500, y: 680 },
+      ],
+    },
+    styleId: null,
+    style: { stroke: "#ca8a04", strokeWidth: 2, fill: "#fde68a66" },
+    version: 1,
+  },
+  {
+    id: ids.semanticGrid,
+    name: "A",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "grid",
+      semanticVersion: 1,
+      start: { x: 100, y: 450 },
+      end: { x: 920, y: 450 },
+    },
+    styleId: null,
+    style: { stroke: "#475569", strokeWidth: 1, fill: null },
+    version: 1,
+  },
+  {
+    id: ids.semanticArc,
+    name: "처마 호",
+    layerId: ids.layerPlanWork,
+    geometry: {
+      type: "arc",
+      semanticVersion: 1,
+      center: { x: 950, y: 610 },
+      radius: 80,
+      startAngleDegrees: 90,
+      sweepAngleDegrees: 180,
+    },
+    styleId: null,
+    style: { stroke: "#7c3aed", strokeWidth: 2, fill: null },
+    version: 1,
+  },
 ];
 const blocks: DrawingBlock[] = [
   {
@@ -655,7 +787,26 @@ export function localDrawingWorkspacePreviewFixture(): PreviewFixture {
       },
     ],
     reviewEvidence: null,
-    checkpoints: [],
+    checkpoints: [
+      {
+        id: ids.checkpoint,
+        createdAt,
+        canonicalJson: {
+          operationSequence: 0,
+          revision: { id: ids.revision, documentId: ids.document, version: 1 },
+          pages,
+          canvases,
+          layers,
+          objects,
+          styles: [styleWall, styleNote],
+          blocks,
+          blockInstances,
+          propertySchemas,
+          propertyValues,
+          tables,
+        },
+      },
+    ],
   };
   return {
     capability: "editor",
@@ -1051,7 +1202,7 @@ export default function LocalDrawingWorkspacePreview({
         collaborationPersistenceFactory={
           loaderData.collaborationRetryTest
             ? retryPersistenceFactory
-            : previewCollaborationPersistenceFactory
+            : undefined
         }
         realtimeAdapter={
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
@@ -1068,7 +1219,7 @@ export default function LocalDrawingWorkspacePreview({
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"
       >
-        P3 공동 편집 미리보기 · 로컬 복구 사용
+        P4 공동 편집 미리보기 · IndexedDB 로컬 복구 사용
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>

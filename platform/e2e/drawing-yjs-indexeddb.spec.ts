@@ -203,6 +203,11 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
         (_, index) =>
           `00000000-0000-4000-8000-${String(index + 700).padStart(12, "0")}`,
       );
+      const objectIds = Array.from(
+        { length: 100 },
+        (_, index) =>
+          `00000000-0000-4000-8000-${String(index + 900).padStart(12, "0")}`,
+      );
       let operationIndex = 0;
       const first = persistence.createDrawingYjsDocument(
         Uint8Array.from(initialUpdate),
@@ -227,7 +232,7 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
           ).toISOString(),
       });
       for (let index = 0; index < 100; index += 1) {
-        const objectId = `00000000-0000-4000-8000-${String(index + 900).padStart(12, "0")}`;
+        const objectId = objectIds[index];
         const prepared = adapter.prepareLocal({
           type: "add_objects",
           actorId: fixtureIds.actor,
@@ -237,11 +242,10 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
               name: `Offline ${index}`,
               layerId: fixtureIds.layer,
               geometry: {
-                type: "rectangle",
-                origin: { x: index * 12, y: 0 },
-                width: 10,
-                height: 10,
-                rotation: 0,
+                type: "grid",
+                semanticVersion: 1,
+                start: { x: index * 12, y: 0 },
+                end: { x: index * 12, y: 100 },
               },
               style: { stroke: "#111111", strokeWidth: 1, fill: null },
               version: 1,
@@ -285,6 +289,8 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
         quarantine: snapshot.quarantine,
         operationIds: snapshot.pendingOperationIds,
         objectIds: Object.keys(snapshot.state.objects),
+        expectedOperationIds: operationIds,
+        expectedObjectIds: objectIds,
       };
     },
     {
@@ -296,10 +302,8 @@ test("revision-scoped adapter recovers 100 canonical offline operations before n
   expect(result.events).toEqual(["local-synced", "network-enabled"]);
   expect(result.names[0]).not.toBe(result.names[1]);
   expect(result.quarantine).toBeNull();
-  expect(result.operationIds).toHaveLength(100);
-  expect(new Set(result.operationIds).size).toBe(100);
-  expect(result.objectIds).toHaveLength(100);
-  expect(new Set(result.objectIds).size).toBe(100);
+  expect(result.operationIds).toEqual(result.expectedOperationIds);
+  expect(result.objectIds).toEqual(result.expectedObjectIds);
   expect(fakeRequests).toEqual([]);
 });
 

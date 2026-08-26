@@ -12,6 +12,8 @@ import {
   exportDrawingPng,
   exportDrawingSvg,
 } from "../app/lukas/lib/drawing-export.ts";
+import { geometryBounds } from "../app/lukas/lib/drawing-geometry.ts";
+import { resolveDrawingOpening } from "../app/lukas/lib/drawing-semantic-geometry.ts";
 import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = {
@@ -36,6 +38,13 @@ const ids = {
   block: "00000000-0000-4000-8000-000000001060",
   lineage: "00000000-0000-4000-8000-000000001061",
   source: "00000000-0000-4000-8000-000000001070",
+  semanticWall: "00000000-0000-4000-8000-000000001071",
+  semanticDoor: "00000000-0000-4000-8000-000000001072",
+  semanticWindow: "00000000-0000-4000-8000-000000001073",
+  semanticSpace: "00000000-0000-4000-8000-000000001074",
+  semanticArea: "00000000-0000-4000-8000-000000001075",
+  semanticGrid: "00000000-0000-4000-8000-000000001076",
+  semanticArc: "00000000-0000-4000-8000-000000001077",
 };
 
 function exportFixture() {
@@ -283,6 +292,136 @@ function exportFixture() {
   };
 }
 
+function semanticExportFixture() {
+  const document = exportFixture();
+  document.structure.canvases[ids.canvasSecond].widthMillimeters = 1000;
+  document.structure.canvases[ids.canvasSecond].heightMillimeters = 700;
+  const style = { stroke: "#123456", strokeWidth: 3, fill: null };
+  Object.assign(document.structure.objects, {
+    [ids.semanticWall]: {
+      id: ids.semanticWall,
+      name: "북측 벽",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "wall",
+        semanticVersion: 1,
+        start: { x: 100, y: 100 },
+        end: { x: 900, y: 100 },
+        thicknessMillimeters: 18,
+        heightMillimeters: 3000,
+      },
+      styleId: null,
+      style,
+      version: 1,
+    },
+    [ids.semanticDoor]: {
+      id: ids.semanticDoor,
+      name: "D-01",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: ids.semanticWall,
+        offsetMillimeters: 250,
+        widthMillimeters: 90,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "door",
+      },
+      styleId: null,
+      style,
+      version: 1,
+    },
+    [ids.semanticWindow]: {
+      id: ids.semanticWindow,
+      name: "W-01",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: ids.semanticWall,
+        offsetMillimeters: 650,
+        widthMillimeters: 120,
+        heightMillimeters: 1200,
+        sillHeightMillimeters: 900,
+        openingKind: "window",
+      },
+      styleId: null,
+      style,
+      version: 1,
+    },
+    [ids.semanticSpace]: {
+      id: ids.semanticSpace,
+      name: "회의실",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "space",
+        semanticVersion: 1,
+        boundary: [
+          { x: 120, y: 180 },
+          { x: 420, y: 180 },
+          { x: 420, y: 420 },
+          { x: 120, y: 420 },
+        ],
+        number: "101",
+        finishes: { floor: "타일", wall: "도장", ceiling: "텍스" },
+      },
+      styleId: null,
+      style: { ...style, fill: "#cfe8ff" },
+      version: 1,
+    },
+    [ids.semanticArea]: {
+      id: ids.semanticArea,
+      name: "외부 포장",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "area",
+        semanticVersion: 1,
+        boundary: [
+          { x: 520, y: 180 },
+          { x: 820, y: 180 },
+          { x: 820, y: 420 },
+          { x: 520, y: 420 },
+        ],
+      },
+      styleId: null,
+      style: { ...style, fill: "#ffe7a3" },
+      version: 1,
+    },
+    [ids.semanticGrid]: {
+      id: ids.semanticGrid,
+      name: "A",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "grid",
+        semanticVersion: 1,
+        start: { x: 80, y: 500 },
+        end: { x: 920, y: 500 },
+      },
+      styleId: null,
+      style,
+      version: 1,
+    },
+    [ids.semanticArc]: {
+      id: ids.semanticArc,
+      name: "처마 호",
+      layerId: ids.layerSecond,
+      geometry: {
+        type: "arc",
+        semanticVersion: 1,
+        center: { x: 500, y: 560 },
+        radius: 100,
+        startAngleDegrees: 180,
+        sweepAngleDegrees: 180,
+      },
+      styleId: null,
+      style,
+      version: 1,
+    },
+  });
+  return document;
+}
+
 test("canonical export traversal isolates one canvas and keeps visible locked layers", () => {
   const result = collectExportPrimitives(exportFixture(), ids.canvasFirst);
 
@@ -521,86 +660,111 @@ test("PNG export has deterministic 1x, 2x, and 4x dimensions", async () => {
   }
 });
 
-test("PNG and PDF export fail closed for every pre-Task-6 semantic geometry", async () => {
-  const semanticGeometries = [
-    {
-      type: "wall",
-      semanticVersion: 1,
-      start: { x: 0, y: 0 },
-      end: { x: 10, y: 0 },
-      thicknessMillimeters: 1,
-      heightMillimeters: 3,
-    },
-    {
-      type: "opening",
-      semanticVersion: 1,
-      hostWallId: "00000000-0000-4000-8000-000000001099",
-      offsetMillimeters: 5,
-      widthMillimeters: 2,
-      heightMillimeters: 2,
-      sillHeightMillimeters: 0,
-      openingKind: "door",
-    },
-    {
-      type: "space",
-      semanticVersion: 1,
-      boundary: [
-        { x: 0, y: 0 },
-        { x: 10, y: 0 },
-        { x: 0, y: 10 },
-      ],
-      number: "101",
-      finishes: { floor: null, wall: null, ceiling: null },
-    },
-    {
-      type: "area",
-      semanticVersion: 1,
-      boundary: [
-        { x: 0, y: 0 },
-        { x: 10, y: 0 },
-        { x: 0, y: 10 },
-      ],
-    },
-    {
-      type: "grid",
-      semanticVersion: 1,
-      start: { x: 0, y: 0 },
-      end: { x: 10, y: 0 },
-    },
-    {
-      type: "arc",
-      semanticVersion: 1,
-      center: { x: 0, y: 0 },
-      radius: 10,
-      startAngleDegrees: 0,
-      sweepAngleDegrees: 90,
-    },
-  ];
-
-  for (const candidate of semanticGeometries) {
-    const geometry = DrawingGeometrySchema.parse(candidate);
-    const document = exportFixture();
-    document.structure.objects[ids.objectSecond].geometry = geometry;
-    await assert.rejects(
-      exportDrawingPng(document, ids.canvasSecond, {
-        canvasFactory: () => fakeCanvas(),
-        scale: 1,
-      }),
-      /Semantic geometry export is not available/i,
-      `PNG ${geometry.type}`,
+test("P4 mixed geometry has one canonical SVG PNG and PDF render plan", async () => {
+  const document = semanticExportFixture();
+  const before = structuredClone(document);
+  const traversal = collectExportPrimitives(document, ids.canvasSecond);
+  const semantic = traversal.primitives.filter((primitive) =>
+    ["wall", "opening", "space", "area", "grid", "arc"].includes(
+      primitive.geometry.type,
+    ),
+  );
+  assert.equal(semantic.length, 7);
+  for (const primitive of semantic) {
+    const bounds = geometryBounds(
+      primitive.geometry,
+      document.structure.objects,
     );
-    await assert.rejects(
-      exportDrawingPdf(document, {
-        canvasFactory: () => fakeCanvas(),
-        canvasIds: [ids.canvasSecond],
-        createdAt: "2026-08-26T00:00:00.000Z",
-        scale: 1,
-        title: "Semantic rejection",
-      }),
-      /Semantic geometry export is not available/i,
-      `PDF ${geometry.type}`,
+    assert.ok(
+      [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite),
+      primitive.geometry.type,
     );
   }
+  assert.deepEqual(
+    resolveDrawingOpening(
+      document.structure.objects[ids.semanticDoor].geometry,
+      document.structure.objects,
+    ).center,
+    { x: 350, y: 100 },
+  );
+
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  assert.equal((svg.match(/data-semantic-type=/g) ?? []).length, 7);
+  assert.match(svg, /101 · 회의실/);
+  assert.match(svg, /외부 포장/);
+  assert.match(svg, />A<\/text>/);
+  assert.match(svg, /stroke-width="18"/);
+  assert.match(svg, /fill="#cfe8ff"/);
+  assert.match(svg, /stroke-dasharray="16 8"/);
+
+  const canvas = fakeCanvas({ pngBytes: onePixelPng });
+  const png = await exportDrawingPng(document, ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    includeBackground: false,
+    scale: 1,
+  });
+  assert.ok(png.size > 0);
+  assert.deepEqual(
+    canvas.calls
+      .filter(([name]) => name === "fillText")
+      .map(([, text]) => text)
+      .filter((text) => ["101 · 회의실", "외부 포장", "A"].includes(text)),
+    ["101 · 회의실", "외부 포장", "A"],
+  );
+  assert.ok(canvas.calls.some(([name]) => name === "setLineDash"));
+
+  const pdfBytes = await exportDrawingPdf(document, {
+    canvasFactory: () => fakeCanvas({ pngBytes: onePixelPng }),
+    canvasIds: [ids.canvasSecond],
+    createdAt: "2026-08-26T00:00:00.000Z",
+    scale: 1,
+    title: "P4 semantic export",
+  });
+  assert.ok(pdfBytes.byteLength > onePixelPng.byteLength);
+  assert.equal((await PDFDocument.load(pdfBytes)).getPageCount(), 1);
+  assert.deepEqual(document, before);
+});
+
+test("P4 export rejects an unresolved hosted opening before any partial artifact work", async () => {
+  const document = semanticExportFixture();
+  document.structure.objects[ids.semanticDoor].geometry.hostWallId =
+    "00000000-0000-4000-8000-000000001099";
+  let canvasCreations = 0;
+  let backgroundReads = 0;
+
+  assert.throws(
+    () => exportDrawingSvg(document, ids.canvasSecond),
+    /host wall|host.*exist/i,
+  );
+  await assert.rejects(
+    exportDrawingPng(document, ids.canvasSecond, {
+      canvasFactory: () => {
+        canvasCreations++;
+        return fakeCanvas();
+      },
+      scale: 1,
+    }),
+    /host wall|host.*exist/i,
+  );
+  await assert.rejects(
+    exportDrawingPdf(document, {
+      canvasFactory: () => {
+        canvasCreations++;
+        return fakeCanvas({ pngBytes: onePixelPng });
+      },
+      canvasIds: [ids.canvasSecond],
+      createdAt: "2026-08-26T00:00:00.000Z",
+      getBackground: async () => {
+        backgroundReads++;
+        return undefined;
+      },
+      scale: 1,
+      title: "Invalid P4 semantic export",
+    }),
+    /host wall|host.*exist/i,
+  );
+  assert.equal(canvasCreations, 0);
+  assert.equal(backgroundReads, 0);
 });
 
 test("PNG text clips to the fixed layout and draws uncompressed multiline text", async () => {

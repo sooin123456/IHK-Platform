@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as Y from "yjs";
 
 import {
   createDrawingCollaborationCommandBridge,
@@ -9,6 +10,13 @@ import {
   openDrawingCollaborationLocalAttempt,
   reconcileDrawingCollaborationDraft,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
+import {
+  applyDrawingCommand,
+  createDrawingDocumentState,
+} from "../app/lukas/lib/drawing-commands.ts";
+import { appendDrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-yjs.ts";
+import { createDrawingDraftAdapter } from "../app/lukas/lib/drawing-yjs-draft.ts";
+import { resolveDrawingOpening } from "../app/lukas/lib/drawing-semantic-geometry.ts";
 import {
   deliverDrawingCollaborationOutcome,
   handleWorkspaceMutation,
@@ -22,6 +30,14 @@ const ids = {
   revision: "00000000-0000-4000-8000-000000000604",
   operation: "00000000-0000-4000-8000-000000000605",
   object: "00000000-0000-4000-8000-000000000606",
+  page: "00000000-0000-4000-8000-000000000607",
+  canvas: "00000000-0000-4000-8000-000000000608",
+  layer: "00000000-0000-4000-8000-000000000609",
+  wall: "00000000-0000-4000-8000-000000000610",
+  opening: "00000000-0000-4000-8000-000000000611",
+  area: "00000000-0000-4000-8000-000000000612",
+  semanticOperationA: "00000000-0000-4000-8000-000000000613",
+  semanticOperationB: "00000000-0000-4000-8000-000000000614",
 };
 
 const operation = {
@@ -41,6 +57,157 @@ const operation = {
   },
   createdAt: "2026-08-26T00:00:00.000Z",
 };
+
+function semanticState() {
+  const wall = {
+    id: ids.wall,
+    name: "Wall",
+    layerId: ids.layer,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 1000, y: 0 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const opening = {
+    id: ids.opening,
+    name: "D-01",
+    layerId: ids.layer,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: ids.wall,
+      offsetMillimeters: 500,
+      widthMillimeters: 100,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const area = {
+    id: ids.area,
+    name: "Area",
+    layerId: ids.layer,
+    geometry: {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 100 },
+        { x: 100, y: 100 },
+        { x: 100, y: 200 },
+        { x: 0, y: 200 },
+      ],
+    },
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 1, fill: "#eeeeee" },
+    version: 1,
+  };
+  return createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "Plan",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [ids.canvas]: {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 1200,
+          heightMillimeters: 800,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: ids.canvas,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: { [wall.id]: wall, [opening.id]: opening, [area.id]: area },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+}
+
+function semanticDocument() {
+  const document = new Y.Doc();
+  document.transact(() => {
+    const meta = document.getMap("serverMeta");
+    meta.set("schemaVersion", 1);
+    meta.set("projectId", ids.project);
+    meta.set("revisionId", ids.revision);
+    meta.set("baseSnapshotSha256", "a".repeat(64));
+    meta.set("baseOperationSequence", 0);
+    meta.set("freezeState", "active");
+    meta.set("freezeRequestId", null);
+    document.getArray("operationOrder");
+    document.getArray("operations");
+    document.getMap("operationStatus");
+  });
+  return document;
+}
+
+function semanticEnvelope(command, operationId, actorId) {
+  const applied = applyDrawingCommand(
+    semanticState(),
+    { ...command, actorId },
+    {
+      createId: () => operationId,
+      now: () => "2026-08-26T01:00:00.000Z",
+    },
+  );
+  return {
+    clientOperationId: operationId,
+    revisionId: ids.revision,
+    actorId,
+    schemaVersion: 1,
+    type: applied.operation.type,
+    baseVersions: applied.operation.baseVersions,
+    forward: applied.operation.forward,
+    inverse: applied.operation.inverse,
+    createdAt: applied.operation.createdAt,
+  };
+}
+
+function semanticAdapter(document) {
+  return createDrawingDraftAdapter({
+    document,
+    authoritativeState: semanticState(),
+    actorId: ids.user,
+    authorization: "editor",
+    frozen: false,
+  });
+}
 
 test("collaboration lifecycle identity uses only user, project, and revision IDs", () => {
   assert.equal(
@@ -80,6 +247,103 @@ test("provider disconnect is visibly degraded and reconnect becomes connected", 
   assert.equal(
     drawingCollaborationPhaseForProviderStatus("connecting"),
     "connecting",
+  );
+});
+
+test("P4 concurrent semantic operations converge and preserve hosted opening projection", () => {
+  const origin = semanticDocument();
+  const left = new Y.Doc();
+  const right = new Y.Doc();
+  Y.applyUpdate(left, Y.encodeStateAsUpdate(origin));
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(origin));
+  const wall = semanticState().objects[ids.wall];
+  const wallEnvelope = semanticEnvelope(
+    {
+      type: "update_objects",
+      updates: [
+        {
+          objectId: ids.wall,
+          patch: {
+            geometry: {
+              ...wall.geometry,
+              start: { x: 100, y: 0 },
+              end: { x: 1100, y: 0 },
+            },
+          },
+        },
+      ],
+    },
+    ids.semanticOperationA,
+    ids.user,
+  );
+  const areaEnvelope = semanticEnvelope(
+    {
+      type: "update_objects",
+      updates: [{ objectId: ids.area, patch: { name: "Remote area" } }],
+    },
+    ids.semanticOperationB,
+    ids.other,
+  );
+  appendDrawingCollaborationOperation(left, wallEnvelope);
+  appendDrawingCollaborationOperation(right, areaEnvelope);
+  const leftDelta = Y.encodeStateAsUpdate(left, Y.encodeStateVector(origin));
+  const rightDelta = Y.encodeStateAsUpdate(right, Y.encodeStateVector(origin));
+
+  const snapshots = [
+    [leftDelta, rightDelta],
+    [rightDelta, leftDelta],
+  ].map((updates) => {
+    const merged = semanticDocument();
+    for (const update of updates) Y.applyUpdate(merged, update);
+    return semanticAdapter(merged).getSnapshot();
+  });
+  assert.deepEqual(snapshots[0].state.objects, snapshots[1].state.objects);
+  assert.equal(snapshots[0].state.objects[ids.area].name, "Remote area");
+  assert.equal(
+    snapshots[0].state.objects[ids.opening].geometry.hostWallId,
+    ids.wall,
+  );
+  assert.deepEqual(
+    resolveDrawingOpening(
+      snapshots[0].state.objects[ids.opening].geometry,
+      snapshots[0].state.objects,
+    ).center,
+    { x: 600, y: 0 },
+  );
+});
+
+test("P4 concurrent same-wall edits use the existing version conflict path", () => {
+  const document = semanticDocument();
+  const wall = semanticState().objects[ids.wall];
+  for (const [operationId, actorId, endX] of [
+    [ids.semanticOperationA, ids.user, 900],
+    [ids.semanticOperationB, ids.other, 800],
+  ])
+    appendDrawingCollaborationOperation(
+      document,
+      semanticEnvelope(
+        {
+          type: "update_objects",
+          updates: [
+            {
+              objectId: ids.wall,
+              patch: { geometry: { ...wall.geometry, end: { x: endX, y: 0 } } },
+            },
+          ],
+        },
+        operationId,
+        actorId,
+      ),
+    );
+  const snapshot = semanticAdapter(document).getSnapshot();
+  assert.equal(snapshot.quarantine, null);
+  assert.deepEqual(snapshot.provisionalConflictOperationIds, [
+    ids.semanticOperationB,
+  ]);
+  assert.equal(snapshot.state.objects[ids.wall].geometry.end.x, 900);
+  assert.equal(
+    snapshot.state.objects[ids.opening].geometry.hostWallId,
+    ids.wall,
   );
 });
 

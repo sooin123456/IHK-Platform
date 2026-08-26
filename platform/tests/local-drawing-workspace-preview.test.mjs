@@ -5,6 +5,7 @@ import test from "node:test";
 import { createServer } from "vite";
 
 import routes from "../app/routes.ts";
+import { resolveDrawingSemanticSchedule } from "../app/lukas/lib/drawing-semantic-schedules.ts";
 
 const vite = await createServer({
   appType: "custom",
@@ -114,6 +115,61 @@ test("P2 preview fixture is a strict, hydrated P2 graph", () => {
   assert.equal(revision.blocks.length, 2);
   assert.ok(revision.blockInstances.length >= 3);
   assert.equal(revision.issueLinks.length, 1);
+});
+
+test("P4 preview is visibly populated with canonical hosted objects and schedules", () => {
+  const fixture = preview.localDrawingWorkspacePreviewFixture();
+  const revision = fixture.workspace.document.revision;
+  const beforeSource = {
+    byteSize: fixture.workspace.file.byte_size,
+    documentSha256: fixture.workspace.document.source_sha256,
+    fileSha256: fixture.workspace.file.sha256,
+  };
+  const semantic = revision.objects.filter((object) =>
+    ["wall", "opening", "space", "area", "grid", "arc"].includes(
+      object.geometry.type,
+    ),
+  );
+  assert.deepEqual(
+    [...new Set(semantic.map((object) => object.geometry.type))].sort(),
+    ["arc", "area", "grid", "opening", "space", "wall"],
+  );
+  const openings = semantic.filter(
+    (object) => object.geometry.type === "opening",
+  );
+  assert.deepEqual(
+    openings.map((object) => object.geometry.openingKind).sort(),
+    ["door", "window"],
+  );
+  for (const opening of openings) {
+    const hostIndex = revision.objects.findIndex(
+      (object) => object.id === opening.geometry.hostWallId,
+    );
+    assert.ok(hostIndex >= 0);
+    assert.equal(revision.objects[hostIndex].geometry.type, "wall");
+    assert.ok(hostIndex < revision.objects.indexOf(opening));
+  }
+  const state = {
+    revisionId: revision.id,
+    objects: Object.fromEntries(
+      revision.objects.map((object) => [object.id, object]),
+    ),
+  };
+  assert.equal(resolveDrawingSemanticSchedule("room", state).rows.length, 1);
+  assert.equal(resolveDrawingSemanticSchedule("door", state).rows.length, 1);
+  assert.equal(resolveDrawingSemanticSchedule("finish", state).rows.length, 1);
+  assert.ok(revision.checkpoints.length >= 1);
+  assert.doesNotThrow(() =>
+    preview.validateLocalDrawingWorkspacePreviewFixture(fixture),
+  );
+  assert.deepEqual(
+    {
+      byteSize: fixture.workspace.file.byte_size,
+      documentSha256: fixture.workspace.document.source_sha256,
+      fileSha256: fixture.workspace.file.sha256,
+    },
+    beforeSource,
+  );
 });
 
 test("P2 preview action validates operations and only echoes safe local operations", async () => {

@@ -5,12 +5,18 @@ import {
 } from "./drawing-blocks.ts";
 import type { DrawingDocumentState } from "./drawing-commands.ts";
 import { drawingDimensionLayout, drawingTextLayout } from "./drawing-layout.ts";
+import {
+  drawingOpeningMarkerSegments,
+  sampleDrawingArcPoints,
+} from "./drawing-geometry.ts";
+import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
 import type {
   DrawingCanvas,
   DrawingGeometry,
   DrawingPage,
   DrawingStyle,
+  DrawingObject,
 } from "./drawing-workspace.types.ts";
 
 export type DrawingExportTransform = [
@@ -26,12 +32,14 @@ export type DrawingExportPrimitive = {
   geometry: DrawingGeometry;
   id: string;
   layerId: string;
+  name: string;
   style: DrawingStyle;
   transform: DrawingExportTransform;
 };
 
 export type DrawingExportTraversal = {
   canvas: DrawingCanvas;
+  objects: Record<string, DrawingObject>;
   page: DrawingPage;
   primitives: DrawingExportPrimitive[];
 };
@@ -159,6 +167,12 @@ export function collectExportPrimitives(
       ...object,
       style: resolveDrawingStyle(object, structure.styles),
     }));
+  const objectMap = Object.fromEntries(
+    objects.map((object) => [object.id, object]),
+  );
+  for (const object of objects)
+    if (object.geometry.type === "opening")
+      resolveDrawingOpening(object.geometry, objectMap);
   const blockInstances = Object.values(structure.blockInstances)
     .filter((instance) => layers[instance.layerId])
     .map((instance) => {
@@ -183,6 +197,7 @@ export function collectExportPrimitives(
         geometry: structuredClone(item.object.geometry),
         id: item.object.id,
         layerId: item.layerId,
+        name: structure.objects[item.object.id]?.name ?? item.object.id,
         style: structuredClone(item.object.style),
         transform: [...identityTransform],
       });
@@ -194,6 +209,7 @@ export function collectExportPrimitives(
         geometry: structuredClone(primitive.geometry),
         id: `${item.model.instance.id}/${primitive.localId}`,
         layerId: item.layerId,
+        name: primitive.name ?? primitive.localId,
         style: structuredClone(primitive.style),
         transform: [...transform],
       });
@@ -202,6 +218,7 @@ export function collectExportPrimitives(
 
   return {
     canvas: structuredClone(canvas),
+    objects: structuredClone(objectMap),
     page: structuredClone(page),
     primitives,
   };
@@ -245,26 +262,6 @@ function isSemanticGeometry(geometry: DrawingGeometry): boolean {
     case "dimension":
       return false;
   }
-}
-
-function rejectSemanticGeometryExport(
-  documentState: DrawingDocumentState,
-  canvasId: string,
-): void {
-  const structure = documentState.structure;
-  if (!structure) return;
-  const semanticObject = Object.values(structure.objects).find((object) => {
-    const layer = structure.layers[object.layerId];
-    return (
-      layer?.canvasId === canvasId &&
-      layer.visible &&
-      isSemanticGeometry(object.geometry)
-    );
-  });
-  if (semanticObject)
-    throw new DrawingExportError(
-      "Semantic geometry export is not available in this adapter.",
-    );
 }
 
 function svgStroke(style: DrawingStyle) {
@@ -329,6 +326,7 @@ function svgGeometry(
   primitive: DrawingExportPrimitive,
   canvas: DrawingCanvas,
   clipId: string,
+  objects: Readonly<Record<string, DrawingObject>>,
 ): string[] {
   const { geometry, style } = primitive;
   switch (geometry.type) {
@@ -398,14 +396,69 @@ function svgGeometry(
       ];
     }
     case "wall":
-    case "opening":
-    case "space":
-    case "area":
-    case "grid":
-    case "arc":
-      throw new DrawingExportError(
-        "Semantic geometry export is not available in this adapter.",
+      return [
+        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(geometry.thicknessMillimeters)}"/>`,
+      ];
+    case "opening": {
+      const resolved = resolveDrawingOpening(geometry, objects);
+      const [opening, ...markers] = drawingOpeningMarkerSegments(
+        geometry,
+        resolved,
       );
+      const line = (
+        [start, end]: (typeof markers)[number],
+        stroke: string,
+        width: number,
+      ) =>
+        `<line x1="${exportNumber(start.x)}" y1="${exportNumber(start.y)}" x2="${exportNumber(end.x)}" y2="${exportNumber(end.y)}" fill="none" stroke="${stroke}" stroke-width="${exportNumber(width)}"/>`;
+      return [
+        line(
+          opening,
+          "#ffffff",
+          resolved.host.geometry.thicknessMillimeters + 4,
+        ),
+        line(opening, style.stroke, geometry.openingKind === "void" ? 2 : 10),
+        ...markers.map((marker) =>
+          line(marker, style.stroke, geometry.openingKind === "window" ? 5 : 6),
+        ),
+      ];
+    }
+    case "space":
+    case "area": {
+      const points = geometry.boundary
+        .map((p) => `${exportNumber(p.x)},${exportNumber(p.y)}`)
+        .join(" ");
+      const center = polygonCentroid(geometry.boundary);
+      const label =
+        geometry.type === "space"
+          ? `${geometry.number} · ${primitive.name}`
+          : primitive.name;
+      return [
+        `<polygon points="${points}" fill="${style.fill ?? (geometry.type === "space" ? "rgba(59,130,246,0.12)" : "rgba(14,165,233,0.1)")}" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
+        `<text x="${exportNumber(center.x)}" y="${exportNumber(center.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="14" text-anchor="middle">${escapeXml(label)}</text>`,
+      ];
+    }
+    case "grid": {
+      const rawAngle =
+        (Math.atan2(
+          geometry.end.y - geometry.start.y,
+          geometry.end.x - geometry.start.x,
+        ) *
+          180) /
+        Math.PI;
+      const angle = rawAngle > 90 || rawAngle < -90 ? rawAngle + 180 : rawAngle;
+      return [
+        `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}" stroke-dasharray="16 8"/>`,
+        `<circle cx="${exportNumber(geometry.end.x)}" cy="${exportNumber(geometry.end.y)}" r="18" fill="#ffffff" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
+        `<text x="${exportNumber(geometry.end.x)}" y="${exportNumber(geometry.end.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="14" text-anchor="middle" dominant-baseline="middle" transform="rotate(${exportNumber(angle)} ${exportNumber(geometry.end.x)} ${exportNumber(geometry.end.y)})">${escapeXml(primitive.name || "Grid")}</text>`,
+      ];
+    }
+    case "arc": {
+      const points = sampleDrawingArcPoints(geometry)
+        .map((p) => `${exportNumber(p.x)},${exportNumber(p.y)}`)
+        .join(" ");
+      return [`<polyline points="${points}" ${svgStroke(style)}/>`];
+    }
   }
 }
 
@@ -414,7 +467,6 @@ export function exportDrawingSvg(
   document: DrawingDocumentState,
   canvasId: string,
 ): string {
-  rejectSemanticGeometryExport(document, canvasId);
   const traversal = collectExportPrimitives(document, canvasId);
   const { canvas } = traversal;
   const width = exportNumber(canvas.widthMillimeters);
@@ -426,8 +478,13 @@ export function exportDrawingSvg(
   ];
   traversal.primitives.forEach((primitive, index) => {
     lines.push(
-      `<g data-export-id="${escapeXml(primitive.id)}" transform="matrix(${primitive.transform.map(exportNumber).join(" ")})">`,
-      ...svgGeometry(primitive, canvas, `drawing-export-clip-${index}`),
+      `<g data-export-id="${escapeXml(primitive.id)}"${isSemanticGeometry(primitive.geometry) ? ` data-semantic-type="${primitive.geometry.type}"` : ""} transform="matrix(${primitive.transform.map(exportNumber).join(" ")})">`,
+      ...svgGeometry(
+        primitive,
+        canvas,
+        `drawing-export-clip-${index}`,
+        traversal.objects,
+      ),
       "</g>",
     );
   });
@@ -482,6 +539,34 @@ function canvasLine(
   context.stroke();
 }
 
+function polygonCentroid(points: readonly { x: number; y: number }[]) {
+  let doubledArea = 0;
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = point.x * next.y - next.x * point.y;
+    doubledArea += cross;
+    x += (point.x + next.x) * cross;
+    y += (point.y + next.y) * cross;
+  }
+  return doubledArea === 0
+    ? points[0]
+    : { x: x / (doubledArea * 3), y: y / (doubledArea * 3) };
+}
+
+function canvasPath(
+  context: CanvasRenderingContext2D,
+  points: readonly { x: number; y: number }[],
+  closed = false,
+) {
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+  if (closed) context.closePath();
+}
+
 function paintClippedText(
   context: CanvasRenderingContext2D,
   layout: FixedExportTextLayout,
@@ -504,6 +589,7 @@ function paintGeometry(
   context: CanvasRenderingContext2D,
   primitive: DrawingExportPrimitive,
   canvas: DrawingCanvas,
+  objects: Readonly<Record<string, DrawingObject>>,
 ) {
   const { geometry, style } = primitive;
   context.save();
@@ -585,14 +671,79 @@ function paintGeometry(
       break;
     }
     case "wall":
-    case "opening":
-    case "space":
-    case "area":
-    case "grid":
-    case "arc":
-      throw new DrawingExportError(
-        "Semantic geometry export is not available in this adapter.",
+      context.lineWidth = geometry.thicknessMillimeters;
+      canvasLine(context, geometry.start, geometry.end);
+      break;
+    case "opening": {
+      const resolved = resolveDrawingOpening(geometry, objects);
+      const [opening, ...markers] = drawingOpeningMarkerSegments(
+        geometry,
+        resolved,
       );
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = resolved.host.geometry.thicknessMillimeters + 4;
+      canvasLine(context, ...opening);
+      context.strokeStyle = style.stroke;
+      context.lineWidth = geometry.openingKind === "void" ? 2 : 10;
+      canvasLine(context, ...opening);
+      context.lineWidth = geometry.openingKind === "window" ? 5 : 6;
+      for (const marker of markers) canvasLine(context, ...marker);
+      break;
+    }
+    case "space":
+    case "area": {
+      canvasPath(context, geometry.boundary, true);
+      context.fillStyle =
+        style.fill ??
+        (geometry.type === "space"
+          ? "rgba(59,130,246,0.12)"
+          : "rgba(14,165,233,0.1)");
+      context.fill();
+      context.stroke();
+      const center = polygonCentroid(geometry.boundary);
+      context.fillStyle = style.stroke;
+      context.font = "14px sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(
+        geometry.type === "space"
+          ? `${geometry.number} · ${primitive.name}`
+          : primitive.name,
+        center.x,
+        center.y,
+      );
+      break;
+    }
+    case "grid": {
+      context.setLineDash([16, 8]);
+      canvasLine(context, geometry.start, geometry.end);
+      context.setLineDash([]);
+      context.beginPath();
+      context.arc(geometry.end.x, geometry.end.y, 18, 0, Math.PI * 2);
+      context.fillStyle = "#ffffff";
+      context.fill();
+      context.stroke();
+      context.fillStyle = style.stroke;
+      context.font = "14px sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.save();
+      context.translate(geometry.end.x, geometry.end.y);
+      const angle = Math.atan2(
+        geometry.end.y - geometry.start.y,
+        geometry.end.x - geometry.start.x,
+      );
+      context.rotate(
+        angle > Math.PI / 2 || angle < -Math.PI / 2 ? angle + Math.PI : angle,
+      );
+      context.fillText(primitive.name || "Grid", 0, 0);
+      context.restore();
+      break;
+    }
+    case "arc":
+      canvasPath(context, sampleDrawingArcPoints(geometry));
+      context.stroke();
+      break;
   }
   context.restore();
 }
@@ -643,7 +794,6 @@ export async function exportDrawingPng(
   throwIfExportAborted(options.signal);
   if (options.scale !== 1 && options.scale !== 2 && options.scale !== 4)
     throw new DrawingExportError("PNG scale must be 1x, 2x, or 4x.");
-  rejectSemanticGeometryExport(documentState, canvasId);
   const traversal = collectExportPrimitives(documentState, canvasId);
   const background = requireExportBackground(
     traversal.canvas,
@@ -695,7 +845,7 @@ export async function exportDrawingPng(
     }
   }
   for (const primitive of traversal.primitives)
-    paintGeometry(context, primitive, traversal.canvas);
+    paintGeometry(context, primitive, traversal.canvas, traversal.objects);
   return encodePng(canvas, options.signal);
 }
 
@@ -748,8 +898,11 @@ export async function exportDrawingPdf(
   const title = options.title.trim();
   if (!title) throw new DrawingExportError("PDF title is required.");
   const canvases = exportCanvases(documentState, options.canvasIds);
+  // Resolve every selected render plan before importing PDF code, reading any
+  // source pixels, or creating an output page. A dangling semantic reference
+  // therefore cannot produce a partial artifact or silently omit an object.
   for (const canvas of canvases)
-    rejectSemanticGeometryExport(documentState, canvas.id);
+    collectExportPrimitives(documentState, canvas.id);
   const { PDFDocument } = await import("pdf-lib");
   throwIfExportAborted(options.signal);
   const pdf = await PDFDocument.create({ updateMetadata: false });
