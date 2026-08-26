@@ -106,7 +106,11 @@ import type {
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
 } from "~/lukas/lib/drawing-workspace.server";
-import type { DrawingServerMeasurementEvidence } from "~/lukas/lib/drawing-semantic-schedules";
+import type {
+  DrawingMeasurementEvidenceError,
+  DrawingMeasurementEvidenceLineage,
+  DrawingServerMeasurementEvidence,
+} from "~/lukas/lib/drawing-semantic-schedules";
 import type { DrawingActivityItem } from "~/lukas/lib/drawing-history.server";
 import type {
   DrawingAssignee,
@@ -679,6 +683,7 @@ type Props = {
   collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
   collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
   measurementEvidence?: DrawingServerMeasurementEvidence | null;
+  measurementEvidenceError?: DrawingMeasurementEvidenceError | null;
   roomUrl: string;
   sourceUrl: string | null;
   workspace: DrawingWorkspace & {
@@ -701,6 +706,7 @@ export default function DrawingWorkspaceClient({
   collaborationConnectionFactory = openDrawingCollaborationConnection,
   collaborationPersistenceFactory = openDrawingYjsPersistence,
   measurementEvidence,
+  measurementEvidenceError,
   roomUrl,
   sourceUrl,
   workspace,
@@ -790,6 +796,17 @@ export default function DrawingWorkspaceClient({
   });
   const effectiveCapability = authority.capability;
   const effectiveRevisionStatus = authority.revisionStatus;
+  const authorityCanWrite = authority.canWrite && !measurementEvidenceError;
+  const measurementLineage: DrawingMeasurementEvidenceLineage | null =
+    collaborationBootstrap
+      ? {
+          documentId: drawingDocument.id,
+          revisionId: revision.id,
+          revisionVersion: revision.version,
+          snapshotSha256: collaborationBootstrap.sha256,
+          operationCheckpoint: collaborationBootstrap.operationSequence,
+        }
+      : null;
   const collaborationBootstrapRef = useRef(collaborationBootstrap);
   const capabilityRef = useRef(effectiveCapability);
   const revisionStatusRef = useRef(effectiveRevisionStatus);
@@ -885,7 +902,7 @@ export default function DrawingWorkspaceClient({
     outboxReady &&
     !reviewPreparing &&
     capabilityCanPersist &&
-    authority.canWrite;
+    authorityCanWrite;
   const authorizationProbe = useMemo(
     () =>
       deriveDrawingTransientState(drawingState, {
@@ -1054,7 +1071,7 @@ export default function DrawingWorkspaceClient({
   );
   const editing = {
     ...editingContext,
-    canEdit: baseCanEdit && editingContext.canEdit && authority.canWrite,
+    canEdit: baseCanEdit && editingContext.canEdit && authorityCanWrite,
   };
   const navigationBlocker = useBlocker(persistenceState.volatileCount > 0);
 
@@ -1475,7 +1492,7 @@ export default function DrawingWorkspaceClient({
         drawingStateFromBootstrap(collaborationBootstrap),
         { baseOperationSequence: collaborationBootstrap.operationSequence },
       );
-    if (!authority.canWrite) {
+    if (!authorityCanWrite) {
       setAwarenessSoftLock(null);
       awarenessPublisherRef.current?.clear();
       setActiveTool("select");
@@ -1483,7 +1500,7 @@ export default function DrawingWorkspaceClient({
       setSelectedIds([]);
     } else awarenessPublisherRef.current?.update(awarenessLocalRef.current);
   }, [
-    authority.canWrite,
+    authorityCanWrite,
     collaborationBootstrap,
     effectiveCapability,
     effectiveRevisionStatus,
@@ -1528,7 +1545,7 @@ export default function DrawingWorkspaceClient({
       }
       if (
         reviewFrozenRef.current ||
-        !authority.canWrite ||
+        !authorityCanWrite ||
         !collaborationCommandRef.current ||
         !canPersistDrawingMutation(
           effectiveCapability,
@@ -1549,7 +1566,7 @@ export default function DrawingWorkspaceClient({
       }
     },
     [
-      authority.canWrite,
+      authorityCanWrite,
       awarenessLockPeers,
       effectiveCapability,
       effectiveRevisionStatus,
@@ -1572,7 +1589,7 @@ export default function DrawingWorkspaceClient({
       }
       if (
         reviewFrozenRef.current ||
-        !authority.canWrite ||
+        !authorityCanWrite ||
         !outboxReady ||
         !canPersistDrawingMutation(
           effectiveCapability,
@@ -1588,7 +1605,7 @@ export default function DrawingWorkspaceClient({
       return true;
     },
     [
-      authority.canWrite,
+      authorityCanWrite,
       awarenessLockPeers,
       effectiveCapability,
       effectiveRevisionStatus,
@@ -1626,7 +1643,7 @@ export default function DrawingWorkspaceClient({
       const bridge = collaborationCommandRef.current;
       if (
         reviewFrozenRef.current ||
-        !authority.canWrite ||
+        !authorityCanWrite ||
         !outboxReady ||
         !bridge ||
         !canPersistDrawingMutation(
@@ -1692,7 +1709,7 @@ export default function DrawingWorkspaceClient({
       }
     },
     [
-      authority.canWrite,
+      authorityCanWrite,
       awarenessLockPeers,
       currentUserId,
       effectiveCapability,
@@ -1729,7 +1746,7 @@ export default function DrawingWorkspaceClient({
   const undo = useCallback(() => {
     if (
       !outboxReady ||
-      !authority.canWrite ||
+      !authorityCanWrite ||
       !canPersistDrawingMutation(
         effectiveCapability,
         persistenceState,
@@ -1741,7 +1758,7 @@ export default function DrawingWorkspaceClient({
     if (!result || "kind" in result) return;
     void commitApplied(result).catch(markStorageFailed);
   }, [
-    authority.canWrite,
+    authorityCanWrite,
     commitApplied,
     currentUserId,
     outboxReady,
@@ -1753,7 +1770,7 @@ export default function DrawingWorkspaceClient({
   const redo = useCallback(() => {
     if (
       !outboxReady ||
-      !authority.canWrite ||
+      !authorityCanWrite ||
       !canPersistDrawingMutation(
         effectiveCapability,
         persistenceState,
@@ -1765,7 +1782,7 @@ export default function DrawingWorkspaceClient({
     if (!result || "kind" in result) return;
     void commitApplied(result).catch(markStorageFailed);
   }, [
-    authority.canWrite,
+    authorityCanWrite,
     commitApplied,
     currentUserId,
     outboxReady,
@@ -2205,7 +2222,7 @@ export default function DrawingWorkspaceClient({
           </span>
           <DrawingCollaborationConnectionStatus
             phase={collaborationPhase}
-            readOnly={!authority.canWrite}
+            readOnly={!authorityCanWrite}
             store={awarenessStoreRef.current}
           />
           <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
@@ -2982,11 +2999,10 @@ export default function DrawingWorkspaceClient({
               actorId={currentUserId}
               canEdit={baseCanEdit}
               evidence={measurementEvidence}
+              evidenceError={measurementEvidenceError}
               hasUnconfirmedChanges={drawingState.operations.length > 0}
+              lineage={measurementLineage}
               onCommand={applyCommand}
-              operationCheckpoint={
-                collaborationBootstrap?.operationSequence ?? null
-              }
               selectedIds={transient.selectedIds}
               state={drawingState}
             />
@@ -3481,14 +3497,13 @@ export default function DrawingWorkspaceClient({
               status: effectiveRevisionStatus,
             })}
             evidence={measurementEvidence}
+            evidenceError={measurementEvidenceError}
             hasUnconfirmedChanges={drawingState.operations.length > 0}
+            lineage={measurementLineage}
             issueLinks={revision.issueLinks}
             issues={revision.issues}
             onCommand={applyCommand}
             onSoftLockChange={setAwarenessSoftLock}
-            operationCheckpoint={
-              collaborationBootstrap?.operationSequence ?? null
-            }
             selectedIds={transient.selectedIds}
             state={activeDrawingState}
           />

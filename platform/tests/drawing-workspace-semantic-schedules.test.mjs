@@ -390,9 +390,15 @@ test("server evidence binds authorized revision checkpoint object IDs and rule v
   );
   assert.equal(typeof schedules.resolveDrawingServerEvidenceStatus, "function");
   const state = mixedState();
-  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+  const lineage = {
+    documentId: "50000000-0000-4000-8000-000000000040",
     revisionId: ids.revision,
+    revisionVersion: 7,
+    snapshotSha256: "c".repeat(64),
     operationCheckpoint: 42,
+  };
+  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+    ...lineage,
     state,
   });
   const semanticIds = [
@@ -410,10 +416,13 @@ test("server evidence binds authorized revision checkpoint object IDs and rule v
   assert.equal(evidence.ruleVersion, "P4_MEASUREMENT_V1");
   assert.deepEqual(evidence.objectIds, semanticIds);
   assert.deepEqual(Object.keys(evidence.measurements), semanticIds);
-  assert.deepEqual(evidence.measurements[ids.doorA], {
-    revisionId: ids.revision,
-    operationCheckpoint: 42,
+  const { objectFingerprint, ...doorEvidence } =
+    evidence.measurements[ids.doorA];
+  assert.match(objectFingerprint, /"openingKind":"door"/);
+  assert.deepEqual(doorEvidence, {
+    ...lineage,
     objectId: ids.doorA,
+    objectVersion: 1,
     ruleVersion: "P4_MEASUREMENT_V1",
     measurement: {
       ruleVersion: "P4_MEASUREMENT_V1",
@@ -422,37 +431,158 @@ test("server evidence binds authorized revision checkpoint object IDs and rule v
       count: "1",
     },
   });
+  const current = schedules.drawingMeasurementEvidenceCurrent(
+    lineage,
+    state,
+    false,
+  );
   assert.deepEqual(
-    schedules.resolveDrawingServerEvidenceStatus(evidence, {
-      revisionId: ids.revision,
-      operationCheckpoint: 42,
-      objectIds: semanticIds,
-      hasUnconfirmedChanges: false,
-    }),
+    schedules.resolveDrawingServerEvidenceStatus(evidence, current),
     { status: "confirmed", reason: null },
   );
+  const missingObjectState = {
+    ...state,
+    objects: Object.fromEntries(
+      Object.entries(state.objects).filter(
+        ([objectId]) => objectId !== semanticIds[0],
+      ),
+    ),
+  };
   for (const query of [
-    {
-      revisionId: ids.revision,
-      operationCheckpoint: 43,
-      objectIds: semanticIds,
-      hasUnconfirmedChanges: false,
-    },
-    {
-      revisionId: ids.revision,
-      operationCheckpoint: 42,
-      objectIds: semanticIds,
-      hasUnconfirmedChanges: true,
-    },
-    {
-      revisionId: ids.revision,
-      operationCheckpoint: 42,
-      objectIds: semanticIds.slice(1),
-      hasUnconfirmedChanges: false,
-    },
+    schedules.drawingMeasurementEvidenceCurrent(
+      { ...lineage, operationCheckpoint: 43 },
+      state,
+      false,
+    ),
+    schedules.drawingMeasurementEvidenceCurrent(lineage, state, true),
+    schedules.drawingMeasurementEvidenceCurrent(
+      lineage,
+      missingObjectState,
+      false,
+    ),
   ])
     assert.equal(
       schedules.resolveDrawingServerEvidenceStatus(evidence, query).status,
       "stale",
     );
+});
+
+test("server evidence binds document snapshot revision and exact object versions", () => {
+  const state = mixedState();
+  const documentId = "50000000-0000-4000-8000-000000000040";
+  const snapshotSha256 = "c".repeat(64);
+  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+    documentId,
+    revisionId: ids.revision,
+    revisionVersion: 7,
+    snapshotSha256,
+    operationCheckpoint: 42,
+    state,
+  });
+
+  assert.equal(evidence.documentId, documentId);
+  assert.equal(evidence.revisionVersion, 7);
+  assert.equal(evidence.snapshotSha256, snapshotSha256);
+  assert.deepEqual(
+    evidence.objectLineage,
+    evidence.objectIds.map((objectId) => ({
+      objectId,
+      objectVersion: state.objects[objectId].version,
+    })),
+  );
+  assert.equal(evidence.measurements[ids.roomA].objectVersion, 1);
+});
+
+test("same-ID geometry and every enclosing lineage mismatch make old evidence stale", () => {
+  const state = mixedState();
+  const documentId = "50000000-0000-4000-8000-000000000040";
+  const snapshotSha256 = "c".repeat(64);
+  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+    documentId,
+    revisionId: ids.revision,
+    revisionVersion: 7,
+    snapshotSha256,
+    operationCheckpoint: 42,
+    state,
+  });
+  const changedRoom = {
+    ...state.objects[ids.roomA],
+    version: 2,
+    geometry: {
+      ...state.objects[ids.roomA].geometry,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 4_000, y: 0 },
+        { x: 4_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+    },
+  };
+  const changedState = {
+    ...state,
+    objects: { ...state.objects, [ids.roomA]: changedRoom },
+  };
+  const current = schedules.drawingMeasurementEvidenceCurrent(
+    {
+      documentId,
+      revisionId: ids.revision,
+      revisionVersion: 7,
+      snapshotSha256,
+      operationCheckpoint: 42,
+    },
+    changedState,
+    false,
+  );
+
+  assert.deepEqual(
+    schedules.resolveDrawingServerEvidenceStatus(evidence, current),
+    { status: "stale", reason: "objects" },
+  );
+  const matchingCurrent = schedules.drawingMeasurementEvidenceCurrent(
+    {
+      documentId,
+      revisionId: ids.revision,
+      revisionVersion: 7,
+      snapshotSha256,
+      operationCheckpoint: 42,
+    },
+    state,
+    false,
+  );
+  for (const mismatch of [
+    { documentId: "50000000-0000-4000-8000-000000000041" },
+    { revisionVersion: 8 },
+    { snapshotSha256: "d".repeat(64) },
+  ])
+    assert.equal(
+      schedules.resolveDrawingServerEvidenceStatus(evidence, {
+        ...matchingCurrent,
+        ...mismatch,
+      }).status,
+      "stale",
+    );
+});
+
+test("safe schedule preview isolates an invalid hosted-opening calculation", () => {
+  assert.equal(
+    typeof schedules.resolveDrawingSemanticSchedulePreview,
+    "function",
+  );
+  const state = mixedState();
+  const invalid = {
+    ...state,
+    objects: Object.fromEntries(
+      Object.entries(state.objects).filter(
+        ([objectId]) => objectId !== ids.wall,
+      ),
+    ),
+  };
+  const preview = schedules.resolveDrawingSemanticSchedulePreview(
+    "door",
+    invalid,
+  );
+  assert.equal(preview.status, "error");
+  assert.equal(preview.error.code, "measurement_unavailable");
+  assert.deepEqual(preview.schedule.rows, []);
+  assert.equal(preview.schedule.totals.cells.count, "계산 불가");
 });

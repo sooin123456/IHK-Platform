@@ -39,7 +39,11 @@ import type {
   DrawingObjectIssueLink,
   DrawingWorkspaceIssue,
 } from "~/lukas/lib/drawing-workspace.server";
-import type { DrawingServerMeasurementEvidence } from "~/lukas/lib/drawing-semantic-schedules";
+import type {
+  DrawingMeasurementEvidenceError,
+  DrawingMeasurementEvidenceLineage,
+  DrawingServerMeasurementEvidence,
+} from "~/lukas/lib/drawing-semantic-schedules";
 import {
   drawingSoftLockConflict,
   type DrawingAwarenessPeerStore,
@@ -58,8 +62,9 @@ type Props = {
   selectedIds: string[];
   state: DrawingDocumentState;
   evidence?: DrawingServerMeasurementEvidence | null;
+  evidenceError?: DrawingMeasurementEvidenceError | null;
   hasUnconfirmedChanges?: boolean;
-  operationCheckpoint?: number | null;
+  lineage?: DrawingMeasurementEvidenceLineage | null;
 };
 
 function sharedValue(
@@ -88,12 +93,13 @@ export function DrawingInspector({
   canEdit: capabilityCanEdit,
   canLinkIssues,
   evidence,
+  evidenceError,
   hasUnconfirmedChanges = false,
   issueLinks,
   issues,
+  lineage,
   onCommand,
   onSoftLockChange,
-  operationCheckpoint = null,
   selectedIds,
   state,
 }: Props) {
@@ -170,11 +176,12 @@ export function DrawingInspector({
       actorId={actorId}
       canEdit={canEdit && selectionEligible}
       evidence={evidence}
+      evidenceError={evidenceError}
       hasUnconfirmedChanges={hasUnconfirmedChanges}
+      lineage={lineage}
       key={`${selectedSemanticObject.id}:${selectedSemanticObject.version}`}
       object={selectedSemanticObject}
       onCommand={onCommand}
-      operationCheckpoint={operationCheckpoint}
       state={state}
     />
   ) : null;

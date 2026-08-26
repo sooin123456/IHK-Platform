@@ -9,7 +9,10 @@ import {
   measureDrawingObject,
 } from "~/lukas/lib/drawing-measurements";
 import {
+  drawingMeasurementEvidenceCurrent,
   resolveDrawingServerEvidenceStatus,
+  type DrawingMeasurementEvidenceError,
+  type DrawingMeasurementEvidenceLineage,
   type DrawingServerMeasurementEvidence,
 } from "~/lukas/lib/drawing-semantic-schedules";
 import {
@@ -25,7 +28,8 @@ type Props = {
   onCommand: (command: DrawingCommand) => void;
   state: Pick<DrawingDocumentState, "revisionId" | "objects">;
   evidence?: DrawingServerMeasurementEvidence | null;
-  operationCheckpoint?: number | null;
+  evidenceError?: DrawingMeasurementEvidenceError | null;
+  lineage?: DrawingMeasurementEvidenceLineage | null;
   hasUnconfirmedChanges?: boolean;
 };
 
@@ -45,10 +49,11 @@ export function DrawingSemanticInspector({
   actorId,
   canEdit,
   evidence,
+  evidenceError,
   hasUnconfirmedChanges = false,
+  lineage,
   object,
   onCommand,
-  operationCheckpoint = null,
   state,
 }: Props) {
   const dirtyFields = useRef(new Set<string>());
@@ -60,14 +65,10 @@ export function DrawingSemanticInspector({
       return null;
     }
   }, [object, state.objects]);
-  const serverStatus = resolveDrawingServerEvidenceStatus(evidence, {
-    revisionId: state.revisionId,
-    operationCheckpoint,
-    objectIds: Object.values(state.objects)
-      .filter((candidate) => "semanticVersion" in candidate.geometry)
-      .map((candidate) => candidate.id),
-    hasUnconfirmedChanges,
-  });
+  const serverStatus = resolveDrawingServerEvidenceStatus(
+    evidence,
+    drawingMeasurementEvidenceCurrent(lineage, state, hasUnconfirmedChanges),
+  );
   const serverMeasurement =
     serverStatus.status === "confirmed"
       ? evidence?.measurements[object.id]?.measurement
@@ -165,7 +166,11 @@ export function DrawingSemanticInspector({
         </div>
         <div>
           <dt className="font-semibold text-slate-300">서버 계산 · V1</dt>
-          {serverMeasurement && evidence ? (
+          {evidenceError ? (
+            <dd className="mt-1 text-rose-200" role="alert">
+              계산 오류 · 미확정 · {evidenceError.message}
+            </dd>
+          ) : serverMeasurement && evidence ? (
             <dd className="mt-1 text-emerald-200">
               확정 ·{" "}
               {[

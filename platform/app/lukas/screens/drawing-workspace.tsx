@@ -17,11 +17,10 @@ import {
 import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
   handleWorkspaceMutation,
-  deriveAuthorizedDrawingMeasurementEvidence,
   drawingTemplateCloneLocation,
   drawingTemplateWorkspaceLocation,
   loadDrawingWorkspace,
-  loadDrawingWorkspaceCollaborationBootstrap,
+  loadDrawingWorkspaceMeasurementState,
   loadDrawingWorkspaceCapability,
   loadDrawingWorkspaceSourceUrl,
 } from "~/lukas/lib/drawing-workspace.server";
@@ -69,15 +68,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("document") ?? undefined,
   );
   const sourceUrl = await loadDrawingWorkspaceSourceUrl(client, workspace);
-  const collaborationBootstrap = workspace.document
-    ? await loadDrawingWorkspaceCollaborationBootstrap(
-        client,
-        workspace.document.revision.id,
-      )
+  const measurementState = workspace.document
+    ? await loadDrawingWorkspaceMeasurementState(client, {
+        documentId: workspace.document.id,
+        revisionId: workspace.document.revision.id,
+        revisionVersion: workspace.document.revision.version,
+      })
     : null;
-  const measurementEvidence = collaborationBootstrap
-    ? deriveAuthorizedDrawingMeasurementEvidence(collaborationBootstrap)
-    : null;
+  const collaborationBootstrap =
+    measurementState?.collaborationBootstrap ?? null;
   const activityPage = workspace.document
     ? await loadDrawingActivityPage(
         client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
@@ -95,9 +94,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     {
       project,
       currentUserId: user.id,
-      capability: collaborationBootstrap?.capability ?? capability,
+      capability: measurementState?.authorizedCapability ?? capability,
       collaborationBootstrap,
-      measurementEvidence,
+      measurementEvidence: measurementState?.measurementEvidence ?? null,
+      measurementEvidenceError:
+        measurementState?.measurementEvidenceError ?? null,
       activityPage,
       collaborationRoom,
       assignees,
@@ -205,6 +206,7 @@ export default function DrawingWorkspaceScreen({
         collaborationRoom={loaderData.collaborationRoom}
         currentUserId={loaderData.currentUserId}
         measurementEvidence={loaderData.measurementEvidence}
+        measurementEvidenceError={loaderData.measurementEvidenceError}
         projectId={project.id}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceUrl={loaderData.sourceUrl}

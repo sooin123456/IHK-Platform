@@ -6,6 +6,10 @@ import routes from "../app/routes.ts";
 
 const workspaceView =
   await import("../app/lukas/lib/drawing-workspace-view.ts").catch(() => null);
+const workspaceServer =
+  await import("../app/lukas/lib/drawing-workspace.server.ts").catch(
+    () => ({}),
+  );
 
 function flatten(routesToFlatten) {
   return routesToFlatten.flatMap((route) => [
@@ -641,4 +645,31 @@ test("workspace remounts Canvas with sanitized transient props at each authoriza
   assert.match(shell, /key=\{authorizationKey\}/);
   assert.match(shell, /activeTool=\{transient\.activeTool as DrawingTool\}/);
   assert.match(shell, /selectedIds=\{transient\.selectedIds\}/);
+});
+
+test("route measurement loading propagates authorized bootstrap denial", async () => {
+  assert.equal(
+    typeof workspaceServer.loadDrawingWorkspaceMeasurementState,
+    "function",
+  );
+  const revisionId = "70000000-0000-4000-8000-000000000001";
+  const client = {
+    async rpc(name, args) {
+      assert.equal(name, "lukas_drawing_collaboration_bootstrap");
+      assert.deepEqual(args, { p_revision_id: revisionId });
+      return {
+        data: null,
+        error: { code: "42501", message: "permission denied" },
+      };
+    },
+  };
+
+  await assert.rejects(
+    workspaceServer.loadDrawingWorkspaceMeasurementState(client, {
+      documentId: "70000000-0000-4000-8000-000000000002",
+      revisionId,
+      revisionVersion: 1,
+    }),
+    /permission denied/,
+  );
 });

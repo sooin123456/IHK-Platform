@@ -674,9 +674,15 @@ test("semantic schedules render read-only preview versus checkpoint-bound server
     undoStackByActor: {},
     redoStackByActor: {},
   };
-  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+  const lineage = {
+    documentId: "10000000-0000-4000-8000-000000000096",
     revisionId: ids.revision,
+    revisionVersion: 2,
+    snapshotSha256: "f".repeat(64),
     operationCheckpoint: 9,
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    ...lineage,
     state: semanticState,
   });
   const render = (operationCheckpoint, hasUnconfirmedChanges = false) =>
@@ -684,7 +690,7 @@ test("semantic schedules render read-only preview versus checkpoint-bound server
       createElement(semanticTableComponents.DrawingSemanticSchedulesPanel, {
         evidence,
         hasUnconfirmedChanges,
-        operationCheckpoint,
+        lineage: { ...lineage, operationCheckpoint },
         state: semanticState,
       }),
     );
@@ -737,9 +743,15 @@ test("semantic inspector confirms only matching server object evidence", () => {
     revisionId: ids.revision,
     objects: { [wall.id]: wall },
   };
-  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+  const lineage = {
+    documentId: "10000000-0000-4000-8000-000000000097",
     revisionId: ids.revision,
+    revisionVersion: 2,
+    snapshotSha256: "a".repeat(64),
     operationCheckpoint: 11,
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    ...lineage,
     state: semanticState,
   });
   const render = (operationCheckpoint) =>
@@ -749,9 +761,9 @@ test("semantic inspector confirms only matching server object evidence", () => {
         canEdit: false,
         evidence,
         hasUnconfirmedChanges: false,
+        lineage: { ...lineage, operationCheckpoint },
         object: wall,
         onCommand() {},
-        operationCheckpoint,
         state: semanticState,
       }),
     );
@@ -764,4 +776,136 @@ test("semantic inspector confirms only matching server object evidence", () => {
   const stale = render(12);
   assert.match(stale, /오래됨|미확정|일치하지/);
   assert.doesNotMatch(stale, /확정 · 5000 mm/);
+});
+
+test("semantic Schedule and inspector reject old same-ID evidence after a versioned geometry change", () => {
+  const room = {
+    id: "10000000-0000-4000-8000-000000000092",
+    name: "Lineage room",
+    layerId: ids.layer,
+    geometry: {
+      type: "space",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 1_000, y: 0 },
+        { x: 1_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+      number: "301",
+      finishes: { floor: null, wall: null, ceiling: null },
+    },
+    styleId: null,
+    style,
+    version: 1,
+  };
+  const serverState = {
+    revisionId: ids.revision,
+    objects: { [room.id]: room },
+  };
+  const lineage = {
+    documentId: "10000000-0000-4000-8000-000000000093",
+    revisionId: ids.revision,
+    revisionVersion: 3,
+    snapshotSha256: "e".repeat(64),
+    operationCheckpoint: 21,
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    ...lineage,
+    state: serverState,
+  });
+  const changedRoom = {
+    ...room,
+    version: 2,
+    geometry: {
+      ...room.geometry,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 4_000, y: 0 },
+        { x: 4_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+    },
+  };
+  const currentState = {
+    revisionId: ids.revision,
+    objects: { [room.id]: changedRoom },
+    layers: {},
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const schedule = renderToStaticMarkup(
+    createElement(semanticTableComponents.DrawingSemanticSchedulesPanel, {
+      evidence,
+      hasUnconfirmedChanges: false,
+      lineage,
+      state: currentState,
+    }),
+  );
+  assert.match(schedule, /오래됨|미확정/);
+  assert.match(schedule, /4 m²/);
+  assert.doesNotMatch(schedule, /Room schedule · 서버 증거/);
+
+  const inspector = renderToStaticMarkup(
+    createElement(semanticInspectorComponents.DrawingSemanticInspector, {
+      actorId: ids.actor,
+      canEdit: false,
+      evidence,
+      hasUnconfirmedChanges: false,
+      lineage,
+      object: changedRoom,
+      onCommand() {},
+      state: currentState,
+    }),
+  );
+  assert.match(inspector, /오래됨|미확정/);
+  assert.doesNotMatch(inspector, /확정 · 1 m²/);
+});
+
+test("semantic Schedule keeps accessible unconfirmed output when server and preview derivation fail", () => {
+  const opening = {
+    id: "10000000-0000-4000-8000-000000000094",
+    name: "Orphan door",
+    layerId: ids.layer,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: "10000000-0000-4000-8000-000000000095",
+      openingKind: "door",
+      offsetMillimeters: 1_000,
+      widthMillimeters: 900,
+      heightMillimeters: 2_100,
+      sillHeightMillimeters: 0,
+    },
+    styleId: null,
+    style,
+    version: 1,
+  };
+  const state = {
+    revisionId: ids.revision,
+    objects: { [opening.id]: opening },
+    layers: {},
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const markup = renderToStaticMarkup(
+    createElement(semanticTableComponents.DrawingSemanticSchedulesPanel, {
+      evidence: null,
+      evidenceError: {
+        code: "measurement_derivation_failed",
+        message: "서버 측정 증거를 계산하지 못했습니다.",
+      },
+      hasUnconfirmedChanges: false,
+      lineage: null,
+      state,
+    }),
+  );
+  assert.match(markup, /서버 측정 증거를 계산하지 못했습니다/);
+  assert.match(markup, /미확정/);
+  assert.match(markup, /계산 불가/);
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /Room schedule/);
+  assert.match(markup, /Finish schedule/);
 });

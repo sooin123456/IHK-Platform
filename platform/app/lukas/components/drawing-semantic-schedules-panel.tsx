@@ -10,8 +10,11 @@ import {
 } from "~/core/components/ui/table";
 import type { DrawingDocumentState } from "~/lukas/lib/drawing-commands";
 import {
-  resolveDrawingSemanticSchedule,
+  drawingMeasurementEvidenceCurrent,
+  resolveDrawingSemanticSchedulePreview,
   resolveDrawingServerEvidenceStatus,
+  type DrawingMeasurementEvidenceLineage,
+  type DrawingMeasurementEvidenceError,
   type DrawingSemanticSchedule,
   type DrawingSemanticScheduleKind,
   type DrawingServerMeasurementEvidence,
@@ -19,18 +22,13 @@ import {
 
 type Props = {
   evidence?: DrawingServerMeasurementEvidence | null;
+  evidenceError?: DrawingMeasurementEvidenceError | null;
   hasUnconfirmedChanges: boolean;
-  operationCheckpoint: number | null;
+  lineage?: DrawingMeasurementEvidenceLineage | null;
   state: DrawingDocumentState;
 };
 
 const scheduleKinds: DrawingSemanticScheduleKind[] = ["room", "door", "finish"];
-
-function semanticObjectIds(state: DrawingDocumentState) {
-  return Object.values(state.objects)
-    .filter((object) => "semanticVersion" in object.geometry)
-    .map((object) => object.id);
-}
 
 function SemanticScheduleTable({
   schedule,
@@ -84,25 +82,33 @@ function SemanticScheduleTable({
 
 export function DrawingSemanticSchedulesPanel({
   evidence,
+  evidenceError,
   hasUnconfirmedChanges,
-  operationCheckpoint,
+  lineage,
   state,
 }: Props) {
-  const status = resolveDrawingServerEvidenceStatus(evidence, {
-    revisionId: state.revisionId,
-    operationCheckpoint,
-    objectIds: semanticObjectIds(state),
-    hasUnconfirmedChanges,
-  });
+  const status = resolveDrawingServerEvidenceStatus(
+    evidence,
+    drawingMeasurementEvidenceCurrent(lineage, state, hasUnconfirmedChanges),
+  );
   const confirmed = status.status === "confirmed" && evidence;
+  const previews = Object.fromEntries(
+    scheduleKinds.map((kind) => [
+      kind,
+      resolveDrawingSemanticSchedulePreview(kind, state),
+    ]),
+  ) as Record<
+    DrawingSemanticScheduleKind,
+    ReturnType<typeof resolveDrawingSemanticSchedulePreview>
+  >;
   const schedules = confirmed
     ? evidence.schedules
     : Object.fromEntries(
-        scheduleKinds.map((kind) => [
-          kind,
-          resolveDrawingSemanticSchedule(kind, state),
-        ]),
+        scheduleKinds.map((kind) => [kind, previews[kind].schedule]),
       );
+  const previewErrors = scheduleKinds.filter(
+    (kind) => previews[kind].status === "error",
+  );
   const source = confirmed ? "서버 증거" : "미리보기";
 
   return (
@@ -120,6 +126,14 @@ export function DrawingSemanticSchedulesPanel({
             아닙니다.
           </span>
         </p>
+        {evidenceError || previewErrors.length ? (
+          <p className="text-rose-200" role="alert">
+            계산 오류 · 미확정 · {evidenceError?.message ?? ""}
+            {previewErrors.length
+              ? ` ${previewErrors.map((kind) => `${kind} Schedule`).join(", ")} 브라우저 Schedule을 계산하지 못했습니다.`
+              : ""}
+          </p>
+        ) : null}
         {confirmed ? (
           <p className="text-emerald-200" role="status">
             <span className="font-semibold">서버 증거</span> ·{" "}

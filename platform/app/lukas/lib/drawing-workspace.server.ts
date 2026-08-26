@@ -29,6 +29,8 @@ import {
 import { validateDrawingSemanticReferences } from "./drawing-structure.ts";
 import {
   deriveDrawingServerMeasurementEvidence,
+  type DrawingMeasurementEvidenceError,
+  type DrawingMeasurementEvidenceLineage,
   type DrawingServerMeasurementEvidence,
 } from "./drawing-semantic-schedules.ts";
 import type {
@@ -923,13 +925,48 @@ export function deriveAuthorizedDrawingMeasurementEvidence(
   if (Object.keys(objectMap).length !== objects.length)
     throw new Error("Drawing measurement object IDs are inconsistent.");
   return deriveDrawingServerMeasurementEvidence({
+    documentId: bootstrap.canonicalJson.revision.documentId,
     revisionId: bootstrap.canonicalJson.revision.id,
+    revisionVersion: bootstrap.canonicalJson.revision.version,
+    snapshotSha256: bootstrap.sha256,
     operationCheckpoint: bootstrap.operationSequence,
     state: {
       revisionId: bootstrap.canonicalJson.revision.id,
       objects: objectMap,
     },
   });
+}
+
+export type DrawingWorkspaceMeasurementState = {
+  authorizedCapability: DrawingWorkspaceCapability;
+  collaborationBootstrap: DrawingWorkspaceCollaborationBootstrap | null;
+  measurementEvidence: DrawingServerMeasurementEvidence | null;
+  measurementEvidenceError: DrawingMeasurementEvidenceError | null;
+};
+
+export type DrawingAuthorizedMeasurementEvidenceResult = {
+  evidence: DrawingServerMeasurementEvidence | null;
+  error: DrawingMeasurementEvidenceError | null;
+};
+
+/** Converts only post-authorization derivation failures into bounded UI state. */
+export function deriveAuthorizedDrawingMeasurementEvidenceResult(
+  bootstrap: DrawingWorkspaceCollaborationBootstrap,
+): DrawingAuthorizedMeasurementEvidenceResult {
+  try {
+    return {
+      evidence: deriveAuthorizedDrawingMeasurementEvidence(bootstrap),
+      error: null,
+    };
+  } catch {
+    return {
+      evidence: null,
+      error: {
+        code: "measurement_derivation_failed",
+        message: "서버 측정 증거를 계산하지 못했습니다.",
+      },
+    };
+  }
 }
 
 /** Loads graph, checkpoint, capability, and outcomes from one database snapshot. */
@@ -948,6 +985,44 @@ export async function loadDrawingWorkspaceCollaborationBootstrap(
   if (parsed.canonicalJson.revision.id !== parsedRevisionId)
     throw new Error("Drawing collaboration revision is inconsistent.");
   return parsed;
+}
+
+/** Authorization/bootstrap errors propagate; only later derivation is bounded. */
+export async function loadDrawingWorkspaceMeasurementState(
+  client: Pick<DrawingWorkspaceClient, "rpc">,
+  expected: Pick<
+    DrawingMeasurementEvidenceLineage,
+    "documentId" | "revisionId" | "revisionVersion"
+  >,
+): Promise<DrawingWorkspaceMeasurementState> {
+  const collaborationBootstrap =
+    await loadDrawingWorkspaceCollaborationBootstrap(
+      client,
+      expected.revisionId,
+    );
+  if (
+    collaborationBootstrap.canonicalJson.revision.documentId !==
+    expected.documentId
+  )
+    throw new DrawingWorkspaceRpcError(
+      "Drawing measurement document lineage is inconsistent.",
+    );
+  if (
+    collaborationBootstrap.canonicalJson.revision.version !==
+    expected.revisionVersion
+  )
+    throw new DrawingWorkspaceRpcError(
+      "Drawing measurement revision lineage is inconsistent.",
+    );
+  const result = deriveAuthorizedDrawingMeasurementEvidenceResult(
+    collaborationBootstrap,
+  );
+  return {
+    authorizedCapability: collaborationBootstrap.capability,
+    collaborationBootstrap: result.error ? null : collaborationBootstrap,
+    measurementEvidence: result.evidence,
+    measurementEvidenceError: result.error,
+  };
 }
 
 export async function deliverDrawingCollaborationOutcome({

@@ -586,7 +586,7 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
   );
 });
 
-test("P4 measurement evidence derives only from the authorized transactional checkpoint", () => {
+test("P4 measurement evidence derives only from the authorized transactional checkpoint", async () => {
   assert.equal(
     typeof workspaceServer.deriveAuthorizedDrawingMeasurementEvidence,
     "function",
@@ -645,7 +645,19 @@ test("P4 measurement evidence derives only from the authorized transactional che
   assert.equal(evidence.revisionId, ids.revision);
   assert.equal(evidence.operationCheckpoint, 17);
   assert.equal(evidence.ruleVersion, "P4_MEASUREMENT_V1");
+  assert.equal(evidence.documentId, ids.document);
+  assert.equal(evidence.revisionVersion, 1);
+  assert.equal(evidence.snapshotSha256, sourceSha);
   assert.deepEqual(evidence.objectIds, [opening.id, wall.id].sort());
+  assert.deepEqual(
+    evidence.objectLineage,
+    [opening, wall]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => ({
+        objectId: object.id,
+        objectVersion: object.version,
+      })),
+  );
   assert.equal(evidence.measurements[opening.id].measurement.count, "1");
 
   assert.throws(
@@ -664,6 +676,104 @@ test("P4 measurement evidence derives only from the authorized transactional che
   assert.throws(
     () => parseWorkspaceMutation(clientMeasurement),
     /지원하지|intent|invalid|expected/i,
+  );
+
+  await assert.rejects(
+    workspaceServer.loadDrawingWorkspaceMeasurementState(
+      {
+        async rpc() {
+          return { data: bootstrap, error: null };
+        },
+      },
+      {
+        documentId: "00000000-0000-4000-8000-000000000099",
+        revisionId: ids.revision,
+        revisionVersion: 1,
+      },
+    ),
+    /document lineage is inconsistent/i,
+  );
+});
+
+test("authorized measurement derivation returns a bounded error without evidence for an invalid graph", async () => {
+  assert.equal(
+    typeof workspaceServer.deriveAuthorizedDrawingMeasurementEvidenceResult,
+    "function",
+  );
+  const opening = p4Object(
+    p4FixtureIds.opening,
+    ids.workLayer,
+    validP4Geometries[1],
+    "D-01",
+  );
+  const bootstrap = {
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.document,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources: [],
+      pages: [],
+      canvases: [],
+      layers: [],
+      objects: [
+        {
+          ...opening,
+          lineageId: opening.id,
+          pageId: ids.page,
+          type: opening.geometry.type,
+        },
+      ],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [],
+      operationSequence: 17,
+    },
+    operationSequence: 17,
+    schemaVersion: 2,
+    sha256: sourceSha,
+    revisionStatus: "draft",
+    capability: "viewer",
+    canWrite: false,
+    recentOutcomes: [],
+  };
+
+  const result =
+    workspaceServer.deriveAuthorizedDrawingMeasurementEvidenceResult(bootstrap);
+  assert.deepEqual(result, {
+    evidence: null,
+    error: {
+      code: "measurement_derivation_failed",
+      message: "서버 측정 증거를 계산하지 못했습니다.",
+    },
+  });
+
+  const routeState = await workspaceServer.loadDrawingWorkspaceMeasurementState(
+    {
+      async rpc() {
+        return { data: bootstrap, error: null };
+      },
+    },
+    {
+      documentId: ids.document,
+      revisionId: ids.revision,
+      revisionVersion: 1,
+    },
+  );
+  assert.equal(routeState.collaborationBootstrap, null);
+  assert.equal(routeState.authorizedCapability, "viewer");
+  assert.equal(routeState.measurementEvidence, null);
+  assert.equal(
+    routeState.measurementEvidenceError?.code,
+    "measurement_derivation_failed",
   );
 });
 

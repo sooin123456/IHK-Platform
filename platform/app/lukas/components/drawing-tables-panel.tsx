@@ -21,7 +21,11 @@ import type {
   DrawingDocumentState,
 } from "~/lukas/lib/drawing-commands";
 import type { DrawingTable } from "~/lukas/lib/drawing-workspace.types";
-import type { DrawingServerMeasurementEvidence } from "~/lukas/lib/drawing-semantic-schedules";
+import type {
+  DrawingMeasurementEvidenceError,
+  DrawingMeasurementEvidenceLineage,
+  DrawingServerMeasurementEvidence,
+} from "~/lukas/lib/drawing-semantic-schedules";
 import { DrawingSemanticSchedulesPanel } from "./drawing-semantic-schedules-panel";
 
 type Props = {
@@ -31,8 +35,9 @@ type Props = {
   selectedIds: string[];
   state: DrawingDocumentState;
   evidence?: DrawingServerMeasurementEvidence | null;
+  evidenceError?: DrawingMeasurementEvidenceError | null;
   hasUnconfirmedChanges?: boolean;
-  operationCheckpoint?: number | null;
+  lineage?: DrawingMeasurementEvidenceLineage | null;
 };
 
 function message(error: unknown) {
@@ -220,9 +225,10 @@ export function DrawingTablesPanel(props: Props) {
     actorId,
     canEdit,
     evidence,
+    evidenceError,
     hasUnconfirmedChanges = false,
+    lineage,
     onCommand,
-    operationCheckpoint = null,
     selectedIds,
     state,
   } = props;
@@ -294,8 +300,9 @@ export function DrawingTablesPanel(props: Props) {
     >
       <DrawingSemanticSchedulesPanel
         evidence={evidence}
+        evidenceError={evidenceError}
         hasUnconfirmedChanges={hasUnconfirmedChanges}
-        operationCheckpoint={operationCheckpoint}
+        lineage={lineage}
         state={state}
       />
       <h2
