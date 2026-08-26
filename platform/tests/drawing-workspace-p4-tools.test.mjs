@@ -15,6 +15,9 @@ const vite = await createServer({
 const tools = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-canvas.client.tsx",
 );
+const awareness = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-awareness.ts",
+);
 test.after(() => vite.close());
 
 const layerId = "10000000-0000-4000-8000-000000000001";
@@ -382,6 +385,49 @@ test("wall and grid reconcile competing object and grid snaps onto an exact Shif
   }
 });
 
+test("wall and grid serialize noncanonical Shift starts onto one exact signed micromillimetre ray", () => {
+  const scaled = (value) => BigInt(Math.round(value * 1_000_000));
+  const absolute = (value) => (value < 0n ? -value : value);
+  const cases = [
+    {
+      end: { x: 10, y: 10 },
+      expectedSigns: [1, 1],
+      snap,
+    },
+    {
+      end: { x: -719, y: 734 },
+      expectedSigns: [-1, 1],
+      snap: {
+        ...snap,
+        objectCandidates: [{ x: -720, y: 735 }],
+        tolerancePixels: 30,
+      },
+    },
+    {
+      end: { x: 910, y: -520 },
+      expectedSigns: [1, -1],
+      snap: { ...snap, gridSize: 100, tolerancePixels: 100 },
+    },
+  ];
+  for (const tool of ["wall", "grid"])
+    for (const fixture of cases) {
+      const geometry = tools.commitDrawingPoint(
+        tools.beginDrawingToolSession(
+          tool,
+          { x: 0.0000001, y: 0.0000005 },
+          snap,
+        ),
+        fixture.end,
+        options({ constrain: true, snap: fixture.snap }),
+      ).command.objects[0].geometry;
+      const deltaX = scaled(geometry.end.x) - scaled(geometry.start.x);
+      const deltaY = scaled(geometry.end.y) - scaled(geometry.start.y);
+      assert.equal(absolute(deltaX), absolute(deltaY));
+      assert.equal(deltaX > 0n ? 1 : -1, fixture.expectedSigns[0]);
+      assert.equal(deltaY > 0n ? 1 : -1, fixture.expectedSigns[1]);
+    }
+});
+
 test("semantic narrow-phase selection falls through an empty top bounding box", () => {
   const rectangle = {
     id: objectId,
@@ -436,6 +482,88 @@ test("semantic narrow-phase selection falls through an empty top bounding box", 
     },
   );
   assert.deepEqual(result.state.selectedIds, [rectangle.id]);
+});
+
+test("Canvas Shift selection and Awareness lock use the narrow-phase resolved target", () => {
+  assert.equal(typeof tools.drawingCanvasSelectionPointerDown, "function");
+  const under = {
+    id: objectId,
+    name: "Under",
+    layerId,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 100,
+      height: 100,
+      rotation: 0,
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const top = {
+    id: openingId,
+    name: "Top L",
+    layerId,
+    geometry: {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 40 },
+        { x: 40, y: 40 },
+        { x: 40, y: 100 },
+        { x: 0, y: 100 },
+      ],
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: "#ffffff" },
+    version: 1,
+  };
+  const existing = {
+    ...under,
+    id: wallId,
+    name: "Existing",
+    geometry: {
+      type: "rectangle",
+      origin: { x: 200, y: 200 },
+      width: 20,
+      height: 20,
+      rotation: 0,
+    },
+  };
+  const objects = { [under.id]: under, [top.id]: top, [existing.id]: existing };
+  const result = tools.drawingCanvasSelectionPointerDown(
+    tools.createDrawingSelectionState([existing.id]),
+    {
+      type: "pointer_down",
+      candidateId: top.id,
+      pointerId: 7,
+      screenPoint: { x: 80, y: 80 },
+      shiftKey: true,
+    },
+    {
+      actorId: "actor-a",
+      canEdit: true,
+      layers: { [layerId]: layer() },
+      objects,
+      orderedCandidateIds: [under.id, existing.id, top.id],
+      snap: { gridSize: 0 },
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+    new Set(),
+    new Set(Object.keys(objects)),
+  );
+  assert.deepEqual(result.state.selectedIds, [existing.id, under.id]);
+  assert.equal(result.softLockId, under.id);
+
+  const published = [];
+  const lease = awareness.createDrawingSoftLockLease({
+    createId: () => "10000000-0000-4000-8000-000000000099",
+    now: () => 100,
+    onChange: (locks) => published.push(locks),
+  });
+  lease.acquire(result.softLockId);
+  assert.equal(published.at(-1)[0].entityId, under.id);
 });
 
 test("wall drag previews include visible hosted openings but commit only the wall", () => {
@@ -549,6 +677,113 @@ test("wall drag previews include visible hosted openings but commit only the wal
   );
   assert.equal(hostHidden.state.drag, null);
   assert.deepEqual(hostHidden.state.previewDelta, { x: 0, y: 0 });
+});
+
+test("an opening drag fails closed before render when its non-active layer becomes ineligible", () => {
+  const draggedOpening = {
+    id: openingId,
+    name: "D-01",
+    layerId: otherLayerId,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: wallId,
+      offsetMillimeters: 1800,
+      widthMillimeters: 900,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    style: { stroke: "#000000", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const objects = { [wallId]: wall, [openingId]: draggedOpening };
+  const baseContext = {
+    actorId: "actor-a",
+    canEdit: true,
+    layers: {
+      [layerId]: layer(),
+      [otherLayerId]: layer(otherLayerId),
+    },
+    objects,
+    orderedCandidateIds: [wallId, openingId],
+    snap: { gridSize: 0 },
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+  let gesture = tools.drawingSelectionEventTransition(
+    tools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: openingId,
+      pointerId: 11,
+      screenPoint: { x: 1800, y: 0 },
+      shiftKey: false,
+    },
+    baseContext,
+  );
+  gesture = tools.drawingSelectionEventTransition(
+    gesture.state,
+    { type: "pointer_move", pointerId: 11, screenPoint: { x: 1900, y: 0 } },
+    baseContext,
+  );
+  assert.deepEqual(gesture.state.previewDelta, { x: 100, y: 0 });
+
+  const downgrades = [
+    {
+      ...baseContext,
+      layers: {
+        ...baseContext.layers,
+        [otherLayerId]: layer(otherLayerId, { locked: true }),
+      },
+    },
+    {
+      ...baseContext,
+      layers: {
+        ...baseContext.layers,
+        [otherLayerId]: layer(otherLayerId, { visible: false }),
+      },
+    },
+    {
+      ...baseContext,
+      layers: {
+        ...baseContext.layers,
+        [otherLayerId]: layer(otherLayerId, { systemKind: "source" }),
+      },
+    },
+    { ...baseContext, lockedEntityIds: new Set([openingId]) },
+  ];
+  for (const downgraded of downgrades) {
+    const preview = tools.drawingSelectionPreview({
+      actorId: "actor-a",
+      canEdit: true,
+      delta: gesture.state.previewDelta,
+      layers: downgraded.layers,
+      lockedEntityIds: downgraded.lockedEntityIds,
+      objects,
+      selectedIds: [openingId],
+    });
+    assert.deepEqual(preview.objectIds, []);
+    assert.equal(preview.objects, objects);
+
+    const cancelled = tools.drawingSelectionEventTransition(
+      gesture.state,
+      { type: "sync_context" },
+      downgraded,
+    );
+    assert.deepEqual(cancelled.pointerCapture, {
+      type: "release",
+      pointerId: 11,
+    });
+    assert.equal(cancelled.softLockId, null);
+    assert.equal(cancelled.command, null);
+    assert.equal(cancelled.state.drag, null);
+    const released = tools.drawingSelectionEventTransition(
+      cancelled.state,
+      { type: "pointer_up", pointerId: 11, screenPoint: { x: 1900, y: 0 } },
+      downgraded,
+    );
+    assert.equal(released.command, null);
+  }
 });
 
 test("semantic render cache is identity-bounded and stores only opening and arc views", () => {
