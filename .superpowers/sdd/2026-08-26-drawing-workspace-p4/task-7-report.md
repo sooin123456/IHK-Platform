@@ -74,5 +74,6 @@ ms`, real provider/offline recovery, hosted org/RLS/freeze/approval/source,
 
 Requested commit message: `test: verify drawing workspace P4 semantics`.
 
-This initial report is supplemented by `task-7-fix-report.md`, which records
-the official-review corrections and fresh executable evidence.
+This initial report is supplemented by `task-7-fix-report.md` and
+`task-7-fix2-report.md`, which record the review corrections and fresh
+executable evidence.

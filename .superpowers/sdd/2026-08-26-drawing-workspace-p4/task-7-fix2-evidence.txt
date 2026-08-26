@@ -1,0 +1,32 @@
+P4 Task 7 rereview fix evidence — 2026-08-27
+Source implementation commit: 1a78ea49b4c3ad91f09f0d44306938dd023d1c60
+
+FOCUSED / MUTATION PASS
+  node --test tests/drawing-workspace-p4-release.test.mjs
+  15 pass, 0 fail
+  64 deterministic UUID/object permutations accepted
+  wrong, missing, duplicate, type-swapped, schedule-swapped, and stale lineage rejected
+  hostile inherited pagers rejected by a real pseudo-TTY runner probe
+
+LOCAL PASS — CLEAN ENVIRONMENT + TTY, NO INPUT
+  cd platform
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:local
+  exit 0; terminal: P4 LOCAL PASS
+  Chromium functional/IndexedDB: 9 pass, 0 fail
+  production-build performance Chromium: 1 pass, 0 fail
+  explicit IFC/PDF/quantity/approval/Revit regressions: 98 pass, 0 fail
+  licenses: 7 pass, 0 fail
+
+GENERATED MEASUREMENT EVIDENCE
+  file: task-7-performance.json
+  sourceCommitSha: 1a78ea49b4c3ad91f09f0d44306938dd023d1c60
+  firstUsableTargetMs: 2500
+  firstUsableTargetMet: false
+  p7SixtyFpsGate: UNEXECUTED
+  productionProviderP95: UNEXECUTED
+
+PRODUCTION UNEXECUTED
+  cd platform
+  env -i PATH="$PATH" npm run release:drawing-workspace-p4:production
+  exit 1 before Playwright; all ten missing authorities named
+  No hosted provider, offline/reconnect, RLS/freeze/source, deploy, cleanup, or rollback pass exists.
