@@ -361,9 +361,15 @@ export function drawingCanvasRenderAdapter(input: {
   const objectMap = Object.fromEntries(
     input.objects.map((object) => [object.id, object]),
   );
+  const objectIsVisible = (object: DrawingObject) => {
+    if (!input.layers[object.layerId]?.visible) return false;
+    if (object.geometry.type !== "opening") return true;
+    const host = objectMap[object.geometry.hostWallId];
+    return host === undefined || Boolean(input.layers[host.layerId]?.visible);
+  };
   const sortedItems: DrawingCanvasRenderItem[] = [
     ...input.objects.flatMap((object) =>
-      input.layers[object.layerId]?.visible
+      objectIsVisible(object)
         ? [
             {
               bounds: geometryBounds(object.geometry, objectMap),
@@ -401,10 +407,7 @@ export function drawingCanvasRenderAdapter(input: {
       if (item.kind !== "object" || item.object.geometry.type !== "opening")
         return true;
       const host = objectMap[item.object.geometry.hostWallId];
-      return (
-        host?.layerId !== item.layerId ||
-        !remaining.some((candidate) => candidate.id === host.id)
-      );
+      return !host || !remaining.some((candidate) => candidate.id === host.id);
     });
     items.push(...remaining.splice(readyIndex < 0 ? 0 : readyIndex, 1));
   }

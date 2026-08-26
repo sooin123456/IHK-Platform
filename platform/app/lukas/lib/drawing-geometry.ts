@@ -195,14 +195,77 @@ export const DRAWING_SEMANTIC_RENDER_METRICS = {
   gridDash: [16, 8] as const,
   gridLabelWidth: 80,
   labelFontSize: 14,
+  labelLineHeight: 1.2,
   labelYOffset: 7,
   openingCutExtra: 4,
   openingWidth: 10,
   spaceFill: "#dbeafe66",
+  spaceLabelMaxLines: 3,
   spaceLabelWidth: 180,
   voidWidth: 2,
   windowMarkerWidth: 5,
 } as const;
+
+function semanticLabelCharacterWidth(character: string, fontSize: number) {
+  if (/\p{Mark}/u.test(character)) return 0;
+  if (/\s/u.test(character)) return fontSize * 0.33;
+  return fontSize * (character.codePointAt(0)! <= 0x7f ? 0.48 : 1);
+}
+
+function semanticLabelTextWidth(text: string, fontSize: number) {
+  return Array.from(text).reduce(
+    (width, character) =>
+      width + semanticLabelCharacterWidth(character, fontSize),
+    0,
+  );
+}
+
+function splitSemanticLabelToken(
+  token: string,
+  width: number,
+  fontSize: number,
+) {
+  const parts: string[] = [];
+  let part = "";
+  for (const character of Array.from(token)) {
+    if (part && semanticLabelTextWidth(part + character, fontSize) > width) {
+      parts.push(part);
+      part = character;
+    } else part += character;
+  }
+  if (part) parts.push(part);
+  return parts;
+}
+
+function wrapSemanticLabel(
+  text: string,
+  width: number,
+  fontSize: number,
+  maxLines: number,
+) {
+  const words = text.split(/\s+/u).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const parts = splitSemanticLabelToken(word, width, fontSize);
+    for (const part of parts) {
+      const candidate = line ? `${line} ${part}` : part;
+      if (line && semanticLabelTextWidth(candidate, fontSize) > width) {
+        lines.push(line);
+        line = part;
+      } else line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length <= maxLines) return lines;
+  const bounded = lines.slice(0, maxLines);
+  const ellipsis = "…";
+  let last = bounded[maxLines - 1];
+  while (last && semanticLabelTextWidth(last + ellipsis, fontSize) > width)
+    last = Array.from(last).slice(0, -1).join("");
+  bounded[maxLines - 1] = `${last}${ellipsis}`;
+  return bounded;
+}
 
 export function drawingPolygonCentroid(points: readonly Point[]): Point {
   let doubledArea = 0;
@@ -226,6 +289,12 @@ export function drawingSemanticLabelLayout(
   objectName: string,
 ) {
   const metrics = DRAWING_SEMANTIC_RENDER_METRICS;
+  const text =
+    geometry.type === "space"
+      ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
+      : geometry.type === "area"
+        ? objectName || "영역"
+        : objectName || "Grid";
   if (geometry.type === "grid") {
     const angle =
       (Math.atan2(
@@ -234,10 +303,19 @@ export function drawingSemanticLabelLayout(
       ) *
         180) /
       Math.PI;
+    const lines = wrapSemanticLabel(
+      text,
+      metrics.gridLabelWidth,
+      metrics.labelFontSize,
+      1,
+    );
     return {
       fontSize: metrics.labelFontSize,
+      height: metrics.labelFontSize * metrics.labelLineHeight,
+      lineHeight: metrics.labelLineHeight,
+      lines,
       rotation: angle > 90 || angle < -90 ? angle + 180 : angle,
-      text: objectName || "Grid",
+      text,
       width: metrics.gridLabelWidth,
       x: geometry.end.x - metrics.gridLabelWidth / 2,
       y: geometry.end.y - metrics.labelYOffset,
@@ -245,13 +323,19 @@ export function drawingSemanticLabelLayout(
   }
   const centroid = drawingPolygonCentroid(geometry.boundary);
   const width = metrics.spaceLabelWidth;
+  const lines = wrapSemanticLabel(
+    text,
+    width,
+    metrics.labelFontSize,
+    metrics.spaceLabelMaxLines,
+  );
   return {
     fontSize: metrics.labelFontSize,
+    height: lines.length * metrics.labelFontSize * metrics.labelLineHeight,
+    lineHeight: metrics.labelLineHeight,
+    lines,
     rotation: 0,
-    text:
-      geometry.type === "space"
-        ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
-        : objectName || "영역",
+    text,
     width,
     x: centroid.x - width / 2,
     y: centroid.y - metrics.labelYOffset,

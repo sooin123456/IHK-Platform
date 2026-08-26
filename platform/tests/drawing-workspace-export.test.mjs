@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { chromium } from "@playwright/test";
@@ -12,7 +12,10 @@ import {
   exportDrawingPng,
   exportDrawingSvg,
 } from "../app/lukas/lib/drawing-export.ts";
-import { geometryBounds } from "../app/lukas/lib/drawing-geometry.ts";
+import {
+  drawingSemanticLabelLayout,
+  geometryBounds,
+} from "../app/lukas/lib/drawing-geometry.ts";
 import { resolveDrawingOpening } from "../app/lukas/lib/drawing-semantic-geometry.ts";
 import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
@@ -660,7 +663,7 @@ test("PNG export has deterministic 1x, 2x, and 4x dimensions", async () => {
   }
 });
 
-test("host walls render before their openings regardless of UUID order", () => {
+test("exports use stable cross-layer host ordering across randomized UUIDs", () => {
   for (const [wallId, openingId] of [
     [
       "ffffffff-ffff-4fff-8fff-ffffffffffff",
@@ -674,6 +677,7 @@ test("host walls render before their openings regardless of UUID order", () => {
       "be2c5ea0-dc2a-4e07-ae62-e7c962505c76",
       "37c251c4-e9a0-4711-964c-61391529afdd",
     ],
+    ...Array.from({ length: 32 }, () => [randomUUID(), randomUUID()]),
   ]) {
     const document = semanticExportFixture();
     const wall = structuredClone(document.structure.objects[ids.semanticWall]);
@@ -684,6 +688,30 @@ test("host walls render before their openings regardless of UUID order", () => {
     wall.id = wallId;
     door.id = openingId;
     door.geometry.hostWallId = wallId;
+    const openingLayerId = randomUUID();
+    const wallLayerId = randomUUID();
+    document.structure.layers[openingLayerId] = {
+      id: openingLayerId,
+      name: "Opening below host",
+      canvasId: ids.canvasSecond,
+      sortOrder: 0,
+      visible: true,
+      locked: false,
+      systemKind: "custom",
+      version: 1,
+    };
+    document.structure.layers[wallLayerId] = {
+      id: wallLayerId,
+      name: "Host above opening",
+      canvasId: ids.canvasSecond,
+      sortOrder: 2,
+      visible: true,
+      locked: false,
+      systemKind: "custom",
+      version: 1,
+    };
+    wall.layerId = wallLayerId;
+    door.layerId = openingLayerId;
     document.structure.objects[wallId] = wall;
     document.structure.objects[openingId] = door;
     const semanticOrder = collectExportPrimitives(document, ids.canvasSecond)
@@ -709,7 +737,74 @@ test("semantic export matches the live canvas render metrics and label layout", 
   assert.match(svg, /fill="#dbeafe66"/);
   assert.match(svg, /fill="#fde68a66"/);
   assert.match(svg, /<circle[^>]+r="18"[^>]+stroke-width="2"/);
-  assert.match(svg, /x="270" y="293"[^>]+>101 · 회의실<\/text>/);
+  assert.match(
+    svg,
+    /transform="translate\(180 293\) rotate\(0\)"[^>]*><text[^>]+aria-label="101 · 회의실"[^>]*><tspan x="90" y="0">101 · 회의실<\/tspan>/,
+  );
+});
+
+test("long semantic labels share deterministic bounded lines across live, SVG, PNG, and PDF plans", async () => {
+  const document = semanticExportFixture();
+  const longName =
+    "회의실 semantic label with deterministic wrapping 😀 가나다라 마바사 verylongtokenwithoutspaces";
+  document.structure.objects[ids.semanticSpace].name = longName;
+  const geometry = document.structure.objects[ids.semanticSpace].geometry;
+  const layout = drawingSemanticLabelLayout(geometry, longName);
+  assert.deepEqual(layout.lines, [
+    "101 · 회의실 semantic",
+    "label with deterministic",
+    "wrapping 😀 가나다라 마바…",
+  ]);
+  assert.equal(layout.text, `101 · ${longName}`);
+  assert.equal(layout.height, 50.4);
+
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  assert.match(
+    svg,
+    /aria-label="101 · 회의실 semantic label with deterministic wrapping 😀 가나다라 마바사 verylongtokenwithoutspaces"/,
+  );
+  assert.match(
+    svg,
+    /<clipPath id="drawing-export-clip-[^"]+-semantic-label"><rect[^>]+width="180" height="50\.4"/,
+  );
+  for (const line of layout.lines)
+    assert.match(svg, new RegExp(`>${line}</tspan>`));
+  assert.doesNotMatch(
+    svg,
+    />101 · 회의실 semantic label with deterministic wrapping/,
+  );
+
+  const canvas = fakeCanvas({ pngBytes: onePixelPng });
+  await exportDrawingPng(document, ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    scale: 1,
+  });
+  assert.deepEqual(
+    canvas.calls
+      .filter(
+        ([name, text]) => name === "fillText" && layout.lines.includes(text),
+      )
+      .map(([, text]) => text),
+    layout.lines,
+  );
+  assert.ok(canvas.calls.some(([name]) => name === "clip"));
+
+  const pdfCanvas = fakeCanvas({ pngBytes: onePixelPng });
+  await exportDrawingPdf(document, {
+    canvasFactory: () => pdfCanvas,
+    canvasIds: [ids.canvasSecond],
+    createdAt: "2026-08-27T00:00:00.000Z",
+    scale: 1,
+    title: "Wrapped semantic labels",
+  });
+  assert.deepEqual(
+    pdfCanvas.calls
+      .filter(
+        ([name, text]) => name === "fillText" && layout.lines.includes(text),
+      )
+      .map(([, text]) => text),
+    layout.lines,
+  );
 });
 
 test("P4 mixed geometry has one canonical SVG PNG and PDF render plan", async () => {
@@ -744,7 +839,7 @@ test("P4 mixed geometry has one canonical SVG PNG and PDF render plan", async ()
   assert.equal((svg.match(/data-semantic-type=/g) ?? []).length, 7);
   assert.match(svg, /101 · 회의실/);
   assert.match(svg, /외부 포장/);
-  assert.match(svg, />A<\/text>/);
+  assert.match(svg, />A<\/tspan><\/text>/);
   assert.match(svg, /stroke-width="18"/);
   assert.match(svg, /fill="#cfe8ff"/);
   assert.match(svg, /stroke-dasharray="16 8"/);
@@ -1289,10 +1384,33 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
   };
   const inverseOpeningId = "00000000-0000-4000-8000-000000001001";
   const inverseWallId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const inverseOpeningLayerId = "00000000-0000-4000-8000-000000001035";
+  const inverseWallLayerId = "00000000-0000-4000-8000-000000001036";
+  document.structure.layers[ids.layerSecond].sortOrder = 1;
+  document.structure.layers[inverseOpeningLayerId] = {
+    id: inverseOpeningLayerId,
+    name: "Opening lower layer",
+    canvasId: ids.canvasSecond,
+    sortOrder: 0,
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    version: 1,
+  };
+  document.structure.layers[inverseWallLayerId] = {
+    id: inverseWallLayerId,
+    name: "Wall higher layer",
+    canvasId: ids.canvasSecond,
+    sortOrder: 2,
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    version: 1,
+  };
   document.structure.objects[inverseWallId] = {
     id: inverseWallId,
     name: "Inverse ordered wall",
-    layerId: ids.layerSecond,
+    layerId: inverseWallLayerId,
     geometry: {
       type: "wall",
       semanticVersion: 1,
@@ -1308,7 +1426,7 @@ test("real browser export preserves source evidence and renders ordered SVG, PNG
   document.structure.objects[inverseOpeningId] = {
     id: inverseOpeningId,
     name: "Inverse ordered opening",
-    layerId: ids.layerSecond,
+    layerId: inverseOpeningLayerId,
     geometry: {
       type: "opening",
       semanticVersion: 1,

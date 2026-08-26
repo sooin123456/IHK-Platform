@@ -474,6 +474,128 @@ test("production render adapter orders committed and hit items together and disp
   assert.equal(adapter.topmostAt({ x: 15, y: 25 })?.id, ids.instance);
 });
 
+test("render order is a stable host dependency graph across randomized layer and UUID order", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  for (let index = 0; index < 64; index += 1) {
+    const lowLayer = `low-${index}`;
+    const middleLayer = `middle-${index}`;
+    const highLayer = `high-${index}`;
+    const suffix = String(index).padStart(12, "0");
+    const wallId = `${index % 2 ? "ffffffff" : "10000000"}-0000-4000-8000-${suffix}`;
+    const openingId = `${index % 2 ? "00000000" : "f0000000"}-0000-4000-8000-${String(index + 100).padStart(12, "0")}`;
+    const unrelatedLowId = `20000000-0000-4000-8000-${String(index + 200).padStart(12, "0")}`;
+    const unrelatedHighId = `e0000000-0000-4000-8000-${String(index + 300).padStart(12, "0")}`;
+    const layers = {
+      [lowLayer]: { visible: true, locked: false, sortOrder: 0 },
+      [middleLayer]: { visible: true, locked: false, sortOrder: 1 },
+      [highLayer]: { visible: true, locked: false, sortOrder: 2 },
+    };
+    const wall = {
+      ...object(wallId),
+      layerId: highLayer,
+      geometry: {
+        type: "wall",
+        semanticVersion: 1,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        thicknessMillimeters: 10,
+        heightMillimeters: 3000,
+      },
+      style: { ...inlineStyle },
+    };
+    const opening = {
+      ...object(openingId),
+      layerId: lowLayer,
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: wallId,
+        offsetMillimeters: 50,
+        widthMillimeters: 20,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "door",
+      },
+      style: { ...inlineStyle },
+    };
+    const rendered = blocks
+      .drawingCanvasRenderAdapter({
+        blockInstances: [],
+        layers,
+        objects: [
+          opening,
+          {
+            ...object(unrelatedHighId),
+            layerId: middleLayer,
+            style: { ...inlineStyle },
+          },
+          wall,
+          {
+            ...object(unrelatedLowId),
+            layerId: lowLayer,
+            style: { ...inlineStyle },
+          },
+        ],
+        zoom: 1,
+      })
+      .items.map(({ id }) => id);
+    assert.ok(
+      rendered.indexOf(wallId) < rendered.indexOf(openingId),
+      `host ${index}`,
+    );
+    assert.ok(
+      rendered.indexOf(unrelatedLowId) < rendered.indexOf(unrelatedHighId),
+      `unrelated ${index}`,
+    );
+  }
+});
+
+test("a hosted opening inherits hidden host visibility across layers", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const wallId = "50000000-0000-4000-8000-000000000001";
+  const openingId = "50000000-0000-4000-8000-000000000002";
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    blockInstances: [],
+    layers: {
+      wall: { visible: false, locked: false, sortOrder: 1 },
+      opening: { visible: true, locked: false, sortOrder: 0 },
+    },
+    objects: [
+      {
+        ...object(wallId),
+        layerId: "wall",
+        geometry: {
+          type: "wall",
+          semanticVersion: 1,
+          start: { x: 0, y: 0 },
+          end: { x: 100, y: 0 },
+          thicknessMillimeters: 10,
+          heightMillimeters: 3000,
+        },
+        style: { ...inlineStyle },
+      },
+      {
+        ...object(openingId),
+        layerId: "opening",
+        geometry: {
+          type: "opening",
+          semanticVersion: 1,
+          hostWallId: wallId,
+          offsetMillimeters: 50,
+          widthMillimeters: 20,
+          heightMillimeters: 2100,
+          sillHeightMillimeters: 0,
+          openingKind: "door",
+        },
+        style: { ...inlineStyle },
+      },
+    ],
+    zoom: 1,
+  });
+  assert.deepEqual(adapter.items, []);
+  assert.deepEqual(adapter.hitItems, []);
+});
+
 test("render models resolve live style definitions with primitive overrides and fail closed", () => {
   const block = {
     id: ids.block,
@@ -670,7 +792,10 @@ test("block conversion atomically cleans selected object properties and schedule
   );
   const undone = undoDrawingCommand(applied.state, ids.actor);
   assert.ok(undone && !("kind" in undone));
-  assert.deepEqual(undone.state.structure.propertyValues[value.id].value, "A-01");
+  assert.deepEqual(
+    undone.state.structure.propertyValues[value.id].value,
+    "A-01",
+  );
   assert.equal(undone.state.structure.tables[table.id].rows[0].id, ids.row);
 });
 

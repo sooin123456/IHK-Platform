@@ -164,7 +164,8 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
   expect(svg.match(/data-semantic-type=/g)).toHaveLength(8);
   expect(svg).toContain("101 · 회의실");
   expect(svg).toContain("외부 포장");
-  expect(svg).toContain(">A</text>");
+  expect(svg).toContain('aria-label="A"');
+  expect(svg).toContain('<tspan x="40" y="0">A</tspan>');
   const png = await exportBytes(page, "PNG");
   expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
 

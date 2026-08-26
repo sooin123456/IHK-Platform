@@ -1928,17 +1928,26 @@ function geometryShape(
             }
             points={geometry.boundary.flatMap((point) => [point.x, point.y])}
           />
-          <KonvaText
-            align="center"
-            fill={style.stroke}
-            fontSize={label.fontSize}
+          <Group
+            clipHeight={label.height}
+            clipWidth={label.width}
             listening={false}
-            name="drawing-semantic-label"
-            text={label.text}
-            width={label.width}
             x={label.x}
             y={label.y}
-          />
+          >
+            <KonvaText
+              align="center"
+              fill={style.stroke}
+              fontSize={label.fontSize}
+              height={label.height}
+              lineHeight={label.lineHeight}
+              listening={false}
+              name="drawing-semantic-label"
+              text={label.lines.join("\n")}
+              width={label.width}
+              wrap="none"
+            />
+          </Group>
         </>
       );
     }
@@ -1964,18 +1973,27 @@ function geometryShape(
             x={geometry.end.x}
             y={geometry.end.y}
           />
-          <KonvaText
-            align="center"
-            fill={style.stroke}
-            fontSize={label.fontSize}
+          <Group
+            clipHeight={label.height}
+            clipWidth={label.width}
             listening={false}
-            name="drawing-semantic-label"
             rotation={label.rotation}
-            text={label.text}
-            width={label.width}
             x={label.x}
             y={label.y}
-          />
+          >
+            <KonvaText
+              align="center"
+              fill={style.stroke}
+              fontSize={label.fontSize}
+              height={label.height}
+              lineHeight={label.lineHeight}
+              listening={false}
+              name="drawing-semantic-label"
+              text={label.lines.join("\n")}
+              width={label.width}
+              wrap="none"
+            />
+          </Group>
         </>
       );
     }

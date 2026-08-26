@@ -3,6 +3,127 @@ export const p4FixtureIds = {
   opening: "40000000-0000-4000-8000-000000000002",
 };
 
+const p4TrimWhitespace = [
+  "\u0009",
+  "\u000a",
+  "\u000b",
+  "\u000c",
+  "\u000d",
+  "\u0020",
+  "\u00a0",
+  "\u1680",
+  "\u2000",
+  "\u2001",
+  "\u2002",
+  "\u2003",
+  "\u2004",
+  "\u2005",
+  "\u2006",
+  "\u2007",
+  "\u2008",
+  "\u2009",
+  "\u200a",
+  "\u2028",
+  "\u2029",
+  "\u202f",
+  "\u205f",
+  "\u3000",
+  "\ufeff",
+];
+
+function randomizedInteriorName(seed) {
+  let state = seed >>> 0;
+  const random = () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state;
+  };
+  const atoms = [
+    "A",
+    "z",
+    "한",
+    "😀",
+    "e\u0301",
+    "\u0001",
+    "\u0085",
+    ...p4TrimWhitespace,
+  ];
+  let value = "N";
+  while (value.length < 220) {
+    const atom = atoms[random() % atoms.length];
+    if (value.length + atom.length + 1 > 255) break;
+    value += atom;
+  }
+  return `${value}Z`;
+}
+
+export const p4ObjectNameCorpus = [
+  ["one BMP unit", "A", true],
+  ["255 BMP units", "a".repeat(255), true],
+  ["255 mixed UTF-16 units", `${"😀".repeat(127)}a`, true],
+  ["interior whitespace and controls", "A\t\u00a0\u0001\u0085B", true],
+  ...Array.from({ length: 32 }, (_, index) => [
+    `randomized valid Unicode name ${index}`,
+    randomizedInteriorName(0x4f424a00 + index),
+    true,
+  ]),
+  ["empty name", "", false],
+  ["256 BMP units", "a".repeat(256), false],
+  ["256 non-BMP UTF-16 units", "😀".repeat(128), false],
+  ["NUL name", "A\u0000B", false],
+  ["lone high surrogate name", "A\ud800B", false],
+  ["lone low surrogate name", "A\udc00B", false],
+  ...p4TrimWhitespace.flatMap((whitespace, index) => [
+    [`leading ECMAScript trim whitespace ${index}`, `${whitespace}A`, false],
+    [`trailing ECMAScript trim whitespace ${index}`, `A${whitespace}`, false],
+    [`only ECMAScript trim whitespace ${index}`, whitespace, false],
+  ]),
+  ["U+180E is not ECMAScript trim whitespace", "A\u180e", true],
+];
+
+const allPropertyTargets = [
+  "line",
+  "polyline",
+  "rectangle",
+  "circle",
+  "text",
+  "dimension",
+  "wall",
+  "opening",
+  "space",
+  "area",
+  "grid",
+  "arc",
+  "block_instance",
+];
+const propertySchemaBase = {
+  id: "41000000-0000-4000-8000-000000000001",
+  revisionId: "41000000-0000-4000-8000-000000000002",
+  name: "P4 shared property",
+  valueType: "text",
+  enumOptions: [],
+  required: false,
+  version: 1,
+};
+
+export const validP4PropertySchemas = [
+  { ...propertySchemaBase, appliesTo: ["wall"] },
+  {
+    ...propertySchemaBase,
+    id: "41000000-0000-4000-8000-000000000003",
+    appliesTo: allPropertyTargets,
+  },
+];
+export const invalidP4PropertySchemas = [
+  [
+    "duplicate singleton target",
+    { ...propertySchemaBase, appliesTo: ["wall", "wall"] },
+  ],
+  [
+    "duplicate target separated by valid targets",
+    { ...propertySchemaBase, appliesTo: ["wall", "opening", "space", "wall"] },
+  ],
+];
+
 export const validP4Geometries = [
   {
     type: "wall",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { createHash, randomUUID } from "node:crypto";
@@ -12,9 +12,12 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createServer } from "vite";
 import {
   invalidP4Geometries,
+  invalidP4PropertySchemas,
+  p4ObjectNameCorpus,
   p4FixtureIds,
   p4Object,
   validP4Geometries,
+  validP4PropertySchemas,
 } from "./fixtures/drawing-workspace-p4-database-fixtures.mjs";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
@@ -308,6 +311,14 @@ const p4SemanticContractFixesMigration = () =>
     ),
     "utf8",
   );
+const p4FinalContractFixesMigration = async () => {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p4_final_contract_fixes.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], directory), "utf8");
+};
 
 async function applyP0ThroughP3Migrations(targetDb) {
   for (const readMigration of [
@@ -710,6 +721,7 @@ before(async () => {
   await applyP0ThroughP3Migrations(db);
   await db.exec(await p4SemanticObjectsMigration());
   await db.exec(await p4SemanticContractFixesMigration());
+  await db.exec(await p4FinalContractFixesMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -854,6 +866,7 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
 
     await upgradeDb.exec(await p4SemanticObjectsMigration());
     await upgradeDb.exec(await p4SemanticContractFixesMigration());
+    await upgradeDb.exec(await p4FinalContractFixesMigration());
 
     const afterUpgrade = await evidence();
     assert.deepEqual(afterUpgrade, beforeUpgrade);
@@ -988,6 +1001,164 @@ test("P4 shared geometry corpus matches strict Zod and SQL authorities", async (
       [object.id, ids.revisionId, clientOperationId],
     );
     assert.deepEqual(unchanged.rows[0], { objects: 0, operations: 0 }, name);
+    await asActor(OWNER);
+  }
+});
+
+test("P4 shared randomized object-name corpus has exact Zod, SQL helper, authenticated RPC, and reload parity", async () => {
+  await db.exec("reset role");
+  for (const [name, value, expected] of p4ObjectNameCorpus) {
+    assert.equal(
+      drawingTypes.DrawingObjectNameSchema.safeParse(value).success,
+      expected,
+      `Zod ${name}`,
+    );
+    let sqlAccepted = false;
+    try {
+      const result = await db.query(
+        "select private.lukas_drawing_p2_name($1::jsonb) valid",
+        [JSON.stringify(value)],
+      );
+      sqlAccepted = result.rows[0].valid;
+    } catch {
+      // PostgreSQL rejects NUL and unpaired-surrogate JSON before the helper.
+    }
+    assert.equal(sqlAccepted, expected, `SQL ${name}`);
+  }
+
+  const ids = await createDocument("P4 exact object names");
+  const acceptedIds = [];
+  for (const [name, value, expected] of p4ObjectNameCorpus) {
+    const object = circleObject(randomUUID(), ids.workLayerId, { name: value });
+    const clientOperationId = randomUUID();
+    if (expected) {
+      await applyOperationWithId(
+        ids.revisionId,
+        clientOperationId,
+        "add_objects",
+        {},
+        { type: "add_objects", objects: [object] },
+        { type: "delete_objects", objectIds: [object.id] },
+      );
+      acceptedIds.push(object.id);
+      continue;
+    }
+    await assert.rejects(
+      applyOperationWithId(
+        ids.revisionId,
+        clientOperationId,
+        "add_objects",
+        {},
+        { type: "add_objects", objects: [object] },
+        { type: "delete_objects", objectIds: [object.id] },
+      ),
+      (error) =>
+        error.code === "P1C01" ||
+        /domain JSON|invalid input syntax|unicode|zero byte/i.test(
+          error.message,
+        ),
+      `RPC ${name}`,
+    );
+    await db.exec("reset role");
+    const unchanged = await db.query(
+      `select
+        (select count(*)::int from public.lukas_drawing_objects where id=$1) objects,
+        (select count(*)::int from public.lukas_drawing_operations
+          where revision_id=$2 and client_operation_id=$3) operations`,
+      [object.id, ids.revisionId, clientOperationId],
+    );
+    assert.deepEqual(unchanged.rows[0], { objects: 0, operations: 0 }, name);
+    await asActor(OWNER);
+  }
+
+  await db.exec("reset role");
+  const persisted = await db.query(
+    `select id,name,layer_id,object_type,geometry,style_id,style,version
+     from public.lukas_drawing_objects where id=any($1::uuid[]) order by id`,
+    [acceptedIds],
+  );
+  assert.equal(persisted.rows.length, acceptedIds.length);
+  for (const row of persisted.rows) {
+    const reloaded = drawingTypes.DrawingObjectSchema.parse({
+      id: row.id,
+      name: row.name,
+      layerId: row.layer_id,
+      geometry: row.geometry,
+      styleId: row.style_id,
+      style: row.style,
+      version: Number(row.version),
+    });
+    assert.equal(reloaded.geometry.type, row.object_type);
+  }
+});
+
+test("P4 shared property-schema corpus matches SQL and duplicate RPC mutations leave no poisoned revision", async () => {
+  await db.exec("reset role");
+  for (const schema of validP4PropertySchemas) {
+    const result = await db.query(
+      "select private.lukas_drawing_p2_property_schema_json_valid($1,$2::jsonb,$3::jsonb) valid",
+      [schema.valueType, schema.enumOptions, schema.appliesTo],
+    );
+    assert.equal(result.rows[0].valid, true);
+  }
+  for (const [name, schema] of invalidP4PropertySchemas) {
+    const result = await db.query(
+      "select private.lukas_drawing_p2_property_schema_json_valid($1,$2::jsonb,$3::jsonb) valid",
+      [schema.valueType, schema.enumOptions, schema.appliesTo],
+    );
+    assert.equal(result.rows[0].valid, false, name);
+  }
+
+  const ids = await createDocument("P4 property appliesTo parity");
+  const valid = {
+    ...validP4PropertySchemas[1],
+    id: randomUUID(),
+    revisionId: ids.revisionId,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [{ kind: "put_property_schema", entity: valid, baseVersion: null }],
+    [{ kind: "delete_property_schema", id: valid.id, baseVersion: 1 }],
+  );
+  for (const [name, fixture] of invalidP4PropertySchemas) {
+    const invalid = {
+      ...fixture,
+      id: randomUUID(),
+      revisionId: ids.revisionId,
+    };
+    const clientOperationId = randomUUID();
+    await assert.rejects(
+      applyOperationWithId(
+        ids.revisionId,
+        clientOperationId,
+        "mutate_structure",
+        {},
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "put_property_schema", entity: invalid, baseVersion: null },
+          ],
+        },
+        {
+          type: "mutate_structure",
+          actions: [
+            { kind: "delete_property_schema", id: invalid.id, baseVersion: 1 },
+          ],
+        },
+      ),
+      (error) => error.code === "P1C01",
+      name,
+    );
+    await db.exec("reset role");
+    const unchanged = await db.query(
+      `select
+        (select count(*)::int from public.lukas_drawing_property_schemas where id=$1) schemas,
+        (select count(*)::int from public.lukas_drawing_operations
+          where revision_id=$2 and client_operation_id=$3) operations`,
+      [invalid.id, ids.revisionId, clientOperationId],
+    );
+    assert.deepEqual(unchanged.rows[0], { schemas: 0, operations: 0 }, name);
     await asActor(OWNER);
   }
 });

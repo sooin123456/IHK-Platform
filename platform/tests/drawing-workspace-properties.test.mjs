@@ -13,6 +13,7 @@ import {
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { deleteDrawingBlockInstanceCommand } from "../app/lukas/lib/drawing-blocks.ts";
+import { DrawingPropertySchemaSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = Object.fromEntries(
   [
@@ -137,6 +138,23 @@ function structure(overrides = {}) {
     ...overrides,
   };
 }
+
+test("property schema parsing rejects every duplicate appliesTo position without narrowing valid P4 targets", () => {
+  const schema = propertySchema(ids.text, "Semantic applicability", "text", {
+    appliesTo: ["wall", "opening", "space", "area", "grid", "arc"],
+  });
+  assert.equal(DrawingPropertySchemaSchema.safeParse(schema).success, true);
+  for (const appliesTo of [
+    ["wall", "wall"],
+    ["wall", "opening", "wall"],
+    ["arc", "grid", "space", "arc"],
+  ])
+    assert.equal(
+      DrawingPropertySchemaSchema.safeParse({ ...schema, appliesTo }).success,
+      false,
+      appliesTo.join(","),
+    );
+});
 
 function state(overrides = {}) {
   return createDrawingDocumentState({
@@ -613,11 +631,10 @@ test("property field selection identity synchronously discards prior dirty edits
   assert.deepEqual([...dirty], []);
   assert.equal(identity.current, `${ids.objectB}|${ids.objectA}`);
   dirty.add(ids.text);
-  propertyComponents.synchronizeDrawingPropertyDirtySelection(
-    dirty,
-    identity,
-    [ids.objectA, ids.objectB],
-  );
+  propertyComponents.synchronizeDrawingPropertyDirtySelection(dirty, identity, [
+    ids.objectA,
+    ids.objectB,
+  ]);
   assert.deepEqual([...dirty], []);
 });
 

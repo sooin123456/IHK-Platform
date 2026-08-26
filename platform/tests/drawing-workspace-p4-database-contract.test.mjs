@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-import { DrawingGeometrySchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  DrawingGeometrySchema,
+  DrawingObjectNameSchema,
+  DrawingPropertySchemaSchema,
+} from "../app/lukas/lib/drawing-workspace.types.ts";
 import {
   invalidP4Geometries,
+  invalidP4PropertySchemas,
+  p4ObjectNameCorpus,
   validP4Geometries,
+  validP4PropertySchemas,
 } from "./fixtures/drawing-workspace-p4-database-fixtures.mjs";
 
 const migrationDirectory = new URL("../supabase/migrations/", import.meta.url);
@@ -30,6 +37,18 @@ async function p4ContractFixMigration() {
   return readFile(new URL(names[0], migrationDirectory), "utf8");
 }
 
+async function p4FinalContractFixMigration() {
+  const names = (await readdir(migrationDirectory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p4_final_contract_fixes.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "P4 final contract fixes use one CLI-generated forward migration",
+  );
+  return readFile(new URL(names[0], migrationDirectory), "utf8");
+}
+
 test("P4 shared geometry corpus is mutation-resistant at the TypeScript authority", () => {
   for (const geometry of validP4Geometries)
     assert.equal(
@@ -40,6 +59,26 @@ test("P4 shared geometry corpus is mutation-resistant at the TypeScript authorit
   for (const [name, geometry] of invalidP4Geometries)
     assert.equal(
       DrawingGeometrySchema.safeParse(geometry).success,
+      false,
+      name,
+    );
+});
+
+test("P4 shared object-name corpus enforces exact UTF-16, trim, Unicode, and control rules", () => {
+  for (const [name, value, expected] of p4ObjectNameCorpus)
+    assert.equal(
+      DrawingObjectNameSchema.safeParse(value).success,
+      expected,
+      name,
+    );
+});
+
+test("P4 shared property-schema corpus requires distinct appliesTo targets", () => {
+  for (const schema of validP4PropertySchemas)
+    assert.equal(DrawingPropertySchemaSchema.safeParse(schema).success, true);
+  for (const [name, schema] of invalidP4PropertySchemas)
+    assert.equal(
+      DrawingPropertySchemaSchema.safeParse(schema).success,
       false,
       name,
     );
@@ -98,6 +137,29 @@ test("P4 contract fixes stay private, additive, and behind the existing operatio
   assert.doesNotMatch(sql, /create\s+(?:or replace\s+)?function\s+public\./i);
   assert.doesNotMatch(sql, /alter\s+table\s+public\.lukas_qto_files/i);
   assert.doesNotMatch(sql, /realtime\./i);
+});
+
+test("P4 final name fix replaces the exact private helper and object constraint forward-only", async () => {
+  const sql = await p4FinalContractFixMigration();
+  assert.match(sql, /begin;[\s\S]*commit;/i);
+  assert.match(
+    sql,
+    /create or replace function private\.lukas_drawing_p2_name/i,
+  );
+  assert.match(sql, /lukas_drawing_p4_utf16_string_valid/i);
+  assert.match(sql, /lukas_drawing_p4_js_trim_codepoint/i);
+  assert.match(
+    sql,
+    /drop constraint if exists lukas_drawing_objects_name_contract/i,
+  );
+  assert.match(sql, /add constraint lukas_drawing_objects_name_contract/i);
+  assert.match(
+    sql,
+    /private\.lukas_drawing_p2_name\(pg_catalog\.to_jsonb\(name\)\)/i,
+  );
+  assert.match(sql, /set search_path\s*=\s*''/i);
+  assert.doesNotMatch(sql, /create\s+table\s+public\./i);
+  assert.doesNotMatch(sql, /alter\s+table\s+public\.lukas_qto_files/i);
 });
 
 test("P4 SQL contracts preserve primitive blocks while widening object properties", async () => {

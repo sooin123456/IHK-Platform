@@ -60,6 +60,7 @@ const ExactTrimmedName = z
   .string()
   .min(1)
   .max(255)
+  .refine(isP4UnicodeScalarText, "유효한 유니코드 문자열이어야 합니다.")
   .refine((value) => value === value.trim(), "앞뒤 공백을 제거해야 합니다.");
 
 export const DrawingObjectNameSchema = ExactTrimmedName;
@@ -589,6 +590,13 @@ export const DrawingPropertySchemaSchema = z
   })
   .strict()
   .superRefine((schema, context) => {
+    if (new Set(schema.appliesTo).size !== schema.appliesTo.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["appliesTo"],
+        message: "속성 적용 대상은 중복될 수 없습니다.",
+      });
+    }
     if (schema.valueType === "enum" && schema.enumOptions.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

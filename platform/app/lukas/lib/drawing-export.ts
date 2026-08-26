@@ -324,6 +324,24 @@ function svgClippedText(
   ];
 }
 
+function svgSemanticLabel(
+  label: ReturnType<typeof drawingSemanticLabelLayout>,
+  fill: string,
+  clipId: string,
+) {
+  const semanticClipId = `${clipId}-semantic-label`;
+  const content = label.lines
+    .map(
+      (line, index) =>
+        `<tspan x="${exportNumber(label.width / 2)}" y="${exportNumber(index * label.fontSize * label.lineHeight)}">${escapeXml(line)}</tspan>`,
+    )
+    .join("");
+  return [
+    `<clipPath id="${semanticClipId}"><rect x="0" y="0" width="${exportNumber(label.width)}" height="${exportNumber(label.height)}"/></clipPath>`,
+    `<g transform="translate(${exportNumber(label.x)} ${exportNumber(label.y)}) rotate(${exportNumber(label.rotation)})"><text aria-label="${escapeXml(label.text)}" clip-path="url(#${semanticClipId})" fill="${fill}" font-family="sans-serif" font-size="${exportNumber(label.fontSize)}" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve">${content}</text></g>`,
+  ];
+}
+
 function svgGeometry(
   primitive: DrawingExportPrimitive,
   canvas: DrawingCanvas,
@@ -446,7 +464,7 @@ function svgGeometry(
       const label = drawingSemanticLabelLayout(geometry, primitive.name);
       return [
         `<polygon points="${points}" fill="${style.fill ?? (geometry.type === "space" ? DRAWING_SEMANTIC_RENDER_METRICS.spaceFill : DRAWING_SEMANTIC_RENDER_METRICS.areaFill)}" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
-        `<text x="${exportNumber(label.x + label.width / 2)}" y="${exportNumber(label.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="${label.fontSize}" text-anchor="middle" dominant-baseline="text-before-edge">${escapeXml(label.text)}</text>`,
+        ...svgSemanticLabel(label, style.stroke, clipId),
       ];
     }
     case "grid": {
@@ -454,7 +472,7 @@ function svgGeometry(
       return [
         `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}" stroke-dasharray="${DRAWING_SEMANTIC_RENDER_METRICS.gridDash.join(" ")}"/>`,
         `<circle cx="${exportNumber(geometry.end.x)}" cy="${exportNumber(geometry.end.y)}" r="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius}" fill="#ffffff" stroke="${style.stroke}" stroke-width="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth}"/>`,
-        `<text x="${exportNumber(label.x + label.width / 2)}" y="${exportNumber(label.y)}" fill="${style.stroke}" font-family="sans-serif" font-size="${label.fontSize}" text-anchor="middle" dominant-baseline="text-before-edge" transform="rotate(${exportNumber(label.rotation)} ${exportNumber(label.x)} ${exportNumber(label.y)})">${escapeXml(label.text)}</text>`,
+        ...svgSemanticLabel(label, style.stroke, clipId),
       ];
     }
     case "arc": {
@@ -567,6 +585,26 @@ function paintClippedText(
       line,
       layout.x,
       layout.y + index * layout.fontSize * layout.lineHeight,
+    ),
+  );
+  context.restore();
+}
+
+function paintSemanticLabel(
+  context: CanvasRenderingContext2D,
+  label: ReturnType<typeof drawingSemanticLabelLayout>,
+) {
+  context.save();
+  context.translate(label.x, label.y);
+  context.rotate((label.rotation * Math.PI) / 180);
+  context.beginPath();
+  context.rect(0, 0, label.width, label.height);
+  context.clip();
+  label.lines.forEach((line, index) =>
+    context.fillText(
+      line,
+      label.width / 2,
+      index * label.fontSize * label.lineHeight,
     ),
   );
   context.restore();
@@ -701,7 +739,7 @@ function paintGeometry(
       context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
       context.textBaseline = "top";
-      context.fillText(label.text, label.x + label.width / 2, label.y);
+      paintSemanticLabel(context, label);
       break;
     }
     case "grid": {
@@ -725,11 +763,7 @@ function paintGeometry(
       context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
       context.textBaseline = "top";
-      context.save();
-      context.translate(label.x, label.y);
-      context.rotate((label.rotation * Math.PI) / 180);
-      context.fillText(label.text, label.width / 2, 0);
-      context.restore();
+      paintSemanticLabel(context, label);
       break;
     }
     case "arc":
