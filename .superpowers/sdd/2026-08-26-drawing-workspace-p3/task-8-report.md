@@ -24,11 +24,19 @@
 - Activity rows render bounded human-readable change detail and immutable issue, revision or original-operation provenance.
 - Checkpoint restore is deliberately non-undoable because its inverse is not the named authoritative checkpoint; the history UI therefore never offers a revert that the database must reject.
 
+## Reference-authority follow-up
+
+- Generated the forward-only Supabase CLI migration `20260826041744_drawing_workspace_p3_checkpoint_reference_authority.sql`; neither previously committed Task 8 migration was edited.
+- The revision-locked restore now validates the hash-valid checkpoint reference graph against its project, revision objects, immutable source files and issues before mutation. Post-checkpoint source/issue links are removed before object deletion, and missing checkpoint links are restored only after their objects exist.
+- Exact issue-link deletion leases retain the public append-only contract. Every restore/delete reference delta appends a private audit row while the restore still appends exactly one operation-ledger row; an identical client-operation retry adds neither ledger nor audit duplicates.
+- A final unstaged canonical comparison makes the stored source and issue graph exactly equal to the selected checkpoint or rolls back the entire mixed structure/reference delta.
+- Ponytail debt: the 52-line initial wrapper in the already committed `20260826025543_drawing_workspace_p3_activity_authority.sql` remains dead code inside that migration transaction. It is nonblocking historical migration debt and was intentionally not rewritten by this forward fix.
+
 ## Verification evidence
 
-- Full PGlite database runtime: 114 passed, 0 failed, including arbitrary checkpoint-delta rejection, ordinary and dependent object change/delete, mixed collection restore, locked/hidden layer restore, staged canvas/layer revival, reviewer restore and document-lock evidence.
+- Full PGlite database runtime: 116 passed, 0 failed, including post-checkpoint reference removal, pre-checkpoint source/issue revival, mixed object/reference restore, idempotent retry, and hash-valid cross-project reference rejection with atomic rollback.
 - Focused social/history contracts: 11 passed, 0 failed.
-- Full Drawing Node: 479 tests, 478 passed, 1 intentionally skipped, 0 failed.
+- Full Drawing Node: 481 tests, 480 passed, 1 intentionally skipped, 0 failed.
 - `npm run typecheck`: passed.
 - `npm run typecheck:collaboration`: passed.
 - `npm run build`: passed; only existing chunk-size, React Router future-flag, unsigned theme-cookie and localStorage warnings were emitted.
@@ -45,4 +53,4 @@
 
 ## Review
 
-- Independent final P1/P2 review: clean.
+- The final P1 reference-delta finding is addressed by the forward migration and the focused/full gates above; no new independent-review verdict is claimed here.

@@ -246,6 +246,14 @@ const p3ActivityAuthorityMigration = () =>
     ),
     "utf8",
   );
+const p3CheckpointReferenceAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826041744_drawing_workspace_p3_checkpoint_reference_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -616,6 +624,7 @@ before(async () => {
   await db.exec(await collaborationHistoryAuthorityMigration());
   await db.exec(await p3MentionsHistoryMigration());
   await db.exec(await p3ActivityAuthorityMigration());
+  await db.exec(await p3CheckpointReferenceAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -8760,10 +8769,12 @@ test("P3 comments persist only explicit same-project mentions with idempotent ev
   );
   await asActor(OWNER);
   const addComment = (body, mentionedUserIds) =>
-    db.query(
-      "select public.lukas_drawing_add_comment($1,$2,$3,$4) result",
-      [issueId, commentId, body, mentionedUserIds],
-    );
+    db.query("select public.lukas_drawing_add_comment($1,$2,$3,$4) result", [
+      issueId,
+      commentId,
+      body,
+      mentionedUserIds,
+    ]);
 
   const first = await addComment("@누구나 표시 문구", [REVIEWER]);
   const retried = await addComment("@누구나 표시 문구", [REVIEWER]);
@@ -9030,7 +9041,11 @@ test("P3 checkpoint restore rejects a valid arbitrary delta outside its canonica
           type: "restore_checkpoint",
           checkpointId: review.rows[0].result.snapshotId,
           actions: [
-            { kind: "put_layer", entity: malicious, baseVersion: current.version },
+            {
+              kind: "put_layer",
+              entity: malicious,
+              baseVersion: current.version,
+            },
           ],
         },
         {
@@ -9126,9 +9141,7 @@ test("P3 checkpoint restore applies an ordinary object change without block conv
         {
           type: "restore_checkpoint",
           checkpointId: review.rows[0].result.snapshotId,
-          actions: [
-            { kind: "put_object", entity: current, baseVersion: 3 },
-          ],
+          actions: [{ kind: "put_object", entity: current, baseVersion: 3 }],
         },
       ],
     ),
@@ -9156,9 +9169,7 @@ test("P3 checkpoint restore applies an ordinary object change without block conv
       {
         type: "restore_checkpoint",
         checkpointId: review.rows[0].result.snapshotId,
-        actions: [
-          { kind: "put_object", entity: current, baseVersion: 3 },
-        ],
+        actions: [{ kind: "put_object", entity: current, baseVersion: 3 }],
       },
     ],
   );
@@ -9190,34 +9201,284 @@ test("P3 checkpoint restore deletes an object added after the checkpoint", async
     ],
   );
   await asActor(OWNER);
-  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
   await addObject(ids, object);
-  const result = await db.query(
-    `select public.lukas_drawing_apply_operation(
+  const issueId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  await db.query(
+    `insert into public.lukas_drawing_object_sources(
+      object_id,revision_id,project_id,source_file_id,source_sha256,
+      source_kind,pdf_page_number,x,y,width,height,created_by
+    ) values($1,$2,$3,$4,$5,'pdf_region',1,0.1,0.1,0.2,0.2,$6)`,
+    [object.id, ids.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+  );
+  await db.query("select public.lukas_drawing_link_object_issue($1,$2)", [
+    object.id,
+    issueId,
+  ]);
+  const clientOperationId = randomUUID();
+  const restore = () =>
+    db.query(
+      `select public.lukas_drawing_apply_operation(
       $1,$2,'restore_checkpoint',$3,$4,$5,null,null
     ) result`,
-    [
-      ids.revisionId,
-      randomUUID(),
-      { [object.id]: 1 },
-      {
-        type: "restore_checkpoint",
-        checkpointId: review.rows[0].result.snapshotId,
-        actions: [{ kind: "delete_object", id: object.id, baseVersion: 1 }],
-      },
-      {
-        type: "restore_checkpoint",
-        checkpointId: review.rows[0].result.snapshotId,
-        actions: [{ kind: "put_object", entity: object, baseVersion: null }],
-      },
-    ],
-  );
+      [
+        ids.revisionId,
+        clientOperationId,
+        { [object.id]: 1 },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "delete_object", id: object.id, baseVersion: 1 }],
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "put_object", entity: object, baseVersion: null }],
+        },
+      ],
+    );
+  const result = await restore();
+  assert.deepEqual((await restore()).rows[0].result, result.rows[0].result);
   assert.equal(result.rows[0].result.resultVersions[object.id], null);
   const deleted = await db.query(
     "select status,version from public.lukas_drawing_objects where id=$1",
     [object.id],
   );
   assert.deepEqual(deleted.rows, [{ status: "deleted", version: 2 }]);
+  await db.exec("reset role");
+  const references = await db.query(
+    `select
+      (select count(*)::integer from public.lukas_drawing_object_sources
+        where object_id=$1) source_count,
+      (select count(*)::integer from public.lukas_drawing_object_issue_links
+        where object_id=$1) issue_count,
+      (select count(*)::integer from private.lukas_drawing_checkpoint_reference_history
+        where client_operation_id=$2) audit_count,
+      (select count(*)::integer from public.lukas_drawing_operations
+        where revision_id=$3 and client_operation_id=$2) operation_count`,
+    [object.id, clientOperationId, ids.revisionId],
+  );
+  assert.deepEqual(references.rows, [
+    {
+      source_count: 0,
+      issue_count: 0,
+      audit_count: 2,
+      operation_count: 1,
+    },
+  ]);
+});
+
+test("P3 checkpoint restore revives exact source and issue references with a mixed object delta", async () => {
+  const ids = await createDocument("P3 checkpoint reference revival");
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, object);
+  const issueId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values ($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  const sourceId = randomUUID();
+  await db.query(
+    `insert into public.lukas_drawing_object_sources(
+      id,object_id,revision_id,project_id,source_file_id,source_sha256,
+      source_kind,pdf_page_number,x,y,width,height,created_by
+    ) values($1,$2,$3,$4,$5,$6,'pdf_region',1,0.1,0.1,0.2,0.2,$7)`,
+    [sourceId, object.id, ids.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+  );
+  await db.query("select public.lukas_drawing_link_object_issue($1,$2)", [
+    object.id,
+    issueId,
+  ]);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  const canonicalObject = snapshot.rows[0].canonical_json.objects.find(
+    (candidate) => candidate.id === object.id,
+  );
+  const {
+    lineageId: _lineage,
+    pageId: _page,
+    type: _type,
+    ...target
+  } = canonicalObject;
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','remove evidence then restore'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  await applyOperation(
+    ids.revisionId,
+    "delete_objects",
+    { [object.id]: 1 },
+    { type: "delete_objects", objectIds: [object.id] },
+    { type: "add_objects", objects: [{ ...object, version: 3 }] },
+  );
+  const later = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, later);
+  const operationId = randomUUID();
+  const forward = {
+    type: "restore_checkpoint",
+    checkpointId: review.rows[0].result.snapshotId,
+    actions: [
+      {
+        kind: "put_object",
+        entity: { ...target, version: 3 },
+        baseVersion: null,
+      },
+      { kind: "delete_object", id: later.id, baseVersion: 1 },
+    ],
+  };
+  const inverse = {
+    type: "restore_checkpoint",
+    checkpointId: review.rows[0].result.snapshotId,
+    actions: [
+      { kind: "put_object", entity: later, baseVersion: null },
+      { kind: "delete_object", id: object.id, baseVersion: 3 },
+    ],
+  };
+  await applyOperationWithId(
+    ids.revisionId,
+    operationId,
+    "restore_checkpoint",
+    { [later.id]: 1 },
+    forward,
+    inverse,
+  );
+  const graph = await db.query(
+    `select
+      (select jsonb_agg(jsonb_build_object('id',s.id,'objectId',s.object_id))
+       from public.lukas_drawing_object_sources s where s.revision_id=$1) sources,
+      (select jsonb_agg(jsonb_build_object('id',l.issue_id,'objectId',l.object_id))
+       from public.lukas_drawing_object_issue_links l where l.revision_id=$1) issues`,
+    [ids.revisionId],
+  );
+  assert.deepEqual(graph.rows[0], {
+    sources: [{ id: sourceId, objectId: object.id }],
+    issues: [{ id: issueId, objectId: object.id }],
+  });
+});
+
+test("P3 checkpoint restore rejects a hash-valid cross-project reference graph atomically", async () => {
+  const ids = await createDocument("P3 invalid checkpoint reference");
+  const foreignProject = randomUUID();
+  const foreignIssue = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    "insert into public.lukas_qto_projects(id,owner_id) values($1,$2)",
+    [foreignProject, OWNER],
+  );
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [foreignIssue, foreignProject],
+  );
+  await asActor(OWNER);
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
+  await addObject(ids, object);
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'rejected','invalid reference fixture'
+    )`,
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await db.exec("reset role");
+  await db.exec(
+    "alter table public.lukas_drawing_revision_approvals disable trigger user",
+  );
+  await db.query(
+    "delete from public.lukas_drawing_revision_approvals where revision_id=$1",
+    [ids.revisionId],
+  );
+  await db.exec(
+    "alter table public.lukas_drawing_revision_approvals enable trigger user",
+  );
+  await db.exec(
+    "alter table public.lukas_drawing_snapshots disable trigger user",
+  );
+  await db.query(
+    `update public.lukas_drawing_snapshots set
+      canonical_json=jsonb_set(canonical_json,'{issues}',$2::jsonb),
+      sha256=encode(extensions.digest(convert_to(
+        jsonb_set(canonical_json,'{issues}',$2::jsonb)::text,'UTF8'
+      ),'sha256'),'hex')
+     where id=$1`,
+    [
+      review.rows[0].result.snapshotId,
+      [{ id: foreignIssue, objectId: object.id }],
+    ],
+  );
+  await db.exec(
+    "alter table public.lukas_drawing_snapshots enable trigger user",
+  );
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'restore_checkpoint',$3,$4,$5,null,null
+      )`,
+      [
+        ids.revisionId,
+        randomUUID(),
+        { [object.id]: 1 },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "delete_object", id: object.id, baseVersion: 1 }],
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "put_object", entity: object, baseVersion: null }],
+        },
+      ],
+    ),
+    (error) => error.code === "P1C01",
+  );
+  const unchanged = await db.query(
+    "select status,version from public.lukas_drawing_objects where id=$1",
+    [object.id],
+  );
+  assert.deepEqual(unchanged.rows, [{ status: "active", version: 1 }]);
 });
 
 test("P3 checkpoint restore combines a layer update with another structure collection", async () => {
@@ -9452,7 +9713,10 @@ test("P3 checkpoint restore revives a dependent canvas layer and object", async 
 test("P3 checkpoint restore keeps objects on a checkpoint-locked hidden layer", async () => {
   const ids = await createDocument("P3 checkpoint locked layer object");
   await addCustomLayer(ids, "Editable fallback");
-  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
   await addObject(ids, object);
   await applyOperation(
     ids.revisionId,
@@ -9564,7 +9828,12 @@ test("P3 checkpoint restore keeps objects on a checkpoint-locked hidden layer", 
           },
           {
             kind: "put_layer",
-            entity: { ...targetLayer, visible: true, locked: false, version: 3 },
+            entity: {
+              ...targetLayer,
+              visible: true,
+              locked: false,
+              version: 3,
+            },
             baseVersion: 4,
           },
         ],
@@ -9787,7 +10056,10 @@ test("P3 checkpoint restore stages a deleted canvas before moving its surviving 
 
 test("P3 checkpoint restore revives older object content and removes later block state", async () => {
   const ids = await createDocument("P3 checkpoint object tombstone");
-  const object = { ...circleObject(randomUUID(), ids.workLayerId), styleId: null };
+  const object = {
+    ...circleObject(randomUUID(), ids.workLayerId),
+    styleId: null,
+  };
   await addObject(ids, object);
   const review = await db.query(
     "select public.lukas_drawing_request_review($1) result",
@@ -9932,9 +10204,12 @@ test("P3 checkpoint restore revives older non-object tombstone content", async (
     value: STYLE,
     version: 1,
   };
-  await applyStructure(ids, {}, [
-    { kind: "put_style", entity: style, baseVersion: null },
-  ], [{ kind: "delete_style", id: style.id, baseVersion: 1 }]);
+  await applyStructure(
+    ids,
+    {},
+    [{ kind: "put_style", entity: style, baseVersion: null }],
+    [{ kind: "delete_style", id: style.id, baseVersion: 1 }],
+  );
   const review = await db.query(
     "select public.lukas_drawing_request_review($1) result",
     [ids.revisionId],
@@ -9962,7 +10237,13 @@ test("P3 checkpoint restore revives older non-object tombstone content", async (
     ids,
     { [style.id]: 2 },
     [{ kind: "delete_style", id: style.id, baseVersion: 2 }],
-    [{ kind: "put_style", entity: { ...changed, version: 2 }, baseVersion: null }],
+    [
+      {
+        kind: "put_style",
+        entity: { ...changed, version: 2 },
+        baseVersion: null,
+      },
+    ],
   );
   const result = await db.query(
     `select public.lukas_drawing_apply_operation(
@@ -9986,9 +10267,7 @@ test("P3 checkpoint restore revives older non-object tombstone content", async (
       {
         type: "restore_checkpoint",
         checkpointId: review.rows[0].result.snapshotId,
-        actions: [
-          { kind: "delete_style", id: style.id, baseVersion: 4 },
-        ],
+        actions: [{ kind: "delete_style", id: style.id, baseVersion: 4 }],
       },
     ],
   );
