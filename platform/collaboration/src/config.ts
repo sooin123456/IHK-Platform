@@ -10,6 +10,9 @@ const ConfigSchema = z
       .url()
       .refine((value) => /^postgres(?:ql)?:/.test(value)),
     COLLABORATION_ALLOWED_ORIGINS: z.string().min(1),
+    COLLABORATION_INSTANCE_ID: z
+      .string()
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/),
     COLLABORATION_INTERNAL_SECRET: z.string().min(32),
     COLLABORATION_FREEZE_SECRET: z.string().min(32),
   })
@@ -20,6 +23,7 @@ export type DrawingCollaborationConfig = {
   supabaseUrl: string;
   databaseUrl: string;
   allowedOrigins: Set<string>;
+  instanceId: string;
   internalSecret: string;
   freezeSecret: string;
   authorizationIntervalMs: number;
@@ -48,6 +52,7 @@ export function parseDrawingCollaborationConfig(
     supabaseUrl: value.SUPABASE_URL.replace(/\/$/, ""),
     databaseUrl: value.COLLABORATION_DATABASE_URL,
     allowedOrigins: new Set(origins),
+    instanceId: value.COLLABORATION_INSTANCE_ID,
     internalSecret: value.COLLABORATION_INTERNAL_SECRET,
     freezeSecret: value.COLLABORATION_FREEZE_SECRET,
     authorizationIntervalMs: 30_000,

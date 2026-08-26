@@ -18,93 +18,18 @@ import {
   requireDrawingP3ProductionCredentials,
   type DrawingFixture,
 } from "./utils/drawing-collaboration-fixture";
+import {
+  parseDrawingCollaborationReplicaTargets,
+  verifyDrawingCollaborationReplicaIdentity,
+  type DrawingCollaborationReplicaTarget,
+} from "./utils/drawing-collaboration-replica-targets";
 
 const credentials = requireDrawingP3ProductionCredentials(process.env);
 
-type ReplicaTarget = {
-  id: string;
-  websocketUrl: string;
-  healthUrl: string;
-};
-
-function requireRotationTargets() {
-  const raw = process.env.P3_COLLABORATION_REPLICAS_JSON;
-  const expectedKid = process.env.P3_JWKS_NEW_KID;
-  let parsed: unknown;
-  try {
-    parsed = raw && JSON.parse(raw);
-  } catch {
-    throw new Error(
-      "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: expected a direct replica target array.",
-    );
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0)
-    throw new Error(
-      "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: expected a direct replica target array.",
-    );
-  const replicas = parsed.map((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new Error(
-        "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: invalid replica target.",
-      );
-    if (
-      Object.keys(value).length !== 3 ||
-      !Object.keys(value).every((key) =>
-        ["id", "websocketUrl", "healthUrl"].includes(key),
-      )
-    )
-      throw new Error(
-        "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: invalid replica target.",
-      );
-    const replica = value as Partial<ReplicaTarget>;
-    if (
-      typeof replica.id !== "string" ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(replica.id) ||
-      typeof replica.websocketUrl !== "string" ||
-      typeof replica.healthUrl !== "string"
-    )
-      throw new Error(
-        "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: invalid replica target.",
-      );
-    const websocketUrl = new URL(replica.websocketUrl);
-    const healthUrl = new URL(replica.healthUrl);
-    if (
-      websocketUrl.protocol !== "wss:" ||
-      healthUrl.protocol !== "https:" ||
-      websocketUrl.username ||
-      websocketUrl.password ||
-      healthUrl.username ||
-      healthUrl.password ||
-      websocketUrl.hash ||
-      healthUrl.hash ||
-      websocketUrl.search ||
-      healthUrl.search
-    )
-      throw new Error(
-        "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: targets must be direct secret-free WSS/HTTPS URLs.",
-      );
-    return {
-      id: replica.id,
-      websocketUrl: websocketUrl.toString(),
-      healthUrl: healthUrl.toString(),
-    };
-  });
-  if (
-    new Set(replicas.map((replica) => replica.id)).size !== replicas.length ||
-    new Set(replicas.map((replica) => replica.websocketUrl)).size !==
-      replicas.length
-  )
-    throw new Error(
-      "P3_COLLABORATION_REPLICAS_JSON is UNEXECUTED: replica IDs and direct WSS URLs must be unique.",
-    );
-  if (!expectedKid || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(expectedKid))
-    throw new Error(
-      "P3_JWKS_NEW_KID is UNEXECUTED: expected the current signing-key kid.",
-    );
-  return { replicas, expectedKid };
-}
-
-const { replicas, expectedKid } = requireRotationTargets();
+const { replicas, expectedKid } = parseDrawingCollaborationReplicaTargets(
+  process.env.P3_COLLABORATION_REPLICAS_JSON,
+  process.env.P3_JWKS_NEW_KID,
+);
 
 function lifecycleCommand(name: string) {
   const raw = process.env[name];
@@ -184,6 +109,7 @@ async function connect(
     WebSocketPolyfill: OriginWebSocket,
   });
   let closeObserved = false;
+  let admissionInstanceId: string | undefined;
   let provider: HocuspocusProvider | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
@@ -207,6 +133,19 @@ async function connect(
         onClose: () => {
           closeObserved = true;
         },
+        onStateless: ({ payload }) => {
+          try {
+            const value = JSON.parse(payload) as Record<string, unknown>;
+            if (
+              Object.keys(value).length === 2 &&
+              value.type === "1hk-collaboration-admission" &&
+              typeof value.instanceId === "string"
+            )
+              admissionInstanceId = value.instanceId;
+          } catch {
+            // A malformed stateless message is not valid admission evidence.
+          }
+        },
       });
     });
   } catch (error) {
@@ -221,6 +160,12 @@ async function connect(
     provider: provider!,
     async waitForClose() {
       await expect.poll(() => closeObserved, { timeout: 20_000 }).toBe(true);
+    },
+    async requireAdmissionInstanceId() {
+      await expect
+        .poll(() => admissionInstanceId, { timeout: 20_000 })
+        .not.toBeUndefined();
+      return admissionInstanceId!;
     },
     dispose() {
       provider!.destroy();
@@ -298,13 +243,20 @@ async function requireHealth() {
     .toBe(true);
 }
 
-async function requireReplicaHealth(replica: ReplicaTarget) {
+async function requireReplicaHealth(
+  replica: DrawingCollaborationReplicaTarget,
+) {
+  let instanceId: string | undefined;
   await expect
     .poll(
       async () => {
         try {
           const response = await fetch(replica.healthUrl);
-          return response.ok;
+          if (!response.ok) return false;
+          const value = (await response.json()) as Record<string, unknown>;
+          instanceId =
+            typeof value.instanceId === "string" ? value.instanceId : undefined;
+          return Boolean(instanceId);
         } catch {
           return false;
         }
@@ -312,6 +264,7 @@ async function requireReplicaHealth(replica: ReplicaTarget) {
       { timeout: 60_000 },
     )
     .toBe(true);
+  return instanceId!;
 }
 
 async function postOutcome(
@@ -394,19 +347,31 @@ test.describe.serial("deployed drawing collaboration service smoke", () => {
   test("fresh NEW_KID authenticated admission records every direct replica identity", async ({}, testInfo) => {
     if (!fixture)
       throw new Error("Collaboration smoke fixture is unavailable.");
+    const observedInstanceIds = new Set<string>();
     for (const replica of replicas) {
-      await requireReplicaHealth(replica);
+      const healthInstanceId = await requireReplicaHealth(replica);
       const admission = await connect(
         fixture,
         fixture.editor,
         replica.websocketUrl,
         expectedKid,
       );
-      admission.dispose();
-      testInfo.annotations.push({
-        type: "jwks-replica-admission",
-        description: replica.id,
-      });
+      try {
+        const admissionInstanceId =
+          await admission.requireAdmissionInstanceId();
+        verifyDrawingCollaborationReplicaIdentity({
+          target: replica,
+          healthInstanceId,
+          admissionInstanceId,
+          observedInstanceIds,
+        });
+        testInfo.annotations.push({
+          type: "jwks-replica-admission",
+          description: admissionInstanceId,
+        });
+      } finally {
+        admission.dispose();
+      }
     }
   });
 

@@ -820,6 +820,12 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     },
     async connected(payload) {
       connections.add(payload.connection);
+      payload.connection.sendStateless(
+        JSON.stringify({
+          type: "1hk-collaboration-admission",
+          instanceId: dependencies.config.instanceId,
+        }),
+      );
       payload.connection.onClose(() => {
         connections.delete(payload.connection);
       });
@@ -1211,14 +1217,24 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   }
 
   async function health() {
-    if (!live) return { live: false, ready: false };
+    if (!live)
+      return {
+        live: false,
+        ready: false,
+        instanceId: dependencies.config.instanceId,
+      };
     try {
       return {
         live: true,
         ready: authReady && ((await dependencies.storage.health?.()) ?? true),
+        instanceId: dependencies.config.instanceId,
       };
     } catch {
-      return { live: true, ready: false };
+      return {
+        live: true,
+        ready: false,
+        instanceId: dependencies.config.instanceId,
+      };
     }
   }
 

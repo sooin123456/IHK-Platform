@@ -279,18 +279,23 @@ record this exact sequence:
    '
    ```
 
-5. Send `SIGHUP` to **purge each replica** JWKS cache; `/healthz` is an
-   additional database/readiness check, not key proof.
+5. Configure each process with a unique, non-secret
+   `COLLABORATION_INSTANCE_ID`, then send `SIGHUP` to **purge each replica**
+   JWKS cache. `/healthz` is an additional database/readiness check, not key
+   proof.
 6. Set `P3_COLLABORATION_REPLICAS_JSON` to a JSON array containing the unique,
    non-secret `id`, direct `wss://` `websocketUrl`, and direct `https://`
    `healthUrl` for every listed replica. Load-balancer or shared ingress URLs are
    forbidden. Set `P3_JWKS_NEW_KID="$NEW_KID"`, then run
    `npm run smoke:drawing-collaboration:production`. The smoke iterates the list,
    verifies that the fresh token header equals `NEW_KID`, completes
-   **authenticated room admission on every replica**, and records each successful
-   replica `id` as a Playwright annotation. A missing, duplicate, indirect, or
-   unadmitted replica restores the previous current key and leaves admission
-   closed.
+   **authenticated room admission on every replica**, and reads the configured
+   instance ID from both the direct `/healthz` boundary and the authenticated
+   admission message. Both observed IDs must equal each other and the inventory
+   `id`; duplicate input IDs, WSS URLs, HTTPS health URLs, or observed process
+   IDs fail closed. The smoke records the admission-observed ID as a Playwright
+   annotation. A missing, duplicate, indirect, aliased, or unadmitted replica
+   restores the previous current key and leaves admission closed.
 7. Keep the previous key valid for the configured **access-token lifetime plus the safety margin**.
    Set and record `JWT_EXP_SECONDS` and a minimum
    `JWKS_SAFETY_MARGIN_SECONDS=900`; do not shorten the interval because the
@@ -629,6 +634,12 @@ P3_JWKS_NEW_KID="$P3_JWKS_NEW_KID" \
 npm run smoke:drawing-collaboration:production
 ```
 
+The service process must receive a unique, non-secret
+`COLLABORATION_INSTANCE_ID` matching the `id` assigned to that same direct
+target in `P3_COLLABORATION_REPLICAS_JSON`. It is returned by `/healthz` and by
+the stateless `1hk-collaboration-admission` message sent only after authenticated
+room admission.
+
 Each lifecycle variable is a JSON string array whose first item is the approved
 orchestrator executable and whose remaining items are arguments. The SIGTERM
 command must signal the exact smoke replica and wait for graceful Hocuspocus
@@ -640,8 +651,11 @@ output. Do not put secrets in command arguments or output.
 `[{"id":"collab-a","websocketUrl":"wss://collab-a.internal.example/ws","healthUrl":"https://collab-a.internal.example/healthz"}]`.
 Every listed direct target must admit the fresh `P3_JWKS_NEW_KID` token in the
 first serial smoke test. Retain the non-secret `jwks-replica-admission`
-annotations and compare their unique IDs to the inventory before old-key
-retirement; one shared ingress admission is never sufficient.
+annotations containing the admission-observed instance IDs. Before old-key
+retirement, compare the health-observed ID, authenticated-admission-observed ID,
+and inventory ID for every target, and reject duplicate observed IDs that expose
+two inventory entries aliasing the same process. One shared ingress admission is
+never sufficient.
 
 The endpoint contracts are intentionally different:
 

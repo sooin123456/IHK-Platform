@@ -5,6 +5,11 @@ import test from "node:test";
 
 import { PGlite } from "@electric-sql/pglite";
 
+import {
+  parseDrawingCollaborationReplicaTargets,
+  verifyDrawingCollaborationReplicaIdentity,
+} from "../e2e/utils/drawing-collaboration-replica-targets.ts";
+
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
 
@@ -33,12 +38,71 @@ function assertJwksRotationContract(deployment, smoke) {
   assert.match(deployment, /P3_JWKS_NEW_KID/);
   assert.match(smoke, /for \(const replica of replicas\)/);
   assert.match(smoke, /replica\.websocketUrl/);
-  assert.match(smoke, /replica\.id/);
+  assert.match(smoke, /target: replica/);
   assert.match(smoke, /expectedKid/);
   const margin = deployment.match(/JWKS_SAFETY_MARGIN_SECONDS=(\d+)/)?.[1];
   assert.ok(margin, "JWKS safety margin must be explicit");
   assert.ok(Number(margin) >= 900, "JWKS safety margin must be at least 900s");
 }
+
+test("P3 replica inventory and observed identities reject duplicates and aliases", () => {
+  const valid = JSON.stringify([
+    {
+      id: "collab-a",
+      websocketUrl: "wss://collab-a.example.test/socket",
+      healthUrl: "https://collab-a.example.test/healthz",
+    },
+    {
+      id: "collab-b",
+      websocketUrl: "wss://collab-b.example.test/socket",
+      healthUrl: "https://collab-b.example.test/healthz",
+    },
+  ]);
+  const parsed = parseDrawingCollaborationReplicaTargets(valid, "new-kid");
+  assert.equal(parsed.replicas.length, 2);
+
+  for (const mutation of [
+    valid.replace('"collab-b"', '"collab-a"'),
+    valid.replace(
+      "wss://collab-b.example.test/socket",
+      "wss://collab-a.example.test/socket",
+    ),
+    valid.replace(
+      "https://collab-b.example.test/healthz",
+      "https://collab-a.example.test/healthz",
+    ),
+  ])
+    assert.throws(
+      () => parseDrawingCollaborationReplicaTargets(mutation, "new-kid"),
+      /unique/,
+    );
+
+  const observed = new Set();
+  verifyDrawingCollaborationReplicaIdentity({
+    target: parsed.replicas[0],
+    healthInstanceId: "collab-a",
+    admissionInstanceId: "collab-a",
+    observedInstanceIds: observed,
+  });
+  for (const mutation of [
+    { healthInstanceId: "", admissionInstanceId: "collab-b" },
+    { healthInstanceId: "collab-b", admissionInstanceId: "" },
+    { healthInstanceId: "collab-other", admissionInstanceId: "collab-b" },
+    { healthInstanceId: "collab-b", admissionInstanceId: "collab-other" },
+    {
+      healthInstanceId: "collab-other",
+      admissionInstanceId: "collab-other",
+    },
+    { healthInstanceId: "collab-a", admissionInstanceId: "collab-a" },
+  ])
+    assert.throws(() =>
+      verifyDrawingCollaborationReplicaIdentity({
+        target: parsed.replicas[1],
+        ...mutation,
+        observedInstanceIds: observed,
+      }),
+    );
+});
 
 test("P3 runbook is executable, least-privilege, and forward-safe", async () => {
   const deployment = await read("DEPLOYMENT.md");
@@ -190,15 +254,25 @@ test("P3 ACL audit exposes built-in PUBLIC execute when owner hardening is remov
 });
 
 test("P3 service smoke is executable and matches endpoint authentication contracts", async () => {
-  const [deployment, packageJson, smoke, server, freeze, workspaceServer] =
-    await Promise.all([
-      read("DEPLOYMENT.md"),
-      read("package.json").then(JSON.parse),
-      read("e2e/drawing-collaboration-service-smoke.spec.ts"),
-      read("collaboration/src/server.ts"),
-      read("collaboration/src/freeze.ts"),
-      read("app/lukas/lib/drawing-workspace.server.ts"),
-    ]);
+  const [
+    deployment,
+    packageJson,
+    smoke,
+    server,
+    config,
+    replicaTargets,
+    freeze,
+    workspaceServer,
+  ] = await Promise.all([
+    read("DEPLOYMENT.md"),
+    read("package.json").then(JSON.parse),
+    read("e2e/drawing-collaboration-service-smoke.spec.ts"),
+    read("collaboration/src/server.ts"),
+    read("collaboration/src/config.ts"),
+    read("e2e/utils/drawing-collaboration-replica-targets.ts"),
+    read("collaboration/src/freeze.ts"),
+    read("app/lukas/lib/drawing-workspace.server.ts"),
+  ]);
   const p3 = deployment.slice(
     deployment.indexOf("## Drawing Workspace P3 release runbook"),
   );
@@ -226,6 +300,19 @@ test("P3 service smoke is executable and matches endpoint authentication contrac
   assert.match(server, /x-1hk-freeze-secret/);
   assert.match(server, /createHmac\("sha256"/);
   assert.match(server, /timingSafeEqual\(expected, supplied\)/);
+  assert.match(config, /COLLABORATION_INSTANCE_ID/);
+  assert.match(server, /type: "1hk-collaboration-admission"/);
+  assert.match(server, /instanceId: dependencies\.config\.instanceId/);
+  assert.ok(
+    server.match(/instanceId: dependencies\.config\.instanceId/g)?.length >= 4,
+    "instance identity must be returned by admission and every health state",
+  );
+  assert.match(smoke, /requireReplicaHealth\(replica\)/);
+  assert.match(smoke, /requireAdmissionInstanceId\(\)/);
+  assert.match(smoke, /verifyDrawingCollaborationReplicaIdentity/);
+  assert.match(replicaTargets, /healthInstanceId !== admissionInstanceId/);
+  assert.match(replicaTargets, /healthInstanceId !== target\.id/);
+  assert.match(replicaTargets, /observedInstanceIds\.has\(healthInstanceId\)/);
   assert.match(freeze, /timingSafeEqual\(expected, comparable\)/);
   assert.match(workspaceServer, /createHmac\("sha256"/);
   assert.match(workspaceServer, /"x-1hk-signature": signature/);

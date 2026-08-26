@@ -157,15 +157,19 @@ test("configuration fails closed without asymmetric auth and bounded service sec
     SUPABASE_URL: supabaseUrl,
     COLLABORATION_DATABASE_URL: "postgres://runtime:secret@db.internal/app",
     COLLABORATION_ALLOWED_ORIGINS: "https://app.example.com",
+    COLLABORATION_INSTANCE_ID: "collab-a",
     COLLABORATION_INTERNAL_SECRET: "x".repeat(32),
     COLLABORATION_FREEZE_SECRET: "f".repeat(32),
   };
   assert.equal(parseDrawingCollaborationConfig(valid).port, 1234);
+  assert.equal(parseDrawingCollaborationConfig(valid).instanceId, "collab-a");
   for (const changed of [
     { SUPABASE_URL: "" },
     { COLLABORATION_DATABASE_URL: "" },
     { COLLABORATION_ALLOWED_ORIGINS: "" },
     { COLLABORATION_ALLOWED_ORIGINS: "*" },
+    { COLLABORATION_INSTANCE_ID: "" },
+    { COLLABORATION_INSTANCE_ID: "invalid instance" },
     { COLLABORATION_INTERNAL_SECRET: "short" },
     { COLLABORATION_FREEZE_SECRET: "short" },
     { PORT: "0" },
@@ -1020,6 +1024,7 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
   const runtime = createDrawingCollaborationServer({
     config: {
       port: 0,
+      instanceId: "collab-provider-a",
       supabaseUrl,
       databaseUrl: "postgres://unused",
       allowedOrigins: new Set(["https://app.example.com"]),
@@ -1050,6 +1055,10 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
   const server = await runtime.start();
   let provider;
   try {
+    let resolveAdmission;
+    const admission = new Promise((resolve) => {
+      resolveAdmission = resolve;
+    });
     const synced = new Promise((resolve, reject) => {
       const timeout = setTimeout(
         () => reject(new Error("provider sync timed out")),
@@ -1068,9 +1077,15 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
           clearTimeout(timeout);
           reject(new Error(reason));
         },
+        onStateless: ({ payload }) => {
+          const value = JSON.parse(payload);
+          if (value.type === "1hk-collaboration-admission")
+            resolveAdmission(value.instanceId);
+        },
       });
     });
     await synced;
+    assert.equal(await admission, "collab-provider-a");
     provider.setAwarenessField("cursorWorld", { x: 12, y: 34 });
     const deadline = Date.now() + 2_000;
     let cursorState;
@@ -1946,6 +1961,7 @@ test("health distinguishes readiness and graceful shutdown flushes exactly once"
   const runtime = createDrawingCollaborationServer({
     config: {
       port: 0,
+      instanceId: "collab-runtime-a",
       supabaseUrl,
       databaseUrl: "postgres://unused",
       allowedOrigins: new Set(["https://app.example.com"]),
@@ -1980,11 +1996,19 @@ test("health distinguishes readiness and graceful shutdown flushes exactly once"
     setInterval: () => 1,
     clearInterval: () => {},
   });
-  assert.deepEqual(await runtime.health(), { live: true, ready: true });
+  assert.deepEqual(await runtime.health(), {
+    live: true,
+    ready: true,
+    instanceId: "collab-runtime-a",
+  });
   await Promise.all([runtime.stop(), runtime.stop()]);
   assert.equal(flushes, 1);
   assert.equal(destroys, 1);
-  assert.deepEqual(await runtime.health(), { live: false, ready: false });
+  assert.deepEqual(await runtime.health(), {
+    live: false,
+    ready: false,
+    instanceId: "collab-runtime-a",
+  });
 });
 
 test("the one-port server exposes real liveness and readiness HTTP probes", async () => {
@@ -1992,6 +2016,7 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
   const runtime = createDrawingCollaborationServer({
     config: {
       port: 0,
+      instanceId: "collab-health-a",
       supabaseUrl,
       databaseUrl: "postgres://unused",
       allowedOrigins: new Set(["https://app.example.com"]),
@@ -2022,7 +2047,11 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
   try {
     const response = await fetch(`${server.httpURL}/healthz`);
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { live: true, ready: true });
+    assert.deepEqual(await response.json(), {
+      live: true,
+      ready: true,
+      instanceId: "collab-health-a",
+    });
   } finally {
     await runtime.stop();
   }
