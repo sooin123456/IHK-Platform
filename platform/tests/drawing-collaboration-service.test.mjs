@@ -158,6 +158,7 @@ test("configuration fails closed without asymmetric auth and bounded service sec
     COLLABORATION_DATABASE_URL: "postgres://runtime:secret@db.internal/app",
     COLLABORATION_ALLOWED_ORIGINS: "https://app.example.com",
     COLLABORATION_INTERNAL_SECRET: "x".repeat(32),
+    COLLABORATION_FREEZE_SECRET: "f".repeat(32),
   };
   assert.equal(parseDrawingCollaborationConfig(valid).port, 1234);
   for (const changed of [
@@ -166,6 +167,7 @@ test("configuration fails closed without asymmetric auth and bounded service sec
     { COLLABORATION_ALLOWED_ORIGINS: "" },
     { COLLABORATION_ALLOWED_ORIGINS: "*" },
     { COLLABORATION_INTERNAL_SECRET: "short" },
+    { COLLABORATION_FREEZE_SECRET: "short" },
     { PORT: "0" },
   ]) {
     assert.throws(() =>

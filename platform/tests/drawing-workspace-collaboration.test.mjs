@@ -449,6 +449,7 @@ test("React server signs one idempotent collaboration outcome receipt", async ()
     environment: {
       COLLABORATION_INTERNAL_URL: "http://collaboration.internal",
       COLLABORATION_INTERNAL_SECRET: "s".repeat(32),
+      COLLABORATION_FREEZE_SECRET: "f".repeat(32),
     },
     fetcher: async (url, init) => {
       requests.push([url, init]);

@@ -386,7 +386,9 @@ export function createDrawingDraftAdapter(
       rejectedOperationIds: idsWith("rejected"),
       provisionalConflictOperationIds,
       authorization,
-      frozen: locallyFrozen || meta.freezeState !== "active",
+      frozen:
+        locallyFrozen ||
+        (meta.freezeState !== "active" && meta.freezeState !== "released"),
       quarantine: null,
     };
   }

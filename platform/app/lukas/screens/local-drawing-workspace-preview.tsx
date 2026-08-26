@@ -1,6 +1,7 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { data } from "react-router";
 
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import {
@@ -877,11 +878,25 @@ export function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   if (!isLocalPreviewRequest(request))
-    return Response.json({ ok: false, error: "Not Found" }, { status: 404 });
+    return data({ ok: false, error: "Not Found" }, { status: 404 });
   try {
     const mutation = parseWorkspaceMutation(await request.formData());
+    if (
+      mutation.intent === "request_review" &&
+      new URL(request.url).searchParams.get("reviewFreezeTest") === "1"
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return data(
+        {
+          ok: false,
+          kind: "retryable",
+          error: "로컬 동결 실패 복구 시험",
+        },
+        { status: 503 },
+      );
+    }
     if (mutation.intent !== "apply_operation")
-      return Response.json(
+      return data(
         {
           ok: false,
           error: "로컬 미리보기에서는 작업 operation만 반영됩니다.",
@@ -892,19 +907,19 @@ export async function action({ request }: Route.ActionArgs) {
       mutation.operation.revisionId !==
       localDrawingWorkspacePreviewFixture().workspace.document.revision.id
     )
-      return Response.json(
+      return data(
         {
           ok: false,
           error: "현재 로컬 미리보기 revision의 작업만 반영됩니다.",
         },
         { status: 400 },
       );
-    return Response.json({
+    return data({
       ok: true,
       clientOperationId: mutation.operation.clientOperationId,
     });
   } catch {
-    return Response.json(
+    return data(
       { ok: false, error: "도면 작업 요청 형식이 올바르지 않습니다." },
       { status: 400 },
     );
@@ -913,7 +928,9 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function LocalDrawingWorkspacePreview({
   loaderData,
+  actionData,
 }: Route.ComponentProps) {
+  const [hydrated, setHydrated] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
   const [realtimeInvalidations, setRealtimeInvalidations] = useState(0);
   const [alternateUser, setAlternateUser] = useState(false);
@@ -938,6 +955,7 @@ export default function LocalDrawingWorkspacePreview({
     () => ({ onSoftLockChange: setPreviewSoftLockRequest }),
     [],
   );
+  useEffect(() => setHydrated(true), []);
   useEffect(() => {
     if (!loaderData.realtimeTest) return;
     let active = true;
@@ -1012,6 +1030,9 @@ export default function LocalDrawingWorkspacePreview({
     <>
       <DrawingWorkspaceClient
         {...loaderData}
+        actionError={
+          actionData && "error" in actionData ? actionData.error : undefined
+        }
         projectId={ids.project}
         capability={
           loaderData.realtimeTest && viewer ? "viewer" : loaderData.capability
@@ -1048,6 +1069,9 @@ export default function LocalDrawingWorkspacePreview({
         role="status"
       >
         P3 공동 편집 미리보기 · 로컬 복구 사용
+        <output aria-label="미리보기 hydration 상태" className="sr-only">
+          {hydrated ? "준비됨" : "준비 중"}
+        </output>
         {loaderData.awarenessTest ? (
           <>
             <output aria-label="로컬 advisory 잠금" className="sr-only">

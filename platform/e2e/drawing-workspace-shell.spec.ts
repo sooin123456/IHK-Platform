@@ -5,6 +5,7 @@ const realtimeTestPreviewPath = `${previewPath}?realtimeTest=1`;
 const retryTestPreviewPath = `${previewPath}?collaborationRetryTest=1`;
 const staleBootstrapPreviewPath = `${previewPath}?bootstrapReadOnlyTest=1`;
 const awarenessTestPreviewPath = `${previewPath}?awarenessTest=1`;
+const reviewFreezeTestPreviewPath = `${previewPath}?reviewFreezeTest=1`;
 test.describe.configure({ timeout: 30_000 });
 
 async function openPreview(page: Page, path = previewPath) {
@@ -14,6 +15,9 @@ async function openPreview(page: Page, path = previewPath) {
     waitUntil: "domcontentloaded",
   });
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText(
+    "준비됨",
+  );
 }
 
 async function waitForPreviewRealtimeEffect(page: Page) {
@@ -180,6 +184,56 @@ test("transactional read-only bootstrap blocks stale draft editing before initia
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
   ).toHaveText("공동 편집 연결됨 · 읽기 전용 · 1명");
+});
+
+test("review freeze immediately remounts read-only and a failed transition safely releases it", async ({
+  page,
+}) => {
+  await openPreview(page, reviewFreezeTestPreviewPath);
+  const review = page.getByRole("button", { name: "검토 요청" });
+  const layerName = page.getByRole("textbox", { name: "새 레이어 이름" });
+  await expect(review).toBeEnabled();
+  await expect(layerName).toBeVisible();
+  const frozenUi = await review.evaluate(async (button) => {
+    const form = button.closest("form") as HTMLFormElement;
+    form.requestSubmit = () => undefined;
+    (button as HTMLButtonElement).click();
+    const deadline = performance.now() + 250;
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (
+        (button as HTMLButtonElement).disabled &&
+        !document.querySelector("#new-layer-name")
+      )
+        return true;
+    } while (performance.now() < deadline);
+    return false;
+  });
+  expect(frozenUi).toBe(true);
+  const requestId = await page.evaluate(
+    () =>
+      Object.entries(sessionStorage).find(([key]) =>
+        key.startsWith("drawing-review-freeze:"),
+      )?.[1],
+  );
+  expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+  await page.reload();
+  const retryReview = page.getByRole("button", { name: "검토 요청" });
+  const retryLayerName = page.getByRole("textbox", {
+    name: "새 레이어 이름",
+  });
+  await retryReview.click();
+  await expect(page.getByText("로컬 동결 실패 복구 시험")).toBeVisible();
+  await expect(retryReview).toBeEnabled();
+  await expect(retryLayerName).toBeVisible();
+  await expect(page.locator('input[name="freeze_request_id"]')).toHaveValue(
+    requestId!,
+  );
+  await retryReview.evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(page.locator('input[name="freeze_request_id"]')).toHaveValue(
+    requestId!,
+  );
+  await expect(retryReview).toBeEnabled();
 });
 
 test("preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes", async ({

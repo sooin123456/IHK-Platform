@@ -280,6 +280,24 @@ export function drawingActivityProvenance(item: DrawingActivityItem) {
     : `리비전 ${item.revisionId.slice(0, 8)}`;
 }
 
+export function drawingReviewSubmissionEnabled(input: {
+  outboxReady: boolean;
+  reviewPreparing: boolean;
+  pending: number;
+  conflicted: boolean;
+  volatileCount: number;
+  persistenceFailed: boolean;
+}) {
+  return (
+    input.outboxReady &&
+    !input.reviewPreparing &&
+    input.pending === 0 &&
+    !input.conflicted &&
+    input.volatileCount === 0 &&
+    !input.persistenceFailed
+  );
+}
+
 export type DrawingWorkspaceShortcut =
   | { type: "copy" | "paste" | "duplicate" | "delete" | "undo" | "redo" }
   | { type: "move"; delta: { x: number; y: number } };
@@ -738,6 +756,7 @@ export default function DrawingWorkspaceClient({
   const legacyOutboxRef = useRef<DrawingOutbox | null>(null);
   const flushOutboxRef = useRef<(() => Promise<void>) | null>(null);
   const reviewFrozenRef = useRef(false);
+  const reviewRequestInputRef = useRef<HTMLInputElement>(null);
   const reviewSubmitBypassRef = useRef(false);
   const reviewSubmissionSeenRef = useRef(false);
   const reviewSubmittedRef = useRef(false);
@@ -2052,6 +2071,21 @@ export default function DrawingWorkspaceClient({
       event.preventDefault();
       const form = event.currentTarget;
       const submitter = (event.nativeEvent as SubmitEvent).submitter;
+      const requestStorageKey = `drawing-review-freeze:${revision.id}`;
+      let requestId: string | null = null;
+      try {
+        requestId = window.sessionStorage.getItem(requestStorageKey);
+      } catch {
+        // A privacy-restricted browser can still keep the request in the form.
+      }
+      requestId ||= reviewRequestInputRef.current?.value || crypto.randomUUID();
+      if (reviewRequestInputRef.current)
+        reviewRequestInputRef.current.value = requestId;
+      try {
+        window.sessionStorage.setItem(requestStorageKey, requestId);
+      } catch {
+        // The hidden input preserves retries while this page remains mounted.
+      }
       const persistence = persistenceRef.current;
       const outbox = legacyOutboxRef.current;
       const flush = flushOutboxRef.current;
@@ -2069,6 +2103,17 @@ export default function DrawingWorkspaceClient({
           freeze() {
             reviewFrozenRef.current = true;
             setReviewPreparing(true);
+            setAuthorizedTool("select");
+            semanticBlockSelectionRef.current.clear();
+            setAuthorizedSelection([]);
+            setAwarenessSoftLock(null);
+            awarenessCursorRef.current = null;
+            publishAwareness({
+              cursorWorld: null,
+              selectedIds: [],
+              activeTool: "select",
+              softLocks: [],
+            });
           },
           persistence,
           flush,
@@ -2089,7 +2134,13 @@ export default function DrawingWorkspaceClient({
         );
       }
     },
-    [],
+    [
+      publishAwareness,
+      revision.id,
+      setAuthorizedSelection,
+      setAuthorizedTool,
+      setAwarenessSoftLock,
+    ],
   );
 
   return (
@@ -2166,7 +2217,25 @@ export default function DrawingWorkspaceClient({
             <Form method="post" onSubmit={prepareReviewSubmission}>
               <input name="intent" type="hidden" value="request_review" />
               <input name="revision_id" type="hidden" value={revision.id} />
-              <Button disabled={!outboxReady} type="submit" variant="secondary">
+              <input
+                name="freeze_request_id"
+                ref={reviewRequestInputRef}
+                type="hidden"
+              />
+              <Button
+                disabled={
+                  !drawingReviewSubmissionEnabled({
+                    outboxReady,
+                    reviewPreparing,
+                    pending: saveState.pending,
+                    conflicted: saveState.conflicted,
+                    volatileCount: persistenceState.volatileCount,
+                    persistenceFailed: persistenceState.failed,
+                  })
+                }
+                type="submit"
+                variant="secondary"
+              >
                 <Check className="size-4" /> 검토 요청
               </Button>
             </Form>

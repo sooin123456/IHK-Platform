@@ -37,6 +37,13 @@ const historyAuthorityMigration = await readFile(
   ),
   "utf8",
 );
+const reviewFreezeMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260826043741_drawing_workspace_p3_review_freeze.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(
@@ -236,4 +243,63 @@ test("collaboration history authority migration closes legacy and direct-DML byp
     /grant execute on function public\.lukas_drawing_apply_operation\(\s*uuid,uuid,text,jsonb,jsonb,jsonb\s*\) to authenticated,service_role/i,
   );
   assert.doesNotMatch(historyAuthorityMigration, /drop column|update auth\./i);
+});
+
+test("P3 review freeze is forward-only, private, manifest-bound, and DB-canonical", () => {
+  assert.match(
+    reviewFreezeMigration,
+    /freeze_state text not null default 'active'/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /'freezing'[\s\S]*'frozen'[\s\S]*'released'/i,
+  );
+  assert.match(reviewFreezeMigration, /accepted_manifest_sha256/i);
+  assert.match(reviewFreezeMigration, /accepted_operation_count/i);
+  assert.match(reviewFreezeMigration, /frozen_base_operation_sequence/i);
+  assert.match(reviewFreezeMigration, /review_committed_at/i);
+  assert.match(
+    reviewFreezeMigration,
+    /coalesce\(pg_catalog\.current_setting\('private\.lukas_drawing_freeze_write',true\),''\)<>'1'/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /get diagnostics v_changed=row_count;[\s\S]*if v_changed<>1 then/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /create function private\.lukas_drawing_collaboration_begin_freeze/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /create function private\.lukas_drawing_collaboration_complete_freeze/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /create function public\.lukas_drawing_request_collaborative_review/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /item->'forward'=o\.forward[\s\S]*item->'inverse'=o\.inverse[\s\S]*item->'resultVersions'=o\.result_versions/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /v_result:=private\.lukas_drawing_request_review\(p_revision_id\)/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /grant execute on function private\.lukas_drawing_collaboration_(?:read_freeze|begin_freeze|complete_freeze|release_freeze)[\s\S]*to lukas_drawing_collaboration/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /revoke all on function private\.lukas_drawing_request_review\(uuid\) from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    reviewFreezeMigration,
+    /lukas_drawing_request_review_legacy_guard[\s\S]*lukas_drawing_revisions[\s\S]*for update;[\s\S]*if found and exists\(select 1 from private\.lukas_drawing_collaboration_states/i,
+  );
+  assert.doesNotMatch(
+    reviewFreezeMigration,
+    /(?:create|alter|drop)\s+(?:table|function|schema|policy)[\s\S]{0,80}\brealtime\./i,
+  );
 });

@@ -254,6 +254,14 @@ const p3CheckpointReferenceAuthorityMigration = () =>
     ),
     "utf8",
   );
+const p3ReviewFreezeMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260826043741_drawing_workspace_p3_review_freeze.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 const vite = await createServer({
   appType: "custom",
@@ -625,6 +633,7 @@ before(async () => {
   await db.exec(await p3MentionsHistoryMigration());
   await db.exec(await p3ActivityAuthorityMigration());
   await db.exec(await p3CheckpointReferenceAuthorityMigration());
+  await db.exec(await p3ReviewFreezeMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1544,6 +1553,186 @@ test("P3 collaboration state is private, exact-byte hashed, bounded, monotonic, 
       "lukas_qto_project_members",
     ],
     private_state_published: false,
+  });
+});
+
+test("P3 collaborative review requires the exact service-frozen accepted manifest and is idempotent", async () => {
+  const ids = await createDocument("P3 atomic review freeze");
+  const operationId = randomUUID();
+  const layerId = randomUUID();
+  await applyOperationWithId(
+    ids.revisionId,
+    operationId,
+    "add_layer",
+    { [layerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: layerId,
+        name: "Freeze ledger",
+        canvasId: ids.canvasId,
+        sortOrder: 9,
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  const accepted = await db.query(
+    `select client_operation_id "clientOperationId",revision_id "revisionId",
+      actor_id "actorId",operation_type "operationType",
+      base_versions "baseVersions",forward,inverse,
+      history_action "historyAction",original_operation_id "originalOperationId",
+      sequence,result_versions "resultVersions"
+     from public.lukas_drawing_operations where revision_id=$1 order by sequence`,
+    [ids.revisionId],
+  );
+  const manifest = accepted.rows;
+  const manifestSha256 = createHash("sha256")
+    .update(JSON.stringify(manifest))
+    .digest("hex");
+  const requestId = randomUUID();
+
+  await db.exec("reset role");
+  const legacyPrivileges = await db.query(`select
+    has_function_privilege('authenticated','private.lukas_drawing_request_review(uuid)','execute') authenticated_execute,
+    has_function_privilege('service_role','private.lukas_drawing_request_review(uuid)','execute') service_execute`);
+  assert.deepEqual(legacyPrivileges.rows[0], {
+    authenticated_execute: false,
+    service_execute: false,
+  });
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query("select private.lukas_drawing_request_review($1)", [
+      ids.revisionId,
+    ]),
+    (error) => error.code === "42501",
+  );
+
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
+      [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+    ),
+    (error) => error.code === "P3F01",
+  );
+
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,0)",
+    [PROJECT, ids.revisionId, requestId, Buffer.from([1, 2, 3])],
+  );
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_store_state($1,$2,$3,1::smallint,$4::bytea,0::bigint,1::bigint,$5)",
+      [
+        OWNER,
+        PROJECT,
+        ids.revisionId,
+        Buffer.from([9, 9, 9]),
+        createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex"),
+      ],
+    ),
+    (error) => error.code === "P3F02",
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,$7,0)",
+    [
+      PROJECT,
+      ids.revisionId,
+      requestId,
+      Buffer.from([4, 5, 6]),
+      manifest,
+      manifestSha256,
+      manifest.length,
+    ],
+  );
+  await db.exec("reset role");
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
+      [ids.revisionId, randomUUID(), manifestSha256, manifest.length, manifest],
+    ),
+    (error) => error.code === "P3F01",
+  );
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5)",
+      [ids.revisionId, requestId, "f".repeat(64), manifest.length, manifest],
+    ),
+    (error) => error.code === "P3F01",
+  );
+
+  const first = await db.query(
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5) result",
+    [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+  );
+  const retry = await db.query(
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,0,$5) result",
+    [ids.revisionId, requestId, manifestSha256, manifest.length, manifest],
+  );
+  assert.deepEqual(retry.rows[0].result, first.rows[0].result);
+  assert.equal(first.rows[0].result.freezeRequestId, requestId);
+  await db.exec("reset role");
+  const evidence = await db.query(
+    `select r.status,s.freeze_state,s.freeze_request_id,s.accepted_manifest_sha256,
+      sn.sha256,encode(extensions.digest(convert_to(sn.canonical_json::text,'UTF8'),'sha256'),'hex') recomputed
+     from public.lukas_drawing_revisions r
+     join private.lukas_drawing_collaboration_states s on s.revision_id=r.id
+     join public.lukas_drawing_snapshots sn on sn.revision_id=r.id
+     where r.id=$1`,
+    [ids.revisionId],
+  );
+  assert.equal(evidence.rows[0].status, "review_requested");
+  assert.equal(evidence.rows[0].freeze_state, "frozen");
+  assert.equal(evidence.rows[0].accepted_manifest_sha256, manifestSha256);
+  assert.equal(evidence.rows[0].sha256, evidence.rows[0].recomputed);
+
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await assert.rejects(
+    db.query(
+      "select private.lukas_drawing_collaboration_release_freeze($1,$2,$3,$4::bytea)",
+      [PROJECT, ids.revisionId, requestId, Buffer.from([7])],
+    ),
+    (error) => error.code === "P3F02",
+  );
+  await db.exec("reset role");
+});
+
+test("P3 stale release cannot report success or release a newer freeze", async () => {
+  const ids = await createDocument("P3 stale release fence");
+  const firstRequestId = randomUUID();
+  const secondRequestId = randomUUID();
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,0)",
+    [PROJECT, ids.revisionId, firstRequestId, Buffer.from([1])],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_release_freeze($1,$2,$3,$4::bytea)",
+    [PROJECT, ids.revisionId, firstRequestId, Buffer.from([2])],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,0)",
+    [PROJECT, ids.revisionId, secondRequestId, Buffer.from([3])],
+  );
+  await assert.rejects(
+    db.query(
+      "select private.lukas_drawing_collaboration_release_freeze($1,$2,$3,$4::bytea)",
+      [PROJECT, ids.revisionId, firstRequestId, Buffer.from([4])],
+    ),
+    (error) => error.code === "P3F02",
+  );
+  await db.exec("reset role");
+  const state = await db.query(
+    "select freeze_state,freeze_request_id from private.lukas_drawing_collaboration_states where revision_id=$1",
+    [ids.revisionId],
+  );
+  assert.deepEqual(state.rows[0], {
+    freeze_state: "freezing",
+    freeze_request_id: secondRequestId,
   });
 });
 

@@ -2,6 +2,7 @@ import postgres from "postgres";
 import * as Y from "yjs";
 
 import type { DrawingRoomAuthorization } from "./auth.ts";
+import type { DrawingFreezeDatabase, DrawingFreezeState } from "./freeze.ts";
 
 export type DrawingStorageScope = {
   userId: string;
@@ -14,6 +15,8 @@ export type DrawingStoredState = {
   generation: number;
   sha256: string;
   baseOperationSequence: number;
+  freezeState?: DrawingFreezeState["state"];
+  freezeRequestId?: string | null;
 };
 export type DrawingStoreInput = DrawingStorageScope & {
   state: Uint8Array;
@@ -57,6 +60,7 @@ export type DrawingCollaborationDatabase = {
     revisionId: string,
     operationIds: string[],
   ) => Promise<DrawingAcceptedOperation[]>;
+  freeze?: DrawingFreezeDatabase;
   health?: () => Promise<boolean>;
   close?: () => Promise<void>;
 };
@@ -233,6 +237,7 @@ export function createDrawingCollaborationStorage(input: {
             sleep,
           )
       : undefined,
+    freeze: input.database.freeze,
     health: input.database.health,
     close: input.database.close,
   };
@@ -415,6 +420,81 @@ export function createPostgresDrawingCollaborationDatabase(
           resultVersions: row.result_versions,
         }));
       }),
+    freeze: {
+      readFreeze: (scope) =>
+        inRole(async (tx) => {
+          const row = firstRow(
+            await tx<
+              {
+                freeze_state: DrawingFreezeState["state"];
+                freeze_request_id: string | null;
+                revision_status: string;
+                accepted_manifest_sha256: string | null;
+                accepted_operation_count: number | null;
+                frozen_base_operation_sequence: number | null;
+              }[]
+            >`select * from private.lukas_drawing_collaboration_read_freeze(${scope.projectId}::uuid,${scope.revisionId}::uuid)`,
+          );
+          return row
+            ? {
+                state: row.freeze_state,
+                requestId: row.freeze_request_id,
+                revisionStatus: row.revision_status,
+                manifestSha256: row.accepted_manifest_sha256,
+                manifestCount:
+                  row.accepted_operation_count === null
+                    ? null
+                    : Number(row.accepted_operation_count),
+                frozenBaseOperationSequence:
+                  row.frozen_base_operation_sequence === null
+                    ? null
+                    : Number(row.frozen_base_operation_sequence),
+              }
+            : null;
+        }),
+      beginFreeze: (value) =>
+        inRole(async (tx) => {
+          const row = firstRow(
+            await tx<
+              { result: DrawingFreezeState }[]
+            >`select private.lukas_drawing_collaboration_begin_freeze(
+              ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+              ${Buffer.from(value.yjsState)}::bytea,${value.baseOperationSequence}::bigint
+            ) result`,
+          );
+          if (!row) throw new Error("Drawing freeze returned no state.");
+          return row.result;
+        }),
+      completeFreeze: (value) =>
+        inRole(async (tx) => {
+          const row = firstRow(
+            await tx<
+              { result: DrawingFreezeState }[]
+            >`select private.lukas_drawing_collaboration_complete_freeze(
+              ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+              ${Buffer.from(value.yjsState)}::bytea,
+              ${tx.json(JSON.parse(JSON.stringify(value.manifest.operations)))}::jsonb,${value.manifest.sha256},
+              ${value.manifest.count}::integer,${value.manifest.baseOperationSequence}::bigint
+            ) result`,
+          );
+          if (!row) throw new Error("Drawing freeze returned no state.");
+          return row.result;
+        }),
+      releaseFreeze: (value) =>
+        inRole(async (tx) => {
+          const row = firstRow(
+            await tx<
+              { result: DrawingFreezeState }[]
+            >`select private.lukas_drawing_collaboration_release_freeze(
+              ${value.projectId}::uuid,${value.revisionId}::uuid,${value.requestId}::uuid,
+              ${Buffer.from(value.yjsState)}::bytea
+            ) result`,
+          );
+          if (!row)
+            throw new Error("Drawing freeze release returned no state.");
+          return row.result;
+        }),
+    },
     health: async () => {
       const rows = await sql<{ ok: number }[]>`select 1 ok`;
       return rows[0]?.ok === 1;

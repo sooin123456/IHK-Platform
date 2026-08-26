@@ -42,6 +42,10 @@ import {
   type DrawingCollaborationDatabase,
   type DrawingStorageScope,
 } from "./storage.ts";
+import {
+  createDrawingFreezeCoordinator,
+  createDrawingFreezeSecretVerifier,
+} from "./freeze.ts";
 
 type CollaborationStorage = ReturnType<
   typeof createDrawingCollaborationStorage
@@ -326,6 +330,11 @@ export function validateDrawingClientUpdate(
 ) {
   if (!context.canWrite)
     throw new Error("Drawing collaboration room is read-only.");
+  const freezeState = DrawingCollaborationMetaSchema.parse(
+    current.getMap("serverMeta").toJSON(),
+  ).freezeState;
+  if (freezeState !== "active" && freezeState !== "released")
+    throw new Error("Drawing collaboration room is frozen.");
   if (update.byteLength > 1024 * 1024)
     throw new Error("Drawing collaboration update is too large.");
   const before = documentCollections(current);
@@ -537,6 +546,7 @@ type Dependencies = {
     | "bootstrap"
     | "bootstrapService"
     | "lookupOperations"
+    | "freeze"
     | "health"
     | "close"
   >;
@@ -816,6 +826,106 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
   });
   const hocuspocus = server.hocuspocus;
 
+  const freezeCoordinator = dependencies.storage.freeze
+    ? createDrawingFreezeCoordinator({
+        database: dependencies.storage.freeze,
+        reconcile: async (document) => {
+          if (!dependencies.storage.lookupOperations) return;
+          const revisionId = String(
+            document.getMap("serverMeta").get("revisionId"),
+          );
+          await reconcileAcceptedDrawingOperations(document, (ids) =>
+            dependencies.storage.lookupOperations!(revisionId, ids),
+          );
+        },
+      })
+    : null;
+  const verifyFreezeSecret = dependencies.config.freezeSecret
+    ? createDrawingFreezeSecretVerifier(dependencies.config.freezeSecret)
+    : null;
+
+  async function loadServiceDocument(roomName: string) {
+    const room = parseDrawingRoomName(roomName);
+    const loaded = hocuspocus.documents.get(roomName);
+    if (loaded) return { document: loaded, detached: false };
+    const document = new Y.Doc();
+    const stored = await dependencies.storage.loadService(room);
+    if (stored) {
+      Y.applyUpdate(
+        document,
+        stored.yjsState,
+        DRAWING_COLLABORATION_SERVER_ORIGIN,
+      );
+      ensureDrawingCollections(document);
+      validateLedgerWithoutAppend(document, roomName);
+    } else {
+      if (!dependencies.storage.bootstrapService)
+        throw new Error(
+          "Drawing collaboration service bootstrap is unavailable.",
+        );
+      await initializeDrawingCollaborationDocument(document, {
+        ...room,
+        bootstrap: () => dependencies.storage.bootstrapService!(room),
+      });
+    }
+    return { document, detached: true };
+  }
+
+  async function applyFreezeRequest(
+    body: string,
+    suppliedSecret: string | undefined,
+  ) {
+    if (!verifyFreezeSecret || !freezeCoordinator)
+      throw new OutcomeReceiptAuthenticationError(
+        "Drawing freeze service is unavailable.",
+      );
+    try {
+      verifyFreezeSecret(suppliedSecret);
+    } catch {
+      throw new OutcomeReceiptAuthenticationError(
+        "Drawing freeze authentication failed.",
+      );
+    }
+    const request = z
+      .object({
+        action: z.enum(["freeze", "reconcile", "release"]),
+        roomName: z.string().refine((value) => {
+          try {
+            parseDrawingRoomName(value);
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+        freezeRequestId: z.string().uuid(),
+      })
+      .strict()
+      .parse(JSON.parse(body));
+    const loaded = await loadServiceDocument(request.roomName);
+    try {
+      if (request.action === "release")
+        return await freezeCoordinator.release({
+          document: loaded.document,
+          roomName: request.roomName,
+          requestId: request.freezeRequestId,
+        });
+      const frozen = await freezeCoordinator.freeze({
+        document: loaded.document,
+        roomName: request.roomName,
+        requestId: request.freezeRequestId,
+      });
+      for (const connection of [...connections])
+        if (connection.context.roomName === request.roomName) {
+          connection.readOnly = true;
+          connection.close({ code: 4403, reason: "review-freeze" });
+          connections.delete(connection);
+        }
+      return frozen;
+    } finally {
+      if (loaded.detached) loaded.document.destroy();
+    }
+  }
+
   function persistenceContext(document: Y.Doc): DrawingRuntimeContext {
     const meta = DrawingCollaborationMetaSchema.parse(
       document.getMap("serverMeta").toJSON(),
@@ -1034,6 +1144,29 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
           }
           return;
         }
+        if (request.method === "POST" && url.pathname === "/internal/freeze") {
+          let body = "";
+          for await (const chunk of request) {
+            body += chunk;
+            if (Buffer.byteLength(body) > 16 * 1024) break;
+          }
+          try {
+            const result = await applyFreezeRequest(
+              body,
+              request.headers["x-1hk-freeze-secret"] as string | undefined,
+            );
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify(result));
+          } catch (error) {
+            response
+              .writeHead(
+                error instanceof OutcomeReceiptAuthenticationError ? 401 : 409,
+                { "content-type": "application/json" },
+              )
+              .end(JSON.stringify({ error: "Drawing freeze request failed." }));
+          }
+          return;
+        }
         await normalRequest(request, response);
       };
     if (!requestHandlerInstalled) {
@@ -1076,6 +1209,7 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
     runPassiveAuthorizationCheck,
     runReconciliationCheck,
     applyOutcomeReceipt,
+    applyFreezeRequest,
     purgeAuthCache() {
       dependencies.purgeAuth?.();
     },

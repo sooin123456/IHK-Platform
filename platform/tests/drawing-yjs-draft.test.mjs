@@ -652,6 +652,21 @@ test("authorization, freeze, and disposal stop mutation without authoring server
   );
 });
 
+test("a service-released failed review restores draft writability", () => {
+  const doc = initializedDoc();
+  const adapter = create(doc, { createId: () => ids.operationA });
+  doc.getMap("serverMeta").set("freezeState", "released");
+  doc.getMap("serverMeta").set("freezeRequestId", ids.operationB);
+  assert.equal(adapter.getSnapshot().frozen, false);
+  assert.doesNotThrow(() =>
+    adapter.prepareLocal({
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "released" } }],
+    }),
+  );
+});
+
 test("malformed or oversized updates quarantine evidence and preserve the last projection", () => {
   const doc = initializedDoc();
   const adapter = create(doc);

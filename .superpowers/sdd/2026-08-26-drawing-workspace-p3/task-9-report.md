@@ -1,0 +1,50 @@
+# P3 Task 9 report — atomic collaboration-room review freeze
+
+## Delivered
+
+- Generated the forward-only Supabase CLI migration `20260826043741_drawing_workspace_p3_review_freeze.sql`; no committed migration was edited.
+- Added persisted `active | freezing | frozen | released` collaboration state, an idempotent request UUID, accepted-manifest SHA-256/count/base sequence, frozen timestamp and committed-review fence.
+- Added service-only begin/complete/release/read functions and a public collaborative-review wrapper. The database locks revision then collaboration state, compares every accepted immutable operation envelope with PostgreSQL, and delegates canonical P2 snapshot/SHA creation to the existing database review function.
+- Kept the Yjs state-byte SHA and canonical business snapshot SHA in separate fields and code paths.
+- Added an exact canonical freeze manifest containing client operation ID, revision, actor, type, base/result versions, forward/inverse, history lineage and authoritative sequence. Client timestamp and schema noise are excluded; pending, conflicted and malformed ledgers fail closed.
+- Added a separate 32-byte minimum `COLLABORATION_FREEZE_SECRET`, constant-time verification, a bounded 5-second internal request, strict 16 KiB endpoint input and no browser secret path.
+- Added restart reconciliation and same-request recovery for begin/complete/HTTP/DB lost responses. Browser retries keep one request UUID in session storage.
+- Added database-first release semantics: the live Y.Doc becomes released only after the authoritative release commits. Review-requested/approved/committed review and stale request releases remain frozen.
+- Added immediate read-only UI remount, gesture/selection/soft-lock/cursor/awareness clearing, pending/conflicted/volatile gating and safe failed-transition recovery.
+- Preserved the existing maker-checker approval/decision evidence and legacy non-collaborative review signature.
+
+## Review hardening
+
+- Revoked the earlier private legacy review function from Data API roles; authenticated users can no longer bypass the collaborative wrapper.
+- Locked the revision before the legacy room-existence check, closing the legacy-review versus begin-freeze race with the same revision-to-state lock order.
+- Made the frozen-state write trigger fail closed when its transaction-local GUC is unset by coalescing SQL `NULL` before comparison.
+- Captured DML row counts before clearing the GUC, so a stale begin/release cannot report success after a zero-row conditional write.
+- Reconstructed and returned the full persisted manifest after a committed complete-freeze response is lost.
+- Reconciled the same request after an initial freeze HTTP response is lost and attempted an authoritative safe release after every final DB-transition failure, including permission revocation.
+- Built candidate released Yjs bytes off-document, committed the database release first, then applied them to the live room. A concurrent review commit therefore cannot make the live room writable.
+- Independent read-only review finished with no remaining critical or important finding.
+
+## TDD evidence
+
+- RED tests reproduced missing freeze contracts, exact-manifest noise handling, pending/conflicted rejection, update-versus-freeze, direct review without freeze, request/digest mismatch, released draft writability and separate-secret authentication.
+- Additional RED/green regressions cover complete-freeze response loss with a nonempty manifest, initial HTTP response loss, stable browser request identity, permission revoked after freeze, private legacy RPC privilege bypass, legacy lock order, unset-GUC write bypass, stale release row-count behavior and review-commit-versus-live-release.
+- Fresh Chromium verifies transactional read-only bootstrap and `review click -> immediate read-only remount -> failed transition -> same-ID editable recovery`.
+
+## Verification evidence
+
+- `npm run test:drawing-workspace`: 485 tests, 484 passed, 1 existing environment-dependent test skipped, 0 failed.
+- Freeze/service/Yjs focused suite: 63 passed, 0 failed.
+- Full PGlite database runtime: 118 passed, 0 failed, including exact frozen manifest, private legacy privilege denial, ordinary store rejection after freeze, idempotent review, canonical snapshot SHA, permanent committed freeze and stale-release fencing.
+- `npm run typecheck`: passed.
+- `npm run typecheck:collaboration`: passed.
+- `npm run build`: passed; only existing chunk-size, React Router future-flag, unsigned theme-cookie and localStorage warnings were emitted.
+- Fresh Chromium: 2 passed, 0 failed.
+- `git diff --check`: passed.
+
+## Production gates not claimed
+
+- The migration was executed from a clean PGlite database, not applied to a hosted Supabase project.
+- `supabase db diff --local` and local database lint/advisors could not run because this machine has neither Docker nor Podman; the CLI reported Docker Desktop as a prerequisite. The project is not linked, so no hosted database was inspected or changed.
+- Hosted PostgreSQL concurrent sessions, collaboration-service deployment/restart, real auth/RLS adversarial traffic and production Realtime fanout still require staging/deployment evidence.
+- The disposable-PostgreSQL concurrency fixture remains the one existing `UNEXECUTED` Drawing Node gate.
+- No Task 10 performance fixtures or Task 10 scope were added.

@@ -226,6 +226,14 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_client_request_id: string;
       }>;
       lukas_drawing_request_review: DrawingRpc<{ p_revision_id: string }>;
+      lukas_drawing_request_collaborative_review: DrawingRpc<{
+        p_revision_id: string;
+        p_request_id: string;
+        p_manifest_sha256: string;
+        p_manifest_count: number;
+        p_base_operation_sequence: number;
+        p_manifest: Json;
+      }>;
       lukas_drawing_record_revision_decision: DrawingRpc<{
         p_revision_id: string;
         p_subject_version: number;
@@ -588,6 +596,7 @@ const LinkIssueMutationSchema = z.object({
 const RequestReviewMutationSchema = z.object({
   intent: z.literal("request_review"),
   revisionId: Uuid,
+  requestId: Uuid,
 });
 const RecordRevisionDecisionMutationSchema = z.object({
   intent: z.literal("record_revision_decision"),
@@ -625,7 +634,7 @@ const allowedFormFields = {
   apply_operation: new Set(["intent", "operation_json"]),
   create_layer: new Set(["intent", "name"]),
   link_issue: new Set(["intent", "object_id", "issue_id"]),
-  request_review: new Set(["intent", "revision_id"]),
+  request_review: new Set(["intent", "revision_id", "freeze_request_id"]),
   restore_approved_snapshot: new Set([
     "intent",
     "source_revision_id",
@@ -697,6 +706,7 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
     return RequestReviewMutationSchema.parse({
       intent,
       revisionId: form.get("revision_id"),
+      requestId: form.get("freeze_request_id"),
     });
   if (knownIntent === "restore_approved_snapshot")
     return RestoreApprovedSnapshotMutationSchema.parse({
@@ -2131,7 +2141,13 @@ export class DrawingWorkspaceRetryableError extends Error {
   }
 }
 
-const drawingConflictCodes = new Set(["23505", "23P01", "P1C01"]);
+const drawingConflictCodes = new Set([
+  "23505",
+  "23P01",
+  "P1C01",
+  "P3F01",
+  "P3F02",
+]);
 const drawingRejectedCodes = new Set(["P1R01"]);
 const drawingRetryableCodes = new Set(["40001", "40P01"]);
 
@@ -2477,6 +2493,132 @@ export async function requestDrawingReview(
   return rpcResult(data, error);
 }
 
+const DrawingCollaborativeFreezeResultSchema = z
+  .object({
+    freezeState: z.literal("frozen"),
+    freezeRequestId: Uuid,
+    manifestSha256: Sha256,
+    manifestCount: z.number().int().nonnegative().max(10_000),
+    baseOperationSequence: z.number().int().nonnegative(),
+    operations: z.array(z.record(z.string(), z.unknown())).max(10_000),
+  })
+  .strict()
+  .refine((value) => value.operations.length === value.manifestCount);
+
+type DrawingFreezeFetcher = (
+  input: string,
+  init: {
+    method: "POST";
+    body: string;
+    headers: Record<string, string>;
+    signal: AbortSignal;
+  },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
+export async function requestDrawingCollaborativeReview({
+  client,
+  projectId,
+  revisionId,
+  requestId,
+  environment = process.env,
+  fetcher = fetch as DrawingFreezeFetcher,
+}: {
+  client: Pick<DrawingWorkspaceClient, "rpc">;
+  projectId: string;
+  revisionId: string;
+  requestId: string;
+  environment?: Record<string, string | undefined>;
+  fetcher?: DrawingFreezeFetcher;
+}) {
+  const scope = {
+    projectId: Uuid.parse(projectId),
+    revisionId: Uuid.parse(revisionId),
+    requestId: Uuid.parse(requestId),
+  };
+  const url = environment.COLLABORATION_INTERNAL_URL;
+  const secret = environment.COLLABORATION_FREEZE_SECRET;
+  if (!url || !secret || secret.length < 32)
+    throw new DrawingWorkspaceRetryableError(
+      "공동 편집 동결 서비스를 사용할 수 없습니다.",
+    );
+  const endpoint = new URL("/internal/freeze", url);
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:")
+    throw new DrawingWorkspaceRetryableError(
+      "공동 편집 동결 서비스 주소가 올바르지 않습니다.",
+    );
+  const callService = async (action: "freeze" | "reconcile" | "release") => {
+    const response = await fetcher(endpoint.toString(), {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        roomName: drawingRoomName(scope.projectId, scope.revisionId),
+        freezeRequestId: scope.requestId,
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-1hk-freeze-secret": secret,
+      },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok)
+      throw new DrawingWorkspaceRetryableError(
+        "공동 편집 동결 서비스가 준비되지 않았습니다.",
+      );
+    return response.json();
+  };
+  const readFrozen = async (action: "freeze" | "reconcile") => {
+    const value = DrawingCollaborativeFreezeResultSchema.parse(
+      await callService(action),
+    );
+    if (value.freezeRequestId !== scope.requestId)
+      throw new DrawingWorkspaceConflictError(
+        "공동 편집 동결 요청이 일치하지 않습니다.",
+      );
+    return value;
+  };
+  let frozen;
+  try {
+    frozen = await readFrozen("freeze");
+  } catch {
+    // The freeze may have committed even when its HTTP response was lost.
+    frozen = await readFrozen("reconcile");
+  }
+  const args = {
+    p_revision_id: scope.revisionId,
+    p_request_id: scope.requestId,
+    p_manifest_sha256: frozen.manifestSha256,
+    p_manifest_count: frozen.manifestCount,
+    p_base_operation_sequence: frozen.baseOperationSequence,
+    p_manifest: frozen.operations as Json,
+  };
+  const transition = async () => {
+    const { data, error } = await client.rpc(
+      "lukas_drawing_request_collaborative_review",
+      args,
+    );
+    return rpcResult(data, error);
+  };
+  try {
+    return await transition();
+  } catch (error) {
+    if (error instanceof DrawingWorkspaceConflictError) {
+      await callService("release").catch(() => undefined);
+      throw error;
+    }
+    // A database commit may have succeeded even when its response was lost.
+    // Reconcile the persisted request, then repeat the idempotent transaction.
+    await callService("reconcile");
+    try {
+      return await transition();
+    } catch (retryError) {
+      // Release is authoritative and safe to attempt for every final failure:
+      // the DB refuses it if either review attempt actually committed.
+      await callService("release").catch(() => undefined);
+      throw retryError;
+    }
+  }
+}
+
 export async function restoreApprovedDrawingSnapshot(
   client: DrawingWorkspaceClient,
   sourceRevisionId: string,
@@ -2582,6 +2724,7 @@ export async function handleWorkspaceMutation({
   form,
   actorId,
   deliverOutcome = deliverDrawingCollaborationOutcome,
+  requestReview = requestDrawingCollaborativeReview,
   environment = {
     createId: () => crypto.randomUUID(),
     now: () => new Date().toISOString(),
@@ -2594,6 +2737,7 @@ export async function handleWorkspaceMutation({
   form: FormData;
   actorId?: string;
   deliverOutcome?: typeof deliverDrawingCollaborationOutcome;
+  requestReview?: typeof requestDrawingCollaborativeReview;
   environment?: WorkspaceMutationEnvironment;
 }): Promise<{ status: number; body: DrawingWorkspaceActionBody }> {
   let receiptOperation: DrawingOperationInput | null = null;
@@ -2719,7 +2863,12 @@ export async function handleWorkspaceMutation({
         result = await applyDrawingOperation(client, operation);
       } else if (mutation.intent === "request_review") {
         assertCurrentWorkspaceRevision(workspace, mutation.revisionId);
-        result = await requestDrawingReview(client, mutation.revisionId);
+        result = await requestReview({
+          client,
+          projectId,
+          revisionId: mutation.revisionId,
+          requestId: mutation.requestId,
+        });
       } else if (mutation.intent === "restore_approved_snapshot") {
         assertCurrentWorkspaceRevision(workspace, mutation.sourceRevisionId);
         result = await restoreApprovedDrawingSnapshot(

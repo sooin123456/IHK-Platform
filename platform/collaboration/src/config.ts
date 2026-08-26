@@ -11,6 +11,7 @@ const ConfigSchema = z
       .refine((value) => /^postgres(?:ql)?:/.test(value)),
     COLLABORATION_ALLOWED_ORIGINS: z.string().min(1),
     COLLABORATION_INTERNAL_SECRET: z.string().min(32),
+    COLLABORATION_FREEZE_SECRET: z.string().min(32),
   })
   .passthrough();
 
@@ -20,6 +21,7 @@ export type DrawingCollaborationConfig = {
   databaseUrl: string;
   allowedOrigins: Set<string>;
   internalSecret: string;
+  freezeSecret: string;
   authorizationIntervalMs: number;
   debounceMs: number;
   maxDebounceMs: number;
@@ -39,12 +41,15 @@ export function parseDrawingCollaborationConfig(
     )
   )
     throw new Error("Collaboration origins must be exact URL origins.");
+  if (value.COLLABORATION_FREEZE_SECRET === value.COLLABORATION_INTERNAL_SECRET)
+    throw new Error("Drawing freeze secret must be separate.");
   return {
     port: value.PORT,
     supabaseUrl: value.SUPABASE_URL.replace(/\/$/, ""),
     databaseUrl: value.COLLABORATION_DATABASE_URL,
     allowedOrigins: new Set(origins),
     internalSecret: value.COLLABORATION_INTERNAL_SECRET,
+    freezeSecret: value.COLLABORATION_FREEZE_SECRET,
     authorizationIntervalMs: 30_000,
     debounceMs: 1_000,
     maxDebounceMs: 10_000,

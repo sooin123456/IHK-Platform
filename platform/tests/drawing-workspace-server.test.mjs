@@ -1186,9 +1186,17 @@ test("mutation parsing accepts only the approved narrow intent shapes", () => {
   );
   assert.deepEqual(
     parseWorkspaceMutation(
-      form({ intent: "request_review", revision_id: revision }),
+      form({
+        intent: "request_review",
+        revision_id: revision,
+        freeze_request_id: ids.operation,
+      }),
     ),
-    { intent: "request_review", revisionId: revision },
+    {
+      intent: "request_review",
+      revisionId: revision,
+      requestId: ids.operation,
+    },
   );
   assert.deepEqual(
     parseWorkspaceMutation(

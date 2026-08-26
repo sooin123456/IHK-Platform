@@ -64,6 +64,39 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
+test("review submit stays disabled for pending, conflicted, or volatile work", () => {
+  const canSubmit = workspaceModule.drawingReviewSubmissionEnabled;
+  assert.equal(
+    canSubmit({
+      outboxReady: true,
+      reviewPreparing: false,
+      pending: 0,
+      conflicted: false,
+      volatileCount: 0,
+      persistenceFailed: false,
+    }),
+    true,
+  );
+  for (const blocked of [
+    { pending: 1 },
+    { conflicted: true },
+    { volatileCount: 1 },
+    { persistenceFailed: true },
+  ])
+    assert.equal(
+      canSubmit({
+        outboxReady: true,
+        reviewPreparing: false,
+        pending: 0,
+        conflicted: false,
+        volatileCount: 0,
+        persistenceFailed: false,
+        ...blocked,
+      }),
+      false,
+    );
+});
+
 test("workspace SSR shell keeps the canvas first below xl and restores three columns at xl", () => {
   const html = renderWorkspace();
   assert.match(
