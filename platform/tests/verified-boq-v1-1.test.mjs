@@ -191,6 +191,48 @@ function legacyInput() {
   };
 }
 
+function antiCorrelatedInput() {
+  const input = mixedInput();
+  const lineA = input.lines.find((line) => line.itemCode === "001-A");
+  const lineB = input.lines.find((line) => line.itemCode === "002-B");
+  const oldLineA = lineA.id;
+  const oldLineB = lineB.id;
+  lineA.id = "00000000-0000-4000-8000-000000000999";
+  lineB.id = "00000000-0000-4000-8000-000000000001";
+  lineB.itemCode = "999-B";
+  for (const mapping of [...input.legacyMappings, ...input.drawingMappings]) {
+    if (mapping.lineId === oldLineA) mapping.lineId = lineA.id;
+    if (mapping.lineId === oldLineB) mapping.lineId = lineB.id;
+  }
+  const resourceA = {
+    ...input.resources[0],
+    id: "00000000-0000-4000-8000-000000000998",
+    code: "001-M",
+  };
+  const resourceB = {
+    ...input.resources[0],
+    id: "00000000-0000-4000-8000-000000000002",
+    code: "999-M",
+    type: "labor",
+  };
+  input.resources = [resourceB, resourceA];
+  input.components = [
+    {
+      id: "00000000-0000-4000-8000-000000000003",
+      lineId: lineB.id,
+      resourceId: resourceB.id,
+      coefficient: "1",
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000997",
+      lineId: lineA.id,
+      resourceId: resourceA.id,
+      coefficient: "2",
+    },
+  ];
+  return input;
+}
+
 const EXPECTED_RESULT_JSON =
   '{"engineVersion":"VERIFIED-BOQ-1.1","versionId":"00000000-0000-4000-8000-000000000010","calculationPolicy":"general_half_away","status":"calculated","lines":[{"lineId":"00000000-0000-4000-8000-000000000101","sectionCode":"01","itemCode":"001-A","itemName":"외벽","specification":"A","unit":"m2","status":"calculated","rawQuantity":"11.1875","adjustment":"-1.25","adjustedQuantity":"9.9375","finalQuantity":"9.938","materialUnitPriceKrw":"200","laborUnitPriceKrw":"0","expenseUnitPriceKrw":"0","totalUnitPriceKrw":"200","amountKrw":"1988","formula":"ROUND_HALF_AWAY(Q×(M+L+E),0)","sourceSha256":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],"elementIds":["1001","1002"],"drawingQuantityLinkIds":["00000000-0000-4000-8000-000000000201"],"message":"계산 가능"},{"lineId":"00000000-0000-4000-8000-000000000102","sectionCode":"01","itemCode":"002-B","itemName":"내벽","specification":"B","unit":"m2","status":"calculated","rawQuantity":"3.5625","adjustment":"0.125","adjustedQuantity":"3.6875","finalQuantity":"3.688","materialUnitPriceKrw":"100","laborUnitPriceKrw":"0","expenseUnitPriceKrw":"0","totalUnitPriceKrw":"100","amountKrw":"369","formula":"ROUND_HALF_AWAY(Q×(M+L+E),0)","sourceSha256":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],"elementIds":[],"drawingQuantityLinkIds":["00000000-0000-4000-8000-000000000201"],"message":"계산 가능"}],"directCostKrw":"2357","exclusions":[],"canonicalSha256":"a811dd7eb20dfbd030293035589f2923fd43d10238c104fd4f5f31dba862bee8"}';
 
@@ -246,6 +288,110 @@ test("1.1 canonical input byte-sorts every source and normalizes decimals", () =
   assert.equal(canonical.drawingMappings[0].source.rawQuantity, "4.75");
   assert.equal(canonical.resources[0].unitPriceKrw, "100");
   assert.equal(canonical.components[0].coefficient, "2");
+});
+
+test("1.1 canonical business ordering ignores anti-correlated database IDs", () => {
+  const input = antiCorrelatedInput();
+  const canonical = canonicalizeVerifiedBoqV1_1Input(input);
+  assert.deepEqual(
+    canonical.lines.map((row) => [row.itemCode, row.id]),
+    [
+      ["001-A", "00000000-0000-4000-8000-000000000999"],
+      ["999-B", "00000000-0000-4000-8000-000000000001"],
+    ],
+  );
+  assert.deepEqual(
+    canonical.resources.map((row) => [row.code, row.id]),
+    [
+      ["001-M", "00000000-0000-4000-8000-000000000998"],
+      ["999-M", "00000000-0000-4000-8000-000000000002"],
+    ],
+  );
+  assert.deepEqual(
+    canonical.components.map((row) => [row.resourceId, row.id]),
+    [
+      [
+        "00000000-0000-4000-8000-000000000998",
+        "00000000-0000-4000-8000-000000000997",
+      ],
+      [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003",
+      ],
+    ],
+  );
+
+  const result = calculateVerifiedBoqV1_1(input);
+  const calculation = buildVerifiedBoqCalculationManifest(input, result, {
+    projectId: ids.project,
+    inputStateSha256: F,
+  });
+  const shuffled = structuredClone(input);
+  shuffled.lines.reverse();
+  shuffled.resources.reverse();
+  shuffled.components.reverse();
+  shuffled.legacyMappings.reverse();
+  shuffled.drawingMappings.reverse();
+  const shuffledResult = calculateVerifiedBoqV1_1(shuffled);
+  const shuffledCalculation = buildVerifiedBoqCalculationManifest(
+    shuffled,
+    shuffledResult,
+    { projectId: ids.project, inputStateSha256: F },
+  );
+  assert.deepEqual(
+    result.lines.map((row) => row.itemCode),
+    ["001-A", "999-B"],
+  );
+  assert.equal(shuffledResult.canonicalSha256, result.canonicalSha256);
+  assert.equal(shuffledCalculation.manifestSha256, calculation.manifestSha256);
+  assert.deepEqual(
+    shuffledCalculation.canonicalBytes,
+    calculation.canonicalBytes,
+  );
+});
+
+test("split legacy allocations require one identical immutable source", () => {
+  const conflicting = mixedInput();
+  conflicting.legacyMappings[0].factor = "0.5";
+  conflicting.legacyMappings.push({
+    ...structuredClone(conflicting.legacyMappings[0]),
+    id: "00000000-0000-4000-8000-000000000604",
+    lineId: ids.lineB,
+    sourceQuantity: "100",
+    elementIds: ["9999"],
+  });
+  assert.throws(
+    () => calculateVerifiedBoqV1_1(conflicting),
+    /P6B04.*legacy 원수량 근거/,
+  );
+
+  const valid = mixedInput();
+  valid.legacyMappings[0].factor = "0.5";
+  valid.legacyMappings.push({
+    ...structuredClone(valid.legacyMappings[0]),
+    id: "00000000-0000-4000-8000-000000000604",
+    lineId: ids.lineB,
+  });
+  const result = calculateVerifiedBoqV1_1(valid);
+  assert.deepEqual(
+    result.lines.map((row) => row.rawQuantity),
+    ["6.1875", "8.5625"],
+  );
+  const calculation = buildVerifiedBoqCalculationManifest(valid, result, {
+    projectId: ids.project,
+    inputStateSha256: F,
+  });
+  assert.equal(calculation.manifest.legacySources.length, 1);
+  const legacyMappings = calculation.manifest.mappings.filter(
+    (row) => row.sourceKind === "legacy",
+  );
+  assert.deepEqual(
+    legacyMappings.map((row) => [row.sourceId, row.allocationFactor]),
+    [
+      [`${ids.legacyFile}\u001fLEGACY-A\u001fm2`, "0.5"],
+      [`${ids.legacyFile}\u001fLEGACY-A\u001fm2`, "0.5"],
+    ],
+  );
 });
 
 test("engine dispatch preserves 1.0 and rejects unavailable versions", () => {
