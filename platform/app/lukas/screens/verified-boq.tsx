@@ -18,6 +18,18 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { VerifiedBoqDrawingSources } from "~/lukas/components/verified-boq-drawing-sources";
+import {
+  deleteDrawingBoqLink,
+  drawingQuantityLineageErrorResponse,
+  listVerifiedBoqDrawingSources,
+  loadVerifiedBoqV1_1Calculation,
+  parseDrawingBoqMutationForm,
+  putDrawingBoqLink,
+  recheckAndDecideVerifiedBoqV1_1,
+  submitVerifiedBoqV1_1,
+  type VerifiedBoqDrawingSourceRow,
+} from "~/lukas/lib/drawing-quantity-lineage.server";
 import {
   compareExact,
   parseExactDecimal,
@@ -47,6 +59,7 @@ import {
   buildVerifiedBoqStructureTemplateCsv,
   parseVerifiedBoqStructure,
 } from "~/lukas/lib/verified-boq-structure.server";
+import type { VerifiedBoqV1_1Result } from "~/lukas/lib/verified-boq-v1-1.server";
 
 type Row = Record<string, unknown>;
 type Project = { id: string; name: string; owner_id: string };
@@ -88,6 +101,10 @@ type Version = {
   created_by: string;
   result_sha256: string | null;
   direct_cost_krw: string | number | null;
+  engine_version: "VERIFIED-BOQ-1.0" | "VERIFIED-BOQ-1.1";
+  input_state_sha256: string | null;
+  manifest_sha256: string | null;
+  line_count?: number | null;
 };
 type Section = { id: string; code: string; name: string; sort_order: number };
 type WbsNode = {
@@ -480,7 +497,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     context.client
       .from("lukas_qto_boq_versions")
       .select(
-        "id,version_no,title,status,calculation_policy,quantity_scale,price_book_id,supersedes_id,created_by,result_sha256,direct_cost_krw",
+        "id,version_no,title,status,calculation_policy,quantity_scale,price_book_id,supersedes_id,created_by,result_sha256,direct_cost_krw,engine_version,input_state_sha256,manifest_sha256,line_count",
       )
       .eq("project_id", context.project.id)
       .order("version_no", { ascending: false }),
@@ -495,13 +512,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     versions.find((item) => item.id === requested) ?? versions[0] ?? null;
   let resources: Resource[] = [];
   let versionRows: Awaited<ReturnType<typeof loadVersionData>> | null = null;
-  let result: VerifiedBoqResult | null = null;
+  let result: VerifiedBoqResult | VerifiedBoqV1_1Result | null = null;
   let calculationError: string | null = null;
   let snapshotValid = true;
   let comparison: VerifiedBoqComparison | null = null;
   let identityLinks: IdentityLink[] = [];
+  let drawingSources: VerifiedBoqDrawingSourceRow[] = [];
+  let drawingSourcesHaveMore = false;
   if (version) {
-    const [resourceResult, loaded] = await Promise.all([
+    const [resourceResult, loaded, sourcePage] = await Promise.all([
       context.client
         .from("lukas_qto_price_resources")
         .select(
@@ -510,14 +529,43 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .eq("price_book_id", version.price_book_id)
         .order("resource_code"),
       loadVersionData(context.client, version),
+      version.engine_version === "VERIFIED-BOQ-1.1"
+        ? listVerifiedBoqDrawingSources(context.client, {
+            projectId: context.project.id,
+            boqVersionId: version.id,
+            limit: 200,
+          })
+        : Promise.resolve({ rows: [], hasMore: false }),
     ]);
     if (resourceResult.error)
       throw new Response(resourceResult.error.message, { status: 500 });
     resources = (resourceResult.data ?? []) as Resource[];
     versionRows = loaded;
+    drawingSources = sourcePage.rows;
+    drawingSourcesHaveMore = sourcePage.hasMore;
     try {
-      result = calculate(version, loaded, resources);
+      if (version.engine_version === "VERIFIED-BOQ-1.1") {
+        const calculated = await loadVerifiedBoqV1_1Calculation(
+          context.client,
+          context.user.id,
+          version.id,
+        );
+        result = calculated.result;
+        if (
+          version.status !== "draft" &&
+          (version.input_state_sha256 !== calculated.parsed.inputStateSha256 ||
+            version.result_sha256 !== result.canonicalSha256 ||
+            version.manifest_sha256 !== calculated.manifest.manifestSha256)
+        ) {
+          snapshotValid = false;
+          calculationError =
+            "승인 요청 당시 입력·결과·manifest 확인번호와 현재 재계산 결과가 다릅니다. 승인·내보내기를 중지했습니다.";
+        }
+      } else {
+        result = calculate(version, loaded, resources);
+      }
       if (
+        version.engine_version === "VERIFIED-BOQ-1.0" &&
         version.status !== "draft" &&
         version.result_sha256 !== result.canonicalSha256
       ) {
@@ -525,11 +573,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         calculationError =
           "승인 요청 당시 결과 확인번호와 현재 재계산 결과가 다릅니다. 승인·내보내기를 중지했습니다.";
       }
-      if (version.supersedes_id) {
+      if (
+        version.engine_version === "VERIFIED-BOQ-1.0" &&
+        result.engineVersion === "VERIFIED-BOQ-1.0" &&
+        version.supersedes_id
+      ) {
         const previous = versions.find(
           (item) => item.id === version.supersedes_id,
         );
-        if (previous) {
+        if (previous?.engine_version === "VERIFIED-BOQ-1.0") {
           const [previousRows, previousResourcesResult] = await Promise.all([
             loadVersionData(context.client, previous),
             context.client
@@ -582,6 +634,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   }
   const download = url.searchParams.get("download");
   if (download && version && result && snapshotValid) {
+    if (result.engineVersion !== "VERIFIED-BOQ-1.0")
+      throw new Response("승인된 1.1 인계 내보내기는 전용 경로를 사용합니다.", {
+        status: 409,
+      });
     if (download === "xlsx" && versionRows) {
       const fileById = new Map(files.map((file) => [file.id, file]));
       const lineById = new Map(
@@ -700,6 +756,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       snapshotValid,
       comparison,
       identityLinks,
+      drawingSources,
+      drawingSourcesHaveMore,
     },
     { headers: context.headers },
   );
@@ -726,11 +784,48 @@ export async function action({ request, params }: Route.ActionArgs) {
         "mapping",
         "exclusion",
         "component",
+        "drawing_boq_put",
+        "drawing_boq_delete",
         "submit",
       ].includes(intent) &&
       !context.mayEdit
     )
       throw new Error("적산 담당자만 이 항목을 작성할 수 있습니다.");
+    if (intent === "drawing_boq_put") {
+      const mutation = parseDrawingBoqMutationForm(form);
+      if (mutation.intent !== "drawing_boq_put")
+        throw new Error("지원하지 않는 작업입니다.");
+      const { data: scopedVersion, error: scopeError } = await context.client
+        .from("lukas_qto_boq_versions")
+        .select("id")
+        .eq("id", mutation.boqVersionId)
+        .eq("project_id", context.project.id)
+        .single();
+      if (scopeError || !scopedVersion)
+        throw new Error("현재 프로젝트의 BOQ 버전이 아닙니다.");
+      await putDrawingBoqLink(context.client, mutation);
+      return redirect(back(mutation.boqVersionId), {
+        headers: context.headers,
+      });
+    }
+    if (intent === "drawing_boq_delete") {
+      const mutation = parseDrawingBoqMutationForm(form);
+      if (mutation.intent !== "drawing_boq_delete")
+        throw new Error("지원하지 않는 작업입니다.");
+      const { data: scopedLink, error: scopeError } = await context.client
+        .from("lukas_drawing_boq_links")
+        .select("id")
+        .eq("id", mutation.id)
+        .eq("project_id", context.project.id)
+        .single();
+      if (scopeError || !scopedLink)
+        throw new Error("현재 프로젝트의 Drawing 배분이 아닙니다.");
+      await deleteDrawingBoqLink(context.client, mutation);
+      return redirect(
+        back(new URL(request.url).searchParams.get("version") ?? undefined),
+        { headers: context.headers },
+      );
+    }
     if (intent === "price_book") {
       const parsed = z
         .object({
@@ -913,6 +1008,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           price_book_id: parsed.bookId,
           supersedes_id: parsed.supersedesId || null,
           created_by: context.user.id,
+          engine_version: "VERIFIED-BOQ-1.1",
         })
         .select("id")
         .single();
@@ -923,7 +1019,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const { data: version } = await context.client
       .from("lukas_qto_boq_versions")
       .select(
-        "id,version_no,title,status,price_book_id,supersedes_id,calculation_policy,quantity_scale,created_by,result_sha256,direct_cost_krw,line_count",
+        "id,version_no,title,status,price_book_id,supersedes_id,calculation_policy,quantity_scale,created_by,result_sha256,direct_cost_krw,line_count,engine_version,input_state_sha256,manifest_sha256",
       )
       .eq("id", versionId)
       .eq("project_id", context.project.id)
@@ -1205,6 +1301,13 @@ export async function action({ request, params }: Route.ActionArgs) {
         });
       if (error) throw error;
     } else if (intent === "submit") {
+      if (version.engine_version === "VERIFIED-BOQ-1.1") {
+        const mutation = parseDrawingBoqMutationForm(form);
+        if (mutation.intent !== "submit" || mutation.versionId !== versionId)
+          throw new Error("지원하지 않는 작업입니다.");
+        await submitVerifiedBoqV1_1(context.client, context.user.id, versionId);
+        return redirect(back(versionId), { headers: context.headers });
+      }
       const rows = await loadVersionData(context.client, version as Version);
       await assertVersionSourceCoverage(
         context.client,
@@ -1232,7 +1335,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         const { data: previous } = await context.client
           .from("lukas_qto_boq_versions")
           .select(
-            "id,version_no,title,status,calculation_policy,quantity_scale,price_book_id,supersedes_id,created_by,result_sha256,direct_cost_krw",
+            "id,version_no,title,status,calculation_policy,quantity_scale,price_book_id,supersedes_id,created_by,result_sha256,direct_cost_krw,engine_version,input_state_sha256,manifest_sha256,line_count",
           )
           .eq("id", version.supersedes_id)
           .eq("project_id", context.project.id)
@@ -1275,6 +1378,17 @@ export async function action({ request, params }: Route.ActionArgs) {
     } else if (intent === "decision") {
       if (!context.mayReview)
         throw new Error("검토자만 승인 결정을 기록할 수 있습니다.");
+      if (version.engine_version === "VERIFIED-BOQ-1.1") {
+        const mutation = parseDrawingBoqMutationForm(form);
+        if (mutation.intent !== "decision" || mutation.versionId !== versionId)
+          throw new Error("지원하지 않는 작업입니다.");
+        await recheckAndDecideVerifiedBoqV1_1(
+          context.client,
+          context.user.id,
+          mutation,
+        );
+        return redirect(back(versionId), { headers: context.headers });
+      }
       const rows = await loadVersionData(context.client, version as Version);
       await assertVersionSourceCoverage(
         context.client,
@@ -1319,6 +1433,18 @@ export async function action({ request, params }: Route.ActionArgs) {
     } else throw new Error("지원하지 않는 작업입니다.");
     return redirect(back(versionId), { headers: context.headers });
   } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      String(error.code).startsWith("P6")
+    ) {
+      const bounded = drawingQuantityLineageErrorResponse(error);
+      return data(
+        { error: bounded.body.error, errorCode: bounded.body.errorCode },
+        { status: bounded.status, headers: context.headers },
+      );
+    }
     return data(
       {
         error: error instanceof Error ? error.message : "저장하지 못했습니다.",
@@ -1393,7 +1519,10 @@ export default function VerifiedBoq({
             원본 파일, Revit Element ID, 계산식을 다시 확인할 수 있습니다.
           </p>
         </div>
-        {version && result && loaderData.snapshotValid ? (
+        {version &&
+        result &&
+        loaderData.snapshotValid &&
+        version.engine_version === "VERIFIED-BOQ-1.0" ? (
           <div className="flex gap-2">
             <Button asChild className="min-h-11" variant="outline">
               <a href={`?version=${version.id}&download=xlsx`}>
@@ -1970,6 +2099,28 @@ export default function VerifiedBoq({
             </div>
           </section>
 
+          {version.engine_version === "VERIFIED-BOQ-1.1" ? (
+            <div className="mt-5">
+              <VerifiedBoqDrawingSources
+                boqVersionId={version.id}
+                editable={draft && loaderData.userId === version.created_by}
+                lines={versionRows.lines.map((line) => ({
+                  id: line.id,
+                  itemCode: line.item_code,
+                  itemName: line.item_name,
+                  unit: line.unit,
+                }))}
+                rows={loaderData.drawingSources}
+              />
+              {loaderData.drawingSourcesHaveMore ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  현재 버전에 연결된 근거를 우선하고, 나머지는 최신순으로 최대
+                  200개까지 표시합니다.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {draft && versionRows.lines.length ? (
             <section className="mt-5 grid gap-5 lg:grid-cols-2">
               <div className="rounded-2xl border bg-card p-5">
@@ -2162,6 +2313,12 @@ export default function VerifiedBoq({
                   <tr>
                     <th className="pb-3">품목</th>
                     <th className="pb-3">원수량</th>
+                    {result?.engineVersion === "VERIFIED-BOQ-1.1" ? (
+                      <>
+                        <th className="pb-3">보정값</th>
+                        <th className="pb-3">보정 후 수량</th>
+                      </>
+                    ) : null}
                     <th className="pb-3">최종수량</th>
                     <th className="pb-3">재료/노무/경비</th>
                     <th className="pb-3">금액</th>
@@ -2177,6 +2334,13 @@ export default function VerifiedBoq({
                         {line.itemName}
                       </td>
                       <td>{line.rawQuantity ?? "연결 필요"}</td>
+                      {result.engineVersion === "VERIFIED-BOQ-1.1" &&
+                      "adjustedQuantity" in line ? (
+                        <>
+                          <td>{line.adjustment}</td>
+                          <td>{line.adjustedQuantity ?? "—"}</td>
+                        </>
+                      ) : null}
                       <td>
                         {line.finalQuantity ?? "—"} {line.unit}
                       </td>

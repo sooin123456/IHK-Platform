@@ -7,6 +7,7 @@ import {
   parseDrawingQuantityLinkForm,
   parseDrawingQuantityLineageSearch,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
+import { sanitizeDrawingTransientInput } from "../app/lukas/lib/drawing-document-store.ts";
 import { parseDrawingBoqMutationForm } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {
@@ -125,6 +126,19 @@ test("quantity lineage loader binds the URL file, revision, and object before re
   assert.match(loader, /entry\.fileId !== workspace\.file\.id/);
 });
 
+test("validated reload selection survives initial transient sanitization while stale selection is removed", () => {
+  const objectId = "00000000-0000-4000-8000-000000000031";
+  const input = {
+    activeLayerId: null,
+    activeTool: "select",
+    selectedIds: [objectId],
+  };
+  assert.deepEqual(sanitizeDrawingTransientInput(input, false).selectedIds, [
+    objectId,
+  ]);
+  assert.deepEqual(sanitizeDrawingTransientInput(input, true).selectedIds, []);
+});
+
 test("verified BOQ mapping forms accept only IDs factor and base version", () => {
   const put = new FormData();
   put.set("intent", "drawing_boq_put");
@@ -203,6 +217,33 @@ test("verified BOQ delete, submit, and decision forms are strict", () => {
   }
 });
 
+test("verified BOQ Drawing mutations bind their targets to the current route project before RPC", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/screens/verified-boq.tsx", import.meta.url),
+    "utf8",
+  );
+  const putScope = source.indexOf(
+    '.from("lukas_qto_boq_versions")',
+    source.indexOf('intent === "drawing_boq_put"'),
+  );
+  const putRpc = source.indexOf("await putDrawingBoqLink", putScope);
+  const deleteScope = source.indexOf(
+    '.from("lukas_drawing_boq_links")',
+    source.indexOf('intent === "drawing_boq_delete"'),
+  );
+  const deleteRpc = source.indexOf("await deleteDrawingBoqLink", deleteScope);
+  assert.ok(putScope >= 0 && putScope < putRpc);
+  assert.ok(deleteScope >= 0 && deleteScope < deleteRpc);
+  assert.match(
+    source.slice(putScope, putRpc),
+    /\.eq\("project_id", context\.project\.id\)/,
+  );
+  assert.match(
+    source.slice(deleteScope, deleteRpc),
+    /\.eq\("project_id", context\.project\.id\)/,
+  );
+});
+
 test("Drawing and BOQ inspectors expose persisted authority without monetary collaboration state", async () => {
   const [boqSources, quantityInspector, drawingInspector, workspace] =
     await Promise.all([
@@ -244,6 +285,14 @@ test("Drawing and BOQ inspectors expose persisted authority without monetary col
   assert.doesNotMatch(quantityInspector, /m3/);
   assert.match(drawingInspector, /DrawingQuantityInspector/);
   assert.match(workspace, /quantityLineage/);
+  assert.match(workspace, /next\.set\("object", selectedDrawingObjectId\)/);
+  assert.match(workspace, /next\.set\("revision", revision\.id\)/);
+  assert.match(workspace, /searchParams\.get\("object"\)/);
+  assert.match(workspace, /linkedObjectId \? \[linkedObjectId\] : \[\]/);
+  assert.match(
+    workspace,
+    /authorizationWasInitialized[\s\S]*if \(authorizationWasInitialized\)\s+transientInputInvalidatedRef\.current = true/,
+  );
   assert.doesNotMatch(boqSources, /raw_quantity[^\n]*name=/);
   assert.doesNotMatch(boqSources, /result_sha256[^\n]*name=/);
 });

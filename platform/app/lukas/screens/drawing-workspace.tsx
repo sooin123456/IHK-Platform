@@ -387,6 +387,10 @@ export default function DrawingWorkspaceScreen({
 }: Route.ComponentProps) {
   const { project, capability, workspace } = loaderData;
   const editable = canEdit(capability);
+  const quantityLineage =
+    actionData && "quantityLineage" in actionData
+      ? actionData.quantityLineage
+      : loaderData.quantityLineage;
   if (workspace.document) {
     return (
       <DrawingWorkspaceClient
@@ -400,6 +404,7 @@ export default function DrawingWorkspaceScreen({
         measurementEvidence={loaderData.measurementEvidence}
         measurementEvidenceError={loaderData.measurementEvidenceError}
         projectId={project.id}
+        quantityLineage={quantityLineage}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
         sourceBundle={loaderData.sourceBundle}
         selectedIfcFileId={loaderData.selectedIfcFileId}

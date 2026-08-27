@@ -641,6 +641,15 @@ test("verified BOQ 1.1 renders four distinct quantity columns and Drawing mappin
   );
   for (const label of ["원수량", "보정값", "보정 후 수량", "최종수량"])
     assert.match(screen, new RegExp(`>${label}<`));
+  const quantityColumnGate = screen.indexOf(
+    'result?.engineVersion === "VERIFIED-BOQ-1.1"',
+  );
+  const adjustmentColumn = screen.indexOf(">보정값<", quantityColumnGate);
+  assert.ok(quantityColumnGate >= 0 && quantityColumnGate < adjustmentColumn);
+  assert.match(
+    screen,
+    /result\.engineVersion === "VERIFIED-BOQ-1\.1" &&\s+"adjustedQuantity" in line/,
+  );
   assert.match(screen, /VerifiedBoqDrawingSources/);
   assert.match(screen, /drawingSources/);
   assert.match(screen, /engine_version/);

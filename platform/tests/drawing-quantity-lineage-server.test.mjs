@@ -5,6 +5,7 @@ import {
   createDrawingQuantityLink,
   deleteDrawingBoqLink,
   listDrawingObjectQuantityLineage,
+  listVerifiedBoqDrawingSources,
   parseVerifiedBoqV1_1RpcInput,
   putDrawingBoqLink,
   recheckAndDecideVerifiedBoqV1_1,
@@ -383,8 +384,54 @@ test("1.1 RPC input parser keeps fixed authoritative fields and rejects injectio
   ]) {
     const injected = structuredClone(boqInputRpcPayload());
     mutate(injected);
-    assert.throws(() => parseVerifiedBoqV1_1RpcInput(injected), /P6B04|입력/);
+    assert.throws(
+      () => parseVerifiedBoqV1_1RpcInput(injected),
+      (error) => error.code === "P6B04",
+    );
   }
+
+  const nonFiniteAnchor = boqInputRpcPayload();
+  nonFiniteAnchor.input.drawingLinks[0].source.anchors = [
+    {
+      id: "00000000-0000-4000-8000-000000000123",
+      sourceFileId: p6Ids.priceFile,
+      sourceSha256: P6_SHA_A,
+      sourceKind: "pdf_region",
+      pdfPageNumber: 1,
+      x: "NaN",
+      y: 0,
+      width: 1,
+      height: 1,
+      elementId: null,
+      ifcGlobalId: null,
+      camera: null,
+      version: 1,
+    },
+  ];
+  assert.throws(
+    () => parseVerifiedBoqV1_1RpcInput(nonFiniteAnchor),
+    (error) => error.code === "P6B04",
+  );
+
+  const wrongBook = boqInputRpcPayload();
+  wrongBook.input.components[0].resource.priceBookId = p6Ids.project;
+  assert.throws(
+    () => parseVerifiedBoqV1_1RpcInput(wrongBook),
+    (error) => error.code === "P6B04",
+  );
+  const conflicting = boqInputRpcPayload();
+  conflicting.input.components.push({
+    ...structuredClone(conflicting.input.components[0]),
+    id: "00000000-0000-4000-8000-000000000116",
+    resource: {
+      ...structuredClone(conflicting.input.components[0].resource),
+      unitPriceKrw: "999",
+    },
+  });
+  assert.throws(
+    () => parseVerifiedBoqV1_1RpcInput(conflicting),
+    (error) => error.code === "P6B04",
+  );
 });
 
 test("BOQ link put accepts only IDs factor and OCC version, supports partial and exact retry", async () => {
@@ -482,6 +529,175 @@ test("BOQ link put/delete bounds allocation, unit, authorization, project, and O
       p_base_version: 3,
     },
   ]);
+});
+
+test("verified BOQ Drawing source loader caps sources and links at 200", async () => {
+  const quantities = Array.from({ length: 201 }, (_, index) => ({
+    id: `00000000-0000-4000-8001-${String(index + 1).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    drawing_revision_id: p6Ids.revision,
+    drawing_revision_version: 2,
+    drawing_snapshot_sha256: P6_SHA_B,
+    drawing_object_id: p6Ids.object,
+    drawing_object_lineage_id: p6Ids.lineage,
+    drawing_object_version: 3,
+    object_fingerprint: P6_SHA_A,
+    measurement_kind: "area",
+    raw_quantity: "4.75",
+    unit: "m2",
+    measurement_rule_version: "P4_MEASUREMENT_V1",
+    created_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+  }));
+  const client = listClient({ quantities, links: [] });
+  const page = await listVerifiedBoqDrawingSources(client, {
+    projectId: p6Ids.project,
+    boqVersionId: p6Ids.version,
+    limit: 500,
+  });
+  assert.equal(page.rows.length, 200);
+  assert.equal(page.hasMore, true);
+  assert.equal(client.limits[0], 201);
+
+  const overLinks = Array.from({ length: 201 }, (_, index) => ({
+    id: `00000000-0000-4000-8002-${String(index + 1).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    quantity_link_id: quantities[0].id,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    allocation_factor: "0.001",
+    version: 1,
+    created_by: p6Ids.actor,
+    updated_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+    updated_at: "2026-08-28T00:00:00.000Z",
+  }));
+  await assert.rejects(
+    listVerifiedBoqDrawingSources(
+      listClient({ quantities: [quantities[0]], links: overLinks }),
+      { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+    ),
+    (error) => error.code === "P6B04",
+  );
+});
+
+test("verified BOQ Drawing links resolve exact immutable workspace ancestry in bulk", async () => {
+  const document = "00000000-0000-4000-8000-000000000117";
+  const file = "00000000-0000-4000-8000-000000000118";
+  const quantity = {
+    id: p6Ids.quantity,
+    project_id: p6Ids.project,
+    drawing_revision_id: p6Ids.revision,
+    drawing_revision_version: 2,
+    drawing_snapshot_sha256: P6_SHA_B,
+    drawing_object_id: p6Ids.object,
+    drawing_object_lineage_id: p6Ids.lineage,
+    drawing_object_version: 3,
+    object_fingerprint: P6_SHA_A,
+    measurement_kind: "area",
+    raw_quantity: "4.75",
+    unit: "m2",
+    measurement_rule_version: "P4_MEASUREMENT_V1",
+    created_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+  };
+  const link = {
+    id: p6Ids.drawingLink,
+    project_id: p6Ids.project,
+    quantity_link_id: p6Ids.quantity,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    allocation_factor: "1",
+    version: 2,
+    created_by: p6Ids.actor,
+    updated_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+    updated_at: "2026-08-28T00:00:00.000Z",
+  };
+  const page = await listVerifiedBoqDrawingSources(
+    listClient({
+      quantities: [quantity],
+      links: [link],
+      revisions: [{ id: p6Ids.revision, document_id: document }],
+      documents: [{ id: document, source_file_id: file }],
+      files: [{ id: file }],
+    }),
+    { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+  );
+  assert.equal(page.rows[0].allocationTotal, "1");
+  assert.equal(
+    page.rows[0].links[0].workspaceHref,
+    `/projects/${p6Ids.project}/drawings/${file}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}`,
+  );
+});
+
+test("verified BOQ Drawing source fallback is bound to the exact revision and object", async () => {
+  const document = "00000000-0000-4000-8000-000000000119";
+  const exactFile = "00000000-0000-4000-8000-000000000120";
+  const otherFile = "00000000-0000-4000-8000-000000000121";
+  const otherRevision = "00000000-0000-4000-8000-000000000122";
+  const quantity = quantityFixture();
+  const link = drawingLinkFixture(quantity.id);
+  const page = await listVerifiedBoqDrawingSources(
+    listClient({
+      quantities: [quantity],
+      links: [link],
+      revisions: [{ id: p6Ids.revision, document_id: document }],
+      documents: [{ id: document, source_file_id: null }],
+      sources: [
+        {
+          revision_id: otherRevision,
+          object_id: p6Ids.object,
+          source_file_id: otherFile,
+        },
+        {
+          revision_id: p6Ids.revision,
+          object_id: p6Ids.object,
+          source_file_id: exactFile,
+        },
+      ],
+      files: [{ id: exactFile }, { id: otherFile }],
+    }),
+    { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+  );
+  assert.match(page.rows[0].links[0].workspaceHref, new RegExp(exactFile));
+});
+
+test("verified BOQ Drawing source loader always includes old mapped sources before filling the 200 row page", async () => {
+  const recent = Array.from({ length: 201 }, (_, index) =>
+    quantityFixture({
+      id: `00000000-0000-4000-8003-${String(index + 1).padStart(12, "0")}`,
+    }),
+  );
+  const oldMapped = quantityFixture({
+    id: "00000000-0000-4000-8004-000000000001",
+  });
+  const page = await listVerifiedBoqDrawingSources(
+    listClient({
+      quantities: recent,
+      mappedQuantities: [oldMapped],
+      links: [drawingLinkFixture(oldMapped.id)],
+    }),
+    { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+  );
+  assert.equal(page.rows.length, 200);
+  assert.equal(page.rows[0].quantity.id, oldMapped.id);
+  assert.equal(page.rows[0].links.length, 1);
+  assert.equal(page.hasMore, true);
+});
+
+test("verified BOQ Drawing source loader fails closed for cross-project RLS denial", async () => {
+  await assert.rejects(
+    listVerifiedBoqDrawingSources(
+      listClient({
+        quantities: [],
+        links: [],
+        errorTable: "lukas_drawing_boq_links",
+      }),
+      { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+    ),
+    (error) => error.code === "P6A01",
+  );
 });
 
 test("1.1 submission calculates trusted input then compare-and-freezes exact hashes", async () => {
@@ -627,6 +843,34 @@ test("1.1 decision reruns frozen hashes, requires an independent reviewer, and f
     ),
     (error) => error.code === "P6C01",
   );
+
+  let privilegedLoads = 0;
+  await assert.rejects(
+    recheckAndDecideVerifiedBoqV1_1(
+      decisionClient({
+        actorId: p6Ids.reviewer,
+        role: "viewer",
+        version: {
+          created_by: p6Ids.actor,
+          status: "in_review",
+          input_state_sha256: P6_SHA_A,
+          result_sha256: submitted.resultSha256,
+          manifest_sha256: submitted.manifestSha256,
+        },
+      }),
+      p6Ids.reviewer,
+      { versionId: p6Ids.version, decision: "approved", note: "viewer" },
+      {
+        ...freezeAuthority({ payload }),
+        async loadFrozenInput() {
+          privilegedLoads += 1;
+          return payload;
+        },
+      },
+    ),
+    (error) => error.code === "P6A01",
+  );
+  assert.equal(privilegedLoads, 0);
 });
 
 function authorizedClient(actor, project, role) {
@@ -799,7 +1043,12 @@ function freezeAuthority(options = {}) {
   };
 }
 
-function decisionClient({ actorId, version, rpcCalls = [] }) {
+function decisionClient({
+  actorId,
+  version,
+  rpcCalls = [],
+  role = "reviewer",
+}) {
   return {
     auth: {
       async getUser() {
@@ -812,15 +1061,116 @@ function decisionClient({ actorId, version, rpcCalls = [] }) {
       },
     },
     from(table) {
-      assert.equal(table, "lukas_qto_boq_versions");
-      return chain({
-        data: { id: p6Ids.version, project_id: p6Ids.project, ...version },
-        error: null,
-      });
+      const data =
+        table === "lukas_qto_boq_versions"
+          ? {
+              id: p6Ids.version,
+              project_id: p6Ids.project,
+              engine_version: "VERIFIED-BOQ-1.1",
+              ...version,
+            }
+          : table === "lukas_qto_projects"
+            ? {
+                id: p6Ids.project,
+                owner_id: "00000000-0000-4000-8000-000000000199",
+              }
+            : table === "lukas_qto_project_members"
+              ? { role }
+              : null;
+      assert.ok(data);
+      return chain({ data, error: null });
     },
     async rpc(name, args) {
       rpcCalls.push([name, args]);
       return { data: null, error: null };
     },
+  };
+}
+
+function listClient({
+  quantities,
+  mappedQuantities = quantities,
+  links,
+  revisions = [],
+  documents = [],
+  sources = [],
+  files = [],
+  errorTable = null,
+}) {
+  return {
+    limits: [],
+    from(table) {
+      const rows =
+        table === "lukas_drawing_quantity_links"
+          ? quantities
+          : table === "lukas_drawing_boq_links"
+            ? links
+            : table === "lukas_drawing_revisions"
+              ? revisions
+              : table === "lukas_drawing_documents"
+                ? documents
+                : table === "lukas_drawing_object_sources"
+                  ? sources
+                  : table === "lukas_qto_files"
+                    ? files
+                    : [];
+      let selectedRows = rows;
+      const result = () => ({
+        data: selectedRows,
+        error: table === errorTable ? { code: "42501" } : null,
+      });
+      const query = chain(result());
+      query.in = (column) => {
+        if (table === "lukas_drawing_quantity_links" && column === "id")
+          selectedRows = mappedQuantities;
+        return query;
+      };
+      query.limit = (size) => {
+        this.limits.push(size);
+        const current = result();
+        return Promise.resolve({
+          data: current.data.slice(0, size),
+          error: current.error,
+        });
+      };
+      return query;
+    },
+  };
+}
+
+function quantityFixture(overrides = {}) {
+  return {
+    id: p6Ids.quantity,
+    project_id: p6Ids.project,
+    drawing_revision_id: p6Ids.revision,
+    drawing_revision_version: 2,
+    drawing_snapshot_sha256: P6_SHA_B,
+    drawing_object_id: p6Ids.object,
+    drawing_object_lineage_id: p6Ids.lineage,
+    drawing_object_version: 3,
+    object_fingerprint: P6_SHA_A,
+    measurement_kind: "area",
+    raw_quantity: "4.75",
+    unit: "m2",
+    measurement_rule_version: "P4_MEASUREMENT_V1",
+    created_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function drawingLinkFixture(quantityLinkId) {
+  return {
+    id: p6Ids.drawingLink,
+    project_id: p6Ids.project,
+    quantity_link_id: quantityLinkId,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    allocation_factor: "1",
+    version: 1,
+    created_by: p6Ids.actor,
+    updated_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+    updated_at: "2026-08-28T00:00:00.000Z",
   };
 }

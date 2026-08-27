@@ -14,6 +14,7 @@ import {
   updateDrawingBlockInstanceCommand,
 } from "~/lukas/lib/drawing-blocks";
 import { DrawingPropertyFields } from "~/lukas/components/drawing-properties-panel";
+import { DrawingQuantityInspector } from "~/lukas/components/drawing-quantity-inspector";
 import { DrawingSemanticInspector } from "~/lukas/components/drawing-semantic-inspector";
 
 import {
@@ -31,6 +32,7 @@ import {
   drawingStyleSelectionFormModel,
   sharedDrawingStyleId,
 } from "~/lukas/lib/drawing-style-resolution";
+import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import type {
   DrawingObject,
   DrawingStyle,
@@ -54,6 +56,7 @@ type Props = {
   actorId: string;
   awarenessStore?: DrawingAwarenessPeerStore;
   canEdit: boolean;
+  canCreateQuantity: boolean;
   canLinkIssues: boolean;
   issueLinks: DrawingObjectIssueLink[];
   issues: DrawingWorkspaceIssue[];
@@ -65,6 +68,12 @@ type Props = {
   evidenceError?: DrawingMeasurementEvidenceError | null;
   hasUnconfirmedChanges?: boolean;
   lineage?: DrawingMeasurementEvidenceLineage | null;
+  projectId: string;
+  quantityLineage?: {
+    rows: DrawingObjectQuantityLineageRow[];
+    nextCursor: string | null;
+  } | null;
+  revisionStatus: string;
 };
 
 function sharedValue(
@@ -90,6 +99,7 @@ function inspectorError(error: unknown) {
 export function DrawingInspector({
   actorId,
   awarenessStore,
+  canCreateQuantity,
   canEdit: capabilityCanEdit,
   canLinkIssues,
   evidence,
@@ -100,6 +110,9 @@ export function DrawingInspector({
   lineage,
   onCommand,
   onSoftLockChange,
+  projectId,
+  quantityLineage,
+  revisionStatus,
   selectedIds,
   state,
 }: Props) {
@@ -181,6 +194,19 @@ export function DrawingInspector({
       lineage={lineage}
       object={selectedSemanticObject}
       onCommand={onCommand}
+      state={state}
+    />
+  ) : null;
+  const quantityInspector = selectedSemanticObject ? (
+    <DrawingQuantityInspector
+      canCreateQuantity={canCreateQuantity}
+      evidence={evidence}
+      hasUnconfirmedChanges={hasUnconfirmedChanges}
+      lineage={lineage}
+      object={selectedSemanticObject}
+      projectId={projectId}
+      quantityLineage={quantityLineage}
+      revisionStatus={revisionStatus}
       state={state}
     />
   ) : null;
@@ -624,6 +650,7 @@ export function DrawingInspector({
           state={state}
         />
         {semanticInspector}
+        {quantityInspector}
         {issueSection}
       </section>
     );
@@ -707,6 +734,7 @@ export function DrawingInspector({
           state={state}
         />
         {semanticInspector}
+        {quantityInspector}
         {issueSection}
       </section>
     );
@@ -915,6 +943,7 @@ export function DrawingInspector({
         state={state}
       />
       {semanticInspector}
+      {quantityInspector}
       {error ? (
         <p className="mt-3 text-xs text-red-300" role="alert">
           {error}

@@ -20,10 +20,25 @@ import {
   DrawingObjectSchema,
   DrawingObjectSourceSchema,
 } from "./drawing-workspace.types.ts";
+import { buildVerifiedBoqCalculationManifest } from "./verified-boq-manifest.server.ts";
+import {
+  calculateVerifiedBoqV1_1,
+  type VerifiedBoqV1_1Input,
+} from "./verified-boq-v1-1.server.ts";
 
 const Uuid = z.string().uuid();
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const MeasurementKind = z.enum(["length", "area", "count"]);
+const DrawingUnit = z.enum(["EA", "m", "m2"]);
+const BoqUnit = z.enum(["EA", "m", "m2", "m3"]);
+const DecimalText = z
+  .union([z.string(), z.number()])
+  .transform(String)
+  .pipe(z.string().regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/));
+const FiniteNumber = z
+  .union([z.number(), z.string()])
+  .transform(Number)
+  .refine(Number.isFinite);
 const P6Codes = [
   "P6A01",
   "P6Q01",
@@ -276,13 +291,18 @@ function quantityRow(input: unknown): DrawingQuantityLinkRow {
 
 function p6Error(error: unknown, requestId: string) {
   if (error instanceof DrawingQuantityLineageServerError) return error;
+  const explicit =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : error instanceof Error
+        ? error.message.match(/^(P6[A-Z][0-9]{2}):/)?.[1]
+        : null;
   const code =
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    P6Codes.includes(error.code as P6LineageErrorCode)
-      ? (error.code as P6LineageErrorCode)
-      : "P6C01";
+    error instanceof z.ZodError
+      ? "P6B04"
+      : P6Codes.includes(explicit as P6LineageErrorCode)
+        ? (explicit as P6LineageErrorCode)
+        : "P6C01";
   return new DrawingQuantityLineageServerError(code, requestId);
 }
 
@@ -762,6 +782,986 @@ export async function resolveDrawingWorkspaceEntry(
   } catch {
     throw new Error("연결된 도면 근거를 열 수 없습니다.");
   }
+}
+
+export type DrawingBoqLinkRow = {
+  id: string;
+  projectId: string;
+  quantityLinkId: string;
+  boqVersionId: string;
+  boqLineId: string;
+  allocationFactor: string;
+  version: number;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PutDrawingBoqLinkInput = {
+  id: string;
+  quantityLinkId: string;
+  boqVersionId: string;
+  boqLineId: string;
+  allocationFactor: string;
+  baseVersion: number | null;
+};
+
+const AllocationFactor = DecimalText.refine((value) => {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match || (match[2]?.length ?? 0) > 9) return false;
+  const scaled =
+    BigInt(match[1]) * 1_000_000_000n + BigInt((match[2] ?? "").padEnd(9, "0"));
+  return scaled > 0n && scaled <= 1_000_000_000n;
+}, "배분 계수는 0보다 크고 1 이하여야 합니다.");
+
+const PutBoqLinkSchema = z
+  .object({
+    id: Uuid,
+    quantityLinkId: Uuid,
+    boqVersionId: Uuid,
+    boqLineId: Uuid,
+    allocationFactor: AllocationFactor,
+    baseVersion: z.number().int().positive().nullable(),
+  })
+  .strict();
+
+const DrawingBoqLinkRowSchema = z
+  .object({
+    id: Uuid,
+    project_id: Uuid,
+    quantity_link_id: Uuid,
+    boq_version_id: Uuid,
+    boq_line_id: Uuid,
+    allocation_factor: DecimalText,
+    version: z.coerce.number().int().positive(),
+    created_by: Uuid,
+    updated_by: Uuid,
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .passthrough();
+
+function drawingBoqLinkRow(input: unknown): DrawingBoqLinkRow {
+  const row = DrawingBoqLinkRowSchema.parse(input);
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    quantityLinkId: row.quantity_link_id,
+    boqVersionId: row.boq_version_id,
+    boqLineId: row.boq_line_id,
+    allocationFactor: row.allocation_factor,
+    version: row.version,
+    createdBy: row.created_by,
+    updatedBy: row.updated_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function putDrawingBoqLink(
+  userClient: SupabaseClient,
+  input: PutDrawingBoqLinkInput,
+): Promise<DrawingBoqLinkRow> {
+  const requestId = randomUUID();
+  try {
+    const parsed = PutBoqLinkSchema.parse(input);
+    const { data, error } = await userClient.rpc("lukas_drawing_put_boq_link", {
+      p_id: parsed.id,
+      p_quantity_link_id: parsed.quantityLinkId,
+      p_boq_version_id: parsed.boqVersionId,
+      p_boq_line_id: parsed.boqLineId,
+      p_allocation_factor: parsed.allocationFactor,
+      p_base_version: parsed.baseVersion,
+    });
+    if (error) throw error;
+    return drawingBoqLinkRow(data);
+  } catch (error) {
+    throw p6Error(error, requestId);
+  }
+}
+
+export async function deleteDrawingBoqLink(
+  userClient: SupabaseClient,
+  input: { id: string; baseVersion: number },
+): Promise<void> {
+  const requestId = randomUUID();
+  try {
+    const parsed = z
+      .object({ id: Uuid, baseVersion: z.number().int().positive() })
+      .strict()
+      .parse(input);
+    const { error } = await userClient.rpc("lukas_drawing_delete_boq_link", {
+      p_id: parsed.id,
+      p_base_version: parsed.baseVersion,
+    });
+    if (error) throw error;
+  } catch (error) {
+    throw p6Error(error, requestId);
+  }
+}
+
+const SectionInputSchema = z
+  .object({
+    id: Uuid,
+    parentId: Uuid.nullable(),
+    code: z.string().max(80),
+    name: z.string().max(160),
+    sortOrder: z.coerce.number().int(),
+  })
+  .strict();
+
+const LineInputSchema = z
+  .object({
+    id: Uuid,
+    sectionId: Uuid,
+    section: SectionInputSchema,
+    itemCode: z.string().min(1).max(80),
+    itemName: z.string().max(200),
+    specification: z.string().max(240),
+    unit: BoqUnit,
+    adjustment: DecimalText,
+    reason: z.string().max(1000),
+    sortOrder: z.coerce.number().int(),
+  })
+  .strict();
+
+const SourceAnchorInputSchema = z
+  .object({
+    id: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: Sha256,
+    sourceKind: z.enum(["pdf_region", "ifc_element"]),
+    pdfPageNumber: z.coerce.number().int().positive().nullable(),
+    x: FiniteNumber.nullable(),
+    y: FiniteNumber.nullable(),
+    width: FiniteNumber.nullable(),
+    height: FiniteNumber.nullable(),
+    elementId: z.string().nullable(),
+    ifcGlobalId: z.string().nullable(),
+    camera: z.unknown().nullable(),
+    version: z.coerce.number().int().positive(),
+  })
+  .strict();
+
+const DrawingSourceInputSchema = z
+  .object({
+    id: Uuid,
+    revisionId: Uuid,
+    revisionVersion: z.coerce.number().int().positive(),
+    snapshotSha256: Sha256,
+    objectId: Uuid,
+    lineageId: Uuid,
+    objectVersion: z.coerce.number().int().positive(),
+    fingerprint: Sha256,
+    kind: MeasurementKind,
+    rawQuantity: DecimalText,
+    unit: DrawingUnit,
+    rule: z.literal("P4_MEASUREMENT_V1"),
+    anchors: z.array(SourceAnchorInputSchema).max(200),
+    issues: z.array(z.object({ id: Uuid, issueId: Uuid }).strict()).max(200),
+  })
+  .strict();
+
+const DrawingLinkInputSchema = z
+  .object({
+    id: Uuid,
+    line: Uuid,
+    factor: AllocationFactor,
+    version: z.coerce.number().int().positive(),
+    source: DrawingSourceInputSchema,
+  })
+  .strict();
+
+const LegacyMappingInputSchema = z
+  .object({
+    id: Uuid,
+    line: Uuid,
+    fileId: Uuid,
+    sha256: Sha256,
+    subject: z.string().min(1).max(240),
+    quantity: DecimalText,
+    factor: DecimalText,
+    unit: BoqUnit,
+    elementIds: z.array(z.string()).max(10_000),
+  })
+  .strict();
+
+const LegacyExclusionInputSchema = z
+  .object({
+    id: Uuid,
+    fileId: Uuid,
+    sha256: Sha256,
+    subject: z.string().min(1).max(240),
+    quantity: DecimalText,
+    unit: BoqUnit,
+    elementIds: z.array(z.string()).max(10_000),
+    reason: z.string().max(1000),
+  })
+  .strict();
+
+const ResourceInputSchema = z
+  .object({
+    id: Uuid,
+    code: z.string().min(1).max(80),
+    type: z.enum(["material", "labor", "equipment", "expense"]),
+    name: z.string().max(160),
+    specification: z.string().max(200),
+    unit: z.string().min(1).max(20),
+    unitPriceKrw: DecimalText,
+    priceBookId: Uuid,
+  })
+  .strict();
+
+const ComponentInputSchema = z
+  .object({
+    id: Uuid,
+    line: Uuid,
+    resourceId: Uuid,
+    coefficient: DecimalText,
+    resource: ResourceInputSchema,
+  })
+  .strict();
+
+const PriceBookInputSchema = z
+  .object({
+    id: Uuid,
+    name: z.string().max(160),
+    versionLabel: z.string().max(80),
+    fileId: Uuid,
+    sha256: Sha256,
+    effectiveDate: z.string(),
+    currency: z.string().max(10),
+    rightsBasis: z.string().max(80),
+    licenseNote: z.string().max(1000),
+  })
+  .strict();
+
+const VerifiedBoqV1_1DatabaseInputSchema = z
+  .object({
+    versionId: Uuid,
+    projectId: Uuid,
+    engineVersion: z.literal("VERIFIED-BOQ-1.1"),
+    calculationPolicy: z.enum(["general_half_away", "ems_component_truncate"]),
+    quantityScale: z.coerce.number().int().min(0).max(9),
+    lines: z.array(LineInputSchema).max(5_000),
+    drawingLinks: z.array(DrawingLinkInputSchema).max(10_000),
+    legacyMappings: z.array(LegacyMappingInputSchema).max(10_000),
+    legacyExclusions: z.array(LegacyExclusionInputSchema).max(10_000),
+    components: z.array(ComponentInputSchema).max(10_000),
+    priceBook: PriceBookInputSchema,
+  })
+  .strict();
+
+const VerifiedBoqV1_1RpcSchema = z
+  .object({
+    inputStateSha256: Sha256,
+    input: VerifiedBoqV1_1DatabaseInputSchema,
+  })
+  .strict();
+
+export function parseVerifiedBoqV1_1RpcInput(value: unknown): {
+  projectId: string;
+  inputStateSha256: string;
+  input: VerifiedBoqV1_1Input;
+} {
+  try {
+    const parsed = VerifiedBoqV1_1RpcSchema.parse(value);
+    const resources = new Map<string, z.infer<typeof ResourceInputSchema>>();
+    for (const line of parsed.input.lines)
+      if (line.sectionId !== line.section.id)
+        throw new DrawingQuantityLineageServerError("P6B04");
+    for (const component of parsed.input.components) {
+      if (
+        component.resourceId !== component.resource.id ||
+        component.resource.priceBookId !== parsed.input.priceBook.id
+      )
+        throw new DrawingQuantityLineageServerError("P6B04");
+      const prior = resources.get(component.resource.id);
+      if (prior && JSON.stringify(prior) !== JSON.stringify(component.resource))
+        throw new DrawingQuantityLineageServerError("P6B04");
+      resources.set(component.resource.id, component.resource);
+    }
+    return {
+      projectId: parsed.input.projectId,
+      inputStateSha256: parsed.inputStateSha256,
+      input: {
+        engineVersion: "VERIFIED-BOQ-1.1",
+        versionId: parsed.input.versionId,
+        calculationPolicy: parsed.input.calculationPolicy,
+        quantityScale: parsed.input.quantityScale,
+        lines: parsed.input.lines.map((line) => ({
+          id: line.id,
+          sectionCode: line.section.code,
+          itemCode: line.itemCode,
+          itemName: line.itemName,
+          specification: line.specification,
+          unit: line.unit,
+          signedAdjustment: line.adjustment,
+          adjustmentReason: line.reason,
+        })),
+        legacyMappings: parsed.input.legacyMappings.map((row) => ({
+          id: row.id,
+          lineId: row.line,
+          sourceFileId: row.fileId,
+          sourceSha256: row.sha256,
+          subjectKey: row.subject,
+          sourceQuantity: row.quantity,
+          factor: row.factor,
+          unit: row.unit,
+          elementIds: row.elementIds,
+        })),
+        drawingMappings: parsed.input.drawingLinks.map((row) => ({
+          id: row.id,
+          lineId: row.line,
+          quantityLinkId: row.source.id,
+          allocationFactor: row.factor,
+          source: {
+            quantityLinkId: row.source.id,
+            revisionId: row.source.revisionId,
+            revisionVersion: row.source.revisionVersion,
+            snapshotSha256: row.source.snapshotSha256,
+            objectId: row.source.objectId,
+            lineageId: row.source.lineageId,
+            objectVersion: row.source.objectVersion,
+            objectFingerprint: row.source.fingerprint,
+            measurementKind: row.source.kind,
+            rawQuantity: row.source.rawQuantity,
+            unit: row.source.unit,
+            measurementRuleVersion: row.source.rule,
+            sourceAnchors: row.source.anchors.map((anchor) => ({
+              sourceFileId: anchor.sourceFileId,
+              sourceSha256: anchor.sourceSha256,
+              sourceKind: anchor.sourceKind,
+              pdfRegion:
+                anchor.sourceKind === "pdf_region" &&
+                anchor.pdfPageNumber !== null &&
+                anchor.x !== null &&
+                anchor.y !== null &&
+                anchor.width !== null &&
+                anchor.height !== null
+                  ? {
+                      pageNumber: anchor.pdfPageNumber,
+                      x: anchor.x,
+                      y: anchor.y,
+                      width: anchor.width,
+                      height: anchor.height,
+                    }
+                  : null,
+              ifcGlobalId:
+                anchor.sourceKind === "ifc_element" ? anchor.ifcGlobalId : null,
+            })),
+            issueLinks: row.source.issues.map((issue) => ({
+              issueId: issue.issueId,
+            })),
+          },
+        })),
+        priceBook: {
+          id: parsed.input.priceBook.id,
+          sourceFileId: parsed.input.priceBook.fileId,
+          sourceSha256: parsed.input.priceBook.sha256,
+          effectiveDate: parsed.input.priceBook.effectiveDate,
+          rightsBasis: parsed.input.priceBook.rightsBasis,
+        },
+        exclusions: parsed.input.legacyExclusions.map((row) => ({
+          id: row.id,
+          sourceFileId: row.fileId,
+          sourceSha256: row.sha256,
+          subjectKey: row.subject,
+          sourceQuantity: row.quantity,
+          unit: row.unit,
+          elementIds: row.elementIds,
+          reason: row.reason,
+        })),
+        resources: [...resources.values()].map((row) => ({
+          id: row.id,
+          code: row.code,
+          type: row.type,
+          unit: row.unit,
+          unitPriceKrw: row.unitPriceKrw,
+        })),
+        components: parsed.input.components.map((row) => ({
+          id: row.id,
+          lineId: row.line,
+          resourceId: row.resourceId,
+          coefficient: row.coefficient,
+        })),
+      },
+    };
+  } catch {
+    throw new DrawingQuantityLineageServerError("P6B04");
+  }
+}
+
+type FreezeArgs = {
+  actorId: string;
+  versionId: string;
+  inputStateSha256: string;
+  resultSha256: string;
+  manifestSha256: string;
+  directCostKrw: string;
+  lineCount: number;
+};
+
+/** @internal Optional authority is a server-test seam, never request input. */
+export type VerifiedBoqFreezeAuthority = {
+  finalize(args: FreezeArgs, isStaff?: boolean): Promise<unknown>;
+  loadFrozenInput(versionId: string): Promise<unknown>;
+};
+
+async function requireAuthenticatedActor(
+  client: SupabaseClient,
+  actorId: string,
+) {
+  const parsedActor = Uuid.parse(actorId);
+  const { data, error } = await client.auth.getUser();
+  if (
+    error ||
+    !data.user ||
+    data.user.is_anonymous ||
+    data.user.id !== parsedActor
+  )
+    throw new DrawingQuantityLineageServerError("P6A01");
+  return {
+    actorId: parsedActor,
+    isStaff: data.user.app_metadata.role === "hangil_staff",
+  };
+}
+
+async function requireVerifiedReviewer(
+  client: SupabaseClient,
+  actor: { actorId: string; isStaff: boolean },
+  projectId: string,
+) {
+  const { data: project, error: projectError } = await client
+    .from("lukas_qto_projects")
+    .select("id,owner_id")
+    .eq("id", Uuid.parse(projectId))
+    .single();
+  if (projectError || !project)
+    throw new DrawingQuantityLineageServerError("P6A01");
+  if (actor.isStaff || project.owner_id === actor.actorId) return;
+  const { data: member, error: memberError } = await client
+    .from("lukas_qto_project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", actor.actorId)
+    .maybeSingle();
+  if (memberError || member?.role !== "reviewer")
+    throw new DrawingQuantityLineageServerError("P6A01");
+}
+
+function calculateFrozenInput(
+  parsed: ReturnType<typeof parseVerifiedBoqV1_1RpcInput>,
+) {
+  const result = calculateVerifiedBoqV1_1(parsed.input);
+  if (result.status !== "calculated" || result.lines.length === 0)
+    throw new DrawingQuantityLineageServerError("P6B04");
+  const manifest = buildVerifiedBoqCalculationManifest(parsed.input, result, {
+    projectId: parsed.projectId,
+    inputStateSha256: parsed.inputStateSha256,
+  });
+  return { result, manifest };
+}
+
+export async function submitVerifiedBoqV1_1(
+  userClient: SupabaseClient,
+  actorId: string,
+  versionId: string,
+  authority?: VerifiedBoqFreezeAuthority,
+): Promise<{ resultSha256: string; manifestSha256: string }> {
+  const requestId = randomUUID();
+  try {
+    const actor = await requireAuthenticatedActor(userClient, actorId);
+    const parsedVersionId = Uuid.parse(versionId);
+    const { data, error } = await userClient.rpc("lukas_qto_boq_v1_1_input", {
+      p_version_id: parsedVersionId,
+    });
+    if (error) throw error;
+    const parsed = parseVerifiedBoqV1_1RpcInput(data);
+    if (parsed.input.versionId !== parsedVersionId)
+      throw new DrawingQuantityLineageServerError("P6O01");
+    const { result, manifest } = calculateFrozenInput(parsed);
+    await (authority ?? databaseFreezeAuthority()).finalize(
+      {
+        actorId: actor.actorId,
+        versionId: parsedVersionId,
+        inputStateSha256: parsed.inputStateSha256,
+        resultSha256: result.canonicalSha256,
+        manifestSha256: manifest.manifestSha256,
+        directCostKrw: result.directCostKrw,
+        lineCount: result.lines.length,
+      },
+      actor.isStaff,
+    );
+    return {
+      resultSha256: result.canonicalSha256,
+      manifestSha256: manifest.manifestSha256,
+    };
+  } catch (error) {
+    throw p6Error(error, requestId);
+  }
+}
+
+export async function recheckAndDecideVerifiedBoqV1_1(
+  userClient: SupabaseClient,
+  actorId: string,
+  input: {
+    versionId: string;
+    decision: "approved" | "rejected" | "deferred";
+    note: string;
+  },
+  authority?: VerifiedBoqFreezeAuthority,
+): Promise<void> {
+  const requestId = randomUUID();
+  try {
+    const actor = await requireAuthenticatedActor(userClient, actorId);
+    const parsed = z
+      .object({
+        versionId: Uuid,
+        decision: z.enum(["approved", "rejected", "deferred"]),
+        note: z.string().max(2000),
+      })
+      .strict()
+      .parse(input);
+    const { data: version, error: versionError } = await userClient
+      .from("lukas_qto_boq_versions")
+      .select(
+        "id,project_id,created_by,status,engine_version,input_state_sha256,result_sha256,manifest_sha256",
+      )
+      .eq("id", parsed.versionId)
+      .single();
+    if (
+      versionError ||
+      !version ||
+      version.status !== "in_review" ||
+      version.engine_version !== "VERIFIED-BOQ-1.1" ||
+      version.created_by === actor.actorId
+    )
+      throw new DrawingQuantityLineageServerError("P6A01");
+    await requireVerifiedReviewer(userClient, actor, version.project_id);
+    const frozen = parseVerifiedBoqV1_1RpcInput(
+      await (authority ?? databaseFreezeAuthority()).loadFrozenInput(
+        parsed.versionId,
+      ),
+    );
+    if (
+      frozen.projectId !== version.project_id ||
+      frozen.input.versionId !== parsed.versionId ||
+      frozen.inputStateSha256 !== version.input_state_sha256
+    )
+      throw new DrawingQuantityLineageServerError("P6C01");
+    const { result, manifest } = calculateFrozenInput(frozen);
+    if (
+      result.canonicalSha256 !== version.result_sha256 ||
+      manifest.manifestSha256 !== version.manifest_sha256
+    )
+      throw new DrawingQuantityLineageServerError("P6C01");
+    const { error } = await userClient.rpc("lukas_qto_decide_boq", {
+      p_version_id: parsed.versionId,
+      p_decision: parsed.decision,
+      p_note: parsed.note,
+    });
+    if (error) throw error;
+  } catch (error) {
+    throw p6Error(error, requestId);
+  }
+}
+
+export async function loadVerifiedBoqV1_1Calculation(
+  userClient: SupabaseClient,
+  actorId: string,
+  versionId: string,
+  authority?: VerifiedBoqFreezeAuthority,
+) {
+  const requestId = randomUUID();
+  try {
+    const actor = await requireAuthenticatedActor(userClient, actorId);
+    const parsedVersionId = Uuid.parse(versionId);
+    const { data: version, error: versionError } = await userClient
+      .from("lukas_qto_boq_versions")
+      .select(
+        "id,project_id,status,created_by,engine_version,input_state_sha256,result_sha256,manifest_sha256",
+      )
+      .eq("id", parsedVersionId)
+      .single();
+    if (
+      versionError ||
+      !version ||
+      version.engine_version !== "VERIFIED-BOQ-1.1"
+    )
+      throw new DrawingQuantityLineageServerError("P6A01");
+    let payload: unknown;
+    if (version.status === "draft" && version.created_by === actor.actorId) {
+      const { data, error } = await userClient.rpc("lukas_qto_boq_v1_1_input", {
+        p_version_id: parsedVersionId,
+      });
+      if (error) throw error;
+      payload = data;
+    } else {
+      payload = await (authority ?? databaseFreezeAuthority()).loadFrozenInput(
+        parsedVersionId,
+      );
+    }
+    const parsed = parseVerifiedBoqV1_1RpcInput(payload);
+    if (
+      parsed.projectId !== version.project_id ||
+      parsed.input.versionId !== parsedVersionId
+    )
+      throw new DrawingQuantityLineageServerError("P6C01");
+    const calculated = calculateFrozenInput(parsed);
+    return {
+      ...calculated,
+      parsed,
+      stored: {
+        inputStateSha256: version.input_state_sha256 as string | null,
+        resultSha256: version.result_sha256 as string | null,
+        manifestSha256: version.manifest_sha256 as string | null,
+      },
+    };
+  } catch (error) {
+    throw p6Error(error, requestId);
+  }
+}
+
+export type VerifiedBoqDrawingSourceRow = {
+  quantity: DrawingQuantityLinkRow;
+  allocationTotal: string;
+  links: Array<DrawingBoqLinkRow & { workspaceHref: string | null }>;
+};
+
+export async function listVerifiedBoqDrawingSources(
+  userClient: SupabaseClient,
+  input: { projectId: string; boqVersionId: string; limit?: number },
+): Promise<{ rows: VerifiedBoqDrawingSourceRow[]; hasMore: boolean }> {
+  const projectId = Uuid.parse(input.projectId);
+  const boqVersionId = Uuid.parse(input.boqVersionId);
+  const limit = Math.min(200, Math.max(1, input.limit ?? 200));
+  const { data: linkData, error: linkError } = await userClient
+    .from("lukas_drawing_boq_links")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("boq_version_id", boqVersionId)
+    .order("id", { ascending: true })
+    .limit(201);
+  if (linkError) throw new DrawingQuantityLineageServerError("P6A01");
+  if ((linkData?.length ?? 0) > 200)
+    throw new DrawingQuantityLineageServerError("P6B04");
+  const rawLinks = (linkData ?? []).map(drawingBoqLinkRow);
+  const mappedQuantityIds = [
+    ...new Set(rawLinks.map((link) => link.quantityLinkId)),
+  ];
+  const { data: mappedData, error: mappedError } = mappedQuantityIds.length
+    ? await userClient
+        .from("lukas_drawing_quantity_links")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("id", mappedQuantityIds)
+        .limit(201)
+    : { data: [], error: null };
+  if (mappedError || (mappedData?.length ?? 0) !== mappedQuantityIds.length)
+    throw new DrawingQuantityLineageServerError("P6A01");
+  const mappedById = new Map(
+    (mappedData ?? []).map(quantityRow).map((row) => [row.id, row]),
+  );
+  if (mappedQuantityIds.some((id) => !mappedById.has(id)))
+    throw new DrawingQuantityLineageServerError("P6A01");
+  const mappedQuantities = mappedQuantityIds.map(
+    (id) => mappedById.get(id) as DrawingQuantityLinkRow,
+  );
+  const { data: recentData, error: recentError } = await userClient
+    .from("lukas_drawing_quantity_links")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(201);
+  if (recentError) throw new DrawingQuantityLineageServerError("P6A01");
+  const mappedIds = new Set(mappedQuantityIds);
+  const recentUnmapped = (recentData ?? [])
+    .map(quantityRow)
+    .filter((row) => !mappedIds.has(row.id));
+  const remaining = Math.max(0, limit - mappedQuantities.length);
+  const quantities = [
+    ...mappedQuantities,
+    ...recentUnmapped.slice(0, remaining),
+  ];
+  let links: Array<DrawingBoqLinkRow & { workspaceHref: string | null }> = [];
+  if (rawLinks.length) {
+    const linkedQuantityIds = new Set(
+      rawLinks.map((link) => link.quantityLinkId),
+    );
+    const linkedQuantities = quantities.filter((row) =>
+      linkedQuantityIds.has(row.id),
+    );
+    const revisionIds = [
+      ...new Set(linkedQuantities.map((row) => row.drawingRevisionId)),
+    ];
+    const { data: revisionData, error: revisionError } = revisionIds.length
+      ? await userClient
+          .from("lukas_drawing_revisions")
+          .select("id,document_id")
+          .eq("project_id", projectId)
+          .in("id", revisionIds)
+          .limit(200)
+      : { data: [], error: null };
+    if (revisionError) throw new DrawingQuantityLineageServerError("P6A01");
+    const revisions = new Map(
+      (revisionData ?? []).map((row) => [
+        String(row.id),
+        String(row.document_id),
+      ]),
+    );
+    const documentIds = [...new Set(revisions.values())];
+    const { data: documentData, error: documentError } = documentIds.length
+      ? await userClient
+          .from("lukas_drawing_documents")
+          .select("id,source_file_id")
+          .eq("project_id", projectId)
+          .in("id", documentIds)
+          .limit(200)
+      : { data: [], error: null };
+    if (documentError) throw new DrawingQuantityLineageServerError("P6A01");
+    const documents = new Map(
+      (documentData ?? []).map((row) => [
+        String(row.id),
+        row.source_file_id ? String(row.source_file_id) : null,
+      ]),
+    );
+    const { data: sourceData, error: sourceError } = linkedQuantities.length
+      ? await userClient
+          .from("lukas_drawing_object_sources")
+          .select("revision_id,object_id,source_file_id")
+          .eq("project_id", projectId)
+          .eq("status", "active")
+          .in(
+            "revision_id",
+            linkedQuantities.map((row) => row.drawingRevisionId),
+          )
+          .in(
+            "object_id",
+            linkedQuantities.map((row) => row.drawingObjectId),
+          )
+          .order("source_file_id", { ascending: true })
+          .limit(201)
+      : { data: [], error: null };
+    if (sourceError || (sourceData?.length ?? 0) > 200)
+      throw new DrawingQuantityLineageServerError("P6B04");
+    const sourceFiles = new Map<string, Set<string>>();
+    for (const row of sourceData ?? []) {
+      const key = `${String(row.revision_id)}:${String(row.object_id)}`;
+      const values = sourceFiles.get(key) ?? new Set<string>();
+      values.add(String(row.source_file_id));
+      sourceFiles.set(key, values);
+    }
+    const fileIdByQuantity = new Map<string, string>();
+    for (const quantity of linkedQuantities) {
+      const documentId = revisions.get(quantity.drawingRevisionId);
+      const documentFile = documentId ? documents.get(documentId) : null;
+      const fallback = sourceFiles.get(
+        `${quantity.drawingRevisionId}:${quantity.drawingObjectId}`,
+      );
+      const fileId =
+        documentFile ?? (fallback?.size === 1 ? [...fallback][0] : null);
+      if (fileId) fileIdByQuantity.set(quantity.id, fileId);
+    }
+    const fileIds = [...new Set(fileIdByQuantity.values())];
+    const { data: fileData, error: fileError } = fileIds.length
+      ? await userClient
+          .from("lukas_qto_files")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("immutable", true)
+          .in("kind", ["pdf", "ifc"])
+          .in("id", fileIds)
+          .limit(200)
+      : { data: [], error: null };
+    if (fileError) throw new DrawingQuantityLineageServerError("P6A01");
+    const validFileIds = new Set((fileData ?? []).map((row) => String(row.id)));
+    const quantityById = new Map(quantities.map((row) => [row.id, row]));
+    links = rawLinks.map((link) => {
+      const quantity = quantityById.get(link.quantityLinkId);
+      const fileId = fileIdByQuantity.get(link.quantityLinkId);
+      const documentId = quantity
+        ? revisions.get(quantity.drawingRevisionId)
+        : null;
+      if (!quantity || !fileId || !documentId || !validFileIds.has(fileId))
+        return { ...link, workspaceHref: null };
+      const search = new URLSearchParams({
+        document: documentId,
+        revision: quantity.drawingRevisionId,
+        object: quantity.drawingObjectId,
+        boq: link.boqVersionId,
+        line: link.boqLineId,
+      });
+      return {
+        ...link,
+        workspaceHref: `/projects/${projectId}/drawings/${fileId}/workspace?${search}`,
+      };
+    });
+  }
+  return {
+    rows: quantities.map((quantity) => {
+      const sourceLinks = links.filter(
+        (link) => link.quantityLinkId === quantity.id,
+      );
+      const allocationTotal = sourceLinks.reduce(
+        (total, link) =>
+          total + allocationFactorBillionths(link.allocationFactor),
+        0n,
+      );
+      return {
+        quantity,
+        allocationTotal: allocationFactorText(allocationTotal),
+        links: sourceLinks,
+      };
+    }),
+    hasMore: recentUnmapped.length > remaining,
+  };
+}
+
+function allocationFactorBillionths(value: string) {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match) throw new DrawingQuantityLineageServerError("P6B04");
+  return (
+    BigInt(match[1]) * 1_000_000_000n + BigInt((match[2] ?? "").padEnd(9, "0"))
+  );
+}
+
+function allocationFactorText(value: bigint) {
+  const whole = value / 1_000_000_000n;
+  const fraction = (value % 1_000_000_000n)
+    .toString()
+    .padStart(9, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function databaseFreezeAuthority(): VerifiedBoqFreezeAuthority {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new DrawingQuantityLineageServerError("P6C01");
+  return {
+    async finalize(args, isStaff = false) {
+      const sql = postgres(databaseUrl, { max: 1, prepare: false });
+      try {
+        return await sql.begin(async (tx) => {
+          await tx.unsafe("set local role service_role");
+          await tx`
+            select pg_catalog.set_config('request.jwt.claim.sub',${args.actorId},true),
+              pg_catalog.set_config('request.jwt.claims',${JSON.stringify({
+                sub: args.actorId,
+                is_anonymous: false,
+                app_metadata: isStaff ? { role: "hangil_staff" } : {},
+              })},true)
+          `;
+          const rows = await tx`
+            select private.lukas_qto_finalize_boq_v1_1(
+              ${args.actorId}::uuid,${args.versionId}::uuid,
+              ${args.inputStateSha256},${args.resultSha256},
+              ${args.manifestSha256},${args.directCostKrw}::numeric,
+              ${args.lineCount}::integer
+            ) value
+          `;
+          if (rows.length !== 1)
+            throw new DrawingQuantityLineageServerError("P6O01");
+          return rows[0].value;
+        });
+      } finally {
+        await sql.end({ timeout: 5 });
+      }
+    },
+    async loadFrozenInput(versionId) {
+      const sql = postgres(databaseUrl, { max: 1, prepare: false });
+      try {
+        const rows = await sql`
+          select pg_catalog.jsonb_build_object(
+            'input',private.lukas_drawing_p6_input_state(v.id),
+            'inputStateSha256',private.lukas_drawing_p6_input_sha256(v.id)
+          ) value
+          from public.lukas_qto_boq_versions v
+          where v.id=${Uuid.parse(versionId)}::uuid
+        `;
+        if (rows.length !== 1)
+          throw new DrawingQuantityLineageServerError("P6C01");
+        return rows[0].value;
+      } finally {
+        await sql.end({ timeout: 5 });
+      }
+    },
+  };
+}
+
+function formObject(form: FormData) {
+  const result: Record<string, FormDataEntryValue> = {};
+  for (const [key, value] of form) {
+    if (key in result) throw new DrawingQuantityLineageServerError("P6B04");
+    result[key] = value;
+  }
+  return result;
+}
+
+function assertFormKeys(
+  values: Record<string, FormDataEntryValue>,
+  allowed: readonly string[],
+) {
+  if (Object.keys(values).some((key) => !allowed.includes(key)))
+    throw new Error("허용되지 않은 필드가 포함되어 있습니다.");
+}
+
+export function parseDrawingBoqMutationForm(form: FormData) {
+  const values = formObject(form);
+  const intent = z
+    .enum(["drawing_boq_put", "drawing_boq_delete", "submit", "decision"])
+    .parse(values.intent);
+  if (intent === "drawing_boq_put") {
+    assertFormKeys(values, [
+      "intent",
+      "id",
+      "quantity_link_id",
+      "version_id",
+      "line_id",
+      "allocation_factor",
+      "base_version",
+    ]);
+    const base =
+      values.base_version === "" ? null : Number(values.base_version);
+    return {
+      intent,
+      ...PutBoqLinkSchema.parse({
+        id: values.id,
+        quantityLinkId: values.quantity_link_id,
+        boqVersionId: values.version_id,
+        boqLineId: values.line_id,
+        allocationFactor: values.allocation_factor,
+        baseVersion: base,
+      }),
+    };
+  }
+  if (intent === "drawing_boq_delete") {
+    assertFormKeys(values, ["intent", "id", "base_version"]);
+    return {
+      intent,
+      ...z
+        .object({ id: Uuid, baseVersion: z.number().int().positive() })
+        .parse({ id: values.id, baseVersion: Number(values.base_version) }),
+    };
+  }
+  if (intent === "submit") {
+    assertFormKeys(values, ["intent", "version_id"]);
+    return { intent, versionId: Uuid.parse(values.version_id) };
+  }
+  assertFormKeys(values, ["intent", "version_id", "decision", "note"]);
+  return {
+    intent,
+    versionId: Uuid.parse(values.version_id),
+    decision: z
+      .enum(["approved", "rejected", "deferred"])
+      .parse(values.decision),
+    note: z
+      .string()
+      .max(2000)
+      .parse(values.note ?? ""),
+  };
 }
 
 export function drawingQuantityLineageErrorResponse(error: unknown) {

@@ -121,6 +121,7 @@ import type {
   DrawingWorkspaceSourceBundle,
   DrawingWorkspaceSourceDescriptor,
 } from "~/lukas/lib/drawing-workspace.server";
+import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import type {
   DrawingMeasurementEvidenceError,
   DrawingMeasurementEvidenceLineage,
@@ -753,6 +754,10 @@ type Props = {
   collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
   measurementEvidence?: DrawingServerMeasurementEvidence | null;
   measurementEvidenceError?: DrawingMeasurementEvidenceError | null;
+  quantityLineage?: {
+    rows: DrawingObjectQuantityLineageRow[];
+    nextCursor: string | null;
+  } | null;
   roomUrl: string;
   sourceUrl?: string | null;
   sourceBundle?: DrawingWorkspaceSourceBundle;
@@ -798,6 +803,7 @@ export default function DrawingWorkspaceClient({
   collaborationPersistenceFactory = openDrawingYjsPersistence,
   measurementEvidence,
   measurementEvidenceError,
+  quantityLineage,
   roomUrl,
   sourceUrl = null,
   sourceBundle,
@@ -863,11 +869,16 @@ export default function DrawingWorkspaceClient({
   const [selectedIssueId, setSelectedIssueId] = useState(
     collaborationRoom?.issues[0]?.id ?? "",
   );
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const linkedObjectId = searchParams.get("object");
+    return linkedObjectId ? [linkedObjectId] : [];
+  });
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const semanticBlockSelectionRef = useRef<Set<string>>(new Set());
   const transientAuthorizationRef = useRef<string | null>(null);
-  const transientInputInvalidatedRef = useRef(true);
+  const transientInputInvalidatedRef = useRef(
+    searchParams.get("object") === null,
+  );
   const setAuthorizedTool = useCallback((tool: DrawingTool) => {
     transientInputInvalidatedRef.current = false;
     setActiveTool(tool);
@@ -1094,8 +1105,11 @@ export default function DrawingWorkspaceClient({
     activeLayer: authorizationLayer,
   });
   if (transientAuthorizationRef.current !== authorizationKey) {
+    const authorizationWasInitialized =
+      transientAuthorizationRef.current !== null;
     transientAuthorizationRef.current = authorizationKey;
-    transientInputInvalidatedRef.current = true;
+    if (authorizationWasInitialized)
+      transientInputInvalidatedRef.current = true;
   }
   const transientInput = sanitizeDrawingTransientInput(
     { activeLayerId, activeTool, selectedIds },
@@ -2645,6 +2659,30 @@ export default function DrawingWorkspaceClient({
     drawingState.objects[transient.selectedIds[0]]
       ? transient.selectedIds[0]
       : null;
+  useEffect(() => {
+    if (!selectedDrawingObjectId) return;
+    const selected = drawingState.objects[selectedDrawingObjectId];
+    if (
+      !selected ||
+      !["wall", "opening", "space", "area", "grid", "arc"].includes(
+        selected.geometry.type,
+      ) ||
+      (searchParams.get("object") === selectedDrawingObjectId &&
+        searchParams.get("revision") === revision.id)
+    )
+      return;
+    const next = new URLSearchParams(searchParams);
+    next.set("object", selectedDrawingObjectId);
+    next.set("revision", revision.id);
+    next.delete("quantityCursor");
+    setSearchParams(next, { replace: true });
+  }, [
+    drawingState.objects,
+    revision.id,
+    searchParams,
+    selectedDrawingObjectId,
+    setSearchParams,
+  ]);
   const selectedObjectAlreadyLinked = selectedIfc
     ? Object.values(drawingSources).some(
         (source) =>
@@ -4818,6 +4856,10 @@ export default function DrawingWorkspaceClient({
           <DrawingInspector
             awarenessStore={awarenessStoreRef.current}
             actorId={currentUserId}
+            canCreateQuantity={
+              effectiveCapability === "admin" ||
+              effectiveCapability === "editor"
+            }
             canEdit={
               editing.canEdit &&
               (blockMutationAdapter.selectionKind !== "block_instance" ||
@@ -4838,6 +4880,9 @@ export default function DrawingWorkspaceClient({
             issues={revision.issues}
             onCommand={applyCommand}
             onSoftLockChange={setAwarenessSoftLock}
+            projectId={projectId}
+            quantityLineage={quantityLineage}
+            revisionStatus={effectiveRevisionStatus}
             selectedIds={transient.selectedIds}
             state={activeDrawingState}
           />
