@@ -58,6 +58,18 @@ record에 함께 남긴다.
 - `npm run release:drawing-workspace-p4:production`은 실제 authority가 없으면
   Playwright 시작 전에 nonzero `UNEXECUTED`로 종료한다.
 
+## Drawing Workspace P5 상태
+
+- current PDF 62,602 bytes/SHA `4dbe58…`, synthetic prior PDF 63,118 bytes/SHA
+  `ea75a7…`, pinned IFC 413,681 bytes/SHA `db372f…`를 서로 다른 원본으로 검증한다.
+- Task 6 production-build Chromium은 visible PDF marker, IFC 115개·exact-one fetch,
+  offline undo/reload/ordered ACK, outbox 0, Viewer 거부, before/after SHA와 cleanup을
+  통과했다.
+- 2.5초 목표와 전체 P0–P4 composed gate는 **NOT MET**다. 60 fps 및 production
+  authority/CORS/signed URL/two-user provider/cleanup은 **UNEXECUTED**다.
+- `npm run release:drawing-workspace-p5:production`은 실제 authority와 base URL에
+  정확히 일치하는 Storage CORS origin이 없으면 Playwright 전에 nonzero 종료한다.
+
 ## 자동·운영 게이트 증거
 
 - `npm run build`: 성공

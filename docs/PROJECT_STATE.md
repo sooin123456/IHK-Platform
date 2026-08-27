@@ -1,5 +1,18 @@
 # 프로젝트 상태
 
+## Drawing Workspace P5 진행 상태 (2026-08-27)
+
+- P5 local implementation은 기본 진입점에서 서로 다른 실제 current/prior PDF,
+  실제 형상 IFC, 2D/3D/분할, 변경 marker와 PDF/IFC 근거·양방향 focus를 제공한다.
+- production-build Chromium Task 6은 IFC 115개 표시·선택, IFC 1회 fetch,
+  offline unlink/undo/reload/ordered ACK, Viewer 거부, 세 원본 SHA 불변과 cleanup을
+  통과했다.
+- 10,000 objects/2,000 links/IFC 1개/compare 1페이지의 2.5초 목표는 **NOT MET**,
+  P7 60 fps와 P5 production authority/CORS/signed URL/two-user provider는
+  **UNEXECUTED**다.
+- 전체 P0–P4 local release gate는 기존 PDF diff worker race가 전체 병렬 suite에서
+  재현되어 **NOT MET**다. focused P5 성공으로 이를 숨기지 않는다.
+
 ## Drawing Workspace P4 진행 상태 (2026-08-27)
 
 - P4 local implementation은 건축 semantic geometry/commands/Postgres mirror,

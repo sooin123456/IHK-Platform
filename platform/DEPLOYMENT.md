@@ -798,6 +798,23 @@ nonmember admission, P4 semantic load/schedules/export, source hashes, and a
 two-user reconnect before reopening admission. Record an incomplete direction
 as failed or `UNEXECUTED`, never PASS.
 
+## Drawing Workspace P5 coordinated release gate
+
+`npm run release:drawing-workspace-p5:local` composes the exact P0–P4 gate before
+the production-build P5 vertical and commit-bound evidence validation. A failed
+predecessor gate remains a P5 local failure even when focused browser tests pass.
+
+P5 evidence uses distinct current/prior PDFs (62,602/63,118 bytes; SHA `4dbe58…`/
+`ea75a7…`) and the pinned 413,681-byte ThatOpen IFC (SHA `db372f…`). The legacy
+222-byte IFC is not renderable P5 release evidence.
+
+Run `npm run release:drawing-workspace-p5:production` only with every P3 hosted
+authority plus `P5_E2E_STORAGE_CORS_ORIGIN` exactly equal to the `E2E_BASE_URL`
+origin. Missing/masked/loopback/placeholder/mismatched inputs exit nonzero as
+`UNEXECUTED` before Playwright. Preserve source bytes and approved revisions on
+rollback, then re-run hashes, role denial, offline ACK, relink, two-user focus
+and cleanup before reopening admission.
+
 ## Drawing Workspace P0/P1 release runbook
 
 The browser editor is an additive route. Keep the existing collaboration room

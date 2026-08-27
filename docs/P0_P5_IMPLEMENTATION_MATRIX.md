@@ -54,12 +54,21 @@ rollback rehearsal 증거가 모두 있어야 별도로 완료된다. 기존 운
 | 상태 구분               | 증거                                                                                                                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | P4 local implementation | wall/opening/space/area/grid/arc, hosted-reference command/DB authority, `P4_MEASUREMENT_V1`, Room/Door/Finish schedule, semantic export, 실제 IndexedDB/outbox 100-operation action-ACK 경계가 구현됨 |
-| P4 local measured       | production-build Chromium의 source-SHA/browser/hardware/viewport/object mix/샘플/`<= 2.5s` 판정은 생성·검증되는 `task-7-performance.json`이 단일 증거이며, 문서에는 분리된 측정값을 복사하지 않음 |
+| P4 local measured       | production-build Chromium의 source-SHA/browser/hardware/viewport/object mix/샘플/`<= 2.5s` 판정은 생성·검증되는 `task-7-performance.json`이 단일 증거이며, 문서에는 분리된 측정값을 복사하지 않음      |
 | P4 local environment    | disposable real PostgreSQL과 linked Supabase가 없어 해당 DB authority는 **LOCAL ENV UNEXECUTED**                                                                                                       |
 | P4 production           | 실제 hosted provider/RLS/freeze/source/deployment/cleanup/rollback과 provider p95 `<= 500 ms`는 **UNEXECUTED / 미실행**                                                                                |
 
 P4 local completion은 실행된 로컬 의미 계약만 뜻한다. 10,000-object 60 fps,
 field-user 결과, multi-instance fanout, P0~P7 전체 목표 완료를 뜻하지 않는다.
+
+## Drawing Workspace P5 PDF·IFC 통합 게이트 (2026-08-27)
+
+| 상태                | 증거                                                                                                                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| implemented         | 기본 route의 distinct current/prior PDF, 실제 IFC, 2D/3D/분할, overlay marker, bidirectional focus, immutable link/unlink/relink, 기존 action을 재사용하는 JSON operation endpoint |
+| focused local       | production-build Chromium 3/3, exact IFC 1 fetch/115 elements, offline durable ACK, Viewer denial, 10k objects/2k links, typecheck/build/license PASS                              |
+| composed local      | 전체 P0–P4 병렬 suite의 기존 PDF diff worker race로 **NOT MET**; 단독 회귀 3회 PASS를 전체 PASS로 대체하지 않음                                                                    |
+| measured/production | first usable 2.5초 **NOT MET**; P7 60 fps와 hosted authority/CORS/signed URL/two-user provider는 **UNEXECUTED**                                                                    |
 
 ## P0 — 보안·운영 기반
 
