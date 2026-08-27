@@ -484,6 +484,44 @@ test("semantic narrow-phase selection falls through an empty top bounding box", 
   assert.deepEqual(result.state.selectedIds, [rectangle.id]);
 });
 
+test("selection resolves canonical geometry when the renderer supplies no hit hint", () => {
+  const wall = {
+    id: wallId,
+    name: "Wall",
+    layerId,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 100, y: 400 },
+      end: { x: 1400, y: 400 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
+    style: { stroke: "#000000", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const result = tools.drawingSelectionEventTransition(
+    tools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: null,
+      pointerId: 8,
+      screenPoint: { x: 1380, y: 400 },
+      shiftKey: false,
+    },
+    {
+      actorId: "actor-a",
+      canEdit: true,
+      layers: { [layerId]: layer() },
+      objects: { [wall.id]: wall },
+      orderedCandidateIds: [wall.id],
+      snap: { gridSize: 0 },
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  );
+  assert.deepEqual(result.state.selectedIds, [wall.id]);
+});
+
 test("Canvas Shift selection and Awareness lock use the narrow-phase resolved target", () => {
   assert.equal(typeof tools.drawingCanvasSelectionPointerDown, "function");
   const under = {

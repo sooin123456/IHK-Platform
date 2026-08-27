@@ -1116,15 +1116,19 @@ function editableDrawingObject(
 
 function drawingSelectionCandidateAtPoint(
   context: DrawingSelectionContext,
-  preferredId: string,
+  preferredId: string | null,
   point: Point,
 ) {
-  if (!selectableDrawingObject(context, preferredId)) return undefined;
+  if (preferredId && !selectableDrawingObject(context, preferredId))
+    return undefined;
   const ordered = context.orderedCandidateIds ?? Object.keys(context.objects);
-  return [
-    preferredId,
-    ...[...ordered].reverse().filter((id) => id !== preferredId),
-  ]
+  const candidates = preferredId
+    ? [
+        preferredId,
+        ...[...ordered].reverse().filter((id) => id !== preferredId),
+      ]
+    : [...ordered].reverse();
+  return candidates
     .map((id) => selectableDrawingObject(context, id))
     .find(
       (object) =>
@@ -1454,13 +1458,12 @@ export function drawingSelectionEventTransition(
   }
   if (event.type === "pointer_down") {
     const point = screenToWorld(event.screenPoint, context.viewport);
-    if (event.candidateId !== null) {
-      const candidate = drawingSelectionCandidateAtPoint(
-        context,
-        event.candidateId,
-        point,
-      );
-      if (!candidate) return { command: null, state };
+    const candidate = drawingSelectionCandidateAtPoint(
+      context,
+      event.candidateId,
+      point,
+    );
+    if (candidate) {
       const eligibleSelectedIds = state.selectedIds.filter((objectId) =>
         Boolean(selectableDrawingObject(context, objectId)),
       );
