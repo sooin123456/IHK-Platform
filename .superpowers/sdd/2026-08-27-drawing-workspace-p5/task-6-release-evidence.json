@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "MEASURED",
   "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "84c235f24cc335ad3a28f6187b913c8892593806",
+  "sourceCommitSha": "4deb7ef8fad6f6ca83c64dac3ffd9f385b10b8c0",
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
   "viewport": {
@@ -23,7 +23,7 @@
   },
   "sourceObservation": {
     "observedBy": "browser_mutation_workflow",
-    "runId": "30d8153a-558a-427f-b89e-bac52a5ab9cc",
+    "runId": "0faa2ebf-16dd-487c-b64e-0fd69b3f7f95",
     "before": [
       {
         "kind": "pdf_current",
@@ -89,7 +89,7 @@
       }
     ]
   },
-  "firstUsableMs": 13718,
+  "firstUsableMs": 13709.299999952316,
   "firstUsableTargetMs": 2500,
   "firstUsableTargetStatus": "NOT MET",
   "p7SixtyFpsGate": "UNEXECUTED",
