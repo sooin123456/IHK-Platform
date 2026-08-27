@@ -4193,8 +4193,8 @@ export default function DrawingWorkspaceClient({
 
         <section
           aria-label="도면 캔버스"
-          aria-busy={!outboxReady}
           className={`relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 ${outboxReady ? "" : "pointer-events-none"}`}
+          aria-busy={!outboxReady}
         >
           <div
             className={
