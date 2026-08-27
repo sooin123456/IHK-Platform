@@ -18,6 +18,8 @@ import {
   Hand,
   Minus,
   MousePointer2,
+  PanelLeft,
+  PanelRight,
   Redo2,
   Repeat2,
   RotateCcw,
@@ -243,7 +245,7 @@ const drawingWorkspacePanels: Array<{
   { id: "structure", label: "페이지·레이어" },
   { id: "styles", label: "스타일" },
   { id: "properties", label: "속성" },
-  { id: "schedules", label: "Schedule" },
+  { id: "schedules", label: "표·일람" },
   { id: "blocks", label: "블록" },
   { id: "collaboration", label: "댓글·이슈" },
   { id: "history", label: "변경 이력" },
@@ -389,6 +391,17 @@ function drawingShortcutTargetIsEditable(target: EventTarget | null) {
     Boolean(candidate.closest?.("[role='dialog']")) ||
     Boolean(candidate.closest?.("[data-drawing-shortcuts='ignore']"))
   );
+}
+
+/** Resolves the two canvas-first dock shortcuts without stealing input keys. */
+export function resolveDrawingWorkspaceDockShortcut(event: {
+  key: string;
+  target: EventTarget | null;
+}): "left" | "inspector" | null {
+  if (drawingShortcutTargetIsEditable(event.target)) return null;
+  if (event.key === "[") return "left";
+  if (event.key === "]") return "inspector";
+  return null;
 }
 
 /** Resolves only shortcuts owned by the drawing workspace. */
@@ -869,6 +882,10 @@ export default function DrawingWorkspaceClient({
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
+  const [leftDockOpen, setLeftDockOpen] = useState(true);
+  const [inspectorOpenOverride, setInspectorOpenOverride] = useState<
+    boolean | null
+  >(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState(
     collaborationRoom?.issues[0]?.id ?? "",
@@ -1139,6 +1156,16 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
+  const inspectorHasContent =
+    transient.selectedIds.length > 0 ||
+    Boolean(collaborationEditNotice) ||
+    awarenessLockPeers.some((peer) => peer.softLocks.length > 0);
+  const inspectorOpen = inspectorOpenOverride ?? inspectorHasContent;
+  useEffect(
+    () =>
+      setInspectorOpenOverride((current) => (current === true ? true : null)),
+    [transientSelectedIdsKey],
+  );
   awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
   const awarenessVisibleEntityIds = useMemo(
@@ -1178,7 +1205,7 @@ export default function DrawingWorkspaceClient({
         drawingState.structure?.blockInstances[entityId]?.name ??
         "선택 항목";
       setCollaborationEditNotice(
-        `${conflict.user.displayName}님이 ${name} 편집 중이어서 이 작업을 실행하지 않았습니다. advisory 잠금이며 서버 권한은 별도로 확인됩니다.`,
+        `${conflict.user.displayName}님이 ${name} 편집 중이어서 이 작업을 실행하지 않았습니다. 임시 잠금이며 서버 권한은 별도로 확인됩니다.`,
       );
     },
     [drawingState],
@@ -2481,6 +2508,13 @@ export default function DrawingWorkspaceClient({
     }
     function handleWorkspaceShortcut(event: KeyboardEvent) {
       if (openCommandMenu(event)) return;
+      const dock = resolveDrawingWorkspaceDockShortcut(event);
+      if (dock) {
+        event.preventDefault();
+        if (dock === "left") setLeftDockOpen((open) => !open);
+        else setInspectorOpenOverride((open) => !(open ?? inspectorHasContent));
+        return;
+      }
       const shortcut = resolveDrawingWorkspaceShortcut(event);
       if (!shortcut) return;
       let handled = false;
@@ -2500,6 +2534,7 @@ export default function DrawingWorkspaceClient({
     copySelection,
     deleteSelection,
     duplicateSelection,
+    inspectorHasContent,
     moveSelection,
     pasteSelection,
     redo,
@@ -3522,7 +3557,7 @@ export default function DrawingWorkspaceClient({
       ) : null}
 
       {sourceBundle ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-1">
           <div
             aria-label="도면 작업실 보기"
             className="flex rounded-lg border border-white/15 p-1"
@@ -3704,10 +3739,13 @@ export default function DrawingWorkspaceClient({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[15rem_minmax(0,1fr)_18rem] xl:overflow-hidden">
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-1 ${leftDockOpen && inspectorOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)_18rem]" : leftDockOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)]" : inspectorOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"} xl:overflow-hidden`}
+      >
         <aside
           aria-label="도면 도구 패널"
           className="order-2 flex min-h-0 max-h-[32rem] flex-col overflow-hidden border-b border-white/10 bg-slate-900 xl:order-1 xl:max-h-[calc(100vh-3.5rem)] xl:border-b-0 xl:border-r"
+          hidden={!leftDockOpen}
         >
           <div
             role="tablist"
@@ -3950,7 +3988,7 @@ export default function DrawingWorkspaceClient({
                           className="col-span-2 min-h-10 rounded-md border border-white/20 px-3 text-xs font-semibold"
                           type="submit"
                         >
-                          현재 canvas 영역 연결
+                          현재 캔버스 영역 연결
                         </button>
                       </Form>
                     </>
@@ -4020,7 +4058,7 @@ export default function DrawingWorkspaceClient({
                         </li>
                       ))}
                   </ol>
-                  <ol className="space-y-2" aria-label="연결된 canvas 영역">
+                  <ol className="space-y-2" aria-label="연결된 캔버스 영역">
                     {collaborationRoom.canvasRegionAnchors
                       .filter((anchor) => anchor.issue_id === selectedIssueId)
                       .map((anchor) => (
@@ -4329,6 +4367,32 @@ export default function DrawingWorkspaceClient({
           className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 xl:min-h-0 xl:overflow-hidden"
           aria-busy={!outboxReady}
         >
+          <div className="absolute left-2 top-2 z-30 flex gap-1 rounded-md bg-slate-950/85 p-1 shadow-lg">
+            <Button
+              aria-label={`왼쪽 도구 패널 ${leftDockOpen ? "숨기기" : "열기"}`}
+              aria-pressed={leftDockOpen}
+              onClick={() => setLeftDockOpen((open) => !open)}
+              size="icon"
+              title={`왼쪽 도구 패널 ${leftDockOpen ? "숨기기" : "열기"} ([)`}
+              variant="ghost"
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+            <Button
+              aria-label={`속성 검사기 ${inspectorOpen ? "숨기기" : "열기"}`}
+              aria-pressed={inspectorOpen}
+              onClick={() =>
+                setInspectorOpenOverride((open) =>
+                  open === null ? !inspectorHasContent : !open,
+                )
+              }
+              size="icon"
+              title={`속성 검사기 ${inspectorOpen ? "숨기기" : "열기"} (])`}
+              variant="ghost"
+            >
+              <PanelRight className="size-4" />
+            </Button>
+          </div>
           <div
             className={
               activeView === "split"
@@ -4833,6 +4897,7 @@ export default function DrawingWorkspaceClient({
         <aside
           aria-label="속성 검사기"
           className="order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
+          hidden={!inspectorOpen}
         >
           {collaborationEditNotice ? (
             <p

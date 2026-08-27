@@ -43,7 +43,7 @@ type Props = {
 function message(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Schedule을 변경하지 못했습니다.";
+    : "일람표를 변경하지 못했습니다.";
 }
 
 function targetRows(
@@ -118,7 +118,7 @@ function ScheduleTable({
   );
 
   if (!canEdit)
-    return <section aria-label={`${table.name} Schedule`}>{content}</section>;
+    return <section aria-label={`${table.name} 일람표`}>{content}</section>;
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,7 +172,7 @@ function ScheduleTable({
 
   return (
     <section
-      aria-label={`${table.name} Schedule`}
+      aria-label={`${table.name} 일람표`}
       className="mt-4 rounded border border-white/10 p-2"
     >
       <form data-drawing-shortcuts="ignore" onSubmit={save}>
@@ -181,21 +181,21 @@ function ScheduleTable({
           className="mt-2 min-h-9 rounded bg-indigo-500 px-2 text-sm"
           type="submit"
         >
-          Schedule 저장
+          일람표 저장
         </button>
       </form>
       <div className="mt-2 flex flex-wrap gap-2">
         <button
-          aria-label={`선택 대상을 Schedule로 추가: ${table.name}`}
+          aria-label={`선택 대상을 일람표로 추가: ${table.name}`}
           className="min-h-9 rounded border border-white/20 px-2 text-sm disabled:opacity-50"
           disabled={selectedIds.length === 0}
           onClick={addTargets}
           type="button"
         >
-          선택 대상을 Schedule로 추가
+          선택 대상을 일람표로 추가
         </button>
         <button
-          aria-label={`Schedule 삭제: ${table.name}`}
+          aria-label={`일람표 삭제: ${table.name}`}
           className="min-h-9 rounded border border-white/20 px-2 text-sm"
           onClick={() => {
             try {
@@ -207,7 +207,7 @@ function ScheduleTable({
           }}
           type="button"
         >
-          Schedule 삭제
+          일람표 삭제
         </button>
       </div>
       {error ? (
@@ -309,7 +309,7 @@ export function DrawingTablesPanel(props: Props) {
         className="mt-6 border-t border-white/10 pt-6 text-sm font-bold"
         id="drawing-tables-title"
       >
-        사용자 정의 Schedule
+        사용자 정의 일람표
       </h2>
       {canEdit ? (
         <form
@@ -321,7 +321,7 @@ export function DrawingTablesPanel(props: Props) {
             className="grid gap-1 text-xs"
             htmlFor="new-drawing-schedule-name"
           >
-            새 Schedule 이름
+            새 일람표 이름
             <input
               className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
               id="new-drawing-schedule-name"
@@ -336,11 +336,11 @@ export function DrawingTablesPanel(props: Props) {
             disabled={selectedIds.length === 0}
             type="submit"
           >
-            선택 대상을 Schedule로 추가
+            선택 대상을 일람표로 추가
           </button>
         </form>
       ) : (
-        <p className="mt-2 text-xs text-slate-400">읽기 전용 Schedule</p>
+        <p className="mt-2 text-xs text-slate-400">읽기 전용 일람표</p>
       )}
       {error ? (
         <p className="mt-2 text-xs text-red-300" role="alert">

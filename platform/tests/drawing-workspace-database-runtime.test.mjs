@@ -8005,11 +8005,11 @@ test("block library and instance inspector remain readable while approved viewer
   );
   assert.match(viewer, /읽기 전용 블록 목록/);
   assert.match(viewer, /Approved symbol/);
-  assert.match(viewer, /Instance 1개/);
-  assert.match(viewer, /Approved symbol Instance 1개 보기/);
+  assert.match(viewer, /인스턴스 1개/);
+  assert.match(viewer, /Approved symbol 인스턴스 1개 보기/);
   assert.match(viewer, /aria-expanded="false"/);
   assert.doesNotMatch(viewer, /<form/);
-  assert.doesNotMatch(viewer, /Instance 삽입/);
+  assert.doesNotMatch(viewer, /인스턴스 삽입/);
 
   const expandedInstances = renderToStaticMarkup(
     createElement(DrawingBlockInstancesList, {
@@ -8020,10 +8020,10 @@ test("block library and instance inspector remain readable while approved viewer
       onSelectionChange() {},
     }),
   );
-  assert.match(expandedInstances, /aria-label="Approved symbol instances"/);
+  assert.match(expandedInstances, /aria-label="Approved symbol 인스턴스"/);
   assert.match(
     expandedInstances,
-    /aria-label="Approved placement instance 선택"/,
+    /aria-label="Approved placement 인스턴스 선택"/,
   );
   assert.match(expandedInstances, /읽기 전용/);
   assert.doesNotMatch(expandedInstances, /삭제|저장|삽입/);
@@ -8040,12 +8040,12 @@ test("block library and instance inspector remain readable while approved viewer
       state,
     }),
   );
-  assert.match(inspector, /블록 Instance/);
+  assert.match(inspector, /블록 인스턴스/);
   assert.match(inspector, /Approved placement/);
   assert.match(inspector, /12, 34/);
   assert.match(inspector, /30°/);
   assert.doesNotMatch(inspector, /<form/);
-  assert.doesNotMatch(inspector, /Instance 저장/);
+  assert.doesNotMatch(inspector, /인스턴스 저장/);
 
   const editor = renderToStaticMarkup(
     createElement(DrawingBlocksPanel, {
@@ -8060,7 +8060,7 @@ test("block library and instance inspector remain readable while approved viewer
   );
   assert.match(editor, /선택 객체로 블록 만들기/);
   assert.match(editor, /정의 저장/);
-  assert.match(editor, /Instance 삽입/);
+  assert.match(editor, /인스턴스 삽입/);
   assert.match(editor, /사용 중인 정의는 삭제할 수 없습니다/);
 });
 
@@ -8203,8 +8203,8 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
       onSelectionChange() {},
     }),
   );
-  assert.match(list, /Hidden active placement instance 선택/);
-  assert.doesNotMatch(list, /Off canvas placement instance 선택/);
+  assert.match(list, /Hidden active placement 인스턴스 선택/);
+  assert.doesNotMatch(list, /Off canvas placement 인스턴스 선택/);
   const editorLockedList = renderToStaticMarkup(
     createElement(DrawingBlockInstancesList, {
       block,
@@ -8214,7 +8214,7 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
       onSelectionChange() {},
     }),
   );
-  assert.match(editorLockedList, /Hidden active placement instance 선택/);
+  assert.match(editorLockedList, /Hidden active placement 인스턴스 선택/);
   assert.match(editorLockedList, /aria-describedby="block-instance-readonly-/);
   assert.match(editorLockedList, /읽기 전용/);
 
@@ -8264,7 +8264,7 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
     );
     assert.match(inspector, /Hidden active placement/);
     assert.match(inspector, /읽기 전용/);
-    assert.doesNotMatch(inspector, /Instance 저장|Instance 삭제|Instance 복사/);
+    assert.doesNotMatch(inspector, /인스턴스 저장|인스턴스 삭제|인스턴스 복사/);
   }
 
   const panel = renderToStaticMarkup(
@@ -8280,9 +8280,9 @@ test("semantic block navigation exposes hidden active-canvas instances but no of
       state,
     }),
   );
-  assert.match(panel, /현재 Canvas 1개/);
-  assert.match(panel, /다른 Canvas 1개/);
-  assert.doesNotMatch(panel, /Off canvas placement instance 선택/);
+  assert.match(panel, /현재 캔버스 1개/);
+  assert.match(panel, /다른 캔버스 1개/);
+  assert.doesNotMatch(panel, /Off canvas placement 인스턴스 선택/);
 });
 
 test("viewer layer panel keeps read surfaces but omits every mutation control", () => {

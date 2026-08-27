@@ -119,13 +119,11 @@ export function DrawingSemanticSchedulesPanel({
       }
     >
       <h2 className="text-sm font-bold" id="drawing-semantic-schedules-title">
-        건축 Schedule
+        건축 일람표
       </h2>
       <div className="mt-3 grid gap-2 rounded-md bg-white/5 p-3 text-xs">
         <p>
-          <span className="font-semibold text-slate-200">
-            Schedule 미리보기
-          </span>
+          <span className="font-semibold text-slate-200">일람표 미리보기</span>
           <span className="ml-2 text-slate-400">
             현재 revision 전체 객체에서 브라우저가 파생하며 확정 근거가
             아닙니다.
@@ -135,7 +133,7 @@ export function DrawingSemanticSchedulesPanel({
           <p className="text-rose-200" role="alert">
             계산 오류 · 미확정 · {evidenceError?.message ?? ""}
             {previewErrors.length
-              ? ` ${previewErrors.map((kind) => `${kind} Schedule`).join(", ")} 브라우저 Schedule을 계산하지 못했습니다.`
+              ? ` ${previewErrors.map((kind) => `${kind} 일람표`).join(", ")} 브라우저 일람표를 계산하지 못했습니다.`
               : ""}
           </p>
         ) : null}

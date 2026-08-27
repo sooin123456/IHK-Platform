@@ -149,7 +149,7 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
   await expect(semanticList).toContainText("외부 포장 · area");
   await expect(semanticList).toContainText("A · grid");
   await expect(semanticList).toContainText("처마 호 · arc");
-  await page.getByRole("tab", { name: "Schedule" }).click();
+  await page.getByRole("tab", { name: "표·일람" }).click();
   await expect(
     page.getByRole("table", { name: "Room schedule · 미리보기" }),
   ).toContainText("회의실");
@@ -515,7 +515,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   const initialSemantic = semanticContent(initial);
   const initialIds = Object.keys(initial.objects);
   const initialSvg = await exportBytes(page, "SVG");
-  await page.getByRole("tab", { name: "Schedule" }).click();
+  await page.getByRole("tab", { name: "표·일람" }).click();
   const initialSchedules = await Promise.all(
     ["Room", "Door", "Finish"].map((name) =>
       page
@@ -532,6 +532,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   ).toBeHidden();
   await reviewClick;
   await expect(page.getByText("로컬 동결 실패 복구 시험")).toBeVisible();
+  await page.getByText("레이어 만들기", { exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
@@ -952,7 +953,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     restored.objects["00000000-0000-4000-8000-000000000101"].geometry
       .hostWallId,
   ).toBe("00000000-0000-4000-8000-000000000100");
-  await page.getByRole("tab", { name: "Schedule" }).click();
+  await page.getByRole("tab", { name: "표·일람" }).click();
   const restoredSchedules = await Promise.all(
     ["Room", "Door", "Finish"].map((name) =>
       page

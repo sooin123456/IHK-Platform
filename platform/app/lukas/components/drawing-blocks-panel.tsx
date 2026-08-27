@@ -64,7 +64,7 @@ export function DrawingBlockInstancesList({
 }) {
   return (
     <ul
-      aria-label={`${block.name} instances`}
+      aria-label={`${block.name} 인스턴스`}
       className="mt-2 space-y-1 border-t border-white/10 pt-2"
     >
       {instances.map((instance) => {
@@ -75,7 +75,7 @@ export function DrawingBlockInstancesList({
           <li className="flex items-center gap-2" key={instance.id}>
             <button
               aria-describedby={readOnly ? reasonId : undefined}
-              aria-label={`${instance.name} instance 선택`}
+              aria-label={`${instance.name} 인스턴스 선택`}
               className="min-h-9 flex-1 rounded border border-white/15 px-2 text-left text-sm"
               onClick={() => onSelectionChange([instance.id])}
               type="button"
@@ -216,7 +216,7 @@ export function DrawingBlocksPanel({
                   className="grid gap-1 text-xs"
                   htmlFor={`block-primitives-${block.id}`}
                 >
-                  Primitive JSON
+                  도형 요소 JSON
                   <textarea
                     className="min-h-24 rounded border border-white/10 bg-slate-950 p-2 font-mono text-xs"
                     defaultValue={JSON.stringify(block.primitives, null, 2)}
@@ -236,7 +236,7 @@ export function DrawingBlocksPanel({
               <>
                 <p className="font-medium">{block.name}</p>
                 <p className="mt-1 text-xs text-slate-400">
-                  Primitive {block.primitives.length}개 · Instance {used}개
+                  도형 요소 {block.primitives.length}개 · 인스턴스 {used}개
                 </p>
               </>
             )}
@@ -264,7 +264,7 @@ export function DrawingBlocksPanel({
                   }}
                   type="button"
                 >
-                  Instance 삽입
+                  인스턴스 삽입
                 </button>
                 <button
                   aria-describedby={used ? reasonId : undefined}
@@ -289,7 +289,7 @@ export function DrawingBlocksPanel({
             <button
               aria-controls={instancesId}
               aria-expanded={expanded}
-              aria-label={`${block.name} Instance ${used}개 ${expanded ? "접기" : "보기"} · 현재 Canvas ${activeUsed}개 · 다른 Canvas ${offCanvasUsed}개`}
+              aria-label={`${block.name} 인스턴스 ${used}개 ${expanded ? "접기" : "보기"} · 현재 캔버스 ${activeUsed}개 · 다른 캔버스 ${offCanvasUsed}개`}
               className="mt-2 min-h-9 w-full rounded border border-white/15 px-2 text-left text-xs"
               onClick={() =>
                 setExpandedBlockIds((current) => {
@@ -301,8 +301,8 @@ export function DrawingBlocksPanel({
               }
               type="button"
             >
-              Instance {used}개 {expanded ? "접기" : "보기"} · 현재 Canvas{" "}
-              {activeUsed}개 · 다른 Canvas {offCanvasUsed}개
+              인스턴스 {used}개 {expanded ? "접기" : "보기"} · 현재 캔버스{" "}
+              {activeUsed}개 · 다른 캔버스 {offCanvasUsed}개
             </button>
             {expanded ? (
               <div id={instancesId}>
@@ -316,7 +316,7 @@ export function DrawingBlocksPanel({
                   />
                 ) : (
                   <p className="mt-2 text-xs text-slate-400">
-                    현재 Canvas에 Instance가 없습니다.
+                    현재 캔버스에 인스턴스가 없습니다.
                   </p>
                 )}
               </div>

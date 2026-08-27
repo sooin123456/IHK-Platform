@@ -395,7 +395,7 @@ export function DrawingInspector({
       return (
         <section aria-labelledby="drawing-inspector-title">
           <h2 className="text-sm font-bold" id="drawing-inspector-title">
-            블록 Instance
+            블록 인스턴스
           </h2>
           <p className="mt-1 text-xs text-slate-400">읽기 전용</p>
           {lockConflict ? (
@@ -446,7 +446,7 @@ export function DrawingInspector({
         {...inspectorLeaseHandlers}
       >
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
-          블록 Instance
+          블록 인스턴스
         </h2>
         <form
           className="mt-4 grid gap-3"
@@ -546,7 +546,7 @@ export function DrawingInspector({
             className="min-h-10 rounded bg-indigo-500 px-3 text-sm font-semibold"
             type="submit"
           >
-            Instance 저장
+            인스턴스 저장
           </button>
         </form>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -568,7 +568,7 @@ export function DrawingInspector({
             }}
             type="button"
           >
-            Instance 복사
+            인스턴스 복사
           </button>
           <button
             className="min-h-10 rounded border border-white/20 px-2 text-sm"
@@ -588,7 +588,7 @@ export function DrawingInspector({
             }}
             type="button"
           >
-            Instance 삭제
+            인스턴스 삭제
           </button>
         </div>
         {error ? (

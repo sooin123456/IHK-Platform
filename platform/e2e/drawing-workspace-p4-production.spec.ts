@@ -158,7 +158,7 @@ test.describe.serial("P4 hosted semantic authority", () => {
         { exact: true },
       ),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "Schedule" }).click();
+    await page.getByRole("tab", { name: "표·일람" }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "서버 증거" }),
     ).toHaveText(

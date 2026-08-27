@@ -725,15 +725,15 @@ test("schedule panel renders semantic read-only DOM and native labeled editor ce
 
   const editor = render(true);
   for (const label of [
-    "새 Schedule 이름",
-    "선택 대상을 Schedule로 추가",
+    "새 일람표 이름",
+    "선택 대상을 일람표로 추가",
     "Note",
     "Cost",
   ])
     assert.match(editor, new RegExp(label));
   assert.match(editor, /type="text"/);
   assert.match(editor, /type="number"/);
-  assert.match(editor, /Schedule 저장/);
+  assert.match(editor, /일람표 저장/);
   assert.doesNotMatch(editor, /formula|수식|XLSX/i);
 });
 
@@ -792,7 +792,7 @@ test("semantic schedules render read-only preview versus checkpoint-bound server
     );
   const confirmed = render(9);
   for (const label of [
-    "건축 Schedule",
+    "건축 일람표",
     "Room schedule",
     "Door schedule",
     "Finish schedule",

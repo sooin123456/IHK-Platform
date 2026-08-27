@@ -110,16 +110,16 @@ test("activity history is one bounded chronological composite-keyset page", asyn
   const calls = [];
   const rows = {
     lukas_drawing_operations: Array.from({ length: 11 }, (_, index) => ({
-        id: `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
-        client_operation_id: `00000000-0000-4000-9000-${String(100 + index).padStart(12, "0")}`,
-        revision_id: ids.revision,
-        actor_id: ids.actor,
-        operation_type: "update_objects",
-        forward: { type: "update_objects" },
-        history_action: null,
-        original_operation_id: null,
-        created_at: `2026-08-26T00:${String(40 - index).padStart(2, "0")}:00.000Z`,
-      })),
+      id: `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+      client_operation_id: `00000000-0000-4000-9000-${String(100 + index).padStart(12, "0")}`,
+      revision_id: ids.revision,
+      actor_id: ids.actor,
+      operation_type: "update_objects",
+      forward: { type: "update_objects" },
+      history_action: null,
+      original_operation_id: null,
+      created_at: `2026-08-26T00:${String(40 - index).padStart(2, "0")}:00.000Z`,
+    })),
     lukas_drawing_issue_events: Array.from({ length: 11 }, (_, index) => ({
       id: `00000000-0000-4000-8000-${String(200 + index).padStart(12, "0")}`,
       issue_id: ids.issue,
@@ -248,7 +248,7 @@ test("workspace owns real target/comment and checkpoint restore controls", async
   assert.match(source, /value="add_canvas_region_anchor"/);
   assert.match(source, /name="issue_id"/);
   assert.match(source, /이슈에 연결된 도면 객체/);
-  assert.match(source, /연결된 canvas 영역/);
+  assert.match(source, /연결된 캔버스 영역/);
   assert.match(source, /createDrawingCheckpointRestoreCommand/);
   assert.doesNotMatch(
     source,
@@ -383,7 +383,10 @@ test("checkpoint restore emits one exact compound delta with current versions", 
   assert.equal(applied.state.objects[ids.comment].version, 2);
   assert.equal(applied.operation.forward.actions.length, 1);
   assert.equal(applied.operation.undoable, false);
-  assert.equal(drawingCommands.undoDrawingCommand(applied.state, ids.actor), null);
+  assert.equal(
+    drawingCommands.undoDrawingCommand(applied.state, ids.actor),
+    null,
+  );
 });
 
 test("checkpoint restore resolves structural object targets for soft-lock checks", () => {

@@ -24,6 +24,34 @@ async function waitForPreviewRealtimeEffect(page: Page) {
   ).toBeVisible({ timeout: 15_000 });
 }
 
+async function openLayerCreation(page: Page) {
+  const input = page.getByRole("textbox", { name: "새 레이어 이름" });
+  if (!(await input.isVisible()))
+    await page.getByText("레이어 만들기", { exact: true }).click();
+}
+
+async function stableSemanticCount(page: Page) {
+  const surface = page.getByLabel(/도면 화면/);
+  let previous = await surface.getAttribute(
+    "data-rendered-semantic-object-count",
+  );
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const current = await surface.getAttribute(
+          "data-rendered-semantic-object-count",
+        );
+        stableSamples = current === previous ? stableSamples + 1 : 0;
+        previous = current;
+        return stableSamples;
+      },
+      { intervals: [250, 250, 250, 250], timeout: 5_000 },
+    )
+    .toBeGreaterThanOrEqual(3);
+  return Number(previous);
+}
+
 test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
   page,
 }) => {
@@ -46,7 +74,7 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
   await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);
   await expect(
     page.getByRole("complementary", { name: "속성 검사기" }),
-  ).toHaveCount(0);
+  ).toBeHidden();
 
   const canvas = page.getByRole("region", { name: "도면 캔버스" });
   const canvasBounds = await canvas.evaluate((element) =>
@@ -57,7 +85,7 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
 
   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
   await page.keyboard.press("[");
-  await expect(tools).toHaveCount(0);
+  await expect(tools).toBeHidden();
   await page.keyboard.press("[");
   await expect(tools).toBeVisible();
 
@@ -68,16 +96,51 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
   await page.keyboard.press("]");
   await expect(
     page.getByRole("complementary", { name: "속성 검사기" }),
-  ).toHaveCount(0);
+  ).toBeHidden();
 
   const createPage = page.getByText("페이지 만들기", { exact: true });
   await expect(
     page.getByRole("textbox", { name: "새 페이지 이름" }),
   ).toBeHidden();
   await createPage.click();
+  const pageName = page.getByRole("textbox", { name: "새 페이지 이름" });
+  await expect(pageName).toBeVisible();
+  await pageName.focus();
+  await pageName.press("[");
+  await pageName.press("]");
+  await expect(tools).toBeVisible();
   await expect(
-    page.getByRole("textbox", { name: "새 페이지 이름" }),
-  ).toBeVisible();
+    page.getByRole("complementary", { name: "속성 검사기" }),
+  ).toBeHidden();
+
+  await page.getByRole("button", { name: "선택 도구" }).click();
+  const surface = page.getByLabel(/도면 화면/);
+  const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
+  const viewportX = Number(await surface.getAttribute("data-viewport-x"));
+  const viewportY = Number(await surface.getAttribute("data-viewport-y"));
+  await surface.click({
+    position: { x: viewportX + 450 * zoom, y: viewportY + 310 * zoom },
+  });
+  const inspector = page.getByRole("complementary", {
+    name: "속성 검사기",
+  });
+  await expect(inspector).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(inspector).toBeHidden();
+  await page.keyboard.press("]");
+  await expect(inspector).toBeVisible();
+  const pinnedZoom = Number(await surface.getAttribute("data-viewport-zoom"));
+  const pinnedViewportX = Number(await surface.getAttribute("data-viewport-x"));
+  const pinnedViewportY = Number(await surface.getAttribute("data-viewport-y"));
+  await surface.click({
+    position: {
+      x: pinnedViewportX + 80 * pinnedZoom,
+      y: pinnedViewportY + 800 * pinnedZoom,
+    },
+  });
+  await expect(inspector).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(inspector).toBeHidden();
 });
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
@@ -110,7 +173,7 @@ test("local preview keeps its realtime indicator connected without a Supabase re
   expect(collaborationSockets).toEqual([]);
 });
 
-test("two Awareness clients including the same verified user render object and block collaboration safely", async ({
+test("distinct Awareness collaborators render object and block collaboration safely", async ({
   page,
 }) => {
   const supabaseRequests: string[] = [];
@@ -176,10 +239,10 @@ test("two Awareness clients including the same verified user render object and b
 
   await page.getByRole("tab", { name: "블록" }).click();
   await page
-    .getByRole("button", { name: /단문 D-01 Instance 1개 보기/ })
+    .getByRole("button", { name: /단문 D-01 인스턴스 1개 보기/ })
     .click();
   const lockedInstance = page.getByRole("button", {
-    name: "D-01 북측 instance 선택",
+    name: "D-01 북측 인스턴스 선택",
   });
   await lockedInstance.click();
   await expect(
@@ -192,15 +255,15 @@ test("two Awareness clients including the same verified user render object and b
   await expect(lockedInstance).toBeVisible();
 
   await page
-    .getByRole("button", { name: /창호 W-01 Instance 2개 보기/ })
+    .getByRole("button", { name: /창호 W-01 인스턴스 2개 보기/ })
     .click();
-  await page.getByRole("button", { name: "W-01 동측 instance 선택" }).click();
+  await page.getByRole("button", { name: "W-01 동측 인스턴스 선택" }).click();
   await page.getByRole("textbox", { name: "이름", exact: true }).focus();
-  await expect(page.getByLabel("로컬 advisory 잠금")).toHaveText(
+  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText(
     "00000000-0000-4000-8000-000000000082",
   );
   await page.getByRole("tab", { name: "페이지·레이어" }).click();
-  await expect(page.getByLabel("로컬 advisory 잠금")).toHaveText("없음");
+  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
   expect(supabaseRequests).toEqual([]);
   expect(collaborationSockets).toEqual([]);
 });
@@ -230,6 +293,7 @@ test("collaboration initialization retry cleans partial resources and restores e
     "provider-failed",
   );
   await expect(page.getByLabel("협업 provider 수")).toHaveText("0");
+  await openLayerCreation(page);
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
@@ -261,6 +325,7 @@ test("review freeze immediately remounts read-only and a failed transition safel
   const review = page.getByRole("button", { name: "검토 요청" });
   const layerName = page.getByRole("textbox", { name: "새 레이어 이름" });
   await expect(review).toBeEnabled();
+  await openLayerCreation(page);
   await expect(layerName).toBeVisible();
   const frozenUi = await review.evaluate(async (button) => {
     const form = button.closest("form") as HTMLFormElement;
@@ -293,6 +358,7 @@ test("review freeze immediately remounts read-only and a failed transition safel
   await retryReview.click();
   await expect(page.getByText("로컬 동결 실패 복구 시험")).toBeVisible();
   await expect(retryReview).toBeEnabled();
+  await openLayerCreation(page);
   await expect(retryLayerName).toBeVisible();
   await expect(page.locator('input[name="freeze_request_id"]')).toHaveValue(
     requestId!,
@@ -313,6 +379,7 @@ test("preview keeps a local edit through realtime revalidation and resets only w
   const loaderNonce = page.getByLabel("미리보기 loader nonce");
   const initialNonce = await loaderNonce.textContent();
   const localLayerName = "Realtime local edit";
+  await openLayerCreation(page);
   await page
     .getByRole("textbox", { name: "새 레이어 이름" })
     .fill(localLayerName);
@@ -412,9 +479,9 @@ test("hydrated export dialog explains background availability and cancels one ga
   const includeBackground = dialog.getByRole("checkbox", {
     name: "PDF 배경 포함",
   });
-  await expect(includeBackground).toBeDisabled();
+  await expect(includeBackground).toBeEnabled();
   await expect(dialog).toContainText(
-    "현재 canvas에는 포함할 PDF 배경이 없습니다.",
+    "선택 해제하면 흰색 배경과 벡터만 내보냅니다.",
   );
 
   await dialog.getByRole("radio", { name: "PDF" }).check();
@@ -485,9 +552,7 @@ test("architectural object tools remain accessible without toolbar overflow on d
     await page.setViewportSize(viewport);
     await openPreview(page);
     const surface = page.getByLabel(/도면 화면/);
-    const initialSemanticCount = Number(
-      await surface.getAttribute("data-rendered-semantic-object-count"),
-    );
+    const initialSemanticCount = await stableSemanticCount(page);
     const semanticTrigger = page.getByRole("button", { name: "건축 객체" });
     await semanticTrigger.click();
     await page.getByRole("menuitem", { name: "벽 도구" }).click();

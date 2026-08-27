@@ -159,7 +159,7 @@ function previewCollaborationConnectionFactory(
       softLocks,
     });
     const peerOne = "00000000-0000-4000-8000-000000000701";
-    const peerTwo = ids.user;
+    const peerTwo = previewAlternateUserId;
     const states = new Map<number, unknown>(
       testPeers
         ? [
@@ -188,7 +188,7 @@ function previewCollaborationConnectionFactory(
               3,
               peer(
                 peerTwo,
-                "나",
+                "박서연",
                 { x: 700, y: 470 },
                 [blockInstances[0].id],
                 [
@@ -1195,6 +1195,10 @@ export function loader({ request }: Route.LoaderArgs) {
   const viewState = parseDrawingWorkspaceViewState(
     new URL(request.url).searchParams,
   );
+  const viewMode =
+    canonicalP5 && !new URL(request.url).searchParams.has("view")
+      ? "split"
+      : viewState.view;
   const fixture = localDrawingWorkspacePreviewFixture({
     disableDefaultIfc:
       p5BaselineTest &&
@@ -1205,7 +1209,7 @@ export function loader({ request }: Route.LoaderArgs) {
     p5Integrated: canonicalP5 || p5BaselineTest || p5ReleaseTest,
     p5PdfTest,
     selectedIfcFileId: viewState.ifcFileId,
-    viewMode: viewState.view,
+    viewMode,
     performanceObjects:
       performanceFixture?.objects ??
       (p5BaselineTest
@@ -1616,7 +1620,7 @@ export default function LocalDrawingWorkspacePreview({
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"
       >
-        P4 공동 편집 미리보기 · IndexedDB 로컬 복구 사용
+        로컬 예제 데이터 · 브라우저 자동 복구
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>
@@ -1656,7 +1660,7 @@ export default function LocalDrawingWorkspacePreview({
         ) : null}
         {loaderData.awarenessTest ? (
           <>
-            <output aria-label="로컬 advisory 잠금" className="sr-only">
+            <output aria-label="로컬 임시 잠금" className="sr-only">
               {previewSoftLockRequest ?? "없음"}
             </output>
             <output aria-label="로컬 Awareness payload" className="sr-only">

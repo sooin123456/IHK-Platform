@@ -121,7 +121,7 @@ test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first 
     html,
     /aria-label="도면 캔버스" class="[^"]*order-1[^"]*xl:order-2/,
   );
-  assert.doesNotMatch(html, /aria-label="속성 검사기"/);
+  assert.match(html, /aria-label="속성 검사기"[^>]*hidden=""/);
   assert.match(html, /aria-label="왼쪽 도구 패널 숨기기"/);
   assert.match(html, /aria-label="속성 검사기 열기"/);
   assert.match(html, /aria-label="캔버스 도구"/);
@@ -169,7 +169,7 @@ test("workspace SSR shell exposes one selected panel from seven accessible tabs"
     "페이지·레이어",
     "스타일",
     "속성",
-    "Schedule",
+    "표·일람",
     "블록",
     "댓글·이슈",
     "변경 이력",

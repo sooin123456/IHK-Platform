@@ -47,6 +47,22 @@ function message(error: unknown) {
     : "페이지 구조를 변경하지 못했습니다.";
 }
 
+function translatedReason(reason: string | null) {
+  if (!reason) return null;
+  return (
+    {
+      "A drawing document requires at least one page.":
+        "도면 문서에는 페이지가 하나 이상 필요합니다.",
+      "A page requires at least one canvas.":
+        "페이지에는 캔버스가 하나 이상 필요합니다.",
+      "Canvas with objects or blocks cannot be deleted.":
+        "객체 또는 블록이 있는 캔버스는 삭제할 수 없습니다.",
+      "The default paper canvas can only be deleted with its page.":
+        "기본 용지 캔버스는 페이지와 함께만 삭제할 수 있습니다.",
+    }[reason] ?? reason
+  );
+}
+
 export function DrawingPagesPanel({
   activeCanvasId,
   actorId,
@@ -59,8 +75,11 @@ export function DrawingPagesPanel({
   const [focusIntent, setFocusIntent] =
     useState<DrawingCanvasFocusIntent | null>(null);
   const canvasButtons = useRef(new Map<string, HTMLButtonElement>());
+  const previousActiveCanvasId = useRef(activeCanvasId);
   useEffect(() => {
-    if (activeCanvasId) canvasButtons.current.get(activeCanvasId)?.focus();
+    if (activeCanvasId && previousActiveCanvasId.current !== activeCanvasId)
+      canvasButtons.current.get(activeCanvasId)?.focus();
+    previousActiveCanvasId.current = activeCanvasId;
   }, [activeCanvasId]);
   useLayoutEffect(() => {
     if (focusIntent) canvasButtons.current.get(focusIntent.canvasId)?.focus();
@@ -141,7 +160,7 @@ export function DrawingPagesPanel({
         actorId,
         pageId,
         spaceKind,
-        spaceKind === "paper" ? "Paper" : "Model",
+        spaceKind === "paper" ? "용지" : "모델",
       );
       onCommand(command);
       const canvasAction = command.actions.find(
@@ -158,44 +177,51 @@ export function DrawingPagesPanel({
   return (
     <section aria-labelledby="drawing-pages-title">
       <h2 className="text-sm font-bold" id="drawing-pages-title">
-        페이지 및 canvas
+        페이지 및 캔버스
       </h2>
       {canEdit ? (
-        <form
-          className="mt-3 grid gap-2"
-          data-drawing-shortcuts="ignore"
-          onSubmit={createPage}
-        >
-          <label className="text-xs text-slate-300" htmlFor="new-page-name">
-            새 페이지 이름
-          </label>
-          <input
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-            id="new-page-name"
-            maxLength={255}
-            name="page_name"
-          />
-          <button
-            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
-            type="submit"
+        <details className="mt-3 rounded-md border border-white/10 p-2">
+          <summary className="cursor-pointer text-xs font-semibold text-indigo-300">
+            페이지 만들기
+          </summary>
+          <form
+            className="mt-3 grid gap-2"
+            data-drawing-shortcuts="ignore"
+            onSubmit={createPage}
           >
-            페이지 추가
-          </button>
-        </form>
+            <label className="text-xs text-slate-300" htmlFor="new-page-name">
+              새 페이지 이름
+            </label>
+            <input
+              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              id="new-page-name"
+              maxLength={255}
+              name="page_name"
+            />
+            <button
+              className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+              type="submit"
+            >
+              페이지 추가
+            </button>
+          </form>
+        </details>
       ) : null}
       {error ? (
         <p className="mt-3 text-xs text-red-300" role="alert">
           {error}
         </p>
       ) : null}
-      <ul className="mt-4 space-y-3" aria-label="도면 페이지와 canvas">
+      <ul className="mt-4 space-y-3" aria-label="도면 페이지와 캔버스">
         {pages.map((page, pageIndex) => {
           const canvases = ordered(
             Object.values(structure.canvases).filter(
               (canvas) => canvas.pageId === page.id,
             ),
           );
-          const pageDeleteReason = drawingPageDeletionReason(state, page.id);
+          const pageDeleteReason = translatedReason(
+            drawingPageDeletionReason(state, page.id),
+          );
           return (
             <li key={page.id}>
               <div className="rounded-md border border-white/10 bg-white/5 p-2">
@@ -292,20 +318,22 @@ export function DrawingPagesPanel({
                       onClick={() => createCanvas(page.id, "paper")}
                       type="button"
                     >
-                      Paper canvas 추가
+                      용지 캔버스 추가
                     </button>
                     <button
                       onClick={() => createCanvas(page.id, "model")}
                       type="button"
                     >
-                      Model canvas 추가
+                      모델 캔버스 추가
                     </button>
                   </div>
                 ) : null}
               </div>
               <ul className="ml-3 mt-2 space-y-2 border-l border-white/10 pl-3">
                 {canvases.map((canvas) => {
-                  const reason = drawingCanvasDeletionReason(state, canvas.id);
+                  const reason = translatedReason(
+                    drawingCanvasDeletionReason(state, canvas.id),
+                  );
                   const defaultCanvas =
                     canvas.spaceKind === "paper" && canvas.sortOrder === 0;
                   const tail = canvases.filter(
@@ -319,9 +347,9 @@ export function DrawingPagesPanel({
                     (candidate) => candidate.id === canvas.id,
                   );
                   const orderReason = defaultCanvas
-                    ? "The default paper canvas is pinned at the top of its page."
+                    ? "기본 용지 캔버스는 페이지 맨 위에 고정됩니다."
                     : tailIndex === 0
-                      ? "This canvas is already first after the default paper canvas."
+                      ? "이 캔버스는 기본 용지 캔버스 다음의 첫 항목입니다."
                       : null;
                   return (
                     <li key={canvas.id}>
@@ -341,7 +369,7 @@ export function DrawingPagesPanel({
                         >
                           {canvas.name}{" "}
                           <span className="text-xs text-slate-400">
-                            ({canvas.spaceKind})
+                            ({canvas.spaceKind === "paper" ? "용지" : "모델"})
                           </span>
                         </button>
                         {canEdit ? (
@@ -350,7 +378,7 @@ export function DrawingPagesPanel({
                               className="sr-only"
                               htmlFor={`canvas-name-${canvas.id}`}
                             >
-                              canvas 이름: {canvas.name}
+                              캔버스 이름: {canvas.name}
                             </label>
                             <input
                               className="min-h-8 min-w-0 flex-1 rounded border border-white/10 bg-slate-950 px-2 text-xs"
@@ -372,7 +400,7 @@ export function DrawingPagesPanel({
                               }}
                             />
                             <button
-                              aria-label={`canvas 위로 이동: ${canvas.name}`}
+                              aria-label={`캔버스 위로 이동: ${canvas.name}`}
                               aria-describedby={
                                 orderReason
                                   ? `canvas-order-reason-${canvas.id}`
@@ -394,7 +422,7 @@ export function DrawingPagesPanel({
                               ↑
                             </button>
                             <button
-                              aria-label={`canvas 아래로 이동: ${canvas.name}`}
+                              aria-label={`캔버스 아래로 이동: ${canvas.name}`}
                               aria-describedby={
                                 defaultCanvas
                                   ? `canvas-order-reason-${canvas.id}`
@@ -418,7 +446,7 @@ export function DrawingPagesPanel({
                               ↓
                             </button>
                             <button
-                              aria-label={`canvas 삭제: ${canvas.name}`}
+                              aria-label={`캔버스 삭제: ${canvas.name}`}
                               aria-describedby={
                                 reason
                                   ? `canvas-delete-reason-${canvas.id}`

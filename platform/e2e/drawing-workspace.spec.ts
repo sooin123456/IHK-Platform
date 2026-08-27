@@ -139,6 +139,7 @@ test.describe.serial("1HK drawing workspace P0/P1", () => {
     ]);
     await waitUntilSaved(page);
 
+    await page.getByText("레이어 만들기", { exact: true }).click();
     await page.getByLabel("새 레이어 이름").fill("검토 주석");
     await page.getByRole("button", { name: "레이어 추가" }).click();
     await page.getByLabel("레이어 표시: 검토 주석").uncheck();

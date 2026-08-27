@@ -383,14 +383,14 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
 
     await page.getByRole("tab", { name: "블록" }).click();
     await page
-      .getByRole("button", { name: /P2 block 01 Instance .*보기/ })
+      .getByRole("button", { name: /P2 block 01 인스턴스 .*보기/ })
       .click();
     const selectionTargets = [
       "P2 active block instance",
       "P2 instance 0021",
     ].map((name) => ({
       name,
-      button: page.getByRole("button", { name: `${name} instance 선택` }),
+      button: page.getByRole("button", { name: `${name} 인스턴스 선택` }),
     }));
     const selectionDurations: number[] = [];
     let lastSelectedName: string | null = null;
@@ -763,7 +763,7 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
       workspacePath(fixture, fixture.blankWorkspace),
     );
     await waitUntilSaved(page);
-    await page.getByRole("tab", { name: "Schedule" }).click();
+    await page.getByRole("tab", { name: "표·일람" }).click();
     const table = performanceFixture.tables[0];
     const schedule = page.getByRole("table", { name: table.name });
     await expect(schedule).toBeVisible();
@@ -779,7 +779,7 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     );
     await page.reload();
     await waitUntilSaved(page);
-    await page.getByRole("tab", { name: "Schedule" }).click();
+    await page.getByRole("tab", { name: "표·일람" }).click();
     await expect(
       page.getByRole("table", { name: table.name }).getByRole("row").nth(1),
     ).toContainText(performanceFixture.objects[0].name);

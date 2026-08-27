@@ -261,9 +261,8 @@ export async function pdfBackground(
   if (!canvas.background)
     return { background: undefined, dispose: async () => {} };
   if (!sourceUrl) throw new Error("PDF background pixels are missing.");
-  const { openPdfDocument, renderPdfPageToCanvas } = await import(
-    "~/lukas/lib/pdf-page-renderer.client"
-  );
+  const { openPdfDocument, renderPdfPageToCanvas } =
+    await import("~/lukas/lib/pdf-page-renderer.client");
   if (signal?.aborted) throw new Error("Drawing export was cancelled.");
   const opened = await openPdfDocument(sourceUrl, signal);
   const pixels = document.createElement("canvas");
@@ -414,7 +413,7 @@ export function DrawingExportDialog({
         <DialogHeader>
           <DialogTitle>도면 내보내기</DialogTitle>
           <DialogDescription>
-            현재 canvas를 SVG/PNG로 받거나, 모든 paper canvas를 정렬된 PDF로
+            현재 캔버스를 SVG/PNG로 받거나, 모든 용지 캔버스를 정렬된 PDF로
             받습니다. 원본 파일과 리비전은 변경되지 않습니다.
           </DialogDescription>
         </DialogHeader>
@@ -468,7 +467,7 @@ export function DrawingExportDialog({
             >
               {activeCanvas?.background
                 ? "선택 해제하면 흰색 배경과 벡터만 내보냅니다."
-                : "현재 canvas에는 포함할 PDF 배경이 없습니다."}
+                : "현재 캔버스에는 포함할 PDF 배경이 없습니다."}
             </p>
           </div>
         ) : null}
@@ -480,7 +479,7 @@ export function DrawingExportDialog({
               onChange={(event) => setCurrentModelOnly(event.target.checked)}
               type="checkbox"
             />
-            현재 model canvas만 명시적으로 PDF에 포함
+            현재 모델 캔버스만 명시적으로 PDF에 포함
           </label>
         ) : null}
         {status.kind !== "idle" ? (

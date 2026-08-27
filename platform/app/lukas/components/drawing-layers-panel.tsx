@@ -115,27 +115,32 @@ export function DrawingLayersPanel({
       <h2 className="text-sm font-bold" id="drawing-layers-title">
         레이어
       </h2>
-      <form
-        className="mt-3 grid gap-2"
-        data-drawing-shortcuts="ignore"
-        onSubmit={createLayer}
-      >
-        <label className="text-xs text-slate-300" htmlFor="new-layer-name">
-          새 레이어 이름
-        </label>
-        <input
-          className="min-h-10 min-w-0 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-          id="new-layer-name"
-          maxLength={255}
-          name="layer_name"
-        />
-        <button
-          className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
-          type="submit"
+      <details className="mt-3 rounded-md border border-white/10 p-2">
+        <summary className="cursor-pointer text-xs font-semibold text-indigo-300">
+          레이어 만들기
+        </summary>
+        <form
+          className="mt-3 grid gap-2"
+          data-drawing-shortcuts="ignore"
+          onSubmit={createLayer}
         >
-          레이어 추가
-        </button>
-      </form>
+          <label className="text-xs text-slate-300" htmlFor="new-layer-name">
+            새 레이어 이름
+          </label>
+          <input
+            className="min-h-10 min-w-0 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+            id="new-layer-name"
+            maxLength={255}
+            name="layer_name"
+          />
+          <button
+            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+            type="submit"
+          >
+            레이어 추가
+          </button>
+        </form>
+      </details>
       {error ? (
         <p className="mt-3 text-xs text-red-300" role="alert">
           {error}
@@ -257,9 +262,9 @@ export function DrawingLayersPanel({
                     </button>
                     {canvases.length > 1 ? (
                       <label className="inline-flex items-center gap-1">
-                        다른 canvas로 이동
+                        다른 캔버스로 이동
                         <select
-                          aria-label={`레이어 canvas 이동: ${layer.name}`}
+                          aria-label={`레이어 캔버스 이동: ${layer.name}`}
                           value={layer.canvasId}
                           onChange={(event) => {
                             try {

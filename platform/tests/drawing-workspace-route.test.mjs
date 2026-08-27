@@ -232,10 +232,10 @@ test("page tree and canvas-scoped layer controls use native labeled interactions
   for (const label of [
     "새 페이지 이름",
     "페이지 추가",
-    "Paper canvas 추가",
-    "Model canvas 추가",
+    "용지 캔버스 추가",
+    "모델 캔버스 추가",
     "페이지 이름",
-    "canvas 이름",
+    "캔버스 이름",
   ]) {
     assert.match(pages, new RegExp(label));
   }
