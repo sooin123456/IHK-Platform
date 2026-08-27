@@ -35,16 +35,40 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   if (!user || user.is_anonymous) throw redirect("/login");
 
-  const { data: projects, error } = await client
-    .from("lukas_qto_projects")
-    .select("id, name, description, workflow_status, created_at, updated_at")
-    .order("updated_at", { ascending: false });
+  const [
+    { data: projects, error },
+    { data: organizationMemberships, error: organizationMembershipError },
+  ] = await Promise.all([
+    client
+      .from("lukas_qto_projects")
+      .select("id, name, description, workflow_status, created_at, updated_at")
+      .order("updated_at", { ascending: false }),
+    client
+      .from("lukas_qto_organization_members")
+      .select("organization_id,role")
+      .order("created_at")
+      .limit(100),
+  ]);
 
-  if (error) {
+  if (error || organizationMembershipError) {
     throw new Response("프로젝트 목록을 불러오지 못했습니다.", {
       status: 500,
     });
   }
+  const organizationIds = (organizationMemberships ?? []).map(
+    (membership) => membership.organization_id,
+  );
+  const { data: organizations, error: organizationsError } =
+    organizationIds.length === 0
+      ? { data: [], error: null }
+      : await client
+          .from("lukas_qto_organizations")
+          .select("id,name")
+          .in("id", organizationIds)
+          .order("name")
+          .limit(100);
+  if (organizationsError)
+    throw new Response("회사 작업공간을 불러오지 못했습니다.", { status: 500 });
 
   const projectIds = (projects ?? []).map((project) => project.id);
   const [filesResult, reviewsResult, membersResult] =
@@ -110,8 +134,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           latestDrawingId: latestDrawing?.id ?? null,
           unresolvedDrawingCount:
             drawingMetrics[projectId]?.unresolvedCount ?? 0,
-          assignedToMeCount:
-            drawingMetrics[projectId]?.assignedToMeCount ?? 0,
+          assignedToMeCount: drawingMetrics[projectId]?.assignedToMeCount ?? 0,
           latestFilename: projectFiles[0]?.original_filename ?? null,
         },
       ];
@@ -158,6 +181,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     activities,
     email: user.email ?? "",
     isStaff: user.app_metadata.role === "hangil_staff",
+    organizations: organizations ?? [],
   };
 }
 
@@ -225,6 +249,7 @@ export default function Workspace({
       activities={loaderData.activities}
       email={loaderData.email}
       isStaff={loaderData.isStaff}
+      organizations={loaderData.organizations}
       projectMetrics={loaderData.projectMetrics}
       projects={loaderData.projects}
     />

@@ -49,6 +49,10 @@ export default [
     ]),
     layout("core/layouts/private.layout.tsx", { id: "private-workspace" }, [
       route("/workspace", "lukas/screens/workspace.tsx"),
+      route(
+        "/organizations/:organizationId/drawing-library",
+        "lukas/screens/organization-drawing-library.tsx",
+      ),
       route("/notifications", "lukas/screens/drawing-notifications.tsx"),
       route("/staff/inquiries", "lukas/screens/staff-inquiries.tsx"),
       route("/projects/:projectId", "lukas/screens/project.tsx"),

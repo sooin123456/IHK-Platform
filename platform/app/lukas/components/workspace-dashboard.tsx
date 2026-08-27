@@ -1,6 +1,7 @@
 import {
   ArrowUpRight,
   Bell,
+  BookOpen,
   Box,
   CheckCircle2,
   Clock3,
@@ -68,6 +69,7 @@ type WorkspaceDashboardProps = {
   activities: WorkspaceActivity[];
   email: string;
   isStaff: boolean;
+  organizations?: Array<{ id: string; name: string }>;
   actionError?: string;
   previewMode?: boolean;
 };
@@ -186,6 +188,7 @@ export function WorkspaceDashboard({
   activities,
   email,
   isStaff,
+  organizations = [],
   actionError,
   previewMode = false,
 }: WorkspaceDashboardProps) {
@@ -319,6 +322,15 @@ export function WorkspaceDashboard({
             ))}
           </div>
           <div className="mt-auto space-y-2">
+            {organizations.map((organization) => (
+              <Link
+                className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                key={organization.id}
+                to={linkTo(`/organizations/${organization.id}/drawing-library`)}
+              >
+                <BookOpen className="size-4" /> {organization.name} 라이브러리
+              </Link>
+            ))}
             <Link
               className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
               to={linkTo("/notifications")}
