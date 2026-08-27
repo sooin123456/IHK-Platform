@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -50,6 +51,28 @@ test("material handoff action accepts stable IDs only", () => {
       /허용되지 않은 필드/,
     );
   }
+});
+
+test("material lineage route binds and preserves exact plan and BOQ line filters", () => {
+  const route = readFileSync(
+    new URL("../app/lukas/screens/material-control.tsx", import.meta.url),
+    "utf8",
+  );
+  const component = readFileSync(
+    new URL(
+      "../app/lukas/components/material-boq-lineage.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(route, /searchParams\.get\("materialPlanId"\)/);
+  assert.match(route, /searchParams\.get\("boqLineId"\)/);
+  assert.match(route, /materialPlanId,/);
+  assert.match(route, /boqLineId,/);
+  assert.match(component, /search\.set\("materialPlanId"/);
+  assert.match(component, /search\.set\("boqLineId"/);
+  assert.match(component, /factor\.validUntil/);
+  assert.match(route, /approvedBoqError/);
 });
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {

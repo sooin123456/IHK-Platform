@@ -30,6 +30,7 @@ const componentB = "00000000-0000-4000-8000-000000000116";
 function materialManifestJson({
   versionId = p6Ids.version,
   handoffSha256 = P6_SHA_B,
+  finalQuantity = "4.75",
 } = {}) {
   return new TextEncoder().encode(
     JSON.stringify({
@@ -61,9 +62,7 @@ function materialManifestJson({
           },
         ],
         result: {
-          canonicalLines: [
-            { lineId: p6Ids.line, unit: "m2", finalQuantity: "4.75" },
-          ],
+          canonicalLines: [{ lineId: p6Ids.line, unit: "m2", finalQuantity }],
         },
       },
     }),
@@ -75,6 +74,7 @@ test("approved BOQ material handoff persists only selected authoritative materia
   const manifestFileId = "00000000-0000-4000-8000-000000000122";
   const inserted = [];
   const plansById = new Map();
+  const linksById = new Map();
   const manifestJson = materialManifestJson();
   const manifestFileSha256 = createHash("sha256")
     .update(manifestJson)
@@ -128,6 +128,12 @@ test("approved BOQ material handoff persists only selected authoritative materia
         if (prior && JSON.stringify(prior) !== JSON.stringify(plan))
           throw Object.assign(new Error("mismatched retry"), { code: "P6O01" });
         plansById.set(plan.id, plan);
+      }
+      for (const link of input.links) {
+        const prior = linksById.get(link.id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(link))
+          throw Object.assign(new Error("mismatched retry"), { code: "P6O01" });
+        linksById.set(link.id, link);
       }
       inserted.push(input);
       return input;
@@ -255,6 +261,67 @@ test("approved BOQ material handoff persists only selected authoritative materia
     },
   );
   assert.notDeepEqual(later.materialPlanIds, result.materialPlanIds);
+
+  const zeroOperation = "00000000-0000-4000-8000-000000000119";
+  const zeroManifest = materialManifestJson({ finalQuantity: "0" });
+  const zeroAuthority = {
+    ...authority,
+    async loadApprovedExport() {
+      return {
+        resultSha256: P6_SHA_A,
+        manifestSha256: "c".repeat(64),
+        handoffSha256: P6_SHA_B,
+        manifestJson: zeroManifest,
+      };
+    },
+    async loadContext() {
+      const context = await authority.loadContext();
+      return {
+        ...context,
+        components: [{ ...context.components[0], finalQuantity: "0" }],
+      };
+    },
+  };
+  await createP6MaterialHandoff(
+    authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+    p6Ids.actor,
+    {
+      projectId: p6Ids.project,
+      boqVersionId: p6Ids.version,
+      operationId: zeroOperation,
+      selectedRateComponentIds: [p6Ids.component],
+    },
+    zeroAuthority,
+  );
+  await assert.rejects(
+    createP6MaterialHandoff(
+      authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+      p6Ids.actor,
+      {
+        projectId: p6Ids.project,
+        boqVersionId: p6Ids.version,
+        operationId: zeroOperation,
+        selectedRateComponentIds: [componentB],
+      },
+      {
+        ...zeroAuthority,
+        async loadContext() {
+          const context = await zeroAuthority.loadContext();
+          return {
+            ...context,
+            components: [
+              {
+                ...context.components[0],
+                rateComponentId: componentB,
+                resourceCoefficient: "3",
+              },
+            ],
+          };
+        },
+      },
+    ),
+    (error) => error.code === "P6O01",
+  );
 });
 
 test("material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components", async () => {
@@ -358,7 +425,7 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
   const orderId = "00000000-0000-4000-8000-000000000135";
   const transactionId = "00000000-0000-4000-8000-000000000133";
   const factorId = "00000000-0000-4000-8000-000000000134";
-  const client = tableClient({
+  const client = cappedTableClient({
     lukas_drawing_material_links: [
       {
         id: linkId,
@@ -430,7 +497,7 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
         epd_declaration_number: "D-1",
         epd_verifier: "V",
         pcr_reference: "PCR",
-        valid_until: null,
+        valid_until: "2020-01-01",
         source_sha256: "d".repeat(64),
       },
     ],
@@ -452,7 +519,7 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
     [factorId],
   );
   assert.equal(result.rows[0].manifestFileSha256, P6_SHA_B);
-  assert.equal(result.rows[0].carbonCoverage, "complete");
+  assert.equal(result.rows[0].carbonCoverage, "missing");
 });
 
 test("material lineage cursor returns every link once across bounded pages", async () => {
@@ -467,7 +534,7 @@ test("material lineage cursor returns every link once across bounded pages", asy
     boq_result_sha256: P6_SHA_A,
     material_plan_id: planId,
     derived_design_quantity: String(value),
-    created_at: `2026-08-28T00:00:0${4 - value}.000Z`,
+    created_at: `2026-08-28T00:00:0${4 - value}.123456+00:00`,
     boq_line: { item_code: `I-${value}` },
     material_plan: {
       id: planId,
@@ -576,6 +643,41 @@ function tableClient(rows) {
         },
         limit() {
           return Promise.resolve(result);
+        },
+      };
+      return query;
+    },
+  };
+}
+
+function cappedTableClient(rows) {
+  return {
+    from(table) {
+      const query = {
+        select() {
+          return query;
+        },
+        eq() {
+          return query;
+        },
+        in() {
+          return query;
+        },
+        order() {
+          return query;
+        },
+        or() {
+          return query;
+        },
+        limit() {
+          return Promise.resolve({ data: rows[table] ?? [], error: null });
+        },
+        range(from, to) {
+          const cap = table === "lukas_qto_material_transactions" ? 1 : to + 1;
+          return Promise.resolve({
+            data: (rows[table] ?? []).slice(from, Math.min(to + 1, from + cap)),
+            error: null,
+          });
         },
       };
       return query;
