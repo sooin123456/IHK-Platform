@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "MEASURED",
   "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "fcdc492728716815b5624492cbd966623b812653",
+  "sourceCommitSha": "fc3c4f597a888d9074177085b6f939829ee9f662",
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
   "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
@@ -16,7 +16,7 @@
   },
   "memory": {
     "totalBytes": 38654705664,
-    "freeBytesAtMeasurement": 2235121664
+    "freeBytesAtMeasurement": 1702690816
   },
   "objectMix": {
     "wall": 2000,
@@ -30,7 +30,7 @@
     "firstUsable": "cold 10,000-object document navigation after warming application assets",
     "frames": "warm after two zoom gestures and one pan gesture"
   },
-  "firstUsableMs": 5935.899999976158,
+  "firstUsableMs": 5918.199999988079,
   "firstUsableTargetMs": 2500,
   "firstUsableTargetMet": false,
   "warmSamples": {
@@ -39,9 +39,9 @@
     "selection": 30
   },
   "p95Ms": {
-    "zoom": 0.19999998807907104,
-    "pan": 0.30000001192092896,
-    "selection": 78.39999997615814
+    "zoom": 0.20000004768371582,
+    "pan": 0.19999998807907104,
+    "selection": 79
   },
   "p7SixtyFpsGate": "UNEXECUTED",
   "productionProviderP95": "UNEXECUTED"
