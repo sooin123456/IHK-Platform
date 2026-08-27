@@ -81,6 +81,24 @@ const POSTGRES_TIMESTAMP =
 const MATERIAL_TRANSACTION_LIMIT = 10_000;
 const MATERIAL_TRANSACTION_PAGE_SIZE = 200;
 
+export async function collectBoundedRows<Row>(
+  loadPage: (
+    from: number,
+    to: number,
+  ) => Promise<{ data: Row[] | null; error: unknown }>,
+  maximum: number,
+) {
+  const rows: Row[] = [];
+  while (true) {
+    const page = await loadPage(rows.length, rows.length + 199);
+    if (page.error) throw new Error("bounded row read failed");
+    const batch = page.data ?? [];
+    if (!batch.length) return rows;
+    rows.push(...batch);
+    if (rows.length > maximum) throw new Error("bounded row limit exceeded");
+  }
+}
+
 function lineageCursor(cursor: string | null) {
   if (!cursor) return null;
   try {

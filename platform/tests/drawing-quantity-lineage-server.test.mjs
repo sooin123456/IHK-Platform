@@ -16,7 +16,10 @@ import {
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 import { boqManifestStorageObjectPath } from "../app/lukas/lib/storage-object-key.server.ts";
-import { listMaterialBoqLineage } from "../app/lukas/lib/material-control.server.ts";
+import {
+  collectBoundedRows,
+  listMaterialBoqLineage,
+} from "../app/lukas/lib/material-control.server.ts";
 import {
   assertVerifiedBoqSourceAnchorIds,
   loadApprovedVerifiedBoqExport,
@@ -26,6 +29,16 @@ const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
 
 const componentB = "00000000-0000-4000-8000-000000000116";
+
+test("bounded BOQ material reads remain complete under an API cap of one", async () => {
+  const source = ["a", "b", "c"];
+  const loadPage = async (from, to) => ({
+    data: source.slice(from, Math.min(to + 1, from + 1)),
+    error: null,
+  });
+  assert.deepEqual(await collectBoundedRows(loadPage, 3), source);
+  await assert.rejects(collectBoundedRows(loadPage, 2), /limit exceeded/);
+});
 
 function materialManifestJson({
   versionId = p6Ids.version,

@@ -65,6 +65,13 @@ test("material lineage route binds and preserves exact plan and BOQ line filters
     ),
     "utf8",
   );
+  const authority = readFileSync(
+    new URL(
+      "../app/lukas/lib/drawing-quantity-lineage.server.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   assert.match(route, /lineageFilter\("materialPlanId"\)/);
   assert.match(route, /lineageFilter\("boqLineId"\)/);
   assert.match(route, /materialPlanId,/);
@@ -72,7 +79,10 @@ test("material lineage route binds and preserves exact plan and BOQ line filters
   assert.match(component, /search\.set\("materialPlanId"/);
   assert.match(component, /search\.set\("boqLineId"/);
   assert.match(component, /factor\.validUntil/);
-  assert.match(route, /approvedBoqError/);
+  assert.match(route, /승인 BOQ 자재 구성을 읽지 못했거나/);
+  assert.match(route, /collectBoundedRows/);
+  assert.match(authority, /collectBoundedRows/);
+  assert.match(authority, /\.range\(from, to\)/);
 });
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {

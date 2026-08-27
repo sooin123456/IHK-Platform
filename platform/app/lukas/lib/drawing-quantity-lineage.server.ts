@@ -24,6 +24,7 @@ import {
   DrawingObjectSourceSchema,
 } from "./drawing-workspace.types.ts";
 import { compareExact, parseExactDecimal } from "./exact-decimal.server.ts";
+import { collectBoundedRows } from "./material-control.server.ts";
 import { buildVerifiedBoqCalculationManifest } from "./verified-boq-manifest.server.ts";
 import {
   calculateVerifiedBoqV1_1,
@@ -1073,6 +1074,19 @@ async function loadMaterialHandoffContext(
   userClient: SupabaseClient,
   input: CreateP6MaterialHandoffInput,
 ): Promise<P6MaterialHandoffContext> {
+  const boundedRows = async <Row>(
+    loadPage: (
+      from: number,
+      to: number,
+    ) => Promise<{ data: Row[] | null; error: unknown }>,
+    maximum: number,
+  ) => {
+    try {
+      return await collectBoundedRows(loadPage, maximum);
+    } catch {
+      throw new DrawingQuantityLineageServerError("P6M01");
+    }
+  };
   const { data: version, error: versionError } = await userClient
     .from("lukas_qto_boq_versions")
     .select("id,project_id,price_book_id,result_sha256,status")
@@ -1086,61 +1100,66 @@ async function loadMaterialHandoffContext(
     !Sha256.safeParse(version.result_sha256).success
   )
     throw new DrawingQuantityLineageServerError("P6M01");
-  const [{ data: project, error: projectError }, componentResult] =
+  const [{ data: project, error: projectError }, componentRows] =
     await Promise.all([
       userClient
         .from("lukas_qto_projects")
         .select("id,owner_id")
         .eq("id", input.projectId)
         .single(),
-      userClient
-        .from("lukas_qto_boq_rate_components")
-        .select("id,version_id,line_id,resource_id,coefficient")
-        .eq("project_id", input.projectId)
-        .eq("version_id", input.boqVersionId)
-        .in("id", input.selectedRateComponentIds)
-        .limit(input.selectedRateComponentIds.length + 1),
+      boundedRows(async (from, to) => {
+        const { data, error } = await userClient
+          .from("lukas_qto_boq_rate_components")
+          .select("id,version_id,line_id,resource_id,coefficient")
+          .eq("project_id", input.projectId)
+          .eq("version_id", input.boqVersionId)
+          .in("id", input.selectedRateComponentIds)
+          .order("id", { ascending: true })
+          .range(from, to);
+        return { data, error };
+      }, input.selectedRateComponentIds.length),
     ]);
-  const componentRows = componentResult.data ?? [];
   if (
     projectError ||
     !project ||
-    componentResult.error ||
     componentRows.length !== input.selectedRateComponentIds.length
   )
     throw new DrawingQuantityLineageServerError("P6M01");
   const resourceIds = [...new Set(componentRows.map((row) => row.resource_id))];
   const lineIds = [...new Set(componentRows.map((row) => row.line_id))];
-  const [
-    { data: resources, error: resourceError },
-    { data: lines, error: lineError },
-  ] = await Promise.all([
-    userClient
-      .from("lukas_qto_price_resources")
-      .select(
-        "id,project_id,price_book_id,resource_type,resource_code,resource_name,specification,unit",
-      )
-      .eq("project_id", input.projectId)
-      .eq("price_book_id", version.price_book_id)
-      .in("id", resourceIds)
-      .limit(resourceIds.length + 1),
-    userClient
-      .from("lukas_qto_boq_lines")
-      .select("id,version_id,project_id,item_code,unit")
-      .eq("project_id", input.projectId)
-      .eq("version_id", input.boqVersionId)
-      .in("id", lineIds)
-      .limit(lineIds.length + 1),
+  const [resources, lines] = await Promise.all([
+    boundedRows(async (from, to) => {
+      const { data, error } = await userClient
+        .from("lukas_qto_price_resources")
+        .select(
+          "id,project_id,price_book_id,resource_type,resource_code,resource_name,specification,unit",
+        )
+        .eq("project_id", input.projectId)
+        .eq("price_book_id", version.price_book_id)
+        .in("id", resourceIds)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data, error };
+    }, resourceIds.length),
+    boundedRows(async (from, to) => {
+      const { data, error } = await userClient
+        .from("lukas_qto_boq_lines")
+        .select("id,version_id,project_id,item_code,unit")
+        .eq("project_id", input.projectId)
+        .eq("version_id", input.boqVersionId)
+        .in("id", lineIds)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data, error };
+    }, lineIds.length),
   ]);
   if (
-    resourceError ||
-    lineError ||
-    (resources?.length ?? 0) !== resourceIds.length ||
-    (lines?.length ?? 0) !== lineIds.length
+    resources.length !== resourceIds.length ||
+    lines.length !== lineIds.length
   )
     throw new DrawingQuantityLineageServerError("P6M01");
-  const resourceById = new Map((resources ?? []).map((row) => [row.id, row]));
-  const lineById = new Map((lines ?? []).map((row) => [row.id, row]));
+  const resourceById = new Map(resources.map((row) => [row.id, row]));
+  const lineById = new Map(lines.map((row) => [row.id, row]));
   return {
     ownerId: Uuid.parse(project.owner_id),
     projectId: input.projectId,

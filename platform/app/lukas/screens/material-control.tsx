@@ -26,6 +26,7 @@ import {
   buildMaterialControlSummaries,
   calculateRequiredQuantity,
   carbonFactorRow,
+  collectBoundedRows,
   deriveMaterialPlansFromApprovedTakeoff,
   listMaterialBoqLineage,
   materialPlanRow,
@@ -331,6 +332,25 @@ async function sourceIdentity(db: Db, projectId: string, fileId: string) {
   return { id: String(file.id), sha256: String(file.sha256) };
 }
 
+async function boundedMaterialRows<Row>(
+  loadPage: (
+    from: number,
+    to: number,
+  ) => Promise<{ data: Row[] | null; error: unknown }>,
+  maximum: number,
+) {
+  try {
+    return await collectBoundedRows(loadPage, maximum);
+  } catch {
+    throw new Response(
+      "승인 BOQ 자재 구성을 읽지 못했거나 허용 범위를 초과했습니다.",
+      {
+        status: 409,
+      },
+    );
+  }
+}
+
 export const meta: Route.MetaFunction = ({ data }) => [
   {
     title: data?.project
@@ -440,58 +460,54 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     cursor: requestUrl.searchParams.get("lineageCursor"),
     asOfDate,
   });
-  const { data: approvedBoqRows, error: approvedBoqError } = await client
-    .from("lukas_qto_boq_versions")
-    .select("id,version_no,title,status")
-    .eq("project_id", project.id)
-    .eq("engine_version", "VERIFIED-BOQ-1.1")
-    .in("status", ["approved", "superseded"])
-    .order("version_no", { ascending: false })
-    .limit(200);
-  if (approvedBoqError)
-    throw new Response("승인 BOQ 목록을 읽지 못했습니다.", { status: 409 });
-  const approvedBoqIds = (approvedBoqRows ?? []).map((row) => row.id);
-  const [componentResult, existingLinkResult] = approvedBoqIds.length
+  const approvedBoqRows = await boundedMaterialRows(async (from, to) => {
+    const { data, error } = await client
+      .from("lukas_qto_boq_versions")
+      .select("id,version_no,title,status")
+      .eq("project_id", project.id)
+      .eq("engine_version", "VERIFIED-BOQ-1.1")
+      .in("status", ["approved", "superseded"])
+      .order("version_no", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+    return { data, error };
+  }, 200);
+  const approvedBoqIds = approvedBoqRows.map((row) => row.id);
+  const [componentRows, existingLinkRows] = approvedBoqIds.length
     ? await Promise.all([
-        client
-          .from("lukas_qto_boq_rate_components")
-          .select(
-            "id,version_id,coefficient,line:lukas_qto_boq_lines!inner(item_code),resource:lukas_qto_price_resources!inner(resource_code,resource_name,specification,unit,resource_type)",
-          )
-          .eq("project_id", project.id)
-          .eq("resource.resource_type", "material")
-          .in("version_id", approvedBoqIds)
-          .order("id", { ascending: true })
-          .limit(2_001),
-        db
-          .from("lukas_drawing_material_links")
-          .select("boq_rate_component_id")
-          .eq("project_id", project.id)
-          .in("boq_version_id", approvedBoqIds)
-          .limit(2_001),
+        boundedMaterialRows(async (from, to) => {
+          const { data, error } = await client
+            .from("lukas_qto_boq_rate_components")
+            .select(
+              "id,version_id,coefficient,line:lukas_qto_boq_lines!inner(item_code),resource:lukas_qto_price_resources!inner(resource_code,resource_name,specification,unit,resource_type)",
+            )
+            .eq("project_id", project.id)
+            .eq("resource.resource_type", "material")
+            .in("version_id", approvedBoqIds)
+            .order("id", { ascending: true })
+            .range(from, to);
+          return { data, error };
+        }, 2_000),
+        boundedMaterialRows(async (from, to) => {
+          const { data, error } = await db
+            .from("lukas_drawing_material_links")
+            .select("boq_rate_component_id")
+            .eq("project_id", project.id)
+            .in("boq_version_id", approvedBoqIds)
+            .order("id", { ascending: true })
+            .range(from, to);
+          return { data, error };
+        }, 2_000),
       ])
-    : [
-        { data: [], error: null },
-        { data: [], error: null },
-      ];
-  const componentRows = componentResult.data;
-  if (
-    componentResult.error ||
-    existingLinkResult.error ||
-    (componentRows?.length ?? 0) > 2_000 ||
-    (existingLinkResult.data?.length ?? 0) > 2_000
-  )
-    throw new Response("승인 BOQ 자재 구성이 허용 범위를 초과했습니다.", {
-      status: 409,
-    });
+    : [[], []];
   const handedComponentIds = new Set(
-    (existingLinkResult.data ?? []).map((row) => row.boq_rate_component_id),
+    existingLinkRows.map((row) => row.boq_rate_component_id),
   );
-  const approvedBoqs = (approvedBoqRows ?? [])
+  const approvedBoqs = approvedBoqRows
     .map((version) => ({
       id: version.id,
       label: `V${version.version_no} ${version.title} · ${version.status}`,
-      components: (componentRows ?? [])
+      components: componentRows
         .filter(
           (component) =>
             component.version_id === version.id &&
