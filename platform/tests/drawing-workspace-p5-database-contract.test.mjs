@@ -16,6 +16,18 @@ async function p5Migration() {
   return readFile(new URL(names[0], migrationDirectory), "utf8");
 }
 
+async function p5RelinkAuthorityMigration() {
+  const names = (await readdir(migrationDirectory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p5_revision_relink_authority.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "P5 relink authority is one forward CLI migration",
+  );
+  return readFile(new URL(names[0], migrationDirectory), "utf8");
+}
+
 test("P5 migration versions and soft-deletes drawing sources behind partial active uniqueness", async () => {
   const sql = await p5Migration();
   assert.match(sql, /begin;[\s\S]*commit;/i);
@@ -62,4 +74,17 @@ test("P5 source writes have exact grants, RLS and no public management API", asy
     /create or replace function public\.lukas_drawing_(?:put|delete)_source/i,
   );
   assert.doesNotMatch(sql, /create\s+table/i);
+});
+
+test("P5 relink authority closes direct DML without adding a public API", async () => {
+  const sql = await p5RelinkAuthorityMigration();
+  assert.match(sql, /current_user\s*<>\s*'authenticated'/i);
+  assert.match(sql, /previous_file_id[\s\S]*current_file_id[\s\S]*supersedes/i);
+  assert.match(sql, /atomic relink function/i);
+  assert.match(
+    sql,
+    /revoke all on function private\.lukas_drawing_revision_anchor_guard\(\)[\s\S]*authenticated/i,
+  );
+  assert.doesNotMatch(sql, /create\s+table/i);
+  assert.doesNotMatch(sql, /create (?:or replace )?function public\./i);
 });

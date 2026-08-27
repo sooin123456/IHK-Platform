@@ -20,9 +20,51 @@ async function openP5Preview(page: Page) {
 
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
+test("manual P5 PDF preview serves current and opt-in predecessor bytes without interception", async ({
+  page,
+}) => {
+  const resourceResponses: Array<{ path: string; status: number }> = [];
+  page.on("response", (response) => {
+    const path = new URL(response.url()).pathname;
+    if (path === "/__p5-current.pdf" || path === "/__p5-previous.pdf")
+      resourceResponses.push({ path, status: response.status() });
+  });
+  await page.goto("/workspace-preview/drawing-workspace?p5PdfTest=1", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect(
+    page.getByText("PDF 원본 배경을 표시하고 있습니다."),
+  ).toBeVisible();
+  expect(resourceResponses).toContainEqual({
+    path: "/__p5-current.pdf",
+    status: 200,
+  });
+  expect(
+    resourceResponses.some(({ path }) => path === "/__p5-previous.pdf"),
+  ).toBe(false);
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect
+    .poll(() =>
+      resourceResponses.filter(({ path }) => path === "/__p5-previous.pdf"),
+    )
+    .toEqual([{ path: "/__p5-previous.pdf", status: 200 }]);
+});
+
 test("active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const context = CanvasRenderingContext2D.prototype;
+    const original = context.getImageData;
+    (window as typeof window & { __p5ImageReads?: number }).__p5ImageReads = 0;
+    context.getImageData = function (...args) {
+      (window as typeof window & { __p5ImageReads?: number }).__p5ImageReads =
+        ((window as typeof window & { __p5ImageReads?: number })
+          .__p5ImageReads ?? 0) + 1;
+      return original.apply(this, args);
+    };
+  });
   const source = await readFile(
     path.resolve(
       "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
@@ -42,6 +84,14 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     previous: createHash("sha256").update(source).digest("hex"),
   };
   let previousRequests = 0;
+  let compareCapabilityRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.postData()?.includes("load_pdf_compare")
+    )
+      compareCapabilityRequests += 1;
+  });
   await page.route("**/__p5-current.pdf", (route) =>
     route.fulfill({ body: changed, contentType: "application/pdf" }),
   );
@@ -59,8 +109,10 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     page.getByRole("group", { name: "PDF 개정 비교" }),
   ).toBeVisible();
   expect(previousRequests).toBe(0);
+  expect(compareCapabilityRequests).toBe(0);
   await page.getByRole("button", { name: "겹쳐 보기" }).click();
   await expect.poll(() => previousRequests).toBe(1);
+  expect(compareCapabilityRequests).toBe(1);
   await page.getByLabel("이전 도면 불투명도").fill("35");
   await page.getByRole("button", { name: "변경 표시 계산" }).click();
   await expect(page.getByText("브라우저 미리보기").first()).toBeVisible();
@@ -68,6 +120,33 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   await expect(
     page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
   ).not.toHaveCount(0);
+  const explicitImageReads = await page.evaluate(
+    () =>
+      (window as typeof window & { __p5ImageReads?: number }).__p5ImageReads ??
+      0,
+  );
+  await page.getByLabel("이전 도면 불투명도").fill("65");
+  await page.getByRole("button", { name: "이전 도면" }).click();
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __p5ImageReads?: number })
+          .__p5ImageReads ?? 0,
+    ),
+  ).toBe(explicitImageReads);
+  expect(compareCapabilityRequests).toBe(1);
+  await page.getByRole("button", { name: "변경 표시 계산" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __p5ImageReads?: number })
+            .__p5ImageReads ?? 0,
+      ),
+    )
+    .toBe(explicitImageReads + 2);
   await page.screenshot({
     path: path.resolve(
       "../.superpowers/sdd/2026-08-27-drawing-workspace-p5/task-5-pdf-overlay.png",

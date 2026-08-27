@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertGenericDrawingAnchorMutationAllowed,
   loadDrawingRevisionReview,
   parseRelinkDrawingAnchorForm,
   relinkDrawingIssueAnchor,
@@ -278,4 +279,57 @@ test("relink review form rejects copied or mismatched candidate payloads", () =>
     form.set("note", "새 위치 확인");
     assert.throws(() => parseRelinkDrawingAnchorForm(form));
   }
+});
+
+test("generic anchor guard denies cross-route revision replacement from authoritative issue and file evidence", async () => {
+  const projectId = "50000000-0000-4000-8000-000000000020";
+  const issueId = "50000000-0000-4000-8000-000000000021";
+  const previousFileId = "50000000-0000-4000-8000-000000000022";
+  const currentFileId = "50000000-0000-4000-8000-000000000023";
+  const previousAnchorId = "50000000-0000-4000-8000-000000000024";
+  const revision = {
+    project_id: projectId,
+    previous_file_id: previousFileId,
+    current_file_id: currentFileId,
+    relation_kind: "supersedes",
+  };
+  const predecessor = {
+    id: previousAnchorId,
+    issue_id: issueId,
+    project_id: projectId,
+    file_id: previousFileId,
+    active: true,
+  };
+  const addClient = {
+    from(table) {
+      if (table === "lukas_qto_file_revisions") return queryResult([revision]);
+      if (table === "lukas_drawing_issue_anchors")
+        return queryResult([predecessor]);
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+  const deactivateClient = {
+    from(table) {
+      if (table === "lukas_qto_file_revisions")
+        return queryResult(revision, { single: true });
+      if (table === "lukas_drawing_issue_anchors")
+        return queryResult(predecessor, { single: true });
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+
+  await assert.rejects(
+    assertGenericDrawingAnchorMutationAllowed(addClient, projectId, {
+      intent: "add_anchor",
+      issueId,
+    }),
+    /원자적 교체/,
+  );
+  await assert.rejects(
+    assertGenericDrawingAnchorMutationAllowed(deactivateClient, projectId, {
+      intent: "deactivate_anchor",
+      anchorId: previousAnchorId,
+    }),
+    /원자적 교체/,
+  );
 });

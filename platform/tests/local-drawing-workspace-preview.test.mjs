@@ -19,6 +19,9 @@ const vite = await createServer({
 const preview = await vite.ssrLoadModule(
   "/app/lukas/screens/local-drawing-workspace-preview.tsx",
 );
+const pdfPreview = await vite.ssrLoadModule(
+  "/app/lukas/screens/local-drawing-pdf-preview.ts",
+);
 test.after(() => vite.close());
 const testEnvironment = process.env.NODE_ENV;
 process.env.NODE_ENV = "development";
@@ -53,6 +56,30 @@ function validOperation() {
 test("P2 local drawing preview is registered outside the authenticated workspace", () => {
   const paths = JSON.stringify(routes);
   assert.match(paths, /workspace-preview\/drawing-workspace/);
+  assert.match(paths, /__p5-current\.pdf/);
+  assert.match(paths, /__p5-previous\.pdf/);
+});
+
+test("P5 local PDF resources serve real no-store bytes only on development loopback", async () => {
+  const response = await pdfPreview.loader({
+    request: request("http://127.0.0.1:5173/__p5-previous.pdf"),
+    params: {},
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/pdf");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(
+    new TextDecoder().decode((await response.arrayBuffer()).slice(0, 4)),
+    "%PDF",
+  );
+
+  process.env.NODE_ENV = "production";
+  const denied = await pdfPreview.loader({
+    request: request("http://127.0.0.1:5173/__p5-previous.pdf"),
+    params: {},
+  });
+  assert.equal(denied.status, 404);
+  process.env.NODE_ENV = "development";
 });
 
 test("P2 preview server module does not import browser-only state modules", async () => {
@@ -152,7 +179,7 @@ test("P5 preview exposes one exact PDF predecessor edge without canonical compar
   });
 
   assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
-  assert.equal(loaded.sourceBundle.previousPdf.signedUrl, "/__p5-previous.pdf");
+  assert.equal("signedUrl" in loaded.sourceBundle.previousPdf, false);
   assert.deepEqual(loaded.sourceBundle.revisionEdge, {
     id: "00000000-0000-4000-8000-0000000000b2",
     previousFileId: "00000000-0000-4000-8000-0000000000b1",
@@ -164,6 +191,24 @@ test("P5 preview exposes one exact PDF predecessor edge without canonical compar
   assert.equal(canonical.includes("signedUrl"), false);
   assert.equal(canonical.includes("브라우저 미리보기"), false);
   assert.equal(canonical.includes("diff"), false);
+
+  const form = new FormData();
+  form.set("intent", "load_pdf_compare");
+  form.set("revision_edge_id", loaded.sourceBundle.revisionEdge.id);
+  form.set("current_file_id", loaded.sourceBundle.revisionEdge.currentFileId);
+  form.set("current_sha256", loaded.sourceBundle.revisionEdge.currentSha256);
+  form.set("previous_file_id", loaded.sourceBundle.previousPdf.id);
+  form.set("previous_sha256", loaded.sourceBundle.previousPdf.sha256);
+  form.set("page_number", "1");
+  const signed = await preview.action({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5PdfTest=1",
+      { method: "POST", body: form },
+    ),
+    params: {},
+  });
+  assert.equal(signed.data.kind, "pdf_compare");
+  assert.equal(signed.data.previousPdf.signedUrl, "/__p5-previous.pdf");
 });
 
 test("P4 vertical preview exposes only mounted-workspace test instrumentation", async () => {

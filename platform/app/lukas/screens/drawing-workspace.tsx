@@ -22,7 +22,9 @@ import {
   loadDrawingWorkspace,
   loadDrawingWorkspaceMeasurementState,
   loadDrawingWorkspaceCapability,
+  loadDrawingWorkspacePreviousPdf,
   loadDrawingWorkspaceSourceBundle,
+  parseDrawingWorkspacePreviousPdfForm,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
 import type {
@@ -144,6 +146,45 @@ export async function action({ request, params }: Route.ActionArgs) {
     new URL(request.url).searchParams.get("document") ?? undefined,
   );
   const intent = form.get("intent");
+  if (intent === "cancel_pdf_compare")
+    return data(
+      { ok: true, kind: "pdf_compare_cancelled" as const, error: null },
+      { headers },
+    );
+  if (intent === "load_pdf_compare") {
+    try {
+      const previousPdf = await loadDrawingWorkspacePreviousPdf(
+        client,
+        workspace,
+        parseDrawingWorkspacePreviousPdfForm(form),
+      );
+      return data(
+        {
+          ok: true,
+          kind: "pdf_compare" as const,
+          error: null,
+          previousPdf,
+        },
+        { headers },
+      );
+    } catch (error) {
+      const responseMessage =
+        error instanceof Response ? await error.text() : null;
+      return data(
+        {
+          ok: false,
+          kind: "pdf_compare" as const,
+          error:
+            responseMessage ||
+            (error instanceof Error
+              ? error.message
+              : "PDF 개정 비교 요청에 실패했습니다."),
+          previousPdf: null,
+        },
+        { status: error instanceof Response ? error.status : 400, headers },
+      );
+    }
+  }
   if (intent === "comment" || intent === "add_canvas_region_anchor") {
     if (capability === "viewer")
       throw new Response("댓글을 작성할 권한이 없습니다.", { status: 403 });

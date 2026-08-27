@@ -336,6 +336,14 @@ const p5EvidenceAuthorityMigration = () =>
     ),
     "utf8",
   );
+const p5RevisionRelinkAuthorityMigration = async () => {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith("_drawing_workspace_p5_revision_relink_authority.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], directory), "utf8");
+};
 
 async function applyP0ThroughP3Migrations(targetDb) {
   for (const readMigration of [
@@ -557,7 +565,8 @@ const foundationSql = `
     grant execute on function private.lukas_qto_project_role(uuid)
       to authenticated, service_role;
     grant select on public.lukas_qto_projects, public.lukas_qto_project_members,
-      public.lukas_qto_files, public.lukas_drawing_issues to authenticated;
+      public.lukas_qto_files, public.lukas_qto_file_revisions,
+      public.lukas_drawing_issues to authenticated;
 `;
 
 async function asActor(actor) {
@@ -780,6 +789,7 @@ before(async () => {
   await db.exec(await p4FinalContractFixesMigration());
   await db.exec(await p4FinalNameAuthorityMigration());
   await db.exec(await p5EvidenceAuthorityMigration());
+  await db.exec(await p5RevisionRelinkAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -927,6 +937,7 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
     await upgradeDb.exec(await p4FinalContractFixesMigration());
     await upgradeDb.exec(await p4FinalNameAuthorityMigration());
     await upgradeDb.exec(await p5EvidenceAuthorityMigration());
+    await upgradeDb.exec(await p5RevisionRelinkAuthorityMigration());
 
     const afterUpgrade = await evidence();
     assert.deepEqual(afterUpgrade, beforeUpgrade);
@@ -1112,6 +1123,7 @@ test("P5 upgrade preserves every legal P0-P4 source shape without inventing IFC 
     }
 
     await upgradeDb.exec(await p5EvidenceAuthorityMigration());
+    await upgradeDb.exec(await p5RevisionRelinkAuthorityMigration());
 
     const rows = await upgradeDb.query(
       `select id,status,version,element_id "elementId",
@@ -1240,6 +1252,7 @@ test("P5 restores an immutable pre-P5 PDF checkpoint without rewriting its snaps
     await upgradeDb.exec(await p4FinalContractFixesMigration());
     await upgradeDb.exec(await p4FinalNameAuthorityMigration());
     await upgradeDb.exec(await p5EvidenceAuthorityMigration());
+    await upgradeDb.exec(await p5RevisionRelinkAuthorityMigration());
     await upgradeDb.exec("set role authenticated");
     await upgradeDb.query(
       "select set_config('request.jwt.claim.sub',$1,false)",
@@ -1708,6 +1721,107 @@ test("P5 source authority rejects file identity, active uniqueness and role viol
   );
   assert.deepEqual(evidence.rows, [
     { id: source.id, status: "active", version: 1 },
+  ]);
+});
+
+test("P5 revision-review anchors reject direct ordinary replacement and predecessor deactivation", async () => {
+  const currentFileId = randomUUID();
+  const currentSha = "7".repeat(64);
+  const issueId = randomUUID();
+  const previousAnchorId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values($1,$2,$3,'pdf',$4)`,
+    [currentFileId, PROJECT, OWNER, currentSha],
+  );
+  await db.query(
+    `insert into public.lukas_qto_file_revisions(
+      project_id,previous_file_id,previous_sha256,current_file_id,current_sha256,
+      relation_kind,created_by
+    ) values($1,$2,$3,$4,$5,'supersedes',$6)`,
+    [PROJECT, PDF, PDF_SHA, currentFileId, currentSha, OWNER],
+  );
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  await db.query(
+    `insert into public.lukas_drawing_issue_anchors(
+      id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+      label,created_by
+    ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'old',$5)`,
+    [previousAnchorId, issueId, PROJECT, PDF, OWNER],
+  );
+
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_issue_anchors(
+        issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+        label,created_by
+      ) values($1,$2,$3,'pdf_region',1,.2,.2,.2,.2,'ordinary replacement',$4)`,
+      [issueId, PROJECT, currentFileId, OWNER],
+    ),
+    /atomic relink function/i,
+  );
+  await assert.rejects(
+    db.query(
+      `update public.lukas_drawing_issue_anchors
+       set active=false,deactivation_note='separate deactivate'
+       where id=$1`,
+      [previousAnchorId],
+    ),
+    /atomic relink function/i,
+  );
+  await db.exec("reset role");
+  const preserved = await db.query(
+    `select
+      (select active from public.lukas_drawing_issue_anchors where id=$1) active,
+      count(*)::integer anchor_count
+     from public.lukas_drawing_issue_anchors
+     where issue_id=$2`,
+    [previousAnchorId, issueId],
+  );
+  assert.deepEqual(preserved.rows, [{ active: true, anchor_count: 1 }]);
+});
+
+test("P5 legacy non-revision anchors retain generic add and deactivate behavior", async () => {
+  const issueId = randomUUID();
+  const anchorId = randomUUID();
+  const legacyFileId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values($1,$2,$3,'pdf',$4)`,
+    [legacyFileId, PROJECT, OWNER, "6".repeat(64)],
+  );
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  await db.query(
+    `insert into public.lukas_drawing_issue_anchors(
+      id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+      label,created_by
+    ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'legacy',$5)`,
+    [anchorId, issueId, PROJECT, legacyFileId, OWNER],
+  );
+  await db.query(
+    `update public.lukas_drawing_issue_anchors
+     set active=false,deactivation_note='legacy deactivate'
+     where id=$1`,
+    [anchorId],
+  );
+  await db.exec("reset role");
+  const row = await db.query(
+    `select active,deactivation_note
+     from public.lukas_drawing_issue_anchors where id=$1`,
+    [anchorId],
+  );
+  assert.deepEqual(row.rows, [
+    { active: false, deactivation_note: "legacy deactivate" },
   ]);
 });
 

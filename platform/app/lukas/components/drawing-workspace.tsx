@@ -31,6 +31,7 @@ import {
   Form,
   Link,
   useBlocker,
+  useFetcher,
   useNavigation,
   useSearchParams,
 } from "react-router";
@@ -117,6 +118,7 @@ import type {
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
   DrawingWorkspaceSourceBundle,
+  DrawingWorkspaceSourceDescriptor,
 } from "~/lukas/lib/drawing-workspace.server";
 import type {
   DrawingMeasurementEvidenceError,
@@ -748,6 +750,25 @@ type Props = {
   };
 };
 
+type PdfCompareActionData =
+  | {
+      ok: true;
+      kind: "pdf_compare";
+      error: null;
+      previousPdf: DrawingWorkspaceSourceDescriptor;
+    }
+  | {
+      ok: false;
+      kind: "pdf_compare";
+      error: string;
+      previousPdf: null;
+    }
+  | {
+      ok: true;
+      kind: "pdf_compare_cancelled";
+      error: null;
+    };
+
 export default function DrawingWorkspaceClient({
   actionError,
   activityPage,
@@ -796,6 +817,9 @@ export default function DrawingWorkspaceClient({
   >("current");
   const [pdfCompareOpacity, setPdfCompareOpacity] = useState(0.5);
   const [pdfDiffGeneration, setPdfDiffGeneration] = useState(0);
+  const pdfCompareFetcher = useFetcher<PdfCompareActionData>();
+  const [previousPdfCapability, setPreviousPdfCapability] =
+    useState<DrawingWorkspaceSourceDescriptor | null>(null);
   const [pdfCompareState, setPdfCompareState] =
     useState<DrawingPdfCompareState>({ status: "idle", markers: [] });
   const [pdfPageTransform, setPdfPageTransform] =
@@ -2740,7 +2764,7 @@ export default function DrawingWorkspaceClient({
           height: activeCanvas.heightMillimeters,
         }
     : surface.background;
-  const exactPreviousPdf =
+  const previousPdfEvidence =
     background.kind === "pdf" &&
     sourceBundle?.pdf &&
     sourceBundle.previousPdf &&
@@ -2750,15 +2774,79 @@ export default function DrawingWorkspaceClient({
     sourceBundle.revisionEdge.previousSha256 === sourceBundle.previousPdf.sha256
       ? sourceBundle.previousPdf
       : null;
+  const exactPreviousPdf =
+    previousPdfEvidence &&
+    previousPdfCapability?.id === previousPdfEvidence.id &&
+    previousPdfCapability.sha256 === previousPdfEvidence.sha256
+      ? previousPdfCapability
+      : null;
+  const activePdfPageNumber =
+    background.kind === "pdf" ? background.pageNumber : null;
   useEffect(() => {
     setPdfCompareMode("current");
     setPdfDiffGeneration(0);
     setPdfCompareState({ status: "idle", markers: [] });
+    setPreviousPdfCapability(null);
   }, [
     background.kind === "pdf" ? background.pageNumber : 0,
-    exactPreviousPdf?.id,
-    exactPreviousPdf?.sha256,
+    previousPdfEvidence?.id,
+    previousPdfEvidence?.sha256,
   ]);
+  useEffect(() => {
+    const candidate =
+      pdfCompareFetcher.data?.kind === "pdf_compare" &&
+      pdfCompareFetcher.data.ok
+        ? pdfCompareFetcher.data.previousPdf
+        : null;
+    if (
+      pdfCompareMode !== "current" &&
+      previousPdfEvidence &&
+      candidate?.id === previousPdfEvidence.id &&
+      candidate.sha256 === previousPdfEvidence.sha256
+    )
+      setPreviousPdfCapability(candidate);
+  }, [
+    pdfCompareFetcher.data,
+    pdfCompareMode,
+    previousPdfEvidence?.id,
+    previousPdfEvidence?.sha256,
+  ]);
+  const requestPdfCompareMode = useCallback(
+    (mode: "current" | "overlay" | "previous") => {
+      setPdfCompareMode(mode);
+      if (mode === "current") {
+        setPreviousPdfCapability(null);
+        if (pdfCompareFetcher.state !== "idle")
+          pdfCompareFetcher.submit(
+            { intent: "cancel_pdf_compare" },
+            { method: "post" },
+          );
+        return;
+      }
+      if (
+        !previousPdfEvidence ||
+        exactPreviousPdf ||
+        pdfCompareFetcher.state !== "idle"
+      )
+        return;
+      const form = new FormData();
+      form.set("intent", "load_pdf_compare");
+      form.set("revision_edge_id", sourceBundle!.revisionEdge!.id);
+      form.set("current_file_id", sourceBundle!.revisionEdge!.currentFileId);
+      form.set("current_sha256", sourceBundle!.revisionEdge!.currentSha256);
+      form.set("previous_file_id", previousPdfEvidence.id);
+      form.set("previous_sha256", previousPdfEvidence.sha256);
+      form.set("page_number", String(activePdfPageNumber));
+      pdfCompareFetcher.submit(form, { method: "post" });
+    },
+    [
+      activePdfPageNumber,
+      exactPreviousPdf,
+      pdfCompareFetcher,
+      previousPdfEvidence,
+      sourceBundle,
+    ],
+  );
   const pdfCompare = useMemo(
     () =>
       background.kind === "pdf" && exactPreviousPdf
@@ -3280,7 +3368,7 @@ export default function DrawingWorkspaceClient({
             </p>
           ) : null}
           {background.kind === "pdf" ? (
-            exactPreviousPdf ? (
+            previousPdfEvidence ? (
               <div
                 aria-label="PDF 개정 비교"
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-white/15 p-1 text-xs text-white"
@@ -3297,7 +3385,7 @@ export default function DrawingWorkspaceClient({
                     aria-pressed={pdfCompareMode === mode}
                     className={`min-h-9 rounded px-2 font-semibold ${pdfCompareMode === mode ? "bg-amber-400 text-slate-950" : "text-slate-200"}`}
                     key={mode}
-                    onClick={() => setPdfCompareMode(mode)}
+                    onClick={() => requestPdfCompareMode(mode)}
                     type="button"
                   >
                     {label}
@@ -3319,13 +3407,22 @@ export default function DrawingWorkspaceClient({
                 </label>
                 <button
                   className="min-h-9 rounded bg-amber-500 px-3 font-semibold text-slate-950 disabled:opacity-50"
-                  disabled={pdfCompareMode === "current"}
+                  disabled={pdfCompareMode === "current" || !exactPreviousPdf}
                   onClick={() => setPdfDiffGeneration((value) => value + 1)}
                   type="button"
                 >
                   변경 표시 계산
                 </button>
-                {pdfCompareState.status === "loading" ? (
+                {pdfCompareMode !== "current" && !exactPreviousPdf ? (
+                  pdfCompareFetcher.state !== "idle" ? (
+                    <span role="status">이전 PDF 접근 권한을 요청합니다.</span>
+                  ) : pdfCompareFetcher.data?.kind === "pdf_compare" &&
+                    !pdfCompareFetcher.data.ok ? (
+                    <span className="text-amber-200" role="alert">
+                      {pdfCompareFetcher.data.error}
+                    </span>
+                  ) : null
+                ) : pdfCompareState.status === "loading" ? (
                   <span role="status">이전 PDF를 여는 중입니다.</span>
                 ) : pdfCompareState.status === "missing" ||
                   pdfCompareState.status === "error" ? (

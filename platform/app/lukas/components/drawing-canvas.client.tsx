@@ -2673,16 +2673,14 @@ export const DrawingCanvas = forwardRef<
     previousPdfSignedUrl,
   ]);
 
+  const pdfDiffEnabled =
+    background.kind === "pdf" &&
+    Boolean(pdfCompare) &&
+    pdfCompare?.mode !== "current" &&
+    (pdfCompare?.generation ?? 0) > 0;
+  const pdfDiffGeneration = pdfCompare?.generation ?? 0;
   useEffect(() => {
-    if (
-      background.kind !== "pdf" ||
-      !pdfCompare ||
-      pdfCompare.mode === "current" ||
-      pdfCompare.generation === 0 ||
-      !pdfSource ||
-      !previousPdfSource
-    )
-      return;
+    if (!pdfDiffEnabled || !pdfSource || !previousPdfSource) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       if (controller.signal.aborted) return;
@@ -2754,9 +2752,9 @@ export const DrawingCanvas = forwardRef<
       window.clearTimeout(timer);
     };
   }, [
-    background.kind,
     onPdfCompareState,
-    pdfCompare,
+    pdfDiffEnabled,
+    pdfDiffGeneration,
     pdfSource,
     previousPdfSource,
   ]);

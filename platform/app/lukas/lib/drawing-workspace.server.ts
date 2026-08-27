@@ -91,7 +91,7 @@ export type DrawingWorkspaceSourceBundle = {
   primary: DrawingWorkspaceSourceDescriptor | DrawingWorkspaceSourceCatalogItem;
   pdf: DrawingWorkspaceSourceDescriptor | null;
   ifc: DrawingWorkspaceSourceDescriptor | null;
-  previousPdf: DrawingWorkspaceSourceDescriptor | null;
+  previousPdf: DrawingWorkspaceSourceCatalogItem | null;
   revisionEdge: {
     id: string;
     previousFileId: string;
@@ -477,6 +477,46 @@ export async function loadAllDrawingObjects(
 
 const Uuid = z.string().uuid();
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
+const DrawingWorkspacePreviousPdfRequestSchema = z
+  .object({
+    revisionEdgeId: Uuid,
+    currentFileId: Uuid,
+    currentSha256: Sha256,
+    previousFileId: Uuid,
+    previousSha256: Sha256,
+    pageNumber: z.number().int().positive(),
+  })
+  .strict();
+export type DrawingWorkspacePreviousPdfRequest = z.infer<
+  typeof DrawingWorkspacePreviousPdfRequestSchema
+>;
+
+export function parseDrawingWorkspacePreviousPdfForm(form: FormData) {
+  const fields = new Set([
+    "intent",
+    "revision_edge_id",
+    "current_file_id",
+    "current_sha256",
+    "previous_file_id",
+    "previous_sha256",
+    "page_number",
+  ]);
+  if (
+    form.get("intent") !== "load_pdf_compare" ||
+    [...form.keys()].some(
+      (key) => !fields.has(key) || form.getAll(key).length !== 1,
+    )
+  )
+    throw new Error("PDF 개정 비교 요청 형식이 올바르지 않습니다.");
+  return DrawingWorkspacePreviousPdfRequestSchema.parse({
+    revisionEdgeId: form.get("revision_edge_id"),
+    currentFileId: form.get("current_file_id"),
+    currentSha256: form.get("current_sha256"),
+    previousFileId: form.get("previous_file_id"),
+    previousSha256: form.get("previous_sha256"),
+    pageNumber: Number(form.get("page_number")),
+  });
+}
 const Title = z.string().trim().min(1).max(240);
 const LayerName = z.string().trim().min(1).max(255);
 const DecisionNote = z.string().trim().max(5000);
@@ -2576,7 +2616,9 @@ export async function loadDrawingWorkspaceSourceBundle(
       : null;
   const ifc =
     selectedCandidate && loadSelectedIfc ? await sign(selectedCandidate) : null;
-  const previousPdf = previousFile ? await sign(previousFile) : null;
+  const previousPdf = previousFile
+    ? drawingWorkspaceSourceCatalogItem(previousFile)
+    : null;
   return {
     primary,
     pdf,
@@ -2592,6 +2634,102 @@ export async function loadDrawingWorkspaceSourceBundle(
         }
       : null,
     catalog,
+  };
+}
+
+export async function loadDrawingWorkspacePreviousPdf(
+  client: DrawingWorkspaceClient,
+  workspace: DrawingWorkspace,
+  request: DrawingWorkspacePreviousPdfRequest,
+): Promise<DrawingWorkspaceSourceDescriptor> {
+  const input = DrawingWorkspacePreviousPdfRequestSchema.parse(request);
+  if (!workspace.document || workspace.file.kind !== "pdf")
+    throw new Response("PDF 개정 비교를 사용할 수 없습니다.", {
+      status: 409,
+    });
+  const activePageNumbers = [
+    ...workspace.document.revision.pages
+      .filter(
+        (page): page is DrawingPageRow =>
+          "background_pdf_page" in page &&
+          page.background_source_file_id === workspace.file.id &&
+          page.background_source_sha256 === workspace.file.sha256,
+      )
+      .map((page) => page.background_pdf_page),
+    ...workspace.document.revision.pages
+      .filter((page): page is DrawingWorkspaceP2Page => "canvases" in page)
+      .flatMap((page) => page.canvases)
+      .map((canvas) => canvas.background)
+      .filter(
+        (background) =>
+          background?.sourceFileId === workspace.file.id &&
+          background.sourceSha256 === workspace.file.sha256,
+      )
+      .map((background) => background!.pdfPageNumber),
+  ];
+  if (!activePageNumbers.includes(input.pageNumber))
+    throw new Response("현재 PDF 페이지만 비교할 수 있습니다.", {
+      status: 409,
+    });
+
+  const [files, edges] = await Promise.all([
+    loadAllDrawingRows<DrawingWorkspaceFile>(client, {
+      table: "lukas_qto_files",
+      projectId: workspace.file.project_id,
+      filters: [["immutable", true]],
+      order: [{ column: "id", direction: "asc" }],
+      select:
+        "id,project_id,kind,original_filename,storage_path,content_type,byte_size,sha256,immutable,created_at",
+    }),
+    loadAllDrawingRows<DrawingFileRevisionEdgeRow>(client, {
+      table: "lukas_qto_file_revisions",
+      projectId: workspace.file.project_id,
+      filters: [
+        ["current_file_id", workspace.file.id],
+        ["relation_kind", "supersedes"],
+      ],
+      order: [{ column: "id", direction: "asc" }],
+      select:
+        "id,project_id,previous_file_id,previous_sha256,current_file_id,current_sha256,relation_kind",
+    }),
+  ]);
+  const edge = edges.length === 1 ? edges[0] : null;
+  const previous = edge
+    ? files.find((file) => file.id === edge.previous_file_id)
+    : null;
+  if (
+    !edge ||
+    edge.id !== input.revisionEdgeId ||
+    edge.project_id !== workspace.file.project_id ||
+    edge.current_file_id !== workspace.file.id ||
+    edge.current_file_id !== input.currentFileId ||
+    edge.current_sha256 !== workspace.file.sha256 ||
+    edge.current_sha256 !== input.currentSha256 ||
+    edge.previous_file_id !== input.previousFileId ||
+    edge.previous_sha256 !== input.previousSha256 ||
+    edge.relation_kind !== "supersedes" ||
+    !previous ||
+    previous.project_id !== workspace.file.project_id ||
+    previous.kind !== "pdf" ||
+    previous.immutable !== true ||
+    previous.sha256 !== edge.previous_sha256 ||
+    !Uuid.safeParse(previous.id).success ||
+    !Sha256.safeParse(previous.sha256).success ||
+    typeof previous.storage_path !== "string" ||
+    !Number.isSafeInteger(previous.byte_size) ||
+    previous.byte_size < 0
+  )
+    throw new Response("PDF 바로 이전 개정 원본 증거가 일치하지 않습니다.", {
+      status: 409,
+    });
+  const { data, error } = await client.storage
+    .from("lukas-qto")
+    .createSignedUrl(previous.storage_path, 300);
+  if (error || !data?.signedUrl)
+    throw new Response("이전 PDF 원본을 열지 못했습니다.", { status: 500 });
+  return {
+    ...drawingWorkspaceSourceCatalogItem(previous),
+    signedUrl: data.signedUrl,
   };
 }
 

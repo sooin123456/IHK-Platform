@@ -133,6 +133,9 @@ export default function DrawingIssuePanel({
     [approvals, selected?.id],
   );
   const mayWrite = role !== "viewer";
+  const selectedRequiresRelink = revisionReview.some(
+    (item) => item.issueId === selected?.id,
+  );
   const statusOptions = selected
     ? drawingIssueStatuses.filter(
         (status) =>
@@ -398,7 +401,10 @@ export default function DrawingIssuePanel({
                 </Button>
               </div>
             </Form>
-          ) : pendingAnchor && mayWrite && !relinkCandidate ? (
+          ) : pendingAnchor &&
+            mayWrite &&
+            !relinkCandidate &&
+            !selectedRequiresRelink ? (
             <Form className="mt-4" method="post">
               <input name="intent" type="hidden" value="add_anchor" />
               <input name="issue_id" type="hidden" value={selected.id} />
@@ -415,6 +421,19 @@ export default function DrawingIssuePanel({
                 <Link2 className="size-4" /> 선택한 도면 근거 연결
               </Button>
             </Form>
+          ) : null}
+
+          {pendingAnchor &&
+          mayWrite &&
+          selectedRequiresRelink &&
+          !relinkCandidate ? (
+            <p
+              className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+              role="status"
+            >
+              개정 검토 후보를 먼저 선택하세요. 이 근거는 별도 연결이나 해제
+              없이 원자적 교체로만 저장됩니다.
+            </p>
           ) : null}
 
           <section className="mt-5" aria-label="연결된 도면 근거">
@@ -452,7 +471,7 @@ export default function DrawingIssuePanel({
                       열기
                     </Link>
                   </div>
-                  {anchor.active && mayWrite ? (
+                  {anchor.active && mayWrite && !selectedRequiresRelink ? (
                     <details className="mt-2">
                       <summary className="cursor-pointer text-xs text-muted-foreground">
                         근거 해제

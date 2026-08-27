@@ -12,6 +12,7 @@ import {
 import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
 import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
+  parseDrawingWorkspacePreviousPdfForm,
   parseWorkspaceMutation,
   type DrawingWorkspace,
   type DrawingWorkspaceSourceBundle,
@@ -939,7 +940,6 @@ export function localDrawingWorkspacePreviewFixture(options?: {
       originalFilename: "근린생활시설_A-101-r1.pdf",
       byteSize: 1_048_576,
       sha256: "b".repeat(64),
-      signedUrl: "/__p5-previous.pdf",
     },
     revisionEdge: {
       id: previewPdfRevisionEdgeId,
@@ -1228,7 +1228,40 @@ export async function action({ request }: Route.ActionArgs) {
   if (!isLocalPreviewRequest(request))
     return data({ ok: false, error: "Not Found" }, { status: 404 });
   try {
-    const mutation = parseWorkspaceMutation(await request.formData());
+    const form = await request.formData();
+    const intent = form.get("intent");
+    if (intent === "cancel_pdf_compare")
+      return data({ ok: true, kind: "pdf_compare_cancelled", error: null });
+    if (intent === "load_pdf_compare") {
+      const input = parseDrawingWorkspacePreviousPdfForm(form);
+      if (
+        new URL(request.url).searchParams.get("p5PdfTest") !== "1" ||
+        input.revisionEdgeId !== previewPdfRevisionEdgeId ||
+        input.currentFileId !== ids.file ||
+        input.currentSha256 !== sourceSha256 ||
+        input.previousFileId !== previewPreviousPdfFileId ||
+        input.previousSha256 !== "b".repeat(64) ||
+        input.pageNumber !== 1
+      )
+        return data(
+          { ok: false, error: "PDF 개정 비교 증거가 일치하지 않습니다." },
+          { status: 409 },
+        );
+      return data({
+        ok: true,
+        kind: "pdf_compare",
+        error: null,
+        previousPdf: {
+          id: previewPreviousPdfFileId,
+          kind: "pdf",
+          originalFilename: "근린생활시설_A-101-r1.pdf",
+          byteSize: 1_048_576,
+          sha256: "b".repeat(64),
+          signedUrl: "/__p5-previous.pdf",
+        },
+      });
+    }
+    const mutation = parseWorkspaceMutation(form);
     if (
       mutation.intent === "request_review" &&
       new URL(request.url).searchParams.get("reviewFreezeTest") === "1"

@@ -15,6 +15,7 @@ import {
   parseDrawingMutationForm,
 } from "~/lukas/lib/drawing-collaboration.server";
 import {
+  assertGenericDrawingAnchorMutationAllowed,
   loadDrawingRevisionReview,
   parseRelinkDrawingAnchorForm,
   relinkDrawingIssueAnchor,
@@ -113,6 +114,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       return data({ ok: true, error: null, relink: result }, { headers });
     }
     const input = parseDrawingMutationForm(form);
+    if (input.intent === "add_anchor")
+      await assertGenericDrawingAnchorMutationAllowed(client, project.id, {
+        intent: input.intent,
+        issueId: input.issueId,
+      });
+    else if (input.intent === "deactivate_anchor")
+      await assertGenericDrawingAnchorMutationAllowed(client, project.id, {
+        intent: input.intent,
+        anchorId: input.anchorId,
+      });
     await mutateDrawingIssue(client, user.id, project.id, input);
     return data({ ok: true, error: null, relink: null }, { headers });
   } catch (error) {

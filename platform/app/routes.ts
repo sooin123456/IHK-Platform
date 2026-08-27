@@ -18,6 +18,8 @@ export default [
     "/workspace-preview/drawing-workspace",
     "lukas/screens/local-drawing-workspace-preview.tsx",
   ),
+  route("/__p5-current.pdf", "lukas/screens/local-drawing-pdf-current.ts"),
+  route("/__p5-previous.pdf", "lukas/screens/local-drawing-pdf-preview.ts"),
   layout("core/layouts/navigation.layout.tsx", [
     route("/auth/confirm", "features/auth/screens/confirm.tsx"),
     index("features/home/screens/home.tsx"),

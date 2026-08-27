@@ -11,6 +11,7 @@ type RevisionReviewDatabase = {
           project_id: string;
           previous_file_id: string;
           current_file_id: string;
+          relation_kind: string;
         };
         Insert: never;
         Update: never;
@@ -20,6 +21,7 @@ type RevisionReviewDatabase = {
         Row: {
           id: string;
           issue_id: string;
+          project_id: string;
           file_id: string;
           anchor_kind: "ifc_element" | "pdf_region";
           ifc_global_id: string | null;
@@ -80,6 +82,81 @@ export type DrawingRevisionReviewItem = {
   kind: "ifc_candidate" | "manual_reanchor_required";
   ifcGlobalId: string | null;
 };
+
+export async function assertGenericDrawingAnchorMutationAllowed(
+  baseClient: DrawingClient,
+  projectId: string,
+  input:
+    | { intent: "add_anchor"; issueId: string }
+    | { intent: "deactivate_anchor"; anchorId: string },
+) {
+  const client =
+    baseClient as unknown as SupabaseClient<RevisionReviewDatabase>;
+  let revision:
+    | RevisionReviewDatabase["public"]["Tables"]["lukas_qto_file_revisions"]["Row"]
+    | null = null;
+
+  if (input.intent === "add_anchor") {
+    const predecessorResult = await client
+      .from("lukas_drawing_issue_anchors")
+      .select("id,issue_id,project_id,file_id,active")
+      .eq("project_id", projectId)
+      .eq("issue_id", input.issueId)
+      .eq("active", true);
+    if (predecessorResult.error)
+      throw new Error(
+        `이전 도면 근거를 확인하지 못했습니다: ${predecessorResult.error.message}`,
+      );
+    const previousFileIds = [
+      ...new Set(
+        (predecessorResult.data ?? []).map((anchor) => anchor.file_id),
+      ),
+    ];
+    if (!previousFileIds.length) return;
+    const revisionResult = await client
+      .from("lukas_qto_file_revisions")
+      .select("project_id,previous_file_id,current_file_id,relation_kind")
+      .eq("project_id", projectId)
+      .eq("relation_kind", "supersedes")
+      .in("previous_file_id", previousFileIds);
+    if (revisionResult.error)
+      throw new Error(
+        `도면 개정 관계를 확인하지 못했습니다: ${revisionResult.error.message}`,
+      );
+    revision = revisionResult.data?.[0] ?? null;
+    if (!revision) return;
+  } else {
+    const anchorResult = await client
+      .from("lukas_drawing_issue_anchors")
+      .select("id,issue_id,project_id,file_id,active")
+      .eq("project_id", projectId)
+      .eq("id", input.anchorId)
+      .eq("active", true)
+      .maybeSingle();
+    if (anchorResult.error)
+      throw new Error(
+        `도면 근거를 확인하지 못했습니다: ${anchorResult.error.message}`,
+      );
+    if (!anchorResult.data) return;
+    const revisionResult = await client
+      .from("lukas_qto_file_revisions")
+      .select("project_id,previous_file_id,current_file_id,relation_kind")
+      .eq("project_id", projectId)
+      .eq("previous_file_id", anchorResult.data.file_id)
+      .eq("relation_kind", "supersedes")
+      .maybeSingle();
+    if (revisionResult.error)
+      throw new Error(
+        `도면 개정 관계를 확인하지 못했습니다: ${revisionResult.error.message}`,
+      );
+    revision = revisionResult.data;
+    if (!revision) return;
+  }
+
+  throw new Error(
+    "개정 검토 근거는 후보 확인 후 원자적 교체로만 변경할 수 있습니다.",
+  );
+}
 
 const Uuid = z.string().uuid();
 const RelinkPdfAnchorSchema = z

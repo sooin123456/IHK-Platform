@@ -196,7 +196,7 @@ function sourceBundleClient(rows, revisionEdges = []) {
   };
 }
 
-test("PDF source bundle signs only the exact immediate immutable predecessor edge", async () => {
+test("PDF source bundle exposes exact predecessor metadata without signing it", async () => {
   const current = workspaceFile();
   const previous = workspaceFile({
     id: sourceBundleIds.previous,
@@ -228,7 +228,6 @@ test("PDF source bundle signs only the exact immediate immutable predecessor edg
     originalFilename: "plan-r1.pdf",
     byteSize: 3072,
     sha256: "c".repeat(64),
-    signedUrl: "https://storage.test/projects/plan-r1.pdf",
   });
   assert.deepEqual(bundle.revisionEdge, {
     id: edge.id,
@@ -239,11 +238,99 @@ test("PDF source bundle signs only the exact immediate immutable predecessor edg
   });
   assert.deepEqual(
     client.calls.filter(([kind]) => kind === "sign"),
-    [
-      ["sign", "projects/plan.pdf", 300],
-      ["sign", "projects/plan-r1.pdf", 300],
-    ],
+    [["sign", "projects/plan.pdf", 300]],
   );
+});
+
+test("PDF compare opt-in signs exactly one revalidated predecessor capability", async () => {
+  const current = workspaceFile();
+  const previous = workspaceFile({
+    id: sourceBundleIds.previous,
+    original_filename: "plan-r1.pdf",
+    storage_path: "projects/plan-r1.pdf",
+    byte_size: 3072,
+    sha256: "c".repeat(64),
+  });
+  const edge = {
+    id: sourceBundleIds.edge,
+    project_id: p5Ids.project,
+    previous_file_id: previous.id,
+    previous_sha256: previous.sha256,
+    current_file_id: current.id,
+    current_sha256: current.sha256,
+    relation_kind: "supersedes",
+  };
+  const client = sourceBundleClient([current, previous], [edge]);
+
+  const descriptor = await workspaceServer.loadDrawingWorkspacePreviousPdf(
+    client,
+    sourceWorkspace(current),
+    {
+      revisionEdgeId: edge.id,
+      currentFileId: current.id,
+      currentSha256: current.sha256,
+      previousFileId: previous.id,
+      previousSha256: previous.sha256,
+      pageNumber: 1,
+    },
+  );
+
+  assert.deepEqual(descriptor, {
+    id: previous.id,
+    kind: "pdf",
+    originalFilename: "plan-r1.pdf",
+    byteSize: 3072,
+    sha256: "c".repeat(64),
+    signedUrl: "https://storage.test/projects/plan-r1.pdf",
+  });
+  assert.deepEqual(
+    client.calls.filter(([kind]) => kind === "sign"),
+    [["sign", "projects/plan-r1.pdf", 300]],
+  );
+});
+
+test("PDF compare lazy signer rejects stale edge or inactive page before signing", async () => {
+  const current = workspaceFile();
+  const previous = workspaceFile({
+    id: sourceBundleIds.previous,
+    storage_path: "projects/plan-r1.pdf",
+    sha256: "c".repeat(64),
+  });
+  const edge = {
+    id: sourceBundleIds.edge,
+    project_id: p5Ids.project,
+    previous_file_id: previous.id,
+    previous_sha256: previous.sha256,
+    current_file_id: current.id,
+    current_sha256: current.sha256,
+    relation_kind: "supersedes",
+  };
+  for (const patch of [
+    { revisionEdgeId: crypto.randomUUID() },
+    { previousSha256: "d".repeat(64) },
+    { pageNumber: 2 },
+  ]) {
+    const client = sourceBundleClient([current, previous], [edge]);
+    await assert.rejects(
+      workspaceServer.loadDrawingWorkspacePreviousPdf(
+        client,
+        sourceWorkspace(current),
+        {
+          revisionEdgeId: edge.id,
+          currentFileId: current.id,
+          currentSha256: current.sha256,
+          previousFileId: previous.id,
+          previousSha256: previous.sha256,
+          pageNumber: 1,
+          ...patch,
+        },
+      ),
+    );
+    assert.deepEqual(
+      client.calls.filter(([kind]) => kind === "sign"),
+      [],
+    );
+  }
 });
 
 test("PDF source bundle never guesses a predecessor without one exact supersedes edge", async () => {

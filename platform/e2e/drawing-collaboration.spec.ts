@@ -100,24 +100,158 @@ test.describe.serial("1HK drawing collaboration", () => {
         "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
       ),
     ).toBeVisible();
+    await ownerPage.getByRole("button", { name: /창호 치수 확인 E2E/ }).click();
+    const revisedCanvas = ownerPage.getByTestId("pdf-canvas");
+    const selectRevisedRegion = async () => {
+      await ownerPage.getByRole("button", { name: "영역 지정" }).click();
+      const revisedBox = await revisedCanvas.boundingBox();
+      if (!revisedBox) throw new Error("Revised PDF canvas has no layout box");
+      await ownerPage.mouse.move(
+        revisedBox.x + revisedBox.width * 0.3,
+        revisedBox.y + revisedBox.height * 0.25,
+      );
+      await ownerPage.mouse.down();
+      await ownerPage.mouse.move(
+        revisedBox.x + revisedBox.width * 0.65,
+        revisedBox.y + revisedBox.height * 0.55,
+      );
+      await ownerPage.mouse.up();
+    };
+    await selectRevisedRegion();
+    await expect(
+      ownerPage.getByText(/개정 검토 후보를 먼저 선택하세요/),
+    ).toBeVisible();
+    await expect(
+      ownerPage.locator('input[name="intent"][value="add_anchor"]'),
+    ).toHaveCount(0);
+    await expect(
+      ownerPage.locator('input[name="intent"][value="deactivate_anchor"]'),
+    ).toHaveCount(0);
+
+    const roomUrl = `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`;
+    const crossRouteUrl = `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.pdfFileId}`;
+    const bypassAnchor = JSON.stringify({
+      kind: "pdf_region",
+      fileId: fixture.revisedPdfFileId,
+      pageNumber: 1,
+      x: 0.2,
+      y: 0.2,
+      width: 0.2,
+      height: 0.2,
+      label: "분리 요청 우회",
+    });
+    const bypassAdd = await ownerPage.request.post(crossRouteUrl, {
+      form: {
+        intent: "add_anchor",
+        issue_id: createdIssue.id,
+        anchor_json: bypassAnchor,
+      },
+    });
+    expect(bypassAdd.status()).toBe(400);
+    const bypassDeactivate = await ownerPage.request.post(crossRouteUrl, {
+      form: {
+        intent: "deactivate_anchor",
+        anchor_id: previousAnchor.id,
+        note: "분리 요청 우회",
+      },
+    });
+    expect(bypassDeactivate.status()).toBe(400);
+    const { error: directInsertError } = await ownerApi
+      .from("lukas_drawing_issue_anchors")
+      .insert({
+        id: crypto.randomUUID(),
+        issue_id: createdIssue.id,
+        project_id: fixture.projectId,
+        file_id: fixture.revisedPdfFileId,
+        anchor_kind: "pdf_region",
+        element_id: null,
+        ifc_global_id: null,
+        camera_json: null,
+        page_number: 1,
+        x: 0.2,
+        y: 0.2,
+        width: 0.2,
+        height: 0.2,
+        label: "직접 Data API 우회",
+        active: true,
+        created_by: fixture.owner.id,
+        replaces_anchor_id: null,
+      });
+    expect(directInsertError?.message).toMatch(/atomic relink function/i);
+    const { error: directUpdateError } = await ownerApi
+      .from("lukas_drawing_issue_anchors")
+      .update({ active: false, deactivation_note: "직접 Data API 우회" })
+      .eq("id", previousAnchor.id);
+    expect(directUpdateError?.message).toMatch(/atomic relink function/i);
+    const failedRelink = await ownerPage.request.post(roomUrl, {
+      form: {
+        intent: "relink_anchor",
+        previous_anchor_id: previousAnchor.id,
+        new_anchor_id: crypto.randomUUID(),
+        current_file_id: fixture.revisedPdfFileId,
+        anchor_json: JSON.stringify({
+          ...JSON.parse(bypassAnchor),
+          fileId: fixture.pdfFileId,
+        }),
+        note: "파일 불일치 롤백 확인",
+      },
+    });
+    expect(failedRelink.status()).toBe(400);
+    const { data: anchorsAfterFailure, error: anchorsAfterFailureError } =
+      await ownerApi
+        .from("lukas_drawing_issue_anchors")
+        .select("id,active,replaces_anchor_id")
+        .eq("issue_id", createdIssue.id);
+    if (anchorsAfterFailureError) throw anchorsAfterFailureError;
+    expect(anchorsAfterFailure).toEqual([
+      expect.objectContaining({
+        id: previousAnchor.id,
+        active: true,
+        replaces_anchor_id: null,
+      }),
+    ]);
+
+    const viewerRevisionContext = await browser.newContext();
+    const viewerRevisionPage = await authenticateContext(
+      fixture,
+      viewerRevisionContext,
+      fixture.viewer,
+      baseUrl,
+      `/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`,
+    );
+    await expect(
+      viewerRevisionPage.getByText("개정 도면 재검토 1건"),
+    ).toBeVisible();
+    await expect(
+      viewerRevisionPage.getByRole("button", {
+        name: "원자적으로 근거 교체 확인",
+      }),
+    ).toHaveCount(0);
+    await expect(
+      viewerRevisionPage.locator(
+        'input[name="intent"][value="add_anchor"], input[name="intent"][value="deactivate_anchor"]',
+      ),
+    ).toHaveCount(0);
+    await viewerRevisionContext.close();
+
     await ownerPage.getByRole("button", { name: "후보 검토" }).click();
     await expect(
       ownerPage.getByRole("button", { name: "검토 중인 후보" }),
     ).toBeVisible();
-    await ownerPage.getByRole("button", { name: "영역 지정" }).click();
-    const revisedCanvas = ownerPage.getByTestId("pdf-canvas");
-    const revisedBox = await revisedCanvas.boundingBox();
-    if (!revisedBox) throw new Error("Revised PDF canvas has no layout box");
-    await ownerPage.mouse.move(
-      revisedBox.x + revisedBox.width * 0.3,
-      revisedBox.y + revisedBox.height * 0.25,
-    );
-    await ownerPage.mouse.down();
-    await ownerPage.mouse.move(
-      revisedBox.x + revisedBox.width * 0.65,
-      revisedBox.y + revisedBox.height * 0.55,
-    );
-    await ownerPage.mouse.up();
+    await expect(
+      ownerPage.locator(
+        'input[name="intent"][value="add_anchor"], input[name="intent"][value="deactivate_anchor"]',
+      ),
+    ).toHaveCount(0);
+    await selectRevisedRegion();
+    await expect(
+      ownerPage.getByRole("form", { name: "개정 근거 원자적 교체" }),
+    ).toBeVisible();
+    await expect(
+      ownerPage.locator(
+        'input[name="intent"][value="add_anchor"], input[name="intent"][value="deactivate_anchor"]',
+      ),
+    ).toHaveCount(0);
     await ownerPage
       .getByLabel("교체 검토 메모")
       .fill("개정본에서 새 영역을 직접 확인함");
