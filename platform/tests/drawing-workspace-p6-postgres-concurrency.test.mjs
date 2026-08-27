@@ -21,6 +21,41 @@ const databaseUrl = process.env.P6_REAL_POSTGRES_DATABASE_URL;
 const required = process.env.P6_REAL_POSTGRES_REQUIRED === "1";
 const roles = Object.freeze(["anon", "authenticated", "service_role"]);
 const overLinkId = "66000000-0000-4000-8000-000000000010";
+const matrixIds = Object.freeze({
+  otherQuantity: "66000000-0000-4000-8000-000000000020",
+  foreignRevisionQuantity: "66000000-0000-4000-8000-000000000021",
+  foreignObjectQuantity: "66000000-0000-4000-8000-000000000022",
+  foreignSnapshotQuantity: "66000000-0000-4000-8000-000000000023",
+  foreignQuantityBoqLink: "66000000-0000-4000-8000-000000000025",
+  foreignVersionBoqLink: "66000000-0000-4000-8000-000000000026",
+  foreignLineBoqLink: "66000000-0000-4000-8000-000000000027",
+  deniedBoqLink: "66000000-0000-4000-8000-00000000002c",
+  approvedSuccessor: "65000000-0000-4000-8000-000000000020",
+});
+const realPostgresMatrix = Object.freeze({
+  applyPaths: ["fresh", "populated-upgrade"],
+  foreignIdentities: [
+    "revision",
+    "object",
+    "snapshot",
+    "quantity",
+    "boq-line",
+    "boq-version",
+    "manifest-file",
+    "component",
+    "resource",
+    "plan",
+  ],
+  drawingAuthority: [
+    "draft:approved-decision",
+    "review_requested:approved-decision",
+    "approved:approved-decision",
+    "approved:rejected-decision",
+    "approved:missing-decision",
+    "superseded:approved-decision",
+  ],
+  boqAuthority: ["draft", "rejected", "in_review", "approved", "superseded"],
+});
 
 function quoteIdentifier(value) {
   assert.match(value, /^[a-z][a-z0-9_]{0,62}$/);
@@ -89,17 +124,27 @@ async function session(
   });
 }
 
-async function insertQuantity(sql, snapshotSha) {
+async function insertQuantity(sql, snapshotSha, overrides = {}) {
+  const values = {
+    actorId: p6Ids.maker,
+    id: p6Ids.quantityLink,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.wall,
+    lineageId: p6Ids.wall,
+    fingerprint: p6WallFingerprint,
+    rawQuantity: 5,
+    ...overrides,
+  };
   return session(
     sql,
     "service_role",
-    p6Ids.maker,
+    values.actorId,
     (tx) => tx`
     select (private.lukas_drawing_insert_quantity_link(
-      ${p6Ids.maker}::uuid,${p6Ids.quantityLink}::uuid,
-      ${p6Ids.revision}::uuid,${p6Ids.wall}::uuid,'length',
-      ${snapshotSha}::text,${p6Ids.wall}::uuid,1,
-      ${p6WallFingerprint},5,'m','P4_MEASUREMENT_V1'
+      ${values.actorId}::uuid,${values.id}::uuid,
+      ${values.revisionId}::uuid,${values.objectId}::uuid,'length',
+      ${snapshotSha}::text,${values.lineageId}::uuid,1,
+      ${values.fingerprint},${values.rawQuantity},'m','P4_MEASUREMENT_V1'
     )).*
   `,
   );
@@ -113,6 +158,9 @@ async function putBoqLink(
     anonymous = false,
     baseVersion = null,
     id = p6Ids.boqLink,
+    quantityId = p6Ids.quantityLink,
+    versionId = p6Ids.boq11,
+    lineId = p6Ids.boq11Line,
   } = {},
 ) {
   return session(
@@ -121,8 +169,8 @@ async function putBoqLink(
     actor,
     (tx) => tx`
       select (public.lukas_drawing_put_boq_link(
-        ${id}::uuid,${p6Ids.quantityLink}::uuid,${p6Ids.boq11}::uuid,
-        ${p6Ids.boq11Line}::uuid,${factor}::numeric,${baseVersion}::bigint
+        ${id}::uuid,${quantityId}::uuid,${versionId}::uuid,
+        ${lineId}::uuid,${factor}::numeric,${baseVersion}::bigint
       )).*
     `,
     { anonymous },
@@ -161,6 +209,8 @@ async function materialHandoff(
     versionId = p6Ids.boq11,
     manifestFileId = p6Ids.manifestFile,
     manifestSha = p6Sha.handoff,
+    plans,
+    links,
   } = {},
 ) {
   const payload = p6MaterialPayload();
@@ -172,7 +222,8 @@ async function materialHandoff(
     select private.lukas_drawing_insert_material_handoff(
       ${p6Ids.maker}::uuid,${versionId}::uuid,${p6Sha.result},
       ${manifestFileId}::uuid,${manifestSha},
-      ${tx.json(payload.plans)}::jsonb,${tx.json(payload.links)}::jsonb
+      ${tx.json(plans ?? payload.plans)}::jsonb,
+      ${tx.json(links ?? payload.links)}::jsonb
     ) value
   `,
   );
@@ -208,6 +259,33 @@ async function snapshotP0P5(sql) {
   return snapshot.value;
 }
 
+test("P6 real PostgreSQL authority matrix is complete", () => {
+  assert.deepEqual(realPostgresMatrix, {
+    applyPaths: ["fresh", "populated-upgrade"],
+    foreignIdentities: [
+      "revision",
+      "object",
+      "snapshot",
+      "quantity",
+      "boq-line",
+      "boq-version",
+      "manifest-file",
+      "component",
+      "resource",
+      "plan",
+    ],
+    drawingAuthority: [
+      "draft:approved-decision",
+      "review_requested:approved-decision",
+      "approved:approved-decision",
+      "approved:rejected-decision",
+      "approved:missing-decision",
+      "superseded:approved-decision",
+    ],
+    boqAuthority: ["draft", "rejected", "in_review", "approved", "superseded"],
+  });
+});
+
 test(
   "P6 real PostgreSQL gate is configured",
   { skip: !required || Boolean(databaseUrl) },
@@ -222,13 +300,15 @@ test(
   async () => {
     const admin = postgres(databaseUrl, { max: 1, prepare: false });
     const databaseName = `p6_task_${process.pid}_${randomBytes(6).toString("hex")}`;
+    const freshDatabaseName = `${databaseName}_fresh`;
     const databaseIdentifier = quoteIdentifier(databaseName);
+    const freshDatabaseIdentifier = quoteIdentifier(freshDatabaseName);
     const createdRoles = [];
     const grantedMemberships = [];
+    const createdDatabases = [];
     const clients = [];
-    let databaseCreated = false;
-    const openClient = () => {
-      const client = postgres(isolatedUrl(databaseUrl, databaseName), {
+    const openClient = (targetDatabase = databaseName) => {
+      const client = postgres(isolatedUrl(databaseUrl, targetDatabase), {
         max: 1,
         prepare: false,
       });
@@ -262,8 +342,32 @@ test(
         }
       }
 
+      await admin.unsafe(`create database ${freshDatabaseIdentifier}`);
+      createdDatabases.push([freshDatabaseName, freshDatabaseIdentifier]);
+      const freshOwner = openClient(freshDatabaseName);
+      const freshAdapter = adapter(freshOwner);
+      await applyP6AuthorityFixture(freshAdapter, {
+        createRoles: false,
+        optIn: true,
+      });
+      await freshOwner.unsafe(await readP6Migration());
+      const [freshAuthority] = await freshOwner`select
+        pg_catalog.to_regclass('public.lukas_drawing_quantity_links')::text quantities,
+        pg_catalog.to_regclass('public.lukas_drawing_boq_links')::text boq_links,
+        pg_catalog.to_regclass('public.lukas_drawing_material_links')::text material_links,
+        pg_catalog.to_regprocedure(
+          'public.lukas_drawing_put_boq_link(uuid,uuid,uuid,uuid,numeric,bigint)'
+        )::text put_boq_link`;
+      assert.deepEqual(freshAuthority, {
+        quantities: "lukas_drawing_quantity_links",
+        boq_links: "lukas_drawing_boq_links",
+        material_links: "lukas_drawing_material_links",
+        put_boq_link:
+          "lukas_drawing_put_boq_link(uuid,uuid,uuid,uuid,numeric,bigint)",
+      });
+
       await admin.unsafe(`create database ${databaseIdentifier}`);
-      databaseCreated = true;
+      createdDatabases.push([databaseName, databaseIdentifier]);
       const owner = openClient();
       const ownerAdapter = adapter(owner);
       await applyP6AuthorityFixture(ownerAdapter, {
@@ -306,23 +410,123 @@ test(
         "P6O01",
       );
       await insertQuantity(serviceA, seed.snapshotSha256);
-      await assertSqlState(
-        session(
-          serviceA,
-          "service_role",
-          p6Ids.maker,
-          (tx) => tx`
-            select private.lukas_drawing_insert_quantity_link(
-              ${p6Ids.maker}::uuid,
-              '66000000-0000-4000-8000-000000000021'::uuid,
-              ${p6Ids.otherRevision}::uuid,${p6Ids.otherWall}::uuid,'length',
-              ${seed.otherSnapshotSha256},${p6Ids.otherWall}::uuid,1,
-              ${p6OtherWallFingerprint},1,'m','P4_MEASUREMENT_V1'
-            )
-          `,
-        ),
-        "P6Q03",
+
+      // Explicit table-owner damage probes: production revision transitions
+      // cannot rewrite an approved revision to these states. P6 must still
+      // fail closed when status or decision authority is damaged underneath it.
+      await owner.unsafe(`alter table public.lukas_drawing_revisions
+        disable trigger lukas_drawing_revisions_guard`);
+      try {
+        for (const authority of realPostgresMatrix.drawingAuthority) {
+          const [status, decisionAuthority] = authority.split(":");
+          await owner`
+            update public.lukas_drawing_revisions set status=${status}
+            where id=${p6Ids.revision}::uuid
+          `;
+          await owner`
+            delete from public.lukas_drawing_revision_approvals
+            where id=${p6Ids.drawingApproval}::uuid
+          `;
+          if (decisionAuthority !== "missing-decision") {
+            const decision = decisionAuthority.startsWith("approved")
+              ? "approved"
+              : "rejected";
+            await owner`
+              insert into public.lukas_drawing_revision_approvals(
+                id,revision_id,project_id,subject_version,snapshot_sha256,
+                decision,note,decided_by,created_at
+              ) values(
+                ${p6Ids.drawingApproval}::uuid,${p6Ids.revision}::uuid,
+                ${p6Ids.project}::uuid,7,${seed.snapshotSha256},${decision},
+                'real PostgreSQL authority probe',${p6Ids.reviewer}::uuid,
+                '2026-08-04T00:00:00Z'
+              )
+            `;
+          }
+          if (
+            ["approved", "superseded"].includes(status) &&
+            decisionAuthority === "approved-decision"
+          ) {
+            assert.equal(
+              (await insertQuantity(serviceA, seed.snapshotSha256))[0].id,
+              p6Ids.quantityLink,
+            );
+          } else {
+            await assertSqlState(
+              insertQuantity(serviceA, seed.snapshotSha256),
+              "P6Q03",
+            );
+          }
+        }
+      } finally {
+        await owner`
+          update public.lukas_drawing_revisions set status='approved'
+          where id=${p6Ids.revision}::uuid
+        `;
+        await owner`
+          delete from public.lukas_drawing_revision_approvals
+          where id=${p6Ids.drawingApproval}::uuid
+        `;
+        await owner`
+          insert into public.lukas_drawing_revision_approvals(
+            id,revision_id,project_id,subject_version,snapshot_sha256,
+            decision,note,decided_by,created_at
+          ) values(
+            ${p6Ids.drawingApproval}::uuid,${p6Ids.revision}::uuid,
+            ${p6Ids.project}::uuid,7,${seed.snapshotSha256},'approved',
+            'checked',${p6Ids.reviewer}::uuid,'2026-08-04T00:00:00Z'
+          )
+        `;
+        await owner.unsafe(`alter table public.lukas_drawing_revisions
+          enable trigger lukas_drawing_revisions_guard`);
+      }
+
+      for (const identity of realPostgresMatrix.foreignIdentities.filter(
+        (value) => ["revision", "object", "snapshot"].includes(value),
+      )) {
+        const probes = {
+          revision: {
+            id: matrixIds.foreignRevisionQuantity,
+            revisionId: p6Ids.otherRevision,
+            objectId: p6Ids.otherWall,
+            lineageId: p6Ids.otherWall,
+            fingerprint: p6OtherWallFingerprint,
+            rawQuantity: 1,
+            snapshotSha: seed.otherSnapshotSha256,
+          },
+          object: {
+            id: matrixIds.foreignObjectQuantity,
+            objectId: p6Ids.otherWall,
+            lineageId: p6Ids.otherWall,
+            fingerprint: p6OtherWallFingerprint,
+            rawQuantity: 1,
+            snapshotSha: seed.snapshotSha256,
+          },
+          snapshot: {
+            id: matrixIds.foreignSnapshotQuantity,
+            snapshotSha: seed.otherSnapshotSha256,
+          },
+        };
+        const { snapshotSha, ...overrides } = probes[identity];
+        await assertSqlState(
+          insertQuantity(serviceA, snapshotSha, overrides),
+          "P6Q03",
+        );
+      }
+      const [otherQuantity] = await insertQuantity(
+        serviceA,
+        seed.otherSnapshotSha256,
+        {
+          actorId: p6Ids.otherMaker,
+          id: matrixIds.otherQuantity,
+          revisionId: p6Ids.otherRevision,
+          objectId: p6Ids.otherWall,
+          lineageId: p6Ids.otherWall,
+          fingerprint: p6OtherWallFingerprint,
+          rawQuantity: 1,
+        },
       );
+      assert.equal(otherQuantity.project_id, p6Ids.otherProject);
 
       await assertSqlState(boqInput(roleClient, p6Ids.maker, true), "P6A01");
       await assertSqlState(boqInput(roleClient, null), "P6A01");
@@ -334,21 +538,29 @@ test(
         p6Ids.reviewer,
       ])
         await assertSqlState(putBoqLink(roleClient, "0.4", { actor }), "P6A01");
-      await assertSqlState(
-        session(
-          makerA,
-          "authenticated",
-          p6Ids.maker,
-          (tx) => tx`
-            select public.lukas_drawing_put_boq_link(
-              '66000000-0000-4000-8000-000000000027'::uuid,
-              ${p6Ids.quantityLink}::uuid,${p6Ids.boq11}::uuid,
-              ${p6Ids.otherBoqLine}::uuid,.4,null
-            )
-          `,
-        ),
-        "P6U01",
-      );
+      for (const identity of realPostgresMatrix.foreignIdentities.filter(
+        (value) => ["quantity", "boq-line", "boq-version"].includes(value),
+      )) {
+        const probes = {
+          quantity: {
+            id: matrixIds.foreignQuantityBoqLink,
+            quantityId: matrixIds.otherQuantity,
+            code: "P6U01",
+          },
+          "boq-line": {
+            id: matrixIds.foreignLineBoqLink,
+            lineId: p6Ids.otherBoqLine,
+            code: "P6U01",
+          },
+          "boq-version": {
+            id: matrixIds.foreignVersionBoqLink,
+            versionId: p6Ids.otherBoq,
+            code: "P6A01",
+          },
+        };
+        const { code, ...options } = probes[identity];
+        await assertSqlState(putBoqLink(makerA, "0.4", options), code);
+      }
 
       const exactRace = await Promise.all([
         putBoqLink(makerA, "0.4"),
@@ -404,6 +616,64 @@ test(
         "P6O01",
       );
       await putBoqLink(makerA, "1", { baseVersion: 2 });
+      const visitedBoqAuthority = new Set();
+      const boqDirectDml = [
+        `insert into public.lukas_drawing_boq_links
+          select '${matrixIds.deniedBoqLink}'::uuid,
+            project_id,quantity_link_id,boq_version_id,boq_line_id,
+            allocation_factor,version,created_by,updated_by,created_at,updated_at
+          from public.lukas_drawing_boq_links
+          where id='${p6Ids.boqLink}'::uuid`,
+        `update public.lukas_drawing_boq_links set allocation_factor=.9
+          where id='${p6Ids.boqLink}'::uuid`,
+        `delete from public.lukas_drawing_boq_links
+          where id='${p6Ids.boqLink}'::uuid`,
+      ];
+      const proveBoqAuthority = async (authority) => {
+        const [state] = await owner`
+          select status,
+            exists(select 1 from public.lukas_qto_boq_approvals
+              where version_id=${p6Ids.boq11}::uuid
+                and decision='rejected') rejected
+          from public.lukas_qto_boq_versions
+          where id=${p6Ids.boq11}::uuid
+        `;
+        assert.equal(
+          state.status,
+          authority === "rejected" ? "draft" : authority,
+        );
+        if (["draft", "rejected"].includes(authority))
+          assert.equal(state.rejected, authority === "rejected");
+        for (const statement of boqDirectDml)
+          await assertSqlState(
+            session(roleClient, "authenticated", p6Ids.maker, (tx) =>
+              tx.unsafe(statement),
+            ),
+            "42501",
+          );
+        if (["draft", "rejected"].includes(authority)) {
+          await owner`
+            update public.lukas_drawing_boq_links set allocation_factor=.9
+            where id=${p6Ids.boqLink}::uuid
+          `;
+          await owner`
+            update public.lukas_drawing_boq_links set allocation_factor=1
+            where id=${p6Ids.boqLink}::uuid
+          `;
+          assert.equal((await putBoqLink(makerA, "1"))[0].id, p6Ids.boqLink);
+        } else {
+          await assertSqlState(
+            owner`
+              update public.lukas_drawing_boq_links set allocation_factor=.9
+              where id=${p6Ids.boqLink}::uuid
+            `,
+            "P6O01",
+          );
+          await assertSqlState(putBoqLink(makerA, "1"), "P6O01");
+        }
+        visitedBoqAuthority.add(authority);
+      };
+      await proveBoqAuthority("draft");
       let [inputRow] = await boqInput(makerA);
       let releaseEdit;
       let markEditReady;
@@ -476,11 +746,11 @@ test(
         finalize(serviceB, inputRow.value.inputStateSha256),
       ]);
       assert.deepEqual(submissionRace[1][0], submissionRace[0][0]);
+      await proveBoqAuthority("in_review");
       await assertSqlState(
         finalize(serviceA, inputRow.value.inputStateSha256, p6Sha.other),
         "P6O01",
       );
-      await assertSqlState(putBoqLink(makerA, "1"), "P6O01");
 
       await assertSqlState(
         session(
@@ -515,27 +785,90 @@ test(
         p6Ids.reviewer,
         (tx) => tx`
           select public.lukas_qto_decide_boq(
+            ${p6Ids.boq11}::uuid,'rejected','revise quantities'
+          )
+        `,
+      );
+      await proveBoqAuthority("rejected");
+      [inputRow] = await boqInput(makerA);
+      await finalize(serviceA, inputRow.value.inputStateSha256);
+      await session(
+        roleClient,
+        "authenticated",
+        p6Ids.reviewer,
+        (tx) => tx`
+          select public.lukas_qto_decide_boq(
             ${p6Ids.boq11}::uuid,'approved','independent reviewer'
           )
         `,
       );
-      await assertSqlState(
-        materialHandoff(serviceA, {
-          manifestFileId: p6Ids.otherManifestFile,
-        }),
-        "P6M01",
-      );
+      await proveBoqAuthority("approved");
+      const materialPayload = p6MaterialPayload();
+      for (const identity of realPostgresMatrix.foreignIdentities.filter(
+        (value) =>
+          [
+            "manifest-file",
+            "boq-version",
+            "component",
+            "resource",
+            "plan",
+          ].includes(value),
+      )) {
+        const plans = structuredClone(materialPayload.plans);
+        const links = structuredClone(materialPayload.links);
+        const probes = {
+          "manifest-file": {
+            manifestFileId: p6Ids.otherManifestFile,
+            code: "P6M01",
+          },
+          "boq-version": { versionId: p6Ids.otherBoq, code: "P6M01" },
+          component: { links, code: "P6M01" },
+          resource: { plans, links, code: "P6M01" },
+          plan: { plans, links, code: "P6O01" },
+        };
+        if (identity === "component")
+          links[0].boqRateComponentId = p6Ids.otherBoqComponent;
+        if (identity === "resource") {
+          plans[0].materialResourceId = p6Ids.otherMaterialResource;
+          links[0].materialResourceId = p6Ids.otherMaterialResource;
+        }
+        if (identity === "plan") {
+          plans[0].id = p6Ids.otherMaterialPlan;
+          links[0].materialPlanId = p6Ids.otherMaterialPlan;
+        }
+        const { code, ...options } = probes[identity];
+        await assertSqlState(materialHandoff(serviceA, options), code);
+      }
       await assertSqlState(
         materialHandoff(serviceA, { manifestSha: p6Sha.manifest }),
-        "P6M01",
-      );
-      await assertSqlState(
-        materialHandoff(serviceA, { versionId: p6Ids.otherBoq }),
         "P6M01",
       );
       const firstMaterial = await materialHandoff(serviceA);
       assert.deepEqual(firstMaterial[0].value, { insertedOrReplayed: 1 });
       assert.deepEqual((await materialHandoff(serviceB))[0], firstMaterial[0]);
+
+      await owner`
+        insert into public.lukas_qto_boq_versions(
+          id,project_id,version_no,title,status,calculation_policy,
+          quantity_scale,price_book_id,supersedes_id,engine_version,
+          result_sha256,direct_cost_krw,line_count,created_by,
+          submitted_at,approved_at
+        ) values(
+          ${matrixIds.approvedSuccessor}::uuid,${p6Ids.project}::uuid,99,
+          'Approved successor','approved','general_half_away',6,
+          ${p6Ids.priceBook}::uuid,${p6Ids.boq11}::uuid,'VERIFIED-BOQ-1.0',
+          ${p6Sha.other},0,0,${p6Ids.maker}::uuid,now(),now()
+        )
+      `;
+      await owner`
+        update public.lukas_qto_boq_versions set status='superseded'
+        where id=${p6Ids.boq11}::uuid
+      `;
+      await proveBoqAuthority("superseded");
+      assert.deepEqual(
+        [...visitedBoqAuthority].sort(),
+        [...realPostgresMatrix.boqAuthority].sort(),
+      );
 
       const directDml = [
         `insert into public.lukas_drawing_quantity_links
@@ -626,7 +959,7 @@ test(
       await assertSqlState(readCounts(roleClient, "anon", null), "42501");
       assert.deepEqual(
         (await readCounts(serviceA, "service_role", p6Ids.maker))[0],
-        { quantities: 1, boq_links: 1, material_links: 1 },
+        { quantities: 2, boq_links: 1, material_links: 1 },
       );
 
       await assertSqlState(
@@ -784,15 +1117,21 @@ test(
       for (const client of clients.reverse()) {
         await clean(() => client.end({ timeout: 5 }));
       }
-      if (databaseCreated) {
+      for (const [
+        createdDatabaseName,
+        createdDatabaseIdentifier,
+      ] of createdDatabases.reverse()) {
         await clean(
           () => admin`
           select pg_catalog.pg_terminate_backend(pid)
           from pg_catalog.pg_stat_activity
-          where datname=${databaseName} and pid<>pg_catalog.pg_backend_pid()
+          where datname=${createdDatabaseName}
+            and pid<>pg_catalog.pg_backend_pid()
         `,
         );
-        await clean(() => admin.unsafe(`drop database ${databaseIdentifier}`));
+        await clean(() =>
+          admin.unsafe(`drop database ${createdDatabaseIdentifier}`),
+        );
       }
       for (const role of grantedMemberships.reverse())
         await clean(() =>
