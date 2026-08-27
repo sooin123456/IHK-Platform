@@ -269,8 +269,8 @@ async function runtimeDatabase() {
     );
     await db.query(
       `insert into public.lukas_qto_project_members(project_id,user_id,role)
-       values($1,$2,'owner'),($1,$3,'estimator')`,
-      [runtimeIds.targetProject, p6Ids.owner, p6Ids.maker],
+       values($1,$2,'owner'),($1,$3,'estimator'),($1,$4,'estimator')`,
+      [runtimeIds.targetProject, p6Ids.owner, p6Ids.maker, p6Ids.reviewer],
     );
     await db.query(
       `insert into public.lukas_drawing_documents(id,project_id,title,created_by)
@@ -399,6 +399,20 @@ test("PGlite executes publish, immutable copy import, exact retry, and cross-org
       "P1R01",
     );
     await p6SetSession(db, "authenticated", p6Ids.viewer);
+    await sqlState(
+      db.query(
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
+        [
+          runtimeIds.organization,
+          versionId,
+          runtimeIds.targetProject,
+          runtimeIds.targetRevision,
+          crypto.randomUUID(),
+        ],
+      ),
+      "P1R01",
+    );
+    await p6SetSession(db, "authenticated", p6Ids.reviewer);
     await sqlState(
       db.query(
         `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,

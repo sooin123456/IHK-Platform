@@ -536,6 +536,9 @@ begin
       'revisionId',v_existing.target_revision_id,
       'contentSha256',v_existing.source_content_sha256);
   end if;
+  if private.lukas_qto_organization_role(p_organization_id) is null then
+    raise exception using errcode='P1R01',message='Drawing library import is unavailable';
+  end if;
   select * into v_version from public.lukas_drawing_library_versions v
   where v.id=p_version_id and v.organization_id=p_organization_id for key share;
   if not found or v_version.status<>'published' then raise exception using errcode='P1R01',message='Drawing library version is unavailable'; end if;
