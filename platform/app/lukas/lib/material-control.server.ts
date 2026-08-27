@@ -69,6 +69,7 @@ export type MaterialBoqLineageRow = {
   materialPlan: MaterialPlan;
   transactions: MaterialTransaction[];
   carbonFactors: CarbonFactor[];
+  carbonCoverage: "complete" | "partial" | "missing";
   manifestFileId: string;
   manifestFileSha256: string;
 };
@@ -83,7 +84,8 @@ function lineageCursor(cursor: string | null) {
     if (
       !value ||
       typeof value.createdAt !== "string" ||
-      !Number.isFinite(Date.parse(value.createdAt)) ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.createdAt) ||
+      new Date(value.createdAt).toISOString() !== value.createdAt ||
       !UUID.test(value.id)
     )
       throw new Error("invalid cursor");
@@ -93,7 +95,27 @@ function lineageCursor(cursor: string | null) {
   }
 }
 
-function transactionRow(row: Record<string, unknown>): MaterialTransaction {
+export function materialPlanRow(row: Record<string, unknown>): MaterialPlan {
+  return {
+    id: String(row.id),
+    materialCode: String(row.material_code),
+    materialName: String(row.material_name),
+    specification: String(row.specification),
+    unit: String(row.unit),
+    designQuantity: String(row.design_quantity),
+    allowanceRate: String(row.allowance_rate),
+    requiredQuantity: String(row.required_quantity),
+    ruleId: String(row.rule_id),
+    baselineFactorId: row.baseline_factor_id
+      ? String(row.baseline_factor_id)
+      : null,
+    sourceSha256: String(row.source_sha256),
+  };
+}
+
+export function materialTransactionRow(
+  row: Record<string, unknown>,
+): MaterialTransaction {
   return {
     id: String(row.id),
     materialPlanId: String(row.material_plan_id),
@@ -111,7 +133,7 @@ function transactionRow(row: Record<string, unknown>): MaterialTransaction {
   };
 }
 
-function carbonRow(row: Record<string, unknown>): CarbonFactor {
+export function carbonFactorRow(row: Record<string, unknown>): CarbonFactor {
   return {
     id: String(row.id),
     materialCode: String(row.material_code),
@@ -183,7 +205,7 @@ export async function listMaterialBoqLineage(
   if (transactionError || (transactionData?.length ?? 0) > 10_000)
     throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
   const transactions = (transactionData ?? []).map((row) =>
-    transactionRow(row as unknown as Record<string, unknown>),
+    materialTransactionRow(row as unknown as Record<string, unknown>),
   );
   const factorIds = [
     ...new Set([
@@ -209,9 +231,9 @@ export async function listMaterialBoqLineage(
   if (factorError || (factorData?.length ?? 0) !== factorIds.length)
     throw new Error("자재 탄소 근거를 읽지 못했습니다.");
   const factors = (factorData ?? []).map((row) =>
-    carbonRow(row as unknown as Record<string, unknown>),
+    carbonFactorRow(row as unknown as Record<string, unknown>),
   );
-  const rows = page.map((row): MaterialBoqLineageRow => {
+  const rows = page.map((row) => {
     const plan = row.material_plan as Record<string, unknown>;
     const boqLine = row.boq_line as Record<string, unknown>;
     const materialPlanId = String(row.material_plan_id);
@@ -233,30 +255,29 @@ export async function listMaterialBoqLineage(
       materialResourceId: String(row.material_resource_id),
       materialPlanId,
       derivedDesignQuantity: String(row.derived_design_quantity),
-      materialPlan: {
-        id: String(plan.id),
-        materialCode: String(plan.material_code),
-        materialName: String(plan.material_name),
-        specification: String(plan.specification),
-        unit: String(plan.unit),
-        designQuantity: String(plan.design_quantity),
-        allowanceRate: String(plan.allowance_rate),
-        requiredQuantity: String(plan.required_quantity),
-        ruleId: String(plan.rule_id),
-        baselineFactorId: plan.baseline_factor_id
-          ? String(plan.baseline_factor_id)
-          : null,
-        sourceSha256: String(plan.source_sha256),
-      },
+      materialPlan: materialPlanRow(plan),
       transactions: planTransactions,
       carbonFactors: factors.filter((factor) => linkedFactorIds.has(factor.id)),
       manifestFileId: String(plan.source_file_id),
       manifestFileSha256: String(plan.source_sha256),
     };
   });
+  const uniquePlans = [
+    ...new Map(
+      rows.map((row) => [row.materialPlan.id, row.materialPlan]),
+    ).values(),
+  ];
+  const coverageByPlan = new Map(
+    buildMaterialControlSummaries(uniquePlans, transactions, factors).map(
+      (summary) => [summary.materialPlanId, summary.carbonCoverage],
+    ),
+  );
   const last = page.at(-1);
   return {
-    rows,
+    rows: rows.map((row): MaterialBoqLineageRow => ({
+      ...row,
+      carbonCoverage: coverageByPlan.get(row.materialPlanId) ?? "missing",
+    })),
     nextCursor:
       (data?.length ?? 0) > limit && last
         ? Buffer.from(

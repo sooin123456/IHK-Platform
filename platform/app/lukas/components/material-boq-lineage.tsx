@@ -86,22 +86,11 @@ export function MaterialBoqLineage({
 
       <div className="mt-7 grid gap-3">
         {rows.map((row) => {
-          const factorIds = new Set(
-            row.carbonFactors.map((factor) => factor.id),
-          );
-          const coveredTransactions = row.transactions.filter(
-            (transaction) =>
-              transaction.carbonFactorId &&
-              factorIds.has(transaction.carbonFactorId),
-          ).length;
-          const complete =
-            row.materialPlan.baselineFactorId !== null &&
-            row.transactions.length === coveredTransactions;
-          const coverage = complete
-            ? "탄소 근거 완전"
-            : row.carbonFactors.length
-              ? "탄소 근거 부분"
-              : "탄소 근거 없음";
+          const coverage = {
+            complete: "탄소 근거 완전",
+            partial: "탄소 근거 부분",
+            missing: "탄소 근거 없음",
+          }[row.carbonCoverage];
           return (
             <article
               className="rounded-xl border p-4 text-sm"
@@ -128,12 +117,54 @@ export function MaterialBoqLineage({
               </p>
               <p className="mt-1 break-all text-xs text-muted-foreground">
                 BOQ 결과 {row.boqResultSha256} · 승인 manifest 파일{" "}
-                {row.manifestFileSha256}
+                {row.manifestFileId} · SHA {row.manifestFileSha256}
               </p>
-              <p className="mt-2">
-                발주·입고·설치·반품·폐기·계산서 {row.transactions.length}건 ·
-                탄소계수/파일 {row.carbonFactors.length}건
-              </p>
+              <div className="mt-3 grid gap-2">
+                {row.transactions.map((transaction) => (
+                  <div
+                    className="rounded-lg bg-muted/40 p-3"
+                    key={transaction.id}
+                  >
+                    <b>{transaction.transactionType}</b> ·{" "}
+                    {transaction.documentNumber} · {transaction.supplierName} ·{" "}
+                    {transaction.quantity} {row.materialPlan.unit}
+                    {transaction.relatedOrderId ? (
+                      <span className="block break-all text-xs text-muted-foreground">
+                        연결 발주 {transaction.relatedOrderId}
+                      </span>
+                    ) : null}
+                    {transaction.evidenceSha256 ? (
+                      <span className="block break-all text-xs text-muted-foreground">
+                        거래 증빙 SHA {transaction.evidenceSha256}
+                      </span>
+                    ) : null}
+                    {transaction.carbonFactorId ? (
+                      <span className="block break-all text-xs text-muted-foreground">
+                        탄소계수 {transaction.carbonFactorId}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+                {!row.transactions.length ? (
+                  <p className="text-muted-foreground">
+                    발주·입고·설치·반품·폐기·계산서 기록 없음
+                  </p>
+                ) : null}
+              </div>
+              <div className="mt-3 grid gap-2">
+                {row.carbonFactors.map((factor) => (
+                  <div
+                    className="rounded-lg border border-dashed p-3"
+                    key={factor.id}
+                  >
+                    <b>{factor.productName}</b> · {factor.sourceType} ·{" "}
+                    {factor.gwpA1A3PerUnit} kgCO₂e/{factor.declaredUnit}
+                    <span className="block break-all text-xs text-muted-foreground">
+                      탄소계수 ID {factor.id} · 원본 SHA {factor.sourceSha256}
+                    </span>
+                  </div>
+                ))}
+              </div>
               <Link
                 className="mt-2 inline-block underline underline-offset-4"
                 to={`/projects/${projectId}/verified-boq?version=${row.boqVersionId}`}

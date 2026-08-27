@@ -25,20 +25,31 @@ import {
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
 
-function materialManifestJson() {
+const componentB = "00000000-0000-4000-8000-000000000116";
+
+function materialManifestJson({
+  versionId = p6Ids.version,
+  handoffSha256 = P6_SHA_B,
+} = {}) {
   return new TextEncoder().encode(
     JSON.stringify({
-      handoffSha256: P6_SHA_B,
+      handoffSha256,
       resultSha256: P6_SHA_A,
       calculationManifest: {
         projectId: p6Ids.project,
-        boqVersionId: p6Ids.version,
+        boqVersionId: versionId,
         rateComponents: [
           {
             id: p6Ids.component,
             lineId: p6Ids.line,
             resourceId: p6Ids.resource,
             coefficient: "2",
+          },
+          {
+            id: componentB,
+            lineId: p6Ids.line,
+            resourceId: p6Ids.resource,
+            coefficient: "3",
           },
         ],
         resources: [
@@ -63,6 +74,7 @@ test("approved BOQ material handoff persists only selected authoritative materia
   const operationId = "00000000-0000-4000-8000-000000000121";
   const manifestFileId = "00000000-0000-4000-8000-000000000122";
   const inserted = [];
+  const plansById = new Map();
   const manifestJson = materialManifestJson();
   const manifestFileSha256 = createHash("sha256")
     .update(manifestJson)
@@ -111,6 +123,12 @@ test("approved BOQ material handoff persists only selected authoritative materia
       return manifestFileId;
     },
     async insertHandoff(input) {
+      for (const plan of input.plans) {
+        const prior = plansById.get(plan.id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(plan))
+          throw Object.assign(new Error("mismatched retry"), { code: "P6O01" });
+        plansById.set(plan.id, plan);
+      }
       inserted.push(input);
       return input;
     },
@@ -162,6 +180,81 @@ test("approved BOQ material handoff persists only selected authoritative materia
   );
   assert.deepEqual(retry, result);
   assert.deepEqual(inserted[1], inserted[0]);
+
+  const mismatched = {
+    ...authority,
+    async loadContext() {
+      const context = await authority.loadContext();
+      return {
+        ...context,
+        components: [
+          {
+            ...context.components[0],
+            rateComponentId: componentB,
+            resourceCoefficient: "3",
+          },
+        ],
+      };
+    },
+  };
+  await assert.rejects(
+    createP6MaterialHandoff(
+      authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+      p6Ids.actor,
+      {
+        projectId: p6Ids.project,
+        boqVersionId: p6Ids.version,
+        operationId,
+        selectedRateComponentIds: [componentB],
+      },
+      mismatched,
+    ),
+    (error) => error.code === "P6O01",
+  );
+
+  const nextVersion = "00000000-0000-4000-8000-000000000117";
+  const nextHandoffSha256 = "d".repeat(64);
+  const nextManifestJson = materialManifestJson({
+    versionId: nextVersion,
+    handoffSha256: nextHandoffSha256,
+  });
+  const later = await createP6MaterialHandoff(
+    authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+    p6Ids.actor,
+    {
+      projectId: p6Ids.project,
+      boqVersionId: nextVersion,
+      operationId,
+      selectedRateComponentIds: [p6Ids.component],
+    },
+    {
+      ...authority,
+      async loadApprovedExport() {
+        return {
+          resultSha256: P6_SHA_A,
+          manifestSha256: "c".repeat(64),
+          handoffSha256: nextHandoffSha256,
+          manifestJson: nextManifestJson,
+        };
+      },
+      async loadContext() {
+        const context = await authority.loadContext();
+        return {
+          ...context,
+          boqVersionId: nextVersion,
+          components: context.components.map((component) => ({
+            ...component,
+            boqVersionId: nextVersion,
+          })),
+        };
+      },
+      async persistManifest(input) {
+        assert.deepEqual(input.bytes, nextManifestJson);
+        return "00000000-0000-4000-8000-000000000118";
+      },
+    },
+  );
+  assert.notDeepEqual(later.materialPlanIds, result.materialPlanIds);
 });
 
 test("material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components", async () => {
@@ -262,6 +355,7 @@ test("BOQ manifest storage path accepts only canonical UUIDs and lowercase file 
 test("material lineage traverses approved BOQ through plan, transactions, carbon, and file digests", async () => {
   const planId = "00000000-0000-4000-8000-000000000131";
   const linkId = "00000000-0000-4000-8000-000000000132";
+  const orderId = "00000000-0000-4000-8000-000000000135";
   const transactionId = "00000000-0000-4000-8000-000000000133";
   const factorId = "00000000-0000-4000-8000-000000000134";
   const client = tableClient({
@@ -296,6 +390,19 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
     ],
     lukas_qto_material_transactions: [
       {
+        id: orderId,
+        material_plan_id: planId,
+        transaction_type: "purchase_order",
+        document_number: "PO-1",
+        supplier_name: "공급사",
+        quantity: "9.5",
+        unit_price_krw: null,
+        amount_krw: null,
+        related_order_id: null,
+        carbon_factor_id: factorId,
+        evidence_sha256: null,
+      },
+      {
         id: transactionId,
         material_plan_id: planId,
         transaction_type: "goods_receipt",
@@ -304,8 +411,8 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
         quantity: "9.5",
         unit_price_krw: null,
         amount_krw: null,
-        related_order_id: null,
-        carbon_factor_id: factorId,
+        related_order_id: orderId,
+        carbon_factor_id: null,
         evidence_sha256: "c".repeat(64),
       },
     ],
@@ -338,13 +445,14 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
   assert.equal(result.rows[0].materialPlanId, planId);
   assert.deepEqual(
     result.rows[0].transactions.map((row) => row.id),
-    [transactionId],
+    [orderId, transactionId],
   );
   assert.deepEqual(
     result.rows[0].carbonFactors.map((row) => row.id),
     [factorId],
   );
   assert.equal(result.rows[0].manifestFileSha256, P6_SHA_B);
+  assert.equal(result.rows[0].carbonCoverage, "complete");
 });
 
 test("material lineage cursor returns every link once across bounded pages", async () => {
@@ -392,6 +500,22 @@ test("material lineage cursor returns every link once across bounded pages", asy
   assert.deepEqual(
     [...first.rows, ...second.rows].map((row) => row.rateComponentId),
     links.map((row) => row.boq_rate_component_id),
+  );
+  assert.ok(
+    [...first.rows, ...second.rows].every(
+      (row) => row.carbonCoverage === "missing",
+    ),
+  );
+  const looseDateCursor = Buffer.from(
+    JSON.stringify({ createdAt: "2026-08-28T00:00:00Z", id: links[0].id }),
+  ).toString("base64url");
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      cursor: looseDateCursor,
+      limit: 2,
+    }),
+    /커서가 올바르지 않습니다/,
   );
 });
 

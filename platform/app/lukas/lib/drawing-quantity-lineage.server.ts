@@ -921,6 +921,7 @@ type P6MaterialHandoffAuthority = {
   persistManifest(input: {
     userClient: SupabaseClient;
     actorId: string;
+    boqVersionId: string;
     operationId: string;
     ownerId: string;
     projectId: string;
@@ -1013,6 +1014,7 @@ function positiveDecimal(value: string) {
 }
 
 function materialHandoffRows(
+  boqVersionId: string,
   operationId: string,
   components: ApprovedMaterialComponent[],
 ) {
@@ -1022,14 +1024,15 @@ function materialHandoffRows(
   );
   const plans: P6MaterialPlanInsert[] = [];
   const links: P6MaterialLinkInsert[] = [];
-  for (const plan of derived) {
-    const identity = JSON.stringify([
-      plan.materialCode,
-      plan.materialName,
-      plan.specification,
-      plan.unit,
-    ]);
-    const planId = stableP6Uuid(operationId, "plan", identity);
+  for (const [planIndex, plan] of derived.entries()) {
+    // One operation owns one ordered plan set. Reusing it with any other
+    // selection collides on the first plan and the private authority rejects it.
+    const planId = stableP6Uuid(
+      boqVersionId,
+      operationId,
+      "plan",
+      String(planIndex),
+    );
     const first = componentById.get(plan.components[0].rateComponentId);
     if (!first) throw new DrawingQuantityLineageServerError("P6M01");
     plans.push({
@@ -1048,7 +1051,12 @@ function materialHandoffRows(
       const source = componentById.get(component.rateComponentId);
       if (!source) throw new DrawingQuantityLineageServerError("P6M01");
       links.push({
-        id: stableP6Uuid(operationId, "link", source.rateComponentId),
+        id: stableP6Uuid(
+          boqVersionId,
+          operationId,
+          "link",
+          source.rateComponentId,
+        ),
         boqLineId: source.lineId,
         boqRateComponentId: source.rateComponentId,
         materialResourceId: source.resourceId,
@@ -1252,7 +1260,11 @@ function applyApprovedManifest(
 async function persistMaterialManifest(
   input: Parameters<P6MaterialHandoffAuthority["persistManifest"]>[0],
 ) {
-  const manifestFileId = stableP6Uuid(input.operationId, "manifest");
+  const manifestFileId = stableP6Uuid(
+    input.boqVersionId,
+    input.operationId,
+    "manifest",
+  );
   const storage = input.userClient.storage.from("lukas-qto");
   const upload = await storage.upload(input.path, input.bytes, {
     contentType: "application/json",
@@ -1393,6 +1405,7 @@ export async function createP6MaterialHandoff(
       approved.handoffSha256,
     );
     const { plans, links } = materialHandoffRows(
+      parsed.boqVersionId,
       parsed.operationId,
       context.components,
     );
@@ -1409,6 +1422,7 @@ export async function createP6MaterialHandoff(
     const manifestFileId = await trusted.persistManifest({
       userClient,
       actorId,
+      boqVersionId: parsed.boqVersionId,
       operationId: parsed.operationId,
       ownerId: context.ownerId,
       projectId: context.projectId,

@@ -25,8 +25,11 @@ import { verifyConcreteTakeoffBundle } from "~/lukas/lib/concrete-takeoff-artifa
 import {
   buildMaterialControlSummaries,
   calculateRequiredQuantity,
+  carbonFactorRow,
   deriveMaterialPlansFromApprovedTakeoff,
   listMaterialBoqLineage,
+  materialPlanRow,
+  materialTransactionRow,
 } from "~/lukas/lib/material-control.server";
 import {
   createP6MaterialHandoff,
@@ -488,48 +491,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }))
     .filter((version) => version.components.length > 0);
   const summaries = buildMaterialControlSummaries(
-    planRows.map((row) => ({
-      id: row.id,
-      materialCode: row.material_code,
-      materialName: row.material_name,
-      specification: row.specification,
-      unit: row.unit,
-      designQuantity: String(row.design_quantity),
-      allowanceRate: String(row.allowance_rate),
-      requiredQuantity: String(row.required_quantity),
-      ruleId: row.rule_id,
-      baselineFactorId: row.baseline_factor_id,
-      sourceSha256: row.source_sha256,
-    })),
-    transactionRows.map((row) => ({
-      id: row.id,
-      materialPlanId: row.material_plan_id,
-      transactionType: row.transaction_type,
-      documentNumber: row.document_number,
-      supplierName: row.supplier_name,
-      quantity: String(row.quantity),
-      unitPriceKrw: numberText(row.unit_price_krw),
-      amountKrw: numberText(row.amount_krw),
-      relatedOrderId: row.related_order_id,
-      carbonFactorId: row.carbon_factor_id,
-      evidenceSha256: row.evidence_sha256,
-    })),
-    factorRows.map((row) => ({
-      id: row.id,
-      materialCode: row.material_code,
-      productName: row.product_name,
-      declaredUnit: row.declared_unit,
-      gwpA1A3PerUnit: String(row.gwp_a1_a3_per_unit),
-      sourceType: row.source_type,
-      standard: row.standard,
-      manufacturer: row.manufacturer,
-      epdProgramOperator: row.epd_program_operator,
-      epdDeclarationNumber: row.epd_declaration_number,
-      epdVerifier: row.epd_verifier,
-      pcrReference: row.pcr_reference,
-      validUntil: row.valid_until,
-      sourceSha256: row.source_sha256,
-    })),
+    planRows.map((row) =>
+      materialPlanRow(row as unknown as Record<string, unknown>),
+    ),
+    transactionRows.map((row) =>
+      materialTransactionRow(row as unknown as Record<string, unknown>),
+    ),
+    factorRows.map((row) =>
+      carbonFactorRow(row as unknown as Record<string, unknown>),
+    ),
     new Date().toISOString().slice(0, 10),
   );
   return {
