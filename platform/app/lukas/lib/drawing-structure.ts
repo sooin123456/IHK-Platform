@@ -125,6 +125,35 @@ function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right))
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameCanonicalValue(value, right[index]))
+    );
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  )
+    return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every(
+      (key) =>
+        Object.hasOwn(rightRecord, key) &&
+        sameCanonicalValue(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
 // Trigonometric block transforms can round-trip a finite geometry measurement
 // by a few ulps. Keep the absolute allowance sub-nanometric in drawing units,
 // with a small relative allowance for large finite coordinates.
@@ -572,10 +601,7 @@ function validateReferences(state: DrawingStructureState): void {
   const activeSourceKeys = new Set<string>();
   for (const source of Object.values(state.sources ?? {})) {
     const parsed = DrawingObjectSourceSchema.safeParse(source);
-    if (
-      !parsed.success ||
-      JSON.stringify(parsed.data) !== JSON.stringify(source)
-    )
+    if (!parsed.success || !sameCanonicalValue(parsed.data, source))
       throw new DrawingStructureError(
         `Source ${source.id} is not canonical evidence.`,
       );

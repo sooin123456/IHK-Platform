@@ -81,7 +81,7 @@ test("IFC user picks resolve to unique, ambiguous, or no drawing match without g
   );
 });
 
-test("focus prefers exact GlobalId and scopes ExpressId fallback to the same file SHA", () => {
+test("focus requires exact file identity unless a verified revision identity confirms GlobalId", () => {
   const linked = source();
   const sameLoad = createDrawingIfcLoadIndex({
     sourceFileId: ids.file1,
@@ -123,6 +123,16 @@ test("focus prefers exact GlobalId and scopes ExpressId fallback to the same fil
     { status: "no_match" },
   );
 
+  const sameFileWrongSha = createDrawingIfcLoadIndex({
+    sourceFileId: ids.file1,
+    sourceSha256: sha2,
+    generation: 7,
+    elements: [{ expressId: 99, ifcGlobalId: globalId }],
+  });
+  assert.deepEqual(resolveDrawingIfcFocus(linked, sameFileWrongSha, 7), {
+    status: "no_match",
+  });
+
   const successor = createDrawingIfcLoadIndex({
     sourceFileId: ids.file2,
     sourceSha256: sha2,
@@ -130,10 +140,32 @@ test("focus prefers exact GlobalId and scopes ExpressId fallback to the same fil
     elements: [{ expressId: 314, ifcGlobalId: globalId }],
   });
   assert.deepEqual(resolveDrawingIfcFocus(linked, successor, 8), {
-    status: "matched",
-    expressId: 314,
-    matchedBy: "global_id",
+    status: "no_match",
   });
+  assert.deepEqual(
+    resolveDrawingIfcFocus(linked, successor, 8, {
+      previousFileId: ids.file1,
+      previousSha256: sha1,
+      currentFileId: ids.file2,
+      currentSha256: sha2,
+      ifcGlobalId: globalId,
+    }),
+    {
+      status: "matched",
+      expressId: 314,
+      matchedBy: "verified_revision_global_id",
+    },
+  );
+  assert.deepEqual(
+    resolveDrawingIfcFocus(linked, successor, 8, {
+      previousFileId: ids.file1,
+      previousSha256: sha1,
+      currentFileId: ids.file2,
+      currentSha256: sha2,
+      ifcGlobalId: "2ABCdefghijklmnopqrstu",
+    }),
+    { status: "no_match" },
+  );
 });
 
 test("controlled request IDs and load generations suppress stale and repeated focus", () => {
@@ -141,17 +173,22 @@ test("controlled request IDs and load generations suppress stale and repeated fo
   const applied = applyDrawingIfcFocusRequest(state, {
     requestId: "focus-1",
     generation: 7,
+    requestGeneration: 1,
     expressId: 99,
   });
   assert.deepEqual(applied.effect, {
     origin: "programmatic",
     expressId: 99,
+    requestId: "focus-1",
+    generation: 7,
+    requestGeneration: 1,
   });
   state = applied.state;
   assert.equal(
     applyDrawingIfcFocusRequest(state, {
       requestId: "focus-1",
       generation: 7,
+      requestGeneration: 1,
       expressId: 42,
     }).status,
     "ignored_duplicate",
@@ -160,6 +197,7 @@ test("controlled request IDs and load generations suppress stale and repeated fo
     applyDrawingIfcFocusRequest(state, {
       requestId: "focus-old",
       generation: 6,
+      requestGeneration: 2,
       expressId: 42,
     }).status,
     "ignored_stale",
@@ -168,6 +206,7 @@ test("controlled request IDs and load generations suppress stale and repeated fo
   state = nextDrawingIfcLoadGeneration(state, 8);
   assert.deepEqual(state, {
     generation: 8,
+    requestGeneration: 0,
     handledRequestId: null,
     focusedExpressId: null,
   });
@@ -184,4 +223,42 @@ test("controlled request IDs and load generations suppress stale and repeated fo
     ),
     { status: "stale_generation" },
   );
+});
+
+test("same-load request generations prevent out-of-order A to B to A focus", () => {
+  let state = createDrawingIfcFocusState(9);
+  const first = applyDrawingIfcFocusRequest(state, {
+    requestId: "focus-A",
+    generation: 9,
+    requestGeneration: 1,
+    expressId: 100,
+  });
+  assert.equal(first.status, "applied");
+  state = first.state;
+  const newer = applyDrawingIfcFocusRequest(state, {
+    requestId: "focus-B",
+    generation: 9,
+    requestGeneration: 2,
+    expressId: 200,
+  });
+  assert.equal(newer.status, "applied");
+  state = newer.state;
+
+  const olderCompletion = applyDrawingIfcFocusRequest(state, {
+    requestId: "focus-A",
+    generation: 9,
+    requestGeneration: 1,
+    expressId: 100,
+  });
+  assert.equal(olderCompletion.status, "ignored_stale_request");
+  assert.equal(olderCompletion.state.focusedExpressId, 200);
+
+  const newest = applyDrawingIfcFocusRequest(state, {
+    requestId: "focus-C",
+    generation: 9,
+    requestGeneration: 3,
+    expressId: 300,
+  });
+  assert.equal(newest.status, "applied");
+  assert.equal(newest.state.focusedExpressId, 300);
 });

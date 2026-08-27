@@ -89,6 +89,18 @@ test("the fixed threshold marks 32px tiles and discards isolated pixel noise", (
     computeDrawingPdfRevisionDiff({ previous, current: onePixel }),
     { status: "ready", markers: [] },
   );
+
+  const threePixels = paint(previous, 0, 0, 3, 1, [255, 255, 255, 255]);
+  assert.deepEqual(
+    computeDrawingPdfRevisionDiff({ previous, current: threePixels }),
+    { status: "ready", markers: [] },
+  );
+  const exactlyFourPixels = paint(previous, 0, 0, 2, 2, [255, 255, 255, 255]);
+  assert.equal(
+    computeDrawingPdfRevisionDiff({ previous, current: exactlyFourPixels })
+      .markers.length,
+    1,
+  );
 });
 
 test("adjacent tiles merge and marker order/capping stay stable", () => {
@@ -145,6 +157,59 @@ test("rotation and aspect mismatches refuse automatic markers", () => {
     }),
     { status: "refused", reason: "aspect_mismatch", markers: [] },
   );
+
+  assert.deepEqual(
+    computeDrawingPdfRevisionDiff({
+      previous,
+      current: page(64, 64, {
+        viewport: { width: 100, height: 99 },
+      }),
+    }),
+    { status: "ready", markers: [] },
+  );
+});
+
+test("partial 32px edge tiles produce clipped normalized markers", () => {
+  const previous = page(34, 34);
+  const current = paint(previous, 32, 32, 2, 2);
+  assert.deepEqual(
+    computeDrawingPdfRevisionDiff({ previous, current }).markers,
+    [
+      {
+        x: 32 / 34,
+        y: 32 / 34,
+        width: 2 / 34,
+        height: 2 / 34,
+        label: "브라우저 미리보기",
+      },
+    ],
+  );
+});
+
+test("diff pages accept byte arrays only and reject malformed RGBA samples", () => {
+  const previous = page(1, 1);
+  assert.deepEqual(
+    computeDrawingPdfRevisionDiff({
+      previous: {
+        ...previous,
+        pixels: {
+          ...previous.pixels,
+          data: new Uint8Array(previous.pixels.data),
+        },
+      },
+      current: page(1, 1),
+    }),
+    { status: "ready", markers: [] },
+  );
+  assert.throws(() =>
+    computeDrawingPdfRevisionDiff({
+      previous: {
+        ...previous,
+        pixels: { ...previous.pixels, data: [NaN, -1, 999, 255] },
+      },
+      current: page(1, 1),
+    }),
+  );
 });
 
 test("diff work is bounded and AbortController/generation cancellable", () => {
@@ -172,6 +237,20 @@ test("diff work is bounded and AbortController/generation cancellable", () => {
         previous: page(64, 64),
         current: page(64, 64),
         generation: { requested: 4, current: () => 5 },
+      }),
+    { name: "AbortError" },
+  );
+
+  let publicationChecks = 0;
+  assert.throws(
+    () =>
+      computeDrawingPdfRevisionDiff({
+        previous: page(64, 64),
+        current: paint(page(64, 64), 0, 0, 32, 32),
+        generation: {
+          requested: 4,
+          current: () => (++publicationChecks < 4 ? 4 : 5),
+        },
       }),
     { name: "AbortError" },
   );

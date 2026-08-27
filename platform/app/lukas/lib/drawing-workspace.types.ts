@@ -383,9 +383,7 @@ const DrawingSourceNormalizedSizeSchema =
     (value) => value > 0,
     "0보다 커야 합니다.",
   );
-const IfcCameraCoordinateSchema = z
-  .number()
-  .refine(Number.isFinite, "IFC 카메라 좌표가 올바르지 않습니다.");
+const IfcCameraCoordinateSchema = Finite;
 export const IfcCameraStateSchema = z
   .object({
     position: z.tuple([
@@ -400,7 +398,11 @@ export const IfcCameraStateSchema = z
     ]),
   })
   .strict()
-  .transform(canonicalIfcCameraState);
+  .transform(canonicalIfcCameraState)
+  .refine(
+    (camera) => [...camera.position, ...camera.target].every(Number.isFinite),
+    "IFC 카메라 좌표가 올바르지 않습니다.",
+  );
 
 const DrawingPdfObjectSourceSchema = z
   .object({

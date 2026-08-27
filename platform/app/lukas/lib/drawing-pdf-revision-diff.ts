@@ -11,7 +11,7 @@ export type DrawingPdfDiffPage = {
   pixels: {
     width: number;
     height: number;
-    data: ArrayLike<number>;
+    data: Uint8Array | Uint8ClampedArray;
   };
 };
 
@@ -58,6 +58,7 @@ function validatePage(page: DrawingPdfDiffPage) {
     width <= 0 ||
     height <= 0 ||
     Math.max(width, height) > DRAWING_PDF_DIFF_MAX_EDGE ||
+    (!(data instanceof Uint8Array) && !(data instanceof Uint8ClampedArray)) ||
     data.length !== width * height * 4
   )
     throw new Error("PDF diff raster is invalid or exceeds 1024 pixels.");
@@ -202,7 +203,7 @@ export function computeDrawingPdfRevisionDiff(input: {
   if (
     Math.abs(previousAspect - currentAspect) /
       Math.max(previousAspect, currentAspect) >
-    0.01
+    0.01 + Number.EPSILON * 8
   )
     return { status: "refused", reason: "aspect_mismatch", markers: [] };
   if (

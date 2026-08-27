@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateDrawingStructureState } from "../app/lukas/lib/drawing-structure.ts";
-import { DrawingObjectSourceSchema } from "../app/lukas/lib/drawing-workspace.types.ts";
+import {
+  DrawingObjectSourceSchema,
+  IfcCameraStateSchema,
+} from "../app/lukas/lib/drawing-workspace.types.ts";
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000000001",
@@ -190,6 +193,26 @@ test("source hashes, GlobalIds, cameras, and normalized regions are canonical", 
   );
 });
 
+test("camera canonicalization cannot turn finite input into non-finite evidence", () => {
+  const overflowing = {
+    position: [Number.MAX_VALUE, 0, 0],
+    target: [0, 0, 0],
+  };
+  assert.equal(IfcCameraStateSchema.safeParse(overflowing).success, false);
+  assert.equal(
+    DrawingObjectSourceSchema.safeParse(ifcSource({ camera: overflowing }))
+      .success,
+    false,
+  );
+
+  const bounded = IfcCameraStateSchema.parse({
+    position: [999_999_999_999, 0, 0],
+    target: [0, 0, 0],
+  });
+  assert.equal(Number.isFinite(bounded.position[0]), true);
+  assert.equal(JSON.stringify(bounded).includes("null"), false);
+});
+
 test("source-map validation checks final object/revision identity and active uniqueness", () => {
   assert.doesNotThrow(() =>
     validateDrawingStructureState(structure({ [ids.source]: pdfSource() })),
@@ -222,6 +245,47 @@ test("source-map validation checks final object/revision identity and active uni
       structure({
         [ids.object]: pdfSource({ id: ids.object }),
       }),
+    ),
+  );
+});
+
+test("source canonical comparison ignores key order but detects value normalization and shape changes", () => {
+  const canonical = ifcSource({
+    camera: { position: [1.123457, 2, 3], target: [4, 5.765432, 6] },
+  });
+  const reordered = Object.fromEntries(
+    Object.entries({
+      ...canonical,
+      camera: Object.fromEntries(Object.entries(canonical.camera).reverse()),
+    }).reverse(),
+  );
+  assert.doesNotThrow(() =>
+    validateDrawingStructureState(structure({ [ids.source]: reordered })),
+  );
+
+  assert.throws(() =>
+    validateDrawingStructureState(structure({ [ids.source]: ifcSource() })),
+  );
+  assert.equal(
+    DrawingObjectSourceSchema.safeParse({ ...pdfSource(), width: undefined })
+      .success,
+    false,
+  );
+  assert.equal(
+    DrawingObjectSourceSchema.safeParse({ ...pdfSource(), signedUrl: "leak" })
+      .success,
+    false,
+  );
+  assert.throws(() =>
+    validateDrawingStructureState(
+      structure({
+        [ids.source]: pdfSource({ sourceSha256: "A".repeat(64) }),
+      }),
+    ),
+  );
+  assert.throws(() =>
+    validateDrawingStructureState(
+      structure({ [ids.source]: pdfSource({ x: 0.9, width: 0.2 }) }),
     ),
   );
 });
