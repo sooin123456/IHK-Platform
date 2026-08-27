@@ -83,8 +83,18 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     current: createHash("sha256").update(changed).digest("hex"),
     previous: createHash("sha256").update(source).digest("hex"),
   };
-  let previousRequests = 0;
+  const previousRequests: Array<{
+    capabilityReleased: boolean;
+    url: string;
+  }> = [];
   let compareCapabilityRequests = 0;
+  let routedCapabilityRequests = 0;
+  let secondCapabilityResponseReady = false;
+  let secondCapabilityResponseReleased = false;
+  let releaseSecondCapabilityResponse!: () => void;
+  const secondCapabilityResponseRelease = new Promise<void>((resolve) => {
+    releaseSecondCapabilityResponse = resolve;
+  });
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
@@ -92,11 +102,42 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     )
       compareCapabilityRequests += 1;
   });
+  await page.route("**/workspace-preview/drawing-workspace*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "POST" ||
+      !request.postData()?.includes("load_pdf_compare")
+    ) {
+      await route.continue();
+      return;
+    }
+    const requestNumber = ++routedCapabilityRequests;
+    const response = await route.fetch();
+    if (requestNumber !== 2) {
+      await route.fulfill({ response });
+      return;
+    }
+    const originalBody = (await response.body()).toString();
+    expect(originalBody).toContain("/__p5-previous.pdf");
+    secondCapabilityResponseReady = true;
+    await secondCapabilityResponseRelease;
+    secondCapabilityResponseReleased = true;
+    await route.fulfill({
+      body: originalBody.replaceAll(
+        "/__p5-previous.pdf",
+        "/__p5-previous.pdf?capability=fresh",
+      ),
+      response,
+    });
+  });
   await page.route("**/__p5-current.pdf", (route) =>
     route.fulfill({ body: changed, contentType: "application/pdf" }),
   );
-  await page.route("**/__p5-previous.pdf", async (route) => {
-    previousRequests += 1;
+  await page.route("**/__p5-previous.pdf*", async (route) => {
+    previousRequests.push({
+      capabilityReleased: secondCapabilityResponseReleased,
+      url: route.request().url(),
+    });
     await route.fulfill({ body: source, contentType: "application/pdf" });
   });
 
@@ -108,15 +149,15 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   await expect(
     page.getByRole("group", { name: "PDF 개정 비교" }),
   ).toBeVisible();
-  expect(previousRequests).toBe(0);
+  expect(previousRequests).toHaveLength(0);
   expect(compareCapabilityRequests).toBe(0);
   await page.getByRole("button", { name: "겹쳐 보기" }).click();
-  await expect.poll(() => previousRequests).toBe(1);
+  await expect.poll(() => previousRequests).toHaveLength(1);
   expect(compareCapabilityRequests).toBe(1);
   await page.getByLabel("이전 도면 불투명도").fill("35");
   await page.getByRole("button", { name: "변경 표시 계산" }).click();
   await expect(page.getByText("브라우저 미리보기").first()).toBeVisible();
-  expect(previousRequests).toBe(1);
+  expect(previousRequests).toHaveLength(1);
   await expect(
     page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
   ).not.toHaveCount(0);
@@ -140,9 +181,22 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   await page.getByRole("button", { name: "현재 도면" }).click();
   await expect(page.locator('[data-pdf-diff-marker="true"]')).toHaveCount(0);
   await page.getByRole("button", { name: "겹쳐 보기" }).click();
-  await expect.poll(() => previousRequests).toBe(2);
+  await expect.poll(() => secondCapabilityResponseReady).toBe(true);
+  try {
+    await page.waitForTimeout(250);
+    expect(previousRequests).toHaveLength(1);
+    await expect(
+      page.getByText("이전 PDF 접근 권한을 요청합니다."),
+    ).toBeVisible();
+  } finally {
+    releaseSecondCapabilityResponse();
+  }
+  await expect.poll(() => previousRequests).toHaveLength(2);
   expect(compareCapabilityRequests).toBe(2);
-  await page.waitForTimeout(100);
+  expect(previousRequests[1]?.capabilityReleased).toBe(true);
+  expect(previousRequests[1]?.url).toContain(
+    "/__p5-previous.pdf?capability=fresh",
+  );
   expect(
     await page.evaluate(
       () =>

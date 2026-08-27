@@ -818,6 +818,15 @@ export default function DrawingWorkspaceClient({
   const [pdfCompareOpacity, setPdfCompareOpacity] = useState(0.5);
   const [pdfDiffGeneration, setPdfDiffGeneration] = useState(0);
   const pdfCompareFetcher = useFetcher<PdfCompareActionData>();
+  const pendingPdfCompareRequestRef = useRef<{
+    currentFileId: string;
+    currentSha256: string;
+    dataBeforeRequest: PdfCompareActionData | undefined;
+    pageNumber: number;
+    previousFileId: string;
+    previousSha256: string;
+    revisionEdgeId: string;
+  } | null>(null);
   const [previousPdfCapability, setPreviousPdfCapability] =
     useState<DrawingWorkspaceSourceDescriptor | null>(null);
   const [pdfCompareState, setPdfCompareState] =
@@ -2787,12 +2796,21 @@ export default function DrawingWorkspaceClient({
     setPdfDiffGeneration(0);
     setPdfCompareState({ status: "idle", markers: [] });
     setPreviousPdfCapability(null);
+    pendingPdfCompareRequestRef.current = null;
   }, [
     background.kind === "pdf" ? background.pageNumber : 0,
     previousPdfEvidence?.id,
     previousPdfEvidence?.sha256,
   ]);
   useEffect(() => {
+    const request = pendingPdfCompareRequestRef.current;
+    if (
+      !request ||
+      pdfCompareFetcher.state !== "idle" ||
+      pdfCompareFetcher.data === request.dataBeforeRequest
+    )
+      return;
+    pendingPdfCompareRequestRef.current = null;
     const candidate =
       pdfCompareFetcher.data?.kind === "pdf_compare" &&
       pdfCompareFetcher.data.ok
@@ -2801,6 +2819,12 @@ export default function DrawingWorkspaceClient({
     if (
       pdfCompareMode !== "current" &&
       previousPdfEvidence &&
+      sourceBundle?.revisionEdge?.id === request.revisionEdgeId &&
+      sourceBundle.revisionEdge.currentFileId === request.currentFileId &&
+      sourceBundle.revisionEdge.currentSha256 === request.currentSha256 &&
+      previousPdfEvidence.id === request.previousFileId &&
+      previousPdfEvidence.sha256 === request.previousSha256 &&
+      activePdfPageNumber === request.pageNumber &&
       candidate?.id === previousPdfEvidence.id &&
       candidate.sha256 === previousPdfEvidence.sha256
     )
@@ -2808,8 +2832,11 @@ export default function DrawingWorkspaceClient({
   }, [
     pdfCompareFetcher.data,
     pdfCompareMode,
+    pdfCompareFetcher.state,
+    activePdfPageNumber,
     previousPdfEvidence?.id,
     previousPdfEvidence?.sha256,
+    sourceBundle?.revisionEdge,
   ]);
   const requestPdfCompareMode = useCallback(
     (mode: "current" | "overlay" | "previous") => {
@@ -2818,6 +2845,7 @@ export default function DrawingWorkspaceClient({
         setPreviousPdfCapability(null);
         setPdfDiffGeneration(0);
         setPdfCompareState({ status: "idle", markers: [] });
+        pendingPdfCompareRequestRef.current = null;
         if (pdfCompareFetcher.state !== "idle")
           pdfCompareFetcher.submit(
             { intent: "cancel_pdf_compare" },
@@ -2839,6 +2867,15 @@ export default function DrawingWorkspaceClient({
       form.set("previous_file_id", previousPdfEvidence.id);
       form.set("previous_sha256", previousPdfEvidence.sha256);
       form.set("page_number", String(activePdfPageNumber));
+      pendingPdfCompareRequestRef.current = {
+        currentFileId: sourceBundle!.revisionEdge!.currentFileId,
+        currentSha256: sourceBundle!.revisionEdge!.currentSha256,
+        dataBeforeRequest: pdfCompareFetcher.data,
+        pageNumber: activePdfPageNumber!,
+        previousFileId: previousPdfEvidence.id,
+        previousSha256: previousPdfEvidence.sha256,
+        revisionEdgeId: sourceBundle!.revisionEdge!.id,
+      };
       pdfCompareFetcher.submit(form, { method: "post" });
     },
     [
