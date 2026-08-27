@@ -147,6 +147,29 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
   await expect(inspector).toBeVisible();
   await page.keyboard.press("]");
   await expect(inspector).toBeHidden();
+  const quantityZoom = Number(await surface.getAttribute("data-viewport-zoom"));
+  const quantityViewportX = Number(
+    await surface.getAttribute("data-viewport-x"),
+  );
+  const quantityViewportY = Number(
+    await surface.getAttribute("data-viewport-y"),
+  );
+  await surface.click({
+    position: {
+      x: quantityViewportX + 500 * quantityZoom,
+      y: quantityViewportY + 720 * quantityZoom,
+    },
+  });
+  await expect(
+    inspector.getByText("도면 수량 계보", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    inspector.getByText(
+      "승인된 도면에서 확정 근거를 만든 뒤 BOQ 내역에 연결할 수 있습니다.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(inspector.getByText(/WALL-EXT-01/)).toHaveCount(0);
 });
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({

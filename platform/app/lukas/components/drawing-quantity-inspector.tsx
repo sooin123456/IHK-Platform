@@ -209,7 +209,13 @@ export function DrawingQuantityInspector({
             </li>
           ))}
         </ul>
-      ) : null}
+      ) : (
+        <p className="mt-3 text-xs text-slate-400">
+          {approved
+            ? "아직 연결된 확정 근거가 없습니다."
+            : "승인된 도면에서 확정 근거를 만든 뒤 BOQ 내역에 연결할 수 있습니다."}
+        </p>
+      )}
     </section>
   );
 }

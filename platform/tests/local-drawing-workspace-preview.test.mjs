@@ -168,15 +168,8 @@ test("current canonical preview opens the integrated PDF and IFC split without q
     ),
   );
   assert.equal(loaded.workspace.document.revision.sources.length, 1);
-  assert.equal(loaded.quantityLineage.rows.length, 1);
-  assert.equal(
-    loaded.quantityLineage.rows[0].quantity.drawingObjectId,
-    "00000000-0000-4000-8000-000000000100",
-  );
-  assert.equal(
-    loaded.quantityLineage.rows[0].boqLinks[0].itemCode,
-    "WALL-EXT-01",
-  );
+  assert.equal(loaded.workspace.document.revision.status, "draft");
+  assert.deepEqual(loaded.quantityLineage, { rows: [], nextCursor: null });
   assert.equal(
     loaded.workspace.document.revision.canvases.find(
       (canvas) =>
