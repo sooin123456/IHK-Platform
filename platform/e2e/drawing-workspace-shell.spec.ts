@@ -24,6 +24,25 @@ async function waitForPreviewRealtimeEffect(page: Page) {
   ).toBeVisible({ timeout: 15_000 });
 }
 
+test("desktop split keeps IFC evidence inside its panel", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openPreview(page, `${previewPath}?view=split`);
+  const panel = page.getByRole("complementary", { name: "IFC 3D 원본" });
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.getByRole("img", { name: "IFC 3D 모델 화면" }),
+  ).toBeVisible();
+  const layout = await panel.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+  const modelBounds = await panel
+    .getByRole("img", { name: "IFC 3D 모델 화면" })
+    .evaluate((element) => element.getBoundingClientRect().toJSON());
+  expect(modelBounds.bottom).toBeLessThanOrEqual(720);
+});
+
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
   page,
 }) => {

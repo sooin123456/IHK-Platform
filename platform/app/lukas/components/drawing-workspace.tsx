@@ -4491,6 +4491,7 @@ export default function DrawingWorkspaceClient({
                   <div className="mt-4">
                     <IfcViewer
                       byteSize={selectedIfc.byteSize}
+                      compact={activeView === "split"}
                       fileName={selectedIfc.originalFilename}
                       focusRequest={ifcFocusRequest}
                       onElementSelection={handleIfcElementSelection}

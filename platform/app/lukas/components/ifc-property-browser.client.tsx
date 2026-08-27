@@ -50,6 +50,7 @@ type IfcRuntime = {
 
 type Props = {
   byteSize: number;
+  compact?: boolean;
   fileName: string;
   sourceKey: string;
   initialGlobalId?: string | null;
@@ -180,6 +181,7 @@ function propertySetsFor(propertySets: unknown[]): DisplayProperty[] {
 
 export default function IfcPropertyBrowser({
   byteSize,
+  compact = false,
   fileName,
   sourceKey,
   initialGlobalId,
@@ -630,7 +632,9 @@ export default function IfcPropertyBrowser({
             </button>
           </div>
         </div>
-        <div className="relative min-h-[22rem] overflow-hidden bg-slate-100 dark:bg-slate-950 sm:h-[34rem]">
+        <div
+          className={`relative overflow-hidden bg-slate-100 dark:bg-slate-950 ${compact ? "h-[20rem]" : "min-h-[22rem] sm:h-[34rem]"}`}
+        >
           <div
             aria-label="IFC 3D 모델 화면"
             className="absolute inset-0"
@@ -689,7 +693,9 @@ export default function IfcPropertyBrowser({
         </div>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(18rem,.8fr)_minmax(20rem,1.2fr)]">
+      <div
+        className={`grid min-w-0 gap-5 ${compact ? "grid-cols-1" : "lg:grid-cols-[minmax(18rem,.8fr)_minmax(20rem,1.2fr)]"}`}
+      >
         <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="border-b p-5">
             <div className="flex items-center gap-2 font-semibold">
