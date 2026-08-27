@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loadDrawingRevisionReview } from "../app/lukas/lib/drawing-revision.server.ts";
+import {
+  loadDrawingRevisionReview,
+  relinkDrawingIssueAnchor,
+} from "../app/lukas/lib/drawing-revision.server.ts";
+
+import { p5Ids } from "./fixtures/drawing-workspace-p5-database-fixtures.mjs";
 
 function queryResult(data, { single = false, neqResult } = {}) {
   const result = { data, error: null };
@@ -140,5 +145,62 @@ test("closed issues keep their active drawing evidence in revision review", asyn
       kind: "manual_reanchor_required",
       ifcGlobalId: null,
     },
+  ]);
+});
+
+test("issue re-anchoring is one typed atomic RPC call", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return {
+        data: {
+          previousAnchorId: p5Ids.previousAnchor,
+          newAnchorId: p5Ids.replacementAnchor,
+        },
+        error: null,
+      };
+    },
+  };
+  const result = await relinkDrawingIssueAnchor(client, {
+    previousAnchorId: p5Ids.previousAnchor,
+    newAnchorId: p5Ids.replacementAnchor,
+    currentFileId: p5Ids.pdfFile,
+    anchor: {
+      kind: "pdf_region",
+      fileId: p5Ids.pdfFile,
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      label: "검토 위치",
+    },
+    note: "새 개정본 위치로 이동",
+  });
+  assert.deepEqual(result, {
+    previousAnchorId: p5Ids.previousAnchor,
+    newAnchorId: p5Ids.replacementAnchor,
+  });
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_relink_issue_anchor",
+      {
+        p_previous_anchor_id: p5Ids.previousAnchor,
+        p_new_anchor_id: p5Ids.replacementAnchor,
+        p_current_file_id: p5Ids.pdfFile,
+        p_anchor: {
+          kind: "pdf_region",
+          fileId: p5Ids.pdfFile,
+          pageNumber: 1,
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4,
+          label: "검토 위치",
+        },
+        p_note: "새 개정본 위치로 이동",
+      },
+    ],
   ]);
 });

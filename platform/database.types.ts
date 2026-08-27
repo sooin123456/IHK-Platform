@@ -14,6 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      lukas_drawing_issue_anchors: {
+        Row: {
+          id: string
+          issue_id: string
+          project_id: string
+          file_id: string
+          anchor_kind: string
+          element_id: string | null
+          ifc_global_id: string | null
+          camera_json: Json | null
+          page_number: number | null
+          x: number | null
+          y: number | null
+          width: number | null
+          height: number | null
+          label: string
+          active: boolean
+          created_by: string
+          created_at: string
+          deactivated_by: string | null
+          deactivated_at: string | null
+          deactivation_note: string | null
+          replaces_anchor_id: string | null
+        }
+        Insert: {
+          id?: string
+          issue_id: string
+          project_id: string
+          file_id: string
+          anchor_kind: string
+          element_id?: string | null
+          ifc_global_id?: string | null
+          camera_json?: Json | null
+          page_number?: number | null
+          x?: number | null
+          y?: number | null
+          width?: number | null
+          height?: number | null
+          label?: string
+          active?: boolean
+          created_by: string
+          created_at?: string
+          deactivated_by?: string | null
+          deactivated_at?: string | null
+          deactivation_note?: string | null
+          replaces_anchor_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          deactivated_by?: string | null
+          deactivated_at?: string | null
+          deactivation_note?: string | null
+        }
+        Relationships: []
+      }
+      lukas_drawing_object_sources: {
+        Row: {
+          id: string
+          object_id: string
+          revision_id: string
+          project_id: string
+          source_file_id: string
+          source_sha256: string
+          source_kind: string
+          pdf_page_number: number | null
+          x: number | null
+          y: number | null
+          width: number | null
+          height: number | null
+          element_id: string | null
+          ifc_global_id: string | null
+          camera_json: Json | null
+          status: string
+          version: number
+          created_by: string
+          created_at: string
+          updated_by: string
+          updated_at: string
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
       hangil_project_inquiries: {
         Row: {
           company: string
@@ -2087,6 +2170,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      lukas_drawing_relink_issue_anchor: {
+        Args: {
+          p_previous_anchor_id: string
+          p_new_anchor_id: string
+          p_current_file_id: string
+          p_anchor: Json
+          p_note: string
+        }
+        Returns: Json
+      }
       lukas_qto_decide_boq: {
         Args: { p_decision: string; p_note?: string; p_version_id: string }
         Returns: undefined
@@ -2131,12 +2224,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2158,13 +2251,12 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2183,13 +2275,12 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2208,13 +2299,12 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2227,11 +2317,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

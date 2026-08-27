@@ -328,6 +328,14 @@ const p4FinalNameAuthorityMigration = async () => {
   assert.equal(names.length, 1);
   return readFile(new URL(names[0], directory), "utf8");
 };
+const p5EvidenceAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260827045411_drawing_workspace_p5_evidence_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 async function applyP0ThroughP3Migrations(targetDb) {
   for (const readMigration of [
@@ -456,11 +464,50 @@ const foundationSql = `
       immutable boolean not null default true,
       unique(id, project_id, sha256)
     );
+    create table public.lukas_qto_file_revisions(
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references public.lukas_qto_projects(id),
+      previous_file_id uuid not null,
+      previous_sha256 text not null,
+      current_file_id uuid not null,
+      current_sha256 text not null,
+      relation_kind text not null default 'supersedes',
+      created_by uuid not null references auth.users(id),
+      created_at timestamptz not null default now(),
+      foreign key(previous_file_id,project_id,previous_sha256)
+        references public.lukas_qto_files(id,project_id,sha256),
+      foreign key(current_file_id,project_id,current_sha256)
+        references public.lukas_qto_files(id,project_id,sha256)
+    );
     create table public.lukas_drawing_issues(
       id uuid primary key,
       project_id uuid not null references public.lukas_qto_projects(id),
       unique(id, project_id)
     );
+    create table public.lukas_drawing_issue_anchors(
+      id uuid primary key default gen_random_uuid(),
+      issue_id uuid not null,
+      project_id uuid not null references public.lukas_qto_projects(id),
+      file_id uuid not null references public.lukas_qto_files(id),
+      anchor_kind text not null,
+      element_id text,
+      ifc_global_id text,
+      camera_json jsonb,
+      page_number integer,
+      x numeric(12,10), y numeric(12,10),
+      width numeric(12,10), height numeric(12,10),
+      label text not null default '',
+      active boolean not null default true,
+      created_by uuid not null references auth.users(id),
+      created_at timestamptz not null default now(),
+      deactivated_by uuid references auth.users(id),
+      deactivated_at timestamptz,
+      deactivation_note text,
+      foreign key(issue_id,project_id)
+        references public.lukas_drawing_issues(id,project_id)
+    );
+    grant select,insert,update on public.lukas_drawing_issue_anchors
+      to authenticated,service_role;
     create table public.lukas_drawing_issue_comments(
       id uuid primary key,
       issue_id uuid not null,
@@ -732,6 +779,7 @@ before(async () => {
   await db.exec(await p4SemanticContractFixesMigration());
   await db.exec(await p4FinalContractFixesMigration());
   await db.exec(await p4FinalNameAuthorityMigration());
+  await db.exec(await p5EvidenceAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -878,6 +926,7 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
     await upgradeDb.exec(await p4SemanticContractFixesMigration());
     await upgradeDb.exec(await p4FinalContractFixesMigration());
     await upgradeDb.exec(await p4FinalNameAuthorityMigration());
+    await upgradeDb.exec(await p5EvidenceAuthorityMigration());
 
     const afterUpgrade = await evidence();
     assert.deepEqual(afterUpgrade, beforeUpgrade);
@@ -951,6 +1000,479 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
   } finally {
     await upgradeDb.close();
   }
+});
+
+test("P5 source authority persists exact OCC, idempotent retry, soft delete and restore versions", async () => {
+  const created = await createDocument("P5 source authority");
+  const objectId = randomUUID();
+  const sourceId = randomUUID();
+  await asActor(OWNER);
+  await addObject(created, circleObject(objectId, created.workLayerId));
+  const source = {
+    id: sourceId,
+    objectId,
+    revisionId: created.revisionId,
+    sourceFileId: PDF,
+    sourceSha256: PDF_SHA,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    version: 1,
+  };
+  const clientOperationId = randomUUID();
+  const forward = {
+    type: "mutate_structure",
+    actions: [{ kind: "put_source", entity: source, baseVersion: null }],
+  };
+  const inverse = {
+    type: "mutate_structure",
+    actions: [{ kind: "delete_source", id: sourceId, baseVersion: 1 }],
+  };
+  const first = await applyOperationWithId(
+    created.revisionId,
+    clientOperationId,
+    "mutate_structure",
+    {},
+    forward,
+    inverse,
+  );
+  const retry = await applyOperationWithId(
+    created.revisionId,
+    clientOperationId,
+    "mutate_structure",
+    {},
+    forward,
+    inverse,
+  );
+  assert.deepEqual(retry, first);
+  assert.equal(first.resultVersions[sourceId], 1);
+  let rows = await db.query(
+    `select status,version,source_sha256 from public.lukas_drawing_object_sources
+     where id=$1`,
+    [sourceId],
+  );
+  assert.deepEqual(rows.rows, [
+    { status: "active", version: 1, source_sha256: PDF_SHA },
+  ]);
+
+  const removed = await applyStructure(
+    created,
+    { [sourceId]: 1 },
+    [{ kind: "delete_source", id: sourceId, baseVersion: 1 }],
+    [{ kind: "put_source", entity: source, baseVersion: null }],
+  );
+  assert.equal(removed.resultVersions[sourceId], null);
+  await db.exec("reset role");
+  rows = await db.query(
+    "select status,version from public.lukas_drawing_object_sources where id=$1",
+    [sourceId],
+  );
+  assert.deepEqual(rows.rows, [{ status: "deleted", version: 2 }]);
+
+  await asActor(OWNER);
+  const restored = await applyStructure(
+    created,
+    {},
+    [{ kind: "put_source", entity: source, baseVersion: null }],
+    [{ kind: "delete_source", id: sourceId, baseVersion: 3 }],
+  );
+  assert.equal(restored.resultVersions[sourceId], 3);
+  await db.exec("reset role");
+  rows = await db.query(
+    "select status,version from public.lukas_drawing_object_sources where id=$1",
+    [sourceId],
+  );
+  assert.deepEqual(rows.rows, [{ status: "active", version: 3 }]);
+  const canonicalObject = (
+    await db.query(
+      "select private.lukas_drawing_structure_entity_json('object',$1,$2,$3) entity",
+      [objectId, created.revisionId, PROJECT],
+    )
+  ).rows[0].entity;
+
+  await asActor(OWNER);
+  const deletedWithObject = await applyOperation(
+    created.revisionId,
+    "mutate_objects_with_references",
+    { [objectId]: 1, [sourceId]: 3 },
+    {
+      type: "mutate_objects_with_references",
+      objectAction: "delete",
+      objects: [canonicalObject],
+      actions: [{ kind: "delete_source", id: sourceId, baseVersion: 3 }],
+    },
+    {
+      type: "mutate_objects_with_references",
+      objectAction: "restore",
+      objects: [{ ...canonicalObject, version: 3 }],
+      actions: [
+        {
+          kind: "put_source",
+          entity: { ...source, version: 3 },
+          baseVersion: null,
+        },
+      ],
+    },
+  );
+  assert.equal(deletedWithObject.resultVersions[objectId], null);
+  assert.equal(deletedWithObject.resultVersions[sourceId], null);
+  await db.exec("reset role");
+  rows = await db.query(
+    "select status,version from public.lukas_drawing_object_sources where id=$1",
+    [sourceId],
+  );
+  assert.deepEqual(rows.rows, [{ status: "deleted", version: 4 }]);
+
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_object_sources(
+        object_id,revision_id,project_id,source_file_id,source_sha256,
+        source_kind,pdf_page_number,x,y,width,height,created_by,updated_by
+      ) values($1,$2,$3,$4,$5,'pdf_region',1,.1,.1,.2,.2,$6,$6)`,
+      [objectId, created.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+    ),
+    /permission denied/i,
+  );
+});
+
+test("P5 review, template and approved-child paths preserve only active source lineage", async () => {
+  const created = await createDocument("P5 source lineage copies");
+  const object = circleObject(randomUUID(), created.workLayerId);
+  const activeSource = {
+    id: randomUUID(),
+    objectId: object.id,
+    revisionId: created.revisionId,
+    sourceFileId: PDF,
+    sourceSha256: PDF_SHA,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    version: 1,
+  };
+  const deletedFile = randomUUID();
+  const deletedSha = "e".repeat(64);
+  const deletedSource = {
+    ...activeSource,
+    id: randomUUID(),
+    sourceFileId: deletedFile,
+    sourceSha256: deletedSha,
+  };
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values($1,$2,$3,'pdf',$4)`,
+    [deletedFile, PROJECT, OWNER, deletedSha],
+  );
+  await asActor(OWNER);
+  await addObject(created, object);
+  await applyStructure(
+    created,
+    {},
+    [{ kind: "put_source", entity: activeSource, baseVersion: null }],
+    [{ kind: "delete_source", id: activeSource.id, baseVersion: 1 }],
+  );
+  await applyStructure(
+    created,
+    {},
+    [{ kind: "put_source", entity: deletedSource, baseVersion: null }],
+    [{ kind: "delete_source", id: deletedSource.id, baseVersion: 1 }],
+  );
+  await applyStructure(
+    created,
+    { [deletedSource.id]: 1 },
+    [{ kind: "delete_source", id: deletedSource.id, baseVersion: 1 }],
+    [{ kind: "put_source", entity: deletedSource, baseVersion: null }],
+  );
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [created.revisionId],
+  );
+  const snapshot = await db.query(
+    "select canonical_json from public.lukas_drawing_snapshots where id=$1",
+    [review.rows[0].result.snapshotId],
+  );
+  assert.deepEqual(snapshot.rows[0].canonical_json.sources, [activeSource]);
+  await assert.rejects(
+    applyStructure(
+      created,
+      { [activeSource.id]: 1 },
+      [{ kind: "delete_source", id: activeSource.id, baseVersion: 1 }],
+      [{ kind: "put_source", entity: activeSource, baseVersion: null }],
+    ),
+    (error) => error.code === "P1R01" || error.code === "P1C01",
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    `select public.lukas_drawing_record_revision_decision(
+      $1,$2,$3,'approved','P5 source lineage fixture'
+    )`,
+    [
+      created.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  await asActor(OWNER);
+  const template = await db.query(
+    "select public.lukas_drawing_create_from_template($1,'P5 source clone',null,$2) result",
+    [created.revisionId, randomUUID()],
+  );
+  const child = await db.query(
+    "select public.lukas_drawing_restore_approved_snapshot($1,$2) result",
+    [created.revisionId, randomUUID()],
+  );
+  await db.exec("reset role");
+  const copied = await db.query(
+    `select s.revision_id "revisionId",s.source_file_id "sourceFileId",
+      s.status,o.lineage_id "objectLineage"
+     from public.lukas_drawing_object_sources s
+     join public.lukas_drawing_objects o on o.id=s.object_id
+     where s.revision_id in ($1,$2) order by s.revision_id`,
+    [template.rows[0].result.revisionId, child.rows[0].result.revisionId],
+  );
+  assert.deepEqual(
+    new Set(copied.rows.map((row) => row.revisionId)),
+    new Set([
+      template.rows[0].result.revisionId,
+      child.rows[0].result.revisionId,
+    ]),
+  );
+  assert.ok(
+    copied.rows.every(
+      (row) =>
+        row.sourceFileId === PDF &&
+        row.status === "active" &&
+        row.objectLineage === object.id,
+    ),
+  );
+});
+
+test("P5 source authority rejects file identity, active uniqueness and role violations atomically", async () => {
+  const created = await createDocument("P5 rejected source authority");
+  const object = circleObject(randomUUID(), created.workLayerId);
+  const source = {
+    id: randomUUID(),
+    objectId: object.id,
+    revisionId: created.revisionId,
+    sourceFileId: PDF,
+    sourceSha256: PDF_SHA,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    version: 1,
+  };
+  await asActor(OWNER);
+  await addObject(created, object);
+  const put = (entity) =>
+    applyStructure(
+      created,
+      {},
+      [{ kind: "put_source", entity, baseVersion: null }],
+      [{ kind: "delete_source", id: entity.id, baseVersion: 1 }],
+    );
+  await assert.rejects(put({ ...source, sourceSha256: "f".repeat(64) }));
+  await assert.rejects(
+    put({
+      id: randomUUID(),
+      objectId: object.id,
+      revisionId: created.revisionId,
+      sourceFileId: PDF,
+      sourceSha256: PDF_SHA,
+      sourceKind: "ifc_element",
+      ifcGlobalId: "0Q2gXl1Hn3fQ9A2W4k6M8P",
+      elementId: "42",
+      camera: null,
+      version: 1,
+    }),
+  );
+  const mutableFile = randomUUID();
+  const mutableSha = "d".repeat(64);
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(
+      id,project_id,uploaded_by,kind,sha256,immutable
+    ) values($1,$2,$3,'pdf',$4,false)`,
+    [mutableFile, PROJECT, OWNER, mutableSha],
+  );
+  await asActor(OWNER);
+  await assert.rejects(
+    put({
+      ...source,
+      id: randomUUID(),
+      sourceFileId: mutableFile,
+      sourceSha256: mutableSha,
+    }),
+  );
+  await put(source);
+  await assert.rejects(put({ ...source, id: randomUUID() }));
+  await asActor(OUTSIDER);
+  await assert.rejects(
+    put({ ...source, id: randomUUID(), sourceFileId: mutableFile }),
+  );
+  await db.exec("reset role");
+  const evidence = await db.query(
+    `select id,status,version from public.lukas_drawing_object_sources
+     where revision_id=$1 order by id`,
+    [created.revisionId],
+  );
+  assert.deepEqual(evidence.rows, [
+    { id: source.id, status: "active", version: 1 },
+  ]);
+});
+
+test("P5 relink atomically preserves predecessor lineage across one exact file edge", async () => {
+  const currentFileId = randomUUID();
+  const currentSha = "c".repeat(64);
+  const issueId = randomUUID();
+  const previousAnchorId = randomUUID();
+  const newAnchorId = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+     values($1,$2,$3,'pdf',$4)`,
+    [currentFileId, PROJECT, OWNER, currentSha],
+  );
+  await db.query(
+    `insert into public.lukas_qto_file_revisions(
+      project_id,previous_file_id,previous_sha256,current_file_id,current_sha256,
+      relation_kind,created_by
+    ) values($1,$2,$3,$4,$5,'supersedes',$6)`,
+    [PROJECT, PDF, PDF_SHA, currentFileId, currentSha, OWNER],
+  );
+  await db.query(
+    "insert into public.lukas_drawing_issues(id,project_id) values($1,$2)",
+    [issueId, PROJECT],
+  );
+  await asActor(OWNER);
+  await db.query(
+    `insert into public.lukas_drawing_issue_anchors(
+      id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+      label,created_by
+    ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'old',$5)`,
+    [previousAnchorId, issueId, PROJECT, PDF, OWNER],
+  );
+  const result = await db.query(
+    `select public.lukas_drawing_relink_issue_anchor($1,$2,$3,$4,$5) result`,
+    [
+      previousAnchorId,
+      newAnchorId,
+      currentFileId,
+      {
+        kind: "pdf_region",
+        fileId: currentFileId,
+        pageNumber: 2,
+        x: 0.2,
+        y: 0.2,
+        width: 0.3,
+        height: 0.3,
+        label: "new",
+      },
+      "revision relink",
+    ],
+  );
+  assert.deepEqual(result.rows[0].result, {
+    previousAnchorId,
+    newAnchorId,
+  });
+  await db.exec("reset role");
+  const anchors = await db.query(
+    `select id,active,replaces_anchor_id,deactivation_note
+     from public.lukas_drawing_issue_anchors
+     where id in ($1,$2) order by id`,
+    [previousAnchorId, newAnchorId],
+  );
+  const byId = new Map(anchors.rows.map((row) => [row.id, row]));
+  assert.deepEqual(byId.get(previousAnchorId), {
+    id: previousAnchorId,
+    active: false,
+    replaces_anchor_id: null,
+    deactivation_note: "revision relink",
+  });
+  assert.deepEqual(byId.get(newAnchorId), {
+    id: newAnchorId,
+    active: true,
+    replaces_anchor_id: previousAnchorId,
+    deactivation_note: null,
+  });
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_relink_issue_anchor($1,$2,$3,$4,$5)",
+      [
+        previousAnchorId,
+        randomUUID(),
+        currentFileId,
+        {
+          kind: "pdf_region",
+          fileId: currentFileId,
+          pageNumber: 1,
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.2,
+          label: "stale",
+        },
+        "stale predecessor",
+      ],
+    ),
+    /stale or inactive/i,
+  );
+  await assert.rejects(
+    db.query(
+      `insert into public.lukas_drawing_issue_anchors(
+        id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+        label,created_by,replaces_anchor_id
+      ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'forged',$5,$6)`,
+      [randomUUID(), issueId, PROJECT, currentFileId, OWNER, newAnchorId],
+    ),
+    /atomic relink function/i,
+  );
+  const rollbackAnchorId = randomUUID();
+  const rejectedAnchorId = randomUUID();
+  await db.query(
+    `insert into public.lukas_drawing_issue_anchors(
+      id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+      label,created_by
+    ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'rollback',$5)`,
+    [rollbackAnchorId, issueId, PROJECT, PDF, OWNER],
+  );
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_relink_issue_anchor($1,$2,$3,$4,$5)",
+      [
+        rollbackAnchorId,
+        rejectedAnchorId,
+        currentFileId,
+        {
+          kind: "ifc_element",
+          fileId: currentFileId,
+          elementId: "42",
+          ifcGlobalId: "0Q2gXl1Hn3fQ9A2W4k6M8P",
+          camera: null,
+          label: "wrong kind",
+        },
+        "must roll back",
+      ],
+    ),
+  );
+  await db.exec("reset role");
+  const rollback = await db.query(
+    `select
+      (select active from public.lukas_drawing_issue_anchors where id=$1) active,
+      exists(select 1 from public.lukas_drawing_issue_anchors where id=$2) inserted`,
+    [rollbackAnchorId, rejectedAnchorId],
+  );
+  assert.deepEqual(rollback.rows, [{ active: true, inserted: false }]);
 });
 
 test("P4 final name authority rejects legacy-valid poison transactionally before constraints", async () => {
@@ -4678,6 +5200,11 @@ test("runtime migration rejects incomplete PDF evidence", async () => {
   const ids = await createDocument();
   const object = circleObject(randomUUID(), ids.workLayerId);
   await addObject(ids, object);
+  await db.exec("reset role");
+  await db.query(
+    "select set_config('private.lukas_drawing_source_operation',$1,false)",
+    [ids.revisionId],
+  );
   await assert.rejects(
     db.query(
       `insert into public.lukas_drawing_object_sources(
@@ -11561,12 +12088,25 @@ test("P3 checkpoint restore deletes an object added after the checkpoint", async
     [issueId, PROJECT],
   );
   await asActor(OWNER);
-  await db.query(
-    `insert into public.lukas_drawing_object_sources(
-      object_id,revision_id,project_id,source_file_id,source_sha256,
-      source_kind,pdf_page_number,x,y,width,height,created_by
-    ) values($1,$2,$3,$4,$5,'pdf_region',1,0.1,0.1,0.2,0.2,$6)`,
-    [object.id, ids.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+  const source = {
+    id: randomUUID(),
+    objectId: object.id,
+    revisionId: ids.revisionId,
+    sourceFileId: PDF,
+    sourceSha256: PDF_SHA,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.1,
+    width: 0.2,
+    height: 0.2,
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [{ kind: "put_source", entity: source, baseVersion: null }],
+    [{ kind: "delete_source", id: source.id, baseVersion: 1 }],
   );
   await db.query("select public.lukas_drawing_link_object_issue($1,$2)", [
     object.id,
@@ -11581,16 +12121,22 @@ test("P3 checkpoint restore deletes an object added after the checkpoint", async
       [
         ids.revisionId,
         clientOperationId,
-        { [object.id]: 1 },
+        { [object.id]: 1, [source.id]: 1 },
         {
           type: "restore_checkpoint",
           checkpointId: review.rows[0].result.snapshotId,
-          actions: [{ kind: "delete_object", id: object.id, baseVersion: 1 }],
+          actions: [
+            { kind: "delete_source", id: source.id, baseVersion: 1 },
+            { kind: "delete_object", id: object.id, baseVersion: 1 },
+          ],
         },
         {
           type: "restore_checkpoint",
           checkpointId: review.rows[0].result.snapshotId,
-          actions: [{ kind: "put_object", entity: object, baseVersion: null }],
+          actions: [
+            { kind: "put_object", entity: object, baseVersion: null },
+            { kind: "put_source", entity: source, baseVersion: null },
+          ],
         },
       ],
     );
@@ -11606,7 +12152,9 @@ test("P3 checkpoint restore deletes an object added after the checkpoint", async
   const references = await db.query(
     `select
       (select count(*)::integer from public.lukas_drawing_object_sources
-        where object_id=$1) source_count,
+        where object_id=$1 and status='active') source_count,
+      (select count(*)::integer from public.lukas_drawing_object_sources
+        where object_id=$1 and status='deleted') source_tombstone_count,
       (select count(*)::integer from public.lukas_drawing_object_issue_links
         where object_id=$1) issue_count,
       (select count(*)::integer from private.lukas_drawing_checkpoint_reference_history
@@ -11618,6 +12166,7 @@ test("P3 checkpoint restore deletes an object added after the checkpoint", async
   assert.deepEqual(references.rows, [
     {
       source_count: 0,
+      source_tombstone_count: 1,
       issue_count: 0,
       audit_count: 2,
       operation_count: 1,
@@ -11640,12 +12189,25 @@ test("P3 checkpoint restore revives exact source and issue references with a mix
   );
   await asActor(OWNER);
   const sourceId = randomUUID();
-  await db.query(
-    `insert into public.lukas_drawing_object_sources(
-      id,object_id,revision_id,project_id,source_file_id,source_sha256,
-      source_kind,pdf_page_number,x,y,width,height,created_by
-    ) values($1,$2,$3,$4,$5,$6,'pdf_region',1,0.1,0.1,0.2,0.2,$7)`,
-    [sourceId, object.id, ids.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+  const source = {
+    id: sourceId,
+    objectId: object.id,
+    revisionId: ids.revisionId,
+    sourceFileId: PDF,
+    sourceSha256: PDF_SHA,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.1,
+    width: 0.2,
+    height: 0.2,
+    version: 1,
+  };
+  await applyStructure(
+    ids,
+    {},
+    [{ kind: "put_source", entity: source, baseVersion: null }],
+    [{ kind: "delete_source", id: source.id, baseVersion: 1 }],
   );
   await db.query("select public.lukas_drawing_link_object_issue($1,$2)", [
     object.id,
@@ -11682,10 +12244,20 @@ test("P3 checkpoint restore revives exact source and issue references with a mix
   await asActor(OWNER);
   await applyOperation(
     ids.revisionId,
-    "delete_objects",
-    { [object.id]: 1 },
-    { type: "delete_objects", objectIds: [object.id] },
-    { type: "add_objects", objects: [{ ...object, version: 3 }] },
+    "mutate_objects_with_references",
+    { [object.id]: 1, [source.id]: 1 },
+    {
+      type: "mutate_objects_with_references",
+      objectAction: "delete",
+      objects: [target],
+      actions: [{ kind: "delete_source", id: source.id, baseVersion: 1 }],
+    },
+    {
+      type: "mutate_objects_with_references",
+      objectAction: "restore",
+      objects: [{ ...target, version: 3 }],
+      actions: [{ kind: "put_source", entity: source, baseVersion: null }],
+    },
   );
   const later = {
     ...circleObject(randomUUID(), ids.workLayerId),
@@ -11702,6 +12274,7 @@ test("P3 checkpoint restore revives exact source and issue references with a mix
         entity: { ...target, version: 3 },
         baseVersion: null,
       },
+      { kind: "put_source", entity: source, baseVersion: null },
       { kind: "delete_object", id: later.id, baseVersion: 1 },
     ],
   };
@@ -11710,6 +12283,7 @@ test("P3 checkpoint restore revives exact source and issue references with a mix
     checkpointId: review.rows[0].result.snapshotId,
     actions: [
       { kind: "put_object", entity: later, baseVersion: null },
+      { kind: "delete_source", id: source.id, baseVersion: 3 },
       { kind: "delete_object", id: object.id, baseVersion: 3 },
     ],
   };

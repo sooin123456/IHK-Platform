@@ -15,6 +15,7 @@ import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectNameSchema,
+  DrawingObjectSourceSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
   DrawingPageSchema,
@@ -161,6 +162,26 @@ type DrawingObjectRow = {
   updated_at: string;
 };
 
+type DrawingObjectSourceRow = {
+  id: string;
+  object_id: string;
+  revision_id: string;
+  project_id: string;
+  source_file_id: string;
+  source_sha256: string;
+  source_kind: "pdf_region" | "ifc_element";
+  pdf_page_number: number | null;
+  x: number | null;
+  y: number | null;
+  width: number | null;
+  height: number | null;
+  element_id: string | null;
+  ifc_global_id: string | null;
+  camera: Json | null;
+  version: number;
+  status: "active" | "deleted";
+};
+
 type DrawingSnapshotRow = {
   id: string;
   revision_id: string;
@@ -202,6 +223,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_pages: TableDefinition<DrawingPageRow>;
       lukas_drawing_layers: TableDefinition<DrawingLayerRow>;
       lukas_drawing_objects: TableDefinition<DrawingObjectRow>;
+      lukas_drawing_object_sources: TableDefinition<DrawingObjectSourceRow>;
       lukas_drawing_canvases: TableDefinition<Record<string, unknown>>;
       lukas_drawing_styles: TableDefinition<Record<string, unknown>>;
       lukas_drawing_blocks: TableDefinition<Record<string, unknown>>;
@@ -280,6 +302,7 @@ type DrawingRowsTable =
   | "lukas_drawing_canvases"
   | "lukas_drawing_layers"
   | "lukas_drawing_objects"
+  | "lukas_drawing_object_sources"
   | "lukas_drawing_styles"
   | "lukas_drawing_blocks"
   | "lukas_drawing_block_instances"
@@ -1104,6 +1127,7 @@ type DrawingWorkspaceP2 = {
   canvases: DrawingCanvas[];
   layers: DrawingLayer[];
   objects: DrawingObject[];
+  sources: DrawingObjectSource[];
   styles: DrawingStyleDefinition[];
   blocks: DrawingBlock[];
   blockInstances: DrawingBlockInstance[];
@@ -1264,6 +1288,83 @@ const P2TableRowSchema = z
   })
   .strict();
 
+const P2SourceRowSchema = z
+  .object({
+    id: Uuid,
+    object_id: Uuid,
+    revision_id: Uuid,
+    project_id: Uuid,
+    source_file_id: Uuid,
+    source_sha256: Sha256,
+    source_kind: z.enum(["pdf_region", "ifc_element"]),
+    pdf_page_number: z.number().int().positive().nullable(),
+    x: z.number().nullable(),
+    y: z.number().nullable(),
+    width: z.number().nullable(),
+    height: z.number().nullable(),
+    element_id: z.string().nullable(),
+    ifc_global_id: z.string().nullable(),
+    camera: z.unknown().nullable(),
+    version: z.number().int().positive(),
+    status: z.literal("active"),
+  })
+  .strict();
+
+export async function loadDrawingRevisionSources(
+  client: Pick<DrawingWorkspaceClient, "from">,
+  projectId: string,
+  revisionId: string,
+): Promise<DrawingObjectSource[]> {
+  const rows = await loadAllDrawingRows<DrawingObjectSourceRow>(client, {
+    table: "lukas_drawing_object_sources",
+    projectId,
+    revisionId,
+    filters: [["status", "active"]],
+    order: [{ column: "id", direction: "asc" }],
+    select:
+      "id,object_id,revision_id,project_id,source_file_id,source_sha256,source_kind,pdf_page_number,x,y,width,height,element_id,ifc_global_id,camera:camera_json,version,status",
+  });
+  return rows.map((row) => {
+    const parsed = P2SourceRowSchema.safeParse(row);
+    if (
+      !parsed.success ||
+      parsed.data.project_id !== projectId ||
+      parsed.data.revision_id !== revisionId
+    )
+      throw new Error("Drawing source metadata is invalid.");
+    const value = parsed.data;
+    return DrawingObjectSourceSchema.parse(
+      value.source_kind === "pdf_region"
+        ? {
+            id: value.id,
+            objectId: value.object_id,
+            revisionId: value.revision_id,
+            sourceFileId: value.source_file_id,
+            sourceSha256: value.source_sha256,
+            sourceKind: value.source_kind,
+            pdfPageNumber: value.pdf_page_number,
+            x: value.x,
+            y: value.y,
+            width: value.width,
+            height: value.height,
+            version: value.version,
+          }
+        : {
+            id: value.id,
+            objectId: value.object_id,
+            revisionId: value.revision_id,
+            sourceFileId: value.source_file_id,
+            sourceSha256: value.source_sha256,
+            sourceKind: value.source_kind,
+            ifcGlobalId: value.ifc_global_id,
+            elementId: value.element_id,
+            camera: value.camera,
+            version: value.version,
+          },
+    );
+  });
+}
+
 function p2RowError(entity: string): never {
   throw new Error(`Drawing ${entity} metadata is invalid.`);
 }
@@ -1290,6 +1391,7 @@ function parseP2Workspace(
     propertySchemas: unknown[];
     propertyValues: unknown[];
     tables: unknown[];
+    sources: DrawingObjectSource[];
   },
 ): DrawingWorkspaceP2 {
   const pages = rows.pages.map((row) => {
@@ -1435,6 +1537,7 @@ function parseP2Workspace(
       version: value.data.version,
     });
   });
+  const sources = rows.sources;
   const scopedRows = [
     ...rows.pages.map((row) => P2PageRowSchema.parse(row)),
     ...rows.canvases.map((row) => P2CanvasRowSchema.parse(row)),
@@ -1451,6 +1554,13 @@ function parseP2Workspace(
     scopedRows.every(
       (row) => row.project_id === projectId && row.revision_id === revisionId,
     ),
+  );
+  requireP2Ancestry(
+    sources.every(
+      (source) =>
+        source.revisionId === revisionId && objectIds.has(source.objectId),
+    ),
+    "Drawing source ancestry is invalid.",
   );
   const byId = <T extends { id: string }>(values: T[]) =>
     new Set(values.map((value) => value.id));
@@ -1660,6 +1770,7 @@ function parseP2Workspace(
     canvases: sorted(canvases, (canvas) => canvas.sortOrder),
     layers: sorted(layers, (layer) => layer.sortOrder),
     objects: sorted(objects, () => 0),
+    sources: sorted(sources, () => 0),
     styles: sorted(styles, () => 0),
     blocks: sorted(blocks, () => 0),
     blockInstances: sorted(blockInstances, () => 0),
@@ -1894,6 +2005,7 @@ export async function loadDrawingWorkspace(
       propertySchemas,
       propertyValues,
       tables,
+      sources,
       issues,
       links,
       templateCandidates,
@@ -1986,6 +2098,7 @@ export async function loadDrawingWorkspace(
         order: [{ column: "id", direction: "asc" }],
         select: "id,revision_id,project_id,name,columns_json,rows_json,version",
       }),
+      loadDrawingRevisionSources(client, projectId, revision.id),
       loadAllDrawingRows<DrawingWorkspaceIssue>(client, {
         table: "lukas_drawing_issues",
         projectId,
@@ -2033,6 +2146,7 @@ export async function loadDrawingWorkspace(
         propertySchemas,
         propertyValues,
         tables,
+        sources,
       },
     );
     const objectIds = new Set(p2.objects.map((object) => object.id));

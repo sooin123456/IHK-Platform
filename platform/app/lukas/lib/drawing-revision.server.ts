@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 import type { DrawingClient } from "./drawing-collaboration.server.ts";
 
@@ -23,6 +24,7 @@ type RevisionReviewDatabase = {
           anchor_kind: "ifc_element" | "pdf_region";
           ifc_global_id: string | null;
           active: boolean;
+          replaces_anchor_id: string | null;
         };
         Insert: never;
         Update: never;
@@ -52,7 +54,18 @@ type RevisionReviewDatabase = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      lukas_drawing_relink_issue_anchor: {
+        Args: {
+          p_previous_anchor_id: string;
+          p_new_anchor_id: string;
+          p_current_file_id: string;
+          p_anchor: unknown;
+          p_note: string;
+        };
+        Returns: unknown;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
@@ -67,6 +80,86 @@ export type DrawingRevisionReviewItem = {
   kind: "ifc_candidate" | "manual_reanchor_required";
   ifcGlobalId: string | null;
 };
+
+const Uuid = z.string().uuid();
+const RelinkPdfAnchorSchema = z
+  .object({
+    kind: z.literal("pdf_region"),
+    fileId: Uuid,
+    pageNumber: z.number().int().positive(),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().positive().max(1),
+    height: z.number().positive().max(1),
+    label: z.string().max(240),
+  })
+  .strict()
+  .refine((anchor) => anchor.x + anchor.width <= 1)
+  .refine((anchor) => anchor.y + anchor.height <= 1);
+const RelinkIfcAnchorSchema = z
+  .object({
+    kind: z.literal("ifc_element"),
+    fileId: Uuid,
+    elementId: z.string().regex(/^[1-9][0-9]*$/),
+    ifcGlobalId: z.string().regex(/^[0-9A-Za-z_$]{22}$/),
+    camera: z
+      .object({
+        position: z.tuple([
+          z.number().finite(),
+          z.number().finite(),
+          z.number().finite(),
+        ]),
+        target: z.tuple([
+          z.number().finite(),
+          z.number().finite(),
+          z.number().finite(),
+        ]),
+      })
+      .strict(),
+    label: z.string().max(240),
+  })
+  .strict();
+const RelinkDrawingAnchorInputSchema = z
+  .object({
+    previousAnchorId: Uuid,
+    newAnchorId: Uuid,
+    currentFileId: Uuid,
+    anchor: z.union([RelinkPdfAnchorSchema, RelinkIfcAnchorSchema]),
+    note: z.string().trim().min(1).max(1000),
+  })
+  .strict()
+  .refine((input) => input.anchor.fileId === input.currentFileId);
+const RelinkDrawingAnchorResultSchema = z
+  .object({ previousAnchorId: Uuid, newAnchorId: Uuid })
+  .strict();
+
+export type RelinkDrawingAnchorInput = z.infer<
+  typeof RelinkDrawingAnchorInputSchema
+>;
+
+export async function relinkDrawingIssueAnchor(
+  baseClient: DrawingClient,
+  input: RelinkDrawingAnchorInput,
+): Promise<z.infer<typeof RelinkDrawingAnchorResultSchema>> {
+  const value = RelinkDrawingAnchorInputSchema.parse(input);
+  const client =
+    baseClient as unknown as SupabaseClient<RevisionReviewDatabase>;
+  const { data, error } = await client.rpc(
+    "lukas_drawing_relink_issue_anchor",
+    {
+      p_previous_anchor_id: value.previousAnchorId,
+      p_new_anchor_id: value.newAnchorId,
+      p_current_file_id: value.currentFileId,
+      p_anchor: value.anchor,
+      p_note: value.note,
+    },
+  );
+  if (error)
+    throw new Error(
+      `도면 근거를 새 개정본에 연결하지 못했습니다: ${error.message}`,
+    );
+  return RelinkDrawingAnchorResultSchema.parse(data);
+}
 
 export async function loadDrawingRevisionReview(
   baseClient: DrawingClient,
