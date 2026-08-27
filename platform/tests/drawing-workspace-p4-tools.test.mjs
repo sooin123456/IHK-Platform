@@ -874,3 +874,47 @@ test("semantic render cache is identity-bounded and stores only opening and arc 
     firstOpening,
   );
 });
+
+test("PDF owned cleanup uses a bounded once-only fence per generation", () => {
+  assert.equal(typeof tools.scheduleDrawingPdfOwnedCleanup, "function");
+  const callbacks = { frames: [], timers: [] };
+  const cancelled = { frames: [], timers: [] };
+  const scheduler = {
+    requestFrame(callback) {
+      callbacks.frames.push(callback);
+      return callbacks.frames.length;
+    },
+    cancelFrame(id) {
+      cancelled.frames.push(id);
+    },
+    setTimer(callback) {
+      callbacks.timers.push(callback);
+      return callbacks.timers.length;
+    },
+    clearTimer(id) {
+      cancelled.timers.push(id);
+    },
+  };
+  const oldCanvas = { width: 10 };
+  const newCanvas = { width: 20 };
+  const cleaned = [];
+  tools.scheduleDrawingPdfOwnedCleanup(() => {
+    oldCanvas.width = 0;
+    cleaned.push("old");
+  }, scheduler);
+  tools.scheduleDrawingPdfOwnedCleanup(() => {
+    newCanvas.width = 0;
+    cleaned.push("new");
+  }, scheduler);
+
+  callbacks.timers[0]();
+  callbacks.frames[0]();
+  assert.deepEqual(cleaned, ["old"]);
+  assert.deepEqual([oldCanvas.width, newCanvas.width], [0, 20]);
+  callbacks.frames[1]();
+  callbacks.timers[1]();
+  assert.deepEqual(cleaned, ["old", "new"]);
+  assert.deepEqual([oldCanvas.width, newCanvas.width], [0, 0]);
+  assert.deepEqual(cancelled.frames, [1, 2]);
+  assert.deepEqual(cancelled.timers, [1, 2]);
+});

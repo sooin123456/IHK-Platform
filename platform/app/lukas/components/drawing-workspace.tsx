@@ -734,6 +734,11 @@ type Props = {
     p5IfcTest?: boolean;
     p5PdfTest?: boolean;
     verticalTest?: boolean;
+    onIfcViewerDispose?: (evidence: {
+      phase: "disposed";
+      contextLossRequested: true;
+      viewerInstance: string | undefined;
+    }) => void;
   };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
   collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
@@ -1736,7 +1741,9 @@ export default function DrawingWorkspaceClient({
     if (!authorityCanWrite) {
       setAwarenessSoftLock(null);
       awarenessPublicationRef.current?.clear();
-      setActiveTool("select");
+      setActiveTool((current) =>
+        current === "pan" || current === "select" ? current : "select",
+      );
       setActiveLayerId(null);
       setSelectedIds([]);
     } else publishAwareness({});
@@ -4193,7 +4200,7 @@ export default function DrawingWorkspaceClient({
 
         <section
           aria-label="도면 캔버스"
-          className={`relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 ${outboxReady ? "" : "pointer-events-none"}`}
+          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2"
           aria-busy={!outboxReady}
         >
           <div
@@ -4479,6 +4486,7 @@ export default function DrawingWorkspaceClient({
                       fileName={selectedIfc.originalFilename}
                       focusRequest={ifcFocusRequest}
                       onElementSelection={handleIfcElementSelection}
+                      onViewerDispose={previewHarness?.onIfcViewerDispose}
                       remoteGlobalIds={remoteIfcGlobalIds}
                       signedUrl={selectedIfc.signedUrl}
                       sourceKey={`${selectedIfc.id}:${selectedIfc.sha256}`}

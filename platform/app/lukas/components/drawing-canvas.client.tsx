@@ -97,6 +97,38 @@ import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
 import { DrawingCollaborationOverlay } from "~/lukas/components/drawing-collaboration-overlay.client";
 import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
 
+type DrawingPdfCleanupScheduler = {
+  requestFrame(callback: () => void): number;
+  cancelFrame(id: number): void;
+  setTimer(callback: () => void, milliseconds: number): number;
+  clearTimer(id: number): void;
+};
+
+export function scheduleDrawingPdfOwnedCleanup(
+  cleanup: () => void,
+  scheduler: DrawingPdfCleanupScheduler = {
+    requestFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (id) => cancelAnimationFrame(id),
+    setTimer: (callback, milliseconds) =>
+      window.setTimeout(callback, milliseconds),
+    clearTimer: (id) => window.clearTimeout(id),
+  },
+) {
+  let finished = false;
+  let frameId: number | null = null;
+  let timerId: number | null = null;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (frameId !== null) scheduler.cancelFrame(frameId);
+    if (timerId !== null) scheduler.clearTimer(timerId);
+    cleanup();
+  };
+  frameId = scheduler.requestFrame(finish);
+  timerId = scheduler.setTimer(finish, 1_000);
+  return finish;
+}
+
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
 const BASE_GRID_SIZE = 10;
@@ -2576,7 +2608,7 @@ export const DrawingCanvas = forwardRef<
       const documentToDestroy = opened;
       opened = null;
       onPdfPageTransform?.(null);
-      requestAnimationFrame(() => {
+      scheduleDrawingPdfOwnedCleanup(() => {
         cleanup?.();
         void documentToDestroy?.destroy().finally(() => {
           canvas.width = 0;
@@ -2674,7 +2706,7 @@ export const DrawingCanvas = forwardRef<
       renderCleanup = null;
       const documentToDestroy = opened;
       opened = null;
-      requestAnimationFrame(() => {
+      scheduleDrawingPdfOwnedCleanup(() => {
         cleanup?.();
         void documentToDestroy?.destroy().finally(() => {
           canvas.width = 0;

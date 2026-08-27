@@ -155,6 +155,15 @@ test("collaboration initialization retry cleans partial resources and restores e
   await expect(page.getByLabel("협업 재시도 상태")).toHaveText("local-failed");
   await expect(page.getByText(/로컬 저장 실패/)).toBeVisible();
   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("0");
+  const surface = page.getByLabel(/도면 화면/);
+  await expect(surface).not.toHaveClass(/pointer-events-none/);
+  await expect(page.getByRole("button", { name: "선 도구" })).toHaveCount(0);
+  const viewportBefore = await surface.getAttribute("data-viewport-zoom");
+  await surface.hover();
+  await page.mouse.wheel(0, -200);
+  await expect
+    .poll(() => surface.getAttribute("data-viewport-zoom"))
+    .not.toBe(viewportBefore);
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByText(/로컬 저장 실패/)).toBeHidden();
   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("1");
@@ -167,6 +176,7 @@ test("collaboration initialization retry cleans partial resources and restores e
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "선 도구" })).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByLabel("협업 provider 수")).toHaveText("1");
   await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");

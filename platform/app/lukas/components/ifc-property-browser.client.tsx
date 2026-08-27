@@ -15,7 +15,10 @@ import {
 } from "lucide-react";
 import wasmUrl from "web-ifc/web-ifc.wasm?url";
 
-import type { IfcModelViewer } from "./ifc-model-viewer.client";
+import type {
+  IfcModelViewer,
+  IfcModelViewerDisposeEvidence,
+} from "./ifc-model-viewer.client";
 import type { IfcCameraState } from "~/lukas/lib/ifc-anchor";
 
 type IfcElement = {
@@ -55,6 +58,7 @@ type Props = {
   focusRequest?: IfcFocusRequest | null;
   remoteGlobalIds?: readonly string[];
   onElementSelection?: (selection: IfcElementSelection) => void;
+  onViewerDispose?: (evidence: IfcModelViewerDisposeEvidence) => void;
   activeAnchor?: {
     elementId: string;
     camera: IfcCameraState;
@@ -186,6 +190,7 @@ export default function IfcPropertyBrowser({
   focusRequest = null,
   remoteGlobalIds = [],
   onElementSelection,
+  onViewerDispose,
 }: Props) {
   const [elements, setElements] = useState<IfcElement[]>([]);
   const [selected, setSelected] = useState<IfcElement | null>(null);
@@ -215,6 +220,8 @@ export default function IfcPropertyBrowser({
   } | null>(null);
   const onElementSelectionRef = useRef(onElementSelection);
   onElementSelectionRef.current = onElementSelection;
+  const onViewerDisposeRef = useRef(onViewerDispose);
+  onViewerDisposeRef.current = onViewerDispose;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const signedUrlRef = useRef(signedUrl);
@@ -430,6 +437,7 @@ export default function IfcPropertyBrowser({
           setViewerPhase("error");
           setContextLost(true);
         },
+        onDispose: (evidence) => onViewerDisposeRef.current?.(evidence),
       });
       if (generation !== loadGenerationRef.current) {
         viewer.dispose();

@@ -176,8 +176,15 @@ test("P5 hosted command targets the new workspace source authority surface", asy
   );
   for (const boundary of [
     "/workspace?document=",
-    "put_source",
-    "delete_source",
+    "lukas_drawing_relink_issue_anchor",
+    "replaces_anchor_id",
+    "previousAnchorId",
+    "newAnchorId",
+    "editorContext",
+    "viewerContext",
+    "PDF 영역 원본 근거 연결",
+    "원본 근거 해제",
+    "공동 편집 상태: connected",
     "fixture.viewer",
     "fixture.nonMember",
     "readSourceEvidence",
@@ -185,6 +192,27 @@ test("P5 hosted command targets the new workspace source authority surface", asy
     "겹쳐 보기",
   ])
     assert.match(productionSpec, new RegExp(boundary.replace("?", "\\?")));
+});
+
+test("P5 IFC disposal evidence uses an owned harness observer without a window event", async () => {
+  const [viewer, browser, workspace, preview, releaseSpec] = await Promise.all(
+    [
+      "../app/lukas/components/ifc-model-viewer.client.ts",
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      "../app/lukas/components/drawing-workspace.tsx",
+      "../app/lukas/screens/local-drawing-workspace-preview.tsx",
+      "../e2e/drawing-workspace-p5-release.spec.ts",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  assert.doesNotMatch(
+    viewer,
+    /drawing:ifc-viewer-lifecycle|window\.dispatchEvent/,
+  );
+  assert.match(viewer, /onDispose/);
+  assert.match(browser, /onViewerDispose/);
+  assert.match(workspace, /onIfcViewerDispose/);
+  assert.match(preview, /P5 IFC owned lifecycle evidence/);
+  assert.match(releaseSpec, /P5 IFC owned lifecycle evidence/);
 });
 
 test("P5 pinned source fixtures are byte-exact PDF and renderable IFC inputs", async () => {

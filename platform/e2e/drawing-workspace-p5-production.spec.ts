@@ -12,6 +12,22 @@ import {
   type DrawingFixture,
 } from "./utils/drawing-collaboration-fixture";
 
+async function selectWorldObject(
+  page: import("@playwright/test").Page,
+  point: { x: number; y: number },
+) {
+  const surface = page.getByLabel(/도면 화면/);
+  const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
+  const viewportX = Number(await surface.getAttribute("data-viewport-x"));
+  const viewportY = Number(await surface.getAttribute("data-viewport-y"));
+  await surface.click({
+    position: {
+      x: viewportX + point.x * zoom,
+      y: viewportY + point.y * zoom,
+    },
+  });
+}
+
 test.describe.serial("P5 hosted workspace source authority", () => {
   let fixture: DrawingFixture;
   let workspace: DrawingFixture["pdfWorkspace"];
@@ -59,8 +75,6 @@ test.describe.serial("P5 hosted workspace source authority", () => {
     const viewer = await authenticateApiClient(fixture, fixture.viewer);
     const nonMember = await authenticateApiClient(fixture, fixture.nonMember);
     const objectId = randomUUID();
-    const pdfSourceId = randomUUID();
-    const ifcSourceId = randomUUID();
     const object = {
       id: objectId,
       name: "P5 hosted source target",
@@ -79,119 +93,96 @@ test.describe.serial("P5 hosted workspace source authority", () => {
       p_inverse: { type: "delete_objects", objectIds: [objectId] },
     });
     if (add.error) throw add.error;
-    const pdfSource = {
-      id: pdfSourceId,
-      objectId,
-      revisionId: workspace.revisionId,
-      sourceFileId: fixture.revisedPdfFileId,
-      sourceSha256:
-        fixture.sourceEvidence[fixture.revisedPdfFileId].metadataSha256,
-      sourceKind: "pdf_region",
-      pdfPageNumber: 1,
-      x: 0.1,
-      y: 0.1,
-      width: 0.2,
+    const previousAnchorId = randomUUID();
+    const newAnchorId = randomUUID();
+    const { error: anchorError } = await editor
+      .from("lukas_drawing_issue_anchors")
+      .insert({
+        id: previousAnchorId,
+        issue_id: fixture.existingIssueId,
+        project_id: fixture.projectId,
+        file_id: fixture.pdfFileId,
+        anchor_kind: "pdf_region",
+        page_number: 1,
+        x: 0.1,
+        y: 0.1,
+        width: 0.2,
+        height: 0.2,
+        label: "P5 predecessor anchor",
+        active: true,
+        created_by: fixture.editor.id,
+        replaces_anchor_id: null,
+      });
+    if (anchorError) throw anchorError;
+    const nextAnchor = {
+      kind: "pdf_region",
+      fileId: fixture.revisedPdfFileId,
+      pageNumber: 1,
+      x: 0.3,
+      y: 0.25,
+      width: 0.25,
       height: 0.2,
-      version: 1,
+      label: "P5 revised anchor",
     };
-    const put = await editor.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: workspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "mutate_structure",
-      p_base_versions: {},
-      p_forward: {
-        type: "mutate_structure",
-        actions: [{ kind: "put_source", entity: pdfSource, baseVersion: null }],
-      },
-      p_inverse: {
-        type: "mutate_structure",
-        actions: [{ kind: "delete_source", id: pdfSourceId, baseVersion: 1 }],
-      },
+    const failedRelink = await editor.rpc("lukas_drawing_relink_issue_anchor", {
+      p_previous_anchor_id: previousAnchorId,
+      p_new_anchor_id: newAnchorId,
+      p_current_file_id: fixture.pdfFileId,
+      p_anchor: { ...nextAnchor, fileId: fixture.pdfFileId },
+      p_note: "exact revision edge rollback",
     });
-    if (put.error) throw put.error;
-
-    await expect
-      .poll(async () => {
-        const reflected = await viewer
-          .from("lukas_drawing_object_sources")
-          .select("id,source_file_id,version")
-          .eq("id", pdfSourceId);
-        if (reflected.error) throw reflected.error;
-        return reflected.data;
-      })
-      .toEqual([
-        {
-          id: pdfSourceId,
-          source_file_id: fixture.revisedPdfFileId,
-          version: 1,
-        },
-      ]);
-    const denied = await viewer.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: workspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "mutate_structure",
-      p_base_versions: { [pdfSourceId]: 1 },
-      p_forward: {
-        type: "mutate_structure",
-        actions: [{ kind: "delete_source", id: pdfSourceId, baseVersion: 1 }],
-      },
-      p_inverse: { type: "mutate_structure", actions: [] },
+    expect(failedRelink.error).not.toBeNull();
+    const rollback = await editor
+      .from("lukas_drawing_issue_anchors")
+      .select("id,active,replaces_anchor_id")
+      .eq("issue_id", fixture.existingIssueId);
+    if (rollback.error) throw rollback.error;
+    expect(rollback.data).toEqual([
+      { id: previousAnchorId, active: true, replaces_anchor_id: null },
+    ]);
+    const viewerRelink = await viewer.rpc("lukas_drawing_relink_issue_anchor", {
+      p_previous_anchor_id: previousAnchorId,
+      p_new_anchor_id: randomUUID(),
+      p_current_file_id: fixture.revisedPdfFileId,
+      p_anchor: nextAnchor,
+      p_note: "Viewer denial",
     });
-    expect(denied.error).not.toBeNull();
-    const outsider = await nonMember
-      .from("lukas_drawing_object_sources")
-      .select("id")
-      .eq("id", pdfSourceId);
-    expect(outsider.error).toBeNull();
-    expect(outsider.data).toEqual([]);
-
-    const ifcSource = {
-      id: ifcSourceId,
-      objectId,
-      revisionId: workspace.revisionId,
-      sourceFileId: fixture.ifcFileId,
-      sourceSha256: fixture.sourceEvidence[fixture.ifcFileId].metadataSha256,
-      sourceKind: "ifc_element",
-      ifcGlobalId: "0VNYAWfXv8JvIRVfOzYH1j",
-      elementId: "2863",
-      camera: null,
-      version: 1,
-    };
-    const relink = await editor.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: workspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "mutate_structure",
-      p_base_versions: { [pdfSourceId]: 1 },
-      p_forward: {
-        type: "mutate_structure",
-        actions: [
-          { kind: "delete_source", id: pdfSourceId, baseVersion: 1 },
-          { kind: "put_source", entity: ifcSource, baseVersion: null },
-        ],
-      },
-      p_inverse: {
-        type: "mutate_structure",
-        actions: [
-          { kind: "delete_source", id: ifcSourceId, baseVersion: 1 },
-          { kind: "put_source", entity: pdfSource, baseVersion: null },
-        ],
-      },
+    expect(viewerRelink.error).not.toBeNull();
+    const relink = await editor.rpc("lukas_drawing_relink_issue_anchor", {
+      p_previous_anchor_id: previousAnchorId,
+      p_new_anchor_id: newAnchorId,
+      p_current_file_id: fixture.revisedPdfFileId,
+      p_anchor: nextAnchor,
+      p_note: "exact revision edge confirmed",
     });
     if (relink.error) throw relink.error;
-    const stale = await editor.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: workspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "mutate_structure",
-      p_base_versions: { [pdfSourceId]: 1 },
-      p_forward: {
-        type: "mutate_structure",
-        actions: [{ kind: "delete_source", id: pdfSourceId, baseVersion: 1 }],
-      },
-      p_inverse: { type: "mutate_structure", actions: [] },
-    });
-    expect(stale.error).not.toBeNull();
+    expect(relink.data).toEqual({ previousAnchorId, newAnchorId });
+    const anchors = await editor
+      .from("lukas_drawing_issue_anchors")
+      .select("id,file_id,active,replaces_anchor_id")
+      .eq("issue_id", fixture.existingIssueId);
+    if (anchors.error) throw anchors.error;
+    expect(anchors.data).toEqual(
+      expect.arrayContaining([
+        {
+          id: previousAnchorId,
+          file_id: fixture.pdfFileId,
+          active: false,
+          replaces_anchor_id: null,
+        },
+        {
+          id: newAnchorId,
+          file_id: fixture.revisedPdfFileId,
+          active: true,
+          replaces_anchor_id: previousAnchorId,
+        },
+      ]),
+    );
 
-    const context = await browser.newContext({
+    const editorContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const viewerContext = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     });
     const requiredSignedPaths = [
@@ -200,7 +191,7 @@ test.describe.serial("P5 hosted workspace source authority", () => {
       fixture.storagePaths[1],
     ];
     const signedSourceResponses = new Set<string>();
-    context.on("response", (response) => {
+    editorContext.on("response", (response) => {
       if (response.status() < 200 || response.status() >= 300) return;
       const decodedUrl = decodeURIComponent(response.url());
       const path = requiredSignedPaths.find((candidate) =>
@@ -209,37 +200,132 @@ test.describe.serial("P5 hosted workspace source authority", () => {
       if (path) signedSourceResponses.add(path);
     });
     const path = `/projects/${fixture.projectId}/drawings/${workspace.fileId}/workspace?document=${workspace.documentId}&ifc=${fixture.ifcFileId}&view=split`;
-    const page = await authenticateContext(
+    const editorPage = await authenticateContext(
       fixture,
-      context,
+      editorContext,
       fixture.editor,
       credentials.E2E_BASE_URL,
       path,
     );
-    await expect(
-      page.getByRole("group", { name: "도면 작업실 보기" }),
-    ).toBeVisible();
-    await expect(page).toHaveURL(/view=split/);
-    await expect(
-      page.getByText("PDF 원본 배경을 표시하고 있습니다."),
-    ).toBeVisible();
-    await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(
-      1,
-      {
-        timeout: 60_000,
-      },
+    const viewerPage = await authenticateContext(
+      fixture,
+      viewerContext,
+      fixture.viewer,
+      credentials.E2E_BASE_URL,
+      path,
     );
-    await page.getByRole("button", { name: "겹쳐 보기" }).click();
-    await expect(
-      page.getByRole("button", { name: "변경 표시 계산" }),
-    ).toBeEnabled();
-    await expect
-      .poll(() => [...signedSourceResponses].sort(), { timeout: 60_000 })
-      .toEqual([...requiredSignedPaths].sort());
-    await page.getByRole("button", { name: "2D 도면" }).click();
-    await page.getByRole("button", { name: "IFC 3D" }).click();
-    await page.getByRole("button", { name: "분할 보기" }).click();
-    await context.close();
+    try {
+      for (const page of [editorPage, viewerPage]) {
+        await expect(
+          page.getByRole("group", { name: "도면 작업실 보기" }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("status", { name: "공동 편집 상태: connected" }),
+        ).toBeVisible({ timeout: 60_000 });
+        await expect(
+          page.getByText("PDF 원본 배경을 표시하고 있습니다."),
+        ).toBeVisible();
+        await page.getByRole("button", { name: "선택 도구" }).click();
+        await selectWorldObject(page, { x: 220, y: 220 });
+      }
+      const editorInspector = editorPage.getByRole("region", {
+        name: "선택 객체 원본 근거",
+      });
+      const viewerInspector = viewerPage.getByRole("region", {
+        name: "선택 객체 원본 근거",
+      });
+      await expect(viewerInspector).toContainText("조회 전용");
+      await expect(
+        viewerInspector.getByRole("button", {
+          name: "PDF 영역 원본 근거 연결",
+        }),
+      ).toHaveCount(0);
+
+      await editorInspector
+        .getByRole("button", { name: "PDF 영역 원본 근거 연결" })
+        .click();
+      await expect(viewerInspector).toContainText("PDF 1쪽 영역", {
+        timeout: 60_000,
+      });
+      const linked = await editor
+        .from("lukas_drawing_object_sources")
+        .select("id,status,version,source_file_id")
+        .eq("object_id", objectId)
+        .eq("status", "active")
+        .single();
+      if (linked.error || !linked.data)
+        throw linked.error ?? new Error("Mounted PDF link did not persist");
+      const denied = await viewer.rpc("lukas_drawing_apply_operation", {
+        p_revision_id: workspace.revisionId,
+        p_client_operation_id: randomUUID(),
+        p_operation_type: "mutate_structure",
+        p_base_versions: { [linked.data.id]: 1 },
+        p_forward: {
+          type: "mutate_structure",
+          actions: [
+            { kind: "delete_source", id: linked.data.id, baseVersion: 1 },
+          ],
+        },
+        p_inverse: { type: "mutate_structure", actions: [] },
+      });
+      expect(denied.error).not.toBeNull();
+
+      await editorInspector
+        .getByRole("button", { name: "원본 근거 해제" })
+        .click();
+      await expect(viewerInspector).toContainText(
+        "연결된 원본 근거가 없습니다.",
+        { timeout: 60_000 },
+      );
+      await editorInspector
+        .getByRole("button", { name: "PDF 영역 원본 근거 연결" })
+        .click();
+      await expect(viewerInspector).toContainText("PDF 1쪽 영역", {
+        timeout: 60_000,
+      });
+      const orderedSources = await editor
+        .from("lukas_drawing_object_sources")
+        .select("id,status,version,source_file_id")
+        .eq("object_id", objectId);
+      if (orderedSources.error) throw orderedSources.error;
+      expect(orderedSources.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: linked.data.id,
+            status: "deleted",
+            version: 2,
+          }),
+          expect.objectContaining({
+            status: "active",
+            version: 1,
+            source_file_id: fixture.revisedPdfFileId,
+          }),
+        ]),
+      );
+      const outsider = await nonMember
+        .from("lukas_drawing_object_sources")
+        .select("id")
+        .eq("object_id", objectId);
+      expect(outsider.error).toBeNull();
+      expect(outsider.data).toEqual([]);
+
+      await editorPage.getByRole("button", { name: "분할 보기" }).click();
+      await expect(
+        editorPage.locator('canvas[aria-label="IFC 3D 모델"]'),
+      ).toHaveCount(1, { timeout: 60_000 });
+      await editorPage.getByRole("button", { name: "겹쳐 보기" }).click();
+      await expect(
+        editorPage.getByRole("button", { name: "변경 표시 계산" }),
+      ).toBeEnabled();
+      await expect
+        .poll(() => [...signedSourceResponses].sort(), { timeout: 60_000 })
+        .toEqual([...requiredSignedPaths].sort());
+      await editorPage.getByRole("button", { name: "2D 도면" }).click();
+      await editorPage.getByRole("button", { name: "IFC 3D" }).click();
+      await editorPage.getByRole("button", { name: "분할 보기" }).click();
+    } finally {
+      await Promise.all([editorContext.close(), viewerContext.close()]);
+    }
 
     expect(await readSourceEvidence(fixture)).toEqual(sourceBefore);
   });

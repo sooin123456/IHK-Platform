@@ -403,9 +403,9 @@ export function deriveDrawingTransientState(
   const eligible = (layer: DrawingLayer | undefined) =>
     Boolean(
       layer &&
-        (layer.systemKind === "work" || layer.systemKind === "custom") &&
-        layer.visible &&
-        !layer.locked,
+      (layer.systemKind === "work" || layer.systemKind === "custom") &&
+      layer.visible &&
+      !layer.locked,
     );
   const activeLayer =
     input.canEdit && eligible(layers[input.activeLayerId ?? ""])
@@ -434,12 +434,12 @@ export function deriveDrawingTransientState(
             (object &&
               visibleObjectIds.has(object.id) &&
               eligible(layers[object.layerId])) ||
-              (instance &&
-                (eligible(layers[instance.layerId]) ||
-                  (semanticBlockInstanceIds.has(instance.id) &&
-                    ["work", "custom"].includes(
-                      layers[instance.layerId]?.systemKind ?? "",
-                    )))),
+            (instance &&
+              (eligible(layers[instance.layerId]) ||
+                (semanticBlockInstanceIds.has(instance.id) &&
+                  ["work", "custom"].includes(
+                    layers[instance.layerId]?.systemKind ?? "",
+                  )))),
           );
         })
       : [];
@@ -454,7 +454,8 @@ export function deriveDrawingTransientState(
   return {
     state,
     activeLayerId: activeLayer,
-    activeTool: activeLayer ? input.activeTool : "select",
+    activeTool:
+      activeLayer || input.activeTool === "pan" ? input.activeTool : "select",
     selectedIds,
   };
 }

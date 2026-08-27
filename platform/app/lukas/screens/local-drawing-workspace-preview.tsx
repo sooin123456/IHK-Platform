@@ -1449,6 +1449,10 @@ export default function LocalDrawingWorkspacePreview({
   const [localAwarenessPayload, setLocalAwarenessPayload] =
     useState<unknown>(null);
   const [verticalSnapshot, setVerticalSnapshot] = useState<unknown>(null);
+  const [ifcLifecycleEvidence, setIfcLifecycleEvidence] = useState({
+    ownedDisposals: 0,
+    contextLossRequests: 0,
+  });
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
@@ -1466,7 +1470,17 @@ export default function LocalDrawingWorkspacePreview({
     [],
   );
   const p5PreviewHarness = useMemo(
-    () => ({ onStateChange: setVerticalSnapshot, p5IfcTest: true }),
+    () => ({
+      onStateChange: setVerticalSnapshot,
+      p5IfcTest: true,
+      onIfcViewerDispose: (evidence: { contextLossRequested: true }) =>
+        setIfcLifecycleEvidence((current) => ({
+          ownedDisposals: current.ownedDisposals + 1,
+          contextLossRequests:
+            current.contextLossRequests +
+            (evidence.contextLossRequested ? 1 : 0),
+        })),
+    }),
     [],
   );
   const p5PdfPreviewHarness = useMemo(
@@ -1583,17 +1597,19 @@ export default function LocalDrawingWorkspacePreview({
             ? verticalPreviewHarness
             : loaderData.p5ReleaseTest
               ? p5PreviewHarness
-              : loaderData.p5IfcTest
+              : loaderData.p5BaselineTest
                 ? p5PreviewHarness
-                : loaderData.p5PdfTest
-                  ? p5PdfPreviewHarness
-                  : loaderData.canonicalP5
-                    ? undefined
-                    : loaderData.realtimeTest
-                      ? previewHarness
-                      : loaderData.awarenessTest
-                        ? awarenessPreviewHarness
-                        : undefined
+                : loaderData.p5IfcTest
+                  ? p5PreviewHarness
+                  : loaderData.p5PdfTest
+                    ? p5PdfPreviewHarness
+                    : loaderData.canonicalP5
+                      ? undefined
+                      : loaderData.realtimeTest
+                        ? previewHarness
+                        : loaderData.awarenessTest
+                          ? awarenessPreviewHarness
+                          : undefined
         }
       />
       <aside
@@ -1629,6 +1645,12 @@ export default function LocalDrawingWorkspacePreview({
             </output>
             <output aria-label="P5 baseline source link count">
               {loaderData.workspace.document.revision.sources?.length ?? 0}
+            </output>
+            <output
+              aria-label="P5 IFC owned lifecycle evidence"
+              className="sr-only"
+            >
+              {JSON.stringify(ifcLifecycleEvidence)}
             </output>
           </>
         ) : null}

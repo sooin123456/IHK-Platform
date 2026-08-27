@@ -281,25 +281,6 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   browserName,
   page,
 }) => {
-  const ifcOwnedDisposals: Array<{ contextLossRequested?: boolean }> = [];
-  await page.exposeFunction(
-    "__recordDrawingIfcDisposal",
-    (detail: { contextLossRequested?: boolean }) => {
-      ifcOwnedDisposals.push(detail);
-    },
-  );
-  await page.addInitScript(() => {
-    const target = window as typeof window & {
-      __recordDrawingIfcDisposal?: (detail: {
-        contextLossRequested?: boolean;
-      }) => void;
-    };
-    window.addEventListener("drawing:ifc-viewer-lifecycle", (event) => {
-      target.__recordDrawingIfcDisposal?.(
-        (event as CustomEvent<{ contextLossRequested?: boolean }>).detail,
-      );
-    });
-  });
   await page.setViewportSize({ width: 1440, height: 900 });
   expect(mutationWorkflowEvidence).toBeDefined();
   let ifcFetches = 0;
@@ -345,10 +326,17 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   const ifcCanvasesAfterUnmount = await page
     .locator('canvas[aria-label="IFC 3D 모델"]')
     .count();
-  await expect.poll(() => ifcOwnedDisposals.length).toBe(1);
-  expect(ifcOwnedDisposals).toEqual([
-    expect.objectContaining({ contextLossRequested: true }),
-  ]);
+  const lifecycleOutput = page.getByLabel("P5 IFC owned lifecycle evidence");
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await lifecycleOutput.textContent()) ?? "{}")
+          .ownedDisposals,
+    )
+    .toBe(1);
+  const ifcLifecycleEvidence = JSON.parse(
+    (await lifecycleOutput.textContent()) ?? "{}",
+  ) as { ownedDisposals: number; contextLossRequests: number };
   const evidence = {
     schemaVersion: 1,
     status: "MEASURED",
@@ -366,10 +354,8 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
     lifecycle: {
       ifcFetches,
       ifcCanvasesAfterUnmount,
-      ifcOwnedDisposals: ifcOwnedDisposals.length,
-      ifcContextLossRequests: ifcOwnedDisposals.filter(
-        ({ contextLossRequested }) => contextLossRequested,
-      ).length,
+      ifcOwnedDisposals: ifcLifecycleEvidence.ownedDisposals,
+      ifcContextLossRequests: ifcLifecycleEvidence.contextLossRequests,
     },
     sourceObservation: {
       observedBy: "browser_mutation_workflow",

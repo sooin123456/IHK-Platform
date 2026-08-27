@@ -54,32 +54,138 @@ function source() {
 function structure() {
   return {
     pages: {
-      [ids.page]: { id: ids.page, revisionId: ids.revision, name: "A1", sortOrder: 0, version: 1 },
+      [ids.page]: {
+        id: ids.page,
+        revisionId: ids.revision,
+        name: "A1",
+        sortOrder: 0,
+        version: 1,
+      },
     },
     canvases: {
-      [ids.paper]: { id: ids.paper, pageId: ids.page, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 },
-      [ids.model]: { id: ids.model, pageId: ids.page, name: "Model", spaceKind: "model", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 1, version: 1 },
+      [ids.paper]: {
+        id: ids.paper,
+        pageId: ids.page,
+        name: "Paper",
+        spaceKind: "paper",
+        widthMillimeters: 210,
+        heightMillimeters: 297,
+        background: null,
+        sortOrder: 0,
+        version: 1,
+      },
+      [ids.model]: {
+        id: ids.model,
+        pageId: ids.page,
+        name: "Model",
+        spaceKind: "model",
+        widthMillimeters: 210,
+        heightMillimeters: 297,
+        background: null,
+        sortOrder: 1,
+        version: 1,
+      },
     },
     layers: {
-      [ids.work]: { id: ids.work, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: ids.paper, sortOrder: 0, version: 1 },
-      [ids.modelWork]: { id: ids.modelWork, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: ids.model, sortOrder: 0, version: 1 },
+      [ids.work]: {
+        id: ids.work,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        canvasId: ids.paper,
+        sortOrder: 0,
+        version: 1,
+      },
+      [ids.modelWork]: {
+        id: ids.modelWork,
+        name: "Model work",
+        visible: true,
+        locked: false,
+        systemKind: "custom",
+        canvasId: ids.model,
+        sortOrder: 0,
+        version: 1,
+      },
     },
     objects: {
-      [ids.object]: { id: ids.object, name: "Rectangle", layerId: ids.work, geometry: { type: "rectangle", origin: { x: 0, y: 0 }, width: 10, height: 20, rotation: 0 }, style: { stroke: "#112233", strokeWidth: 2, fill: null }, version: 1 },
+      [ids.object]: {
+        id: ids.object,
+        name: "Rectangle",
+        layerId: ids.work,
+        geometry: {
+          type: "rectangle",
+          origin: { x: 0, y: 0 },
+          width: 10,
+          height: 20,
+          rotation: 0,
+        },
+        style: { stroke: "#112233", strokeWidth: 2, fill: null },
+        version: 1,
+      },
     },
     styles: {
-      [ids.style]: { id: ids.style, revisionId: ids.revision, name: "Default", value: { stroke: "#112233", strokeWidth: 2, fill: null }, version: 1 },
+      [ids.style]: {
+        id: ids.style,
+        revisionId: ids.revision,
+        name: "Default",
+        value: { stroke: "#112233", strokeWidth: 2, fill: null },
+        version: 1,
+      },
     },
     blocks: {
-      [ids.block]: { id: ids.block, revisionId: ids.revision, name: "Symbol", primitives: [{ localId: "rect", name: "Rectangle", geometry: { type: "rectangle", origin: { x: 0, y: 0 }, width: 10, height: 20, rotation: 0 }, styleId: null, style: { stroke: "#112233", strokeWidth: 2, fill: null } }], version: 1 },
+      [ids.block]: {
+        id: ids.block,
+        revisionId: ids.revision,
+        name: "Symbol",
+        primitives: [
+          {
+            localId: "rect",
+            name: "Rectangle",
+            geometry: {
+              type: "rectangle",
+              origin: { x: 0, y: 0 },
+              width: 10,
+              height: 20,
+              rotation: 0,
+            },
+            styleId: null,
+            style: { stroke: "#112233", strokeWidth: 2, fill: null },
+          },
+        ],
+        version: 1,
+      },
     },
     blockInstances: {},
     propertySchemas: {
-      [ids.schema]: { id: ids.schema, revisionId: ids.revision, name: "Code", valueType: "text", enumOptions: [], appliesTo: ["rectangle"], required: false, version: 1 },
+      [ids.schema]: {
+        id: ids.schema,
+        revisionId: ids.revision,
+        name: "Code",
+        valueType: "text",
+        enumOptions: [],
+        appliesTo: ["rectangle"],
+        required: false,
+        version: 1,
+      },
     },
     propertyValues: {},
     tables: {
-      [ids.table]: { id: ids.table, revisionId: ids.revision, name: "Schedule", columns: [{ id: "00000000-0000-4000-8000-000000000114", name: "Note", kind: "text", propertySchemaId: null }], rows: [], version: 1 },
+      [ids.table]: {
+        id: ids.table,
+        revisionId: ids.revision,
+        name: "Schedule",
+        columns: [
+          {
+            id: "00000000-0000-4000-8000-000000000114",
+            name: "Note",
+            kind: "text",
+            propertySchemaId: null,
+          },
+        ],
+        rows: [],
+        version: 1,
+      },
     },
   };
 }
@@ -88,7 +194,12 @@ test("hydrates every P2 collection into one canonical document state", () => {
   const state = hydrateDrawingDocumentState({
     revisionId: ids.revision,
     sources: [source()],
-    ...Object.fromEntries(Object.entries(structure()).map(([key, value]) => [key, Object.values(value)])),
+    ...Object.fromEntries(
+      Object.entries(structure()).map(([key, value]) => [
+        key,
+        Object.values(value),
+      ]),
+    ),
   });
 
   assert.equal(state.structure.pages[ids.page].name, "A1");
@@ -104,7 +215,10 @@ test("hydrates every P2 collection into one canonical document state", () => {
 });
 
 test("store preserves canonical P2 state and falls back to the page default after active canvas deletion", () => {
-  const initial = createDrawingDocumentState({ revisionId: ids.revision, structure: structure() });
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: structure(),
+  });
   const store = createDrawingDocumentStore(initial, {
     activePageId: ids.page,
     activeCanvasId: ids.model,
@@ -112,7 +226,9 @@ test("store preserves canonical P2 state and falls back to the page default afte
     now: () => "2026-08-25T00:00:00.000Z",
   });
   let notifications = 0;
-  const unsubscribe = store.subscribe(() => { notifications += 1; });
+  const unsubscribe = store.subscribe(() => {
+    notifications += 1;
+  });
 
   store.dispatch({
     type: "mutate_structure",
@@ -139,18 +255,23 @@ test("store preserves canonical P2 state and falls back to the page default afte
 });
 
 test("store leaves the prior snapshot intact when a structure batch conflicts", () => {
-  const initial = createDrawingDocumentState({ revisionId: ids.revision, structure: structure() });
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: structure(),
+  });
   const store = createDrawingDocumentStore(initial);
   const before = store.getSnapshot();
 
-  assert.throws(() => store.dispatch({
-    type: "mutate_structure",
-    actorId: ids.actor,
-    actions: [
-      { kind: "delete_layer", id: ids.modelWork, baseVersion: 1 },
-      { kind: "delete_canvas", id: ids.model, baseVersion: 2 },
-    ],
-  }));
+  assert.throws(() =>
+    store.dispatch({
+      type: "mutate_structure",
+      actorId: ids.actor,
+      actions: [
+        { kind: "delete_layer", id: ids.modelWork, baseVersion: 1 },
+        { kind: "delete_canvas", id: ids.model, baseVersion: 2 },
+      ],
+    }),
+  );
 
   assert.strictEqual(store.getSnapshot(), before);
   assert.ok(store.getSnapshot().structure.canvases[ids.model]);
@@ -158,57 +279,108 @@ test("store leaves the prior snapshot intact when a structure batch conflicts", 
 
 test("hydration fails closed on a malformed P2 row", () => {
   const input = structure();
-  input.canvases[ids.paper] = { ...input.canvases[ids.paper], widthMillimeters: 0 };
+  input.canvases[ids.paper] = {
+    ...input.canvases[ids.paper],
+    widthMillimeters: 0,
+  };
 
-  assert.throws(() => hydrateDrawingDocumentState({
-    revisionId: ids.revision,
-    ...Object.fromEntries(Object.entries(input).map(([key, value]) => [key, Object.values(value)])),
-  }));
+  assert.throws(() =>
+    hydrateDrawingDocumentState({
+      revisionId: ids.revision,
+      ...Object.fromEntries(
+        Object.entries(input).map(([key, value]) => [
+          key,
+          Object.values(value),
+        ]),
+      ),
+    }),
+  );
 });
 
 test("hydration rejects orphaned, cross-revision, colliding, defaultless, and non-editable P2 graphs", () => {
   const invalid = (mutate) => {
     const input = structure();
     mutate(input);
-    return () => hydrateDrawingDocumentState({
-      revisionId: ids.revision,
-      ...Object.fromEntries(Object.entries(input).map(([key, value]) => [key, Object.values(value)])),
-    });
+    return () =>
+      hydrateDrawingDocumentState({
+        revisionId: ids.revision,
+        ...Object.fromEntries(
+          Object.entries(input).map(([key, value]) => [
+            key,
+            Object.values(value),
+          ]),
+        ),
+      });
   };
-  assert.throws(invalid((input) => { input.pages[ids.page].revisionId = ids.actor; }));
-  assert.throws(invalid((input) => { input.canvases[ids.paper].pageId = ids.actor; }));
-  assert.throws(invalid((input) => { input.styles[ids.style].id = ids.object; }));
-  assert.throws(invalid((input) => { input.canvases[ids.paper].spaceKind = "model"; }));
-  assert.throws(invalid((input) => {
-    input.layers[ids.work].locked = true;
-    input.layers[ids.modelWork].locked = true;
-  }));
+  assert.throws(
+    invalid((input) => {
+      input.pages[ids.page].revisionId = ids.actor;
+    }),
+  );
+  assert.throws(
+    invalid((input) => {
+      input.canvases[ids.paper].pageId = ids.actor;
+    }),
+  );
+  assert.throws(
+    invalid((input) => {
+      input.styles[ids.style].id = ids.object;
+    }),
+  );
+  assert.throws(
+    invalid((input) => {
+      input.canvases[ids.paper].spaceKind = "model";
+    }),
+  );
+  assert.throws(
+    invalid((input) => {
+      input.layers[ids.work].locked = true;
+      input.layers[ids.modelWork].locked = true;
+    }),
+  );
 });
 
 test("non-draft stores reject mutations before changing their snapshot", () => {
-  const initial = createDrawingDocumentState({ revisionId: ids.revision, structure: structure() });
-  const store = createDrawingDocumentStore(initial, { revisionStatus: "approved" });
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: structure(),
+  });
+  const store = createDrawingDocumentStore(initial, {
+    revisionStatus: "approved",
+  });
   const before = store.getSnapshot();
 
-  assert.throws(() => store.dispatch({
-    type: "update_objects",
-    actorId: ids.actor,
-    updates: [{ objectId: ids.object, patch: { name: "Blocked" } }],
-  }));
+  assert.throws(() =>
+    store.dispatch({
+      type: "update_objects",
+      actorId: ids.actor,
+      updates: [{ objectId: ids.object, patch: { name: "Blocked" } }],
+    }),
+  );
   assert.strictEqual(store.getSnapshot(), before);
 });
 
 test("transient state synchronously removes inactive, locked, and non-draft editing state", () => {
   const store = createDrawingDocumentStore(
-    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: structure(),
+    }),
     { activePageId: ids.page, activeCanvasId: ids.model },
   );
   const snapshot = store.getSnapshot();
-  const modelObject = { ...snapshot.objects[ids.object], id: "00000000-0000-4000-8000-000000000115", layerId: ids.modelWork };
+  const modelObject = {
+    ...snapshot.objects[ids.object],
+    id: "00000000-0000-4000-8000-000000000115",
+    layerId: ids.modelWork,
+  };
   const state = {
     ...snapshot,
     objects: { ...snapshot.objects, [modelObject.id]: modelObject },
-    structure: { ...snapshot.structure, objects: { ...snapshot.structure.objects, [modelObject.id]: modelObject } },
+    structure: {
+      ...snapshot.structure,
+      objects: { ...snapshot.structure.objects, [modelObject.id]: modelObject },
+    },
   };
 
   const transient = deriveDrawingTransientState(state, {
@@ -227,7 +399,10 @@ test("transient state synchronously removes inactive, locked, and non-draft edit
 
 test("read-only viewers preserve visible active-canvas selection without gaining an edit layer or tool", () => {
   const snapshot = createDrawingDocumentStore(
-    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: structure(),
+    }),
     { activePageId: ids.page, activeCanvasId: ids.paper },
   ).getSnapshot();
   const transient = deriveDrawingTransientState(snapshot, {
@@ -240,6 +415,25 @@ test("read-only viewers preserve visible active-canvas selection without gaining
   assert.deepEqual(transient.selectedIds, [ids.object]);
   assert.equal(transient.activeLayerId, null);
   assert.equal(transient.activeTool, "select");
+});
+
+test("read-only viewers retain the non-mutating pan tool without an edit layer", () => {
+  const snapshot = createDrawingDocumentStore(
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: structure(),
+    }),
+    { activePageId: ids.page, activeCanvasId: ids.paper },
+  ).getSnapshot();
+  const transient = deriveDrawingTransientState(snapshot, {
+    canEdit: false,
+    canSelect: true,
+    activeLayerId: null,
+    activeTool: "pan",
+    selectedIds: [],
+  });
+  assert.equal(transient.activeLayerId, null);
+  assert.equal(transient.activeTool, "pan");
 });
 
 test("transient selection inherits host visibility without pruning unrelated or locked-host selections", () => {
@@ -363,42 +557,82 @@ test("transient selection inherits host visibility without pruning unrelated or 
 test("definition-only store updates change every effective style without changing object versions", () => {
   const input = structure();
   input.objects[ids.object] = {
-    ...input.objects[ids.object], styleId: ids.style, style: { fill: "#abcdef" },
+    ...input.objects[ids.object],
+    styleId: ids.style,
+    style: { fill: "#abcdef" },
   };
   const store = createDrawingDocumentStore(
     createDrawingDocumentState({ revisionId: ids.revision, structure: input }),
     { createId: () => ids.operation },
   );
   const before = store.getSnapshot();
-  assert.equal(createDrawingStyleResolutionCache(before.structure.styles).resolve(before.objects[ids.object]).stroke, "#112233");
+  assert.equal(
+    createDrawingStyleResolutionCache(before.structure.styles).resolve(
+      before.objects[ids.object],
+    ).stroke,
+    "#112233",
+  );
   store.dispatch({
-    type: "mutate_structure", actorId: ids.actor, actions: [{
-      kind: "put_style",
-      entity: { ...before.structure.styles[ids.style], value: { stroke: "#445566", strokeWidth: 3, fill: null } },
-      baseVersion: 1,
-    }],
+    type: "mutate_structure",
+    actorId: ids.actor,
+    actions: [
+      {
+        kind: "put_style",
+        entity: {
+          ...before.structure.styles[ids.style],
+          value: { stroke: "#445566", strokeWidth: 3, fill: null },
+        },
+        baseVersion: 1,
+      },
+    ],
   });
   const after = store.getSnapshot();
-  assert.equal(after.objects[ids.object].version, before.objects[ids.object].version);
-  assert.equal(createDrawingStyleResolutionCache(after.structure.styles).resolve(after.objects[ids.object]).stroke, "#445566");
+  assert.equal(
+    after.objects[ids.object].version,
+    before.objects[ids.object].version,
+  );
+  assert.equal(
+    createDrawingStyleResolutionCache(after.structure.styles).resolve(
+      after.objects[ids.object],
+    ).stroke,
+    "#445566",
+  );
 });
 
 test("transient authorization identity changes for canvas, draft, and capability boundaries", () => {
   const snapshot = createDrawingDocumentStore(
-    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: structure(),
+    }),
     { activePageId: ids.page, activeCanvasId: ids.paper },
   ).getSnapshot();
-  const draftEditor = drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: true });
+  const draftEditor = drawingTransientAuthorizationKey(snapshot, {
+    draft: true,
+    canEdit: true,
+  });
   const model = { ...snapshot, activeCanvasId: ids.model };
 
-  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(model, { draft: true, canEdit: true }));
-  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(snapshot, { draft: false, canEdit: true }));
-  assert.notEqual(draftEditor, drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: false }));
+  assert.notEqual(
+    draftEditor,
+    drawingTransientAuthorizationKey(model, { draft: true, canEdit: true }),
+  );
+  assert.notEqual(
+    draftEditor,
+    drawingTransientAuthorizationKey(snapshot, { draft: false, canEdit: true }),
+  );
+  assert.notEqual(
+    draftEditor,
+    drawingTransientAuthorizationKey(snapshot, { draft: true, canEdit: false }),
+  );
 });
 
 test("transient authorization identity includes the effective layer eligibility and version", () => {
   const snapshot = createDrawingDocumentStore(
-    createDrawingDocumentState({ revisionId: ids.revision, structure: structure() }),
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: structure(),
+    }),
     { activePageId: ids.page, activeCanvasId: ids.paper },
   ).getSnapshot();
   const layer = snapshot.layers[ids.work];
@@ -407,21 +641,30 @@ test("transient authorization identity includes the effective layer eligibility 
     canEdit: true,
     activeLayer: layer,
   });
-  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
-    draft: true,
-    canEdit: true,
-    activeLayer: { ...layer, locked: true },
-  }));
-  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
-    draft: true,
-    canEdit: true,
-    activeLayer: { ...layer, version: 2 },
-  }));
-  assert.notEqual(identity, drawingTransientAuthorizationKey(snapshot, {
-    draft: true,
-    canEdit: true,
-    activeLayer: snapshot.layers[ids.modelWork],
-  }));
+  assert.notEqual(
+    identity,
+    drawingTransientAuthorizationKey(snapshot, {
+      draft: true,
+      canEdit: true,
+      activeLayer: { ...layer, locked: true },
+    }),
+  );
+  assert.notEqual(
+    identity,
+    drawingTransientAuthorizationKey(snapshot, {
+      draft: true,
+      canEdit: true,
+      activeLayer: { ...layer, version: 2 },
+    }),
+  );
+  assert.notEqual(
+    identity,
+    drawingTransientAuthorizationKey(snapshot, {
+      draft: true,
+      canEdit: true,
+      activeLayer: snapshot.layers[ids.modelWork],
+    }),
+  );
 });
 
 test("authorization-boundary adapter never reuses rectangle or polyline selection input", () => {
@@ -431,10 +674,20 @@ test("authorization-boundary adapter never reuses rectangle or polyline selectio
     selectedIds: [ids.object],
   };
   const stalePolyline = { ...staleRectangle, activeTool: "polyline" };
-  const cleared = { activeLayerId: ids.work, activeTool: "select", selectedIds: [] };
-  assert.deepEqual(sanitizeDrawingTransientInput(staleRectangle, true), cleared);
+  const cleared = {
+    activeLayerId: ids.work,
+    activeTool: "select",
+    selectedIds: [],
+  };
+  assert.deepEqual(
+    sanitizeDrawingTransientInput(staleRectangle, true),
+    cleared,
+  );
   assert.deepEqual(sanitizeDrawingTransientInput(stalePolyline, true), cleared);
   // Re-upgrading edit capability keeps the identity-owned invalidation until
   // an actual new authorized interaction replaces it.
-  assert.deepEqual(sanitizeDrawingTransientInput(staleRectangle, true), cleared);
+  assert.deepEqual(
+    sanitizeDrawingTransientInput(staleRectangle, true),
+    cleared,
+  );
 });

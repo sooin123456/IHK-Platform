@@ -20,6 +20,12 @@ export type IfcModelViewerStatus = {
   progress: number;
 };
 
+export type IfcModelViewerDisposeEvidence = {
+  phase: "disposed";
+  contextLossRequested: true;
+  viewerInstance: string | undefined;
+};
+
 export type CreateIfcModelViewerOptions = {
   container: HTMLElement;
   api: IfcAPI;
@@ -27,6 +33,7 @@ export type CreateIfcModelViewerOptions = {
   onSelect?: (expressId: number) => void;
   onStatus?: (message: string, status: IfcModelViewerStatus) => void;
   onContextLost?: () => void;
+  onDispose?: (evidence: IfcModelViewerDisposeEvidence) => void;
 };
 
 export type IfcModelViewer = {
@@ -110,6 +117,7 @@ export function createIfcModelViewer({
   onSelect,
   onStatus,
   onContextLost,
+  onDispose,
 }: CreateIfcModelViewerOptions): IfcModelViewer {
   let disposed = false;
   let visible = true;
@@ -489,15 +497,11 @@ export function createIfcModelViewer({
     elementMeshes.clear();
     geometryCache.clear();
     materialCache.clear();
-    window.dispatchEvent(
-      new CustomEvent("drawing:ifc-viewer-lifecycle", {
-        detail: {
-          phase: "disposed",
-          contextLossRequested: true,
-          viewerInstance: renderer.domElement.dataset.ifcViewerInstance,
-        },
-      }),
-    );
+    onDispose?.({
+      phase: "disposed",
+      contextLossRequested: true,
+      viewerInstance: renderer.domElement.dataset.ifcViewerInstance,
+    });
     if (notify)
       onStatus?.("IFC 3D 화면을 닫았습니다.", {
         phase: "disposed",
