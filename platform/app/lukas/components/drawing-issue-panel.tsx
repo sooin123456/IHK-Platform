@@ -84,6 +84,10 @@ export default function DrawingIssuePanel({
   projectId,
   currentFileId,
   revisionReview,
+  relinkCandidate,
+  relinkNewAnchorId,
+  onFocusRelinkCandidate,
+  onCancelRelinkCandidate,
   assignees,
   anchors,
   approvals,
@@ -100,6 +104,10 @@ export default function DrawingIssuePanel({
   projectId: string;
   currentFileId: string;
   revisionReview: DrawingRevisionReviewItem[];
+  relinkCandidate: DrawingRevisionReviewItem | null;
+  relinkNewAnchorId: string | null;
+  onFocusRelinkCandidate: (candidate: DrawingRevisionReviewItem) => void;
+  onCancelRelinkCandidate: () => void;
   assignees: DrawingAssignee[];
   anchors: DrawingAnchorRow[];
   approvals: DrawingApprovalRow[];
@@ -159,21 +167,25 @@ export default function DrawingIssuePanel({
                 key={item.previousAnchorId}
               >
                 <p className="text-xs font-semibold">{item.issueTitle}</p>
-                {item.kind === "ifc_candidate" && item.ifcGlobalId ? (
-                  <Link
-                    className="mt-2 inline-flex min-h-10 items-center text-xs font-semibold text-primary underline underline-offset-4"
-                    onClick={() => onSelectIssue(item.issueId)}
-                    to={`/projects/${projectId}/drawings/${currentFileId}?globalId=${encodeURIComponent(item.ifcGlobalId)}&issue=${encodeURIComponent(item.issueId)}`}
-                  >
-                    같은 IFC 객체 후보 확인
-                  </Link>
-                ) : (
-                  <p className="mt-2 text-xs">
-                    {item.sourceKind === "ifc_element"
+                <p className="mt-2 text-xs">
+                  {item.kind === "ifc_candidate" && item.ifcGlobalId
+                    ? "같은 IFC 객체 후보를 먼저 확인한 뒤 새 근거로 명시적으로 선택하세요."
+                    : item.sourceKind === "ifc_element"
                       ? "같은 IFC 객체가 확인되지 않았습니다. 새 도면에서 객체를 다시 선택하세요."
                       : "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요."}
-                  </p>
-                )}
+                </p>
+                <button
+                  aria-pressed={
+                    relinkCandidate?.previousAnchorId === item.previousAnchorId
+                  }
+                  className="mt-2 inline-flex min-h-10 items-center text-xs font-semibold text-primary underline underline-offset-4"
+                  onClick={() => onFocusRelinkCandidate(item)}
+                  type="button"
+                >
+                  {relinkCandidate?.previousAnchorId === item.previousAnchorId
+                    ? "검토 중인 후보"
+                    : "후보 검토"}
+                </button>
               </div>
             ))}
           </div>
@@ -325,7 +337,68 @@ export default function DrawingIssuePanel({
             </p>
           ) : null}
 
-          {pendingAnchor && mayWrite ? (
+          {pendingAnchor &&
+          mayWrite &&
+          relinkCandidate &&
+          relinkNewAnchorId &&
+          relinkCandidate.issueId === selected.id &&
+          (pendingAnchor as { kind?: unknown }).kind ===
+            relinkCandidate.sourceKind ? (
+            <Form
+              aria-label="개정 근거 원자적 교체"
+              className="mt-4 space-y-3 rounded-xl border border-amber-300 p-3"
+              method="post"
+            >
+              <input name="intent" type="hidden" value="relink_anchor" />
+              <input
+                name="previous_anchor_id"
+                type="hidden"
+                value={relinkCandidate.previousAnchorId}
+              />
+              <input
+                name="new_anchor_id"
+                type="hidden"
+                value={relinkNewAnchorId}
+              />
+              <input
+                name="current_file_id"
+                type="hidden"
+                value={currentFileId}
+              />
+              <input
+                name="anchor_json"
+                type="hidden"
+                value={JSON.stringify(pendingAnchor)}
+              />
+              <Label htmlFor={`relink-note-${selected.id}`}>
+                교체 검토 메모
+              </Label>
+              <Input
+                className="min-h-11"
+                id={`relink-note-${selected.id}`}
+                name="note"
+                placeholder="새 개정본에서 확인한 내용"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                확인 시 이전 근거 해제와 새 근거 활성화를 한 번에 저장합니다.
+                실패하면 이전 활성 근거가 그대로 유지됩니다.
+              </p>
+              <div className="flex gap-2">
+                <Button className="min-h-11 flex-1" type="submit">
+                  <RefreshCw className="size-4" /> 원자적으로 근거 교체 확인
+                </Button>
+                <Button
+                  className="min-h-11"
+                  onClick={onCancelRelinkCandidate}
+                  type="button"
+                  variant="outline"
+                >
+                  취소
+                </Button>
+              </div>
+            </Form>
+          ) : pendingAnchor && mayWrite && !relinkCandidate ? (
             <Form className="mt-4" method="post">
               <input name="intent" type="hidden" value="add_anchor" />
               <input name="issue_id" type="hidden" value={selected.id} />
@@ -366,6 +439,11 @@ export default function DrawingIssuePanel({
                           : "PDF 영역 근거"}{" "}
                         · {anchor.active ? "사용 중" : "해제됨"}
                       </p>
+                      {anchor.replaces_anchor_id ? (
+                        <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                          이전 근거 {anchor.replaces_anchor_id.slice(0, 8)} 교체
+                        </p>
+                      ) : null}
                     </div>
                     <Link
                       className="shrink-0 text-xs font-semibold text-primary underline underline-offset-4"

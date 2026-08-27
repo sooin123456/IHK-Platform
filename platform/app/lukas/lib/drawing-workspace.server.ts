@@ -211,6 +211,16 @@ type DrawingObjectSourceRow = {
   status: "active" | "deleted";
 };
 
+type DrawingFileRevisionEdgeRow = {
+  id: string;
+  project_id: string;
+  previous_file_id: string;
+  previous_sha256: string;
+  current_file_id: string;
+  current_sha256: string;
+  relation_kind: string;
+};
+
 type DrawingSnapshotRow = {
   id: string;
   revision_id: string;
@@ -328,6 +338,7 @@ const drawingRowsMaxPageSize = 1_000;
 
 type DrawingRowsTable =
   | "lukas_qto_files"
+  | "lukas_qto_file_revisions"
   | "lukas_drawing_pages"
   | "lukas_drawing_canvases"
   | "lukas_drawing_layers"
@@ -2473,6 +2484,43 @@ export async function loadDrawingWorkspaceSourceBundle(
       catalog,
     };
 
+  const revisionEdges =
+    workspace.file.kind === "pdf"
+      ? await loadAllDrawingRows<DrawingFileRevisionEdgeRow>(client, {
+          table: "lukas_qto_file_revisions",
+          projectId: workspace.file.project_id,
+          filters: [
+            ["current_file_id", workspace.file.id],
+            ["relation_kind", "supersedes"],
+          ],
+          order: [{ column: "id", direction: "asc" }],
+          select:
+            "id,project_id,previous_file_id,previous_sha256,current_file_id,current_sha256,relation_kind",
+        })
+      : [];
+  if (revisionEdges.length > 1)
+    throw new Response("PDF 바로 이전 개정 관계가 하나가 아닙니다.", {
+      status: 409,
+    });
+  const revisionEdge = revisionEdges[0] ?? null;
+  const previousFile = revisionEdge
+    ? rows.find((file) => file.id === revisionEdge.previous_file_id)
+    : null;
+  if (
+    revisionEdge &&
+    (revisionEdge.project_id !== workspace.file.project_id ||
+      revisionEdge.current_file_id !== workspace.file.id ||
+      revisionEdge.current_sha256 !== workspace.file.sha256 ||
+      revisionEdge.relation_kind !== "supersedes" ||
+      !previousFile ||
+      !validFile(previousFile) ||
+      previousFile.kind !== "pdf" ||
+      previousFile.sha256 !== revisionEdge.previous_sha256)
+  )
+    throw new Response("PDF 바로 이전 개정 원본 증거가 일치하지 않습니다.", {
+      status: 409,
+    });
+
   const backgroundPage = workspace.document.revision.pages.find(
     (page): page is DrawingPageRow =>
       "background_pdf_page" in page &&
@@ -2528,12 +2576,21 @@ export async function loadDrawingWorkspaceSourceBundle(
       : null;
   const ifc =
     selectedCandidate && loadSelectedIfc ? await sign(selectedCandidate) : null;
+  const previousPdf = previousFile ? await sign(previousFile) : null;
   return {
     primary,
     pdf,
     ifc,
-    previousPdf: null,
-    revisionEdge: null,
+    previousPdf,
+    revisionEdge: revisionEdge
+      ? {
+          id: revisionEdge.id,
+          previousFileId: revisionEdge.previous_file_id,
+          previousSha256: revisionEdge.previous_sha256,
+          currentFileId: revisionEdge.current_file_id,
+          currentSha256: revisionEdge.current_sha256,
+        }
+      : null,
     catalog,
   };
 }

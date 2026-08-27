@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   loadDrawingRevisionReview,
+  parseRelinkDrawingAnchorForm,
   relinkDrawingIssueAnchor,
 } from "../app/lukas/lib/drawing-revision.server.ts";
 
@@ -203,4 +204,78 @@ test("issue re-anchoring is one typed atomic RPC call", async () => {
       },
     ],
   ]);
+});
+
+test("relink review form creates one exact new PDF candidate without predecessor coordinates", () => {
+  const form = new FormData();
+  form.set("intent", "relink_anchor");
+  form.set("previous_anchor_id", p5Ids.previousAnchor);
+  form.set("new_anchor_id", p5Ids.replacementAnchor);
+  form.set("current_file_id", p5Ids.pdfFile);
+  form.set(
+    "anchor_json",
+    JSON.stringify({
+      kind: "pdf_region",
+      fileId: p5Ids.pdfFile,
+      pageNumber: 3,
+      x: 0.51,
+      y: 0.42,
+      width: 0.2,
+      height: 0.1,
+      label: "사용자가 새 개정본에서 선택",
+    }),
+  );
+  form.set("note", "새 도면에서 직접 확인");
+
+  assert.deepEqual(parseRelinkDrawingAnchorForm(form), {
+    previousAnchorId: p5Ids.previousAnchor,
+    newAnchorId: p5Ids.replacementAnchor,
+    currentFileId: p5Ids.pdfFile,
+    anchor: {
+      kind: "pdf_region",
+      fileId: p5Ids.pdfFile,
+      pageNumber: 3,
+      x: 0.51,
+      y: 0.42,
+      width: 0.2,
+      height: 0.1,
+      label: "사용자가 새 개정본에서 선택",
+    },
+    note: "새 도면에서 직접 확인",
+  });
+});
+
+test("relink review form rejects copied or mismatched candidate payloads", () => {
+  for (const anchor of [
+    {
+      kind: "pdf_region",
+      fileId: p5Ids.ifcFile,
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      label: "wrong file",
+    },
+    {
+      kind: "pdf_region",
+      fileId: p5Ids.pdfFile,
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      label: "extra key",
+      pixels: { x: 10, y: 20 },
+    },
+  ]) {
+    const form = new FormData();
+    form.set("intent", "relink_anchor");
+    form.set("previous_anchor_id", p5Ids.previousAnchor);
+    form.set("new_anchor_id", p5Ids.replacementAnchor);
+    form.set("current_file_id", p5Ids.pdfFile);
+    form.set("anchor_json", JSON.stringify(anchor));
+    form.set("note", "새 위치 확인");
+    assert.throws(() => parseRelinkDrawingAnchorForm(form));
+  }
 });

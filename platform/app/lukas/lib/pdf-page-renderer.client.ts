@@ -8,6 +8,7 @@ export type OpenPdfDocument = {
 
 export type PdfPageRender = {
   canvasSize: { width: number; height: number };
+  pageViewport: { width: number; height: number; rotation: number };
   cleanup: () => void;
 };
 
@@ -95,6 +96,11 @@ export async function renderPdfPageToCanvas({
     completed = true;
     return {
       canvasSize: { width: viewport.width, height: viewport.height },
+      pageViewport: {
+        width: base.width,
+        height: base.height,
+        rotation: base.rotation,
+      },
       cleanup: () => page?.cleanup(),
     };
   } finally {

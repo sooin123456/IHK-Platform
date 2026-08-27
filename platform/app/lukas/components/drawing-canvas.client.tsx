@@ -61,6 +61,15 @@ import {
 } from "~/lukas/lib/drawing-layout";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
+  computeDrawingPdfRevisionDiff,
+  DRAWING_PDF_DIFF_MAX_EDGE,
+  type DrawingPdfDiffMarker,
+} from "~/lukas/lib/drawing-pdf-revision-diff";
+import {
+  createDrawingPdfPageTransform,
+  type DrawingPdfPageTransform,
+} from "~/lukas/lib/drawing-pdf-transform";
+import {
   openPdfDocument,
   renderPdfPageToCanvas,
   type OpenPdfDocument,
@@ -1623,11 +1632,36 @@ export type DrawingCanvasHandle = {
   setViewport: (viewport: Viewport) => void;
 };
 
+export type DrawingPdfCompareInput = {
+  generation: number;
+  mode: "current" | "overlay" | "previous";
+  opacity: number;
+  previousPageNumber: number;
+  previousSignedUrl: string;
+};
+
+export type DrawingPdfCompareState =
+  | { status: "idle" | "loading"; markers: readonly [] }
+  | { status: "ready"; markers: readonly DrawingPdfDiffMarker[] }
+  | {
+      status: "missing" | "error";
+      message: string;
+      markers: readonly [];
+    }
+  | {
+      status: "refused";
+      reason: "rotation_mismatch" | "aspect_mismatch";
+      markers: readonly [];
+    };
+
 type DrawingCanvasProps = {
   activeCanvasId: string;
   activeTool: DrawingTool;
   actorId: string;
   background: DrawingCanvasBackground;
+  pdfCompare?: DrawingPdfCompareInput | null;
+  onPdfCompareState?: (state: DrawingPdfCompareState) => void;
+  onPdfPageTransform?: (transform: DrawingPdfPageTransform | null) => void;
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
   calibrationId: string | null;
@@ -2231,6 +2265,9 @@ export const DrawingCanvas = forwardRef<
     activeTool,
     actorId,
     background,
+    pdfCompare = null,
+    onPdfCompareState,
+    onPdfPageTransform,
     blockInstances,
     calibration,
     calibrationId,
@@ -2335,7 +2372,16 @@ export const DrawingCanvas = forwardRef<
   const [pdfSource, setPdfSource] = useState<{
     canvas: HTMLCanvasElement;
     bounds: { x: number; y: number; width: number; height: number };
+    pageViewport: { width: number; height: number; rotation: number };
   } | null>(null);
+  const [previousPdfSource, setPreviousPdfSource] = useState<{
+    canvas: HTMLCanvasElement;
+    bounds: { x: number; y: number; width: number; height: number };
+    pageViewport: { width: number; height: number; rotation: number };
+  } | null>(null);
+  const [pdfDiffMarkers, setPdfDiffMarkers] = useState<
+    readonly DrawingPdfDiffMarker[]
+  >([]);
   const [pdfMessage, setPdfMessage] = useState("");
   const toolContextRef = useRef<DrawingToolControllerContext>({
     activeTool,
@@ -2448,6 +2494,7 @@ export const DrawingCanvas = forwardRef<
     if (background.kind !== "pdf") {
       setPdfSource(null);
       setPdfMessage("");
+      onPdfPageTransform?.(null);
       return;
     }
     let alive = true;
@@ -2482,7 +2529,24 @@ export const DrawingCanvas = forwardRef<
           renderCleanup = null;
           return;
         }
-        setPdfSource({ canvas, bounds: sourceBounds });
+        setPdfSource({
+          canvas,
+          bounds: sourceBounds,
+          pageViewport: rendered.pageViewport,
+        });
+        onPdfPageTransform?.(
+          createDrawingPdfPageTransform({
+            pageNumber: background.pageNumber,
+            rotation: rendered.pageViewport.rotation,
+            pdfViewport: rendered.pageViewport,
+            worldViewport: {
+              x: 0,
+              y: 0,
+              width: background.width,
+              height: background.height,
+            },
+          }),
+        );
         setPdfMessage("PDF 원본 배경을 표시하고 있습니다.");
       })
       .catch((error: unknown) => {
@@ -2509,6 +2573,7 @@ export const DrawingCanvas = forwardRef<
       void documentToDestroy?.destroy();
       canvas.width = 0;
       canvas.height = 0;
+      onPdfPageTransform?.(null);
     };
   }, [
     background.kind,
@@ -2516,6 +2581,184 @@ export const DrawingCanvas = forwardRef<
     background.kind === "pdf" ? background.pageNumber : 0,
     background.kind === "pdf" ? background.signedUrl : "",
     background.width,
+    onPdfPageTransform,
+  ]);
+
+  const previousPdfEnabled =
+    background.kind === "pdf" &&
+    Boolean(pdfCompare) &&
+    pdfCompare?.mode !== "current";
+  const previousPdfPageNumber = pdfCompare?.previousPageNumber ?? 0;
+  const previousPdfSignedUrl = pdfCompare?.previousSignedUrl ?? "";
+  useEffect(() => {
+    if (!previousPdfEnabled) {
+      setPreviousPdfSource(null);
+      setPdfDiffMarkers([]);
+      onPdfCompareState?.({ status: "idle", markers: [] });
+      return;
+    }
+    let alive = true;
+    let opened: OpenPdfDocument | null = null;
+    let renderCleanup: (() => void) | null = null;
+    const controller = new AbortController();
+    const canvas = document.createElement("canvas");
+    setPreviousPdfSource(null);
+    setPdfDiffMarkers([]);
+    onPdfCompareState?.({ status: "loading", markers: [] });
+    void openPdfDocument(previousPdfSignedUrl, controller.signal)
+      .then(async (nextDocument) => {
+        if (!alive || controller.signal.aborted) {
+          await nextDocument.destroy();
+          return;
+        }
+        opened = nextDocument;
+        if (previousPdfPageNumber > nextDocument.document.numPages) {
+          onPdfCompareState?.({
+            status: "missing",
+            message: `이전 PDF에 ${previousPdfPageNumber}쪽이 없습니다. 다른 쪽을 자동 선택하지 않습니다.`,
+            markers: [],
+          });
+          return;
+        }
+        const rendered = await renderPdfPageToCanvas({
+          document: nextDocument.document,
+          pageNumber: previousPdfPageNumber,
+          canvas,
+          hostWidth: 1600,
+          zoom: 1,
+          signal: controller.signal,
+        });
+        renderCleanup = rendered.cleanup;
+        if (!alive || controller.signal.aborted) {
+          rendered.cleanup();
+          renderCleanup = null;
+          return;
+        }
+        setPreviousPdfSource({
+          canvas,
+          bounds: drawingPdfImagePlacement(rendered.canvasSize, {
+            width: background.width,
+            height: background.height,
+          }),
+          pageViewport: rendered.pageViewport,
+        });
+        onPdfCompareState?.({ status: "ready", markers: [] });
+      })
+      .catch((error: unknown) => {
+        if (!alive || controller.signal.aborted || isCancelled(error)) return;
+        onPdfCompareState?.({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "이전 PDF 페이지를 열지 못했습니다.",
+          markers: [],
+        });
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+      renderCleanup?.();
+      void opened?.destroy();
+      canvas.width = 0;
+      canvas.height = 0;
+    };
+  }, [
+    background.height,
+    background.kind,
+    background.width,
+    onPdfCompareState,
+    previousPdfEnabled,
+    previousPdfPageNumber,
+    previousPdfSignedUrl,
+  ]);
+
+  useEffect(() => {
+    if (
+      background.kind !== "pdf" ||
+      !pdfCompare ||
+      pdfCompare.mode === "current" ||
+      pdfCompare.generation === 0 ||
+      !pdfSource ||
+      !previousPdfSource
+    )
+      return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      if (controller.signal.aborted) return;
+      try {
+        const aspect = pdfSource.canvas.width / pdfSource.canvas.height;
+        const width = Math.max(
+          1,
+          Math.round(
+            aspect >= 1
+              ? DRAWING_PDF_DIFF_MAX_EDGE
+              : DRAWING_PDF_DIFF_MAX_EDGE * aspect,
+          ),
+        );
+        const height = Math.max(
+          1,
+          Math.round(
+            aspect >= 1
+              ? DRAWING_PDF_DIFF_MAX_EDGE / aspect
+              : DRAWING_PDF_DIFF_MAX_EDGE,
+          ),
+        );
+        const raster = (source: typeof pdfSource) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          if (!context) throw new Error("PDF 비교 Canvas를 만들지 못했습니다.");
+          context.drawImage(source.canvas, 0, 0, width, height);
+          return {
+            rotation: source.pageViewport.rotation,
+            viewport: {
+              width: source.pageViewport.width,
+              height: source.pageViewport.height,
+            },
+            pixels: {
+              width,
+              height,
+              data: context.getImageData(0, 0, width, height).data,
+            },
+          };
+        };
+        const result = computeDrawingPdfRevisionDiff({
+          current: raster(pdfSource),
+          previous: raster(previousPdfSource),
+          signal: controller.signal,
+        });
+        if (result.status === "ready") {
+          setPdfDiffMarkers(result.markers);
+          onPdfCompareState?.(result);
+        } else {
+          setPdfDiffMarkers([]);
+          onPdfCompareState?.(result);
+        }
+      } catch (error) {
+        if (controller.signal.aborted || isCancelled(error)) return;
+        setPdfDiffMarkers([]);
+        onPdfCompareState?.({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "PDF 변경 표시를 계산하지 못했습니다.",
+          markers: [],
+        });
+      }
+    });
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    background.kind,
+    onPdfCompareState,
+    pdfCompare,
+    pdfSource,
+    previousPdfSource,
   ]);
 
   const applyToolControllerResult = useCallback(
@@ -2932,6 +3175,8 @@ export const DrawingCanvas = forwardRef<
       aria-label="도면 화면. 스페이스 키와 드래그 또는 가운데 단추 드래그로 이동합니다."
       className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       data-active-canvas-id={activeCanvasId}
+      data-pdf-current-mounted={pdfSource ? "true" : "false"}
+      data-pdf-previous-mounted={previousPdfSource ? "true" : "false"}
       data-drag-active={selectionState.drag ? "true" : "false"}
       data-drag-pointer-id={selectionState.drag?.pointerId ?? ""}
       data-drag-preview={`${selectionState.previewDelta.x},${selectionState.previewDelta.y}`}
@@ -3054,7 +3299,9 @@ export const DrawingCanvas = forwardRef<
               strokeWidth={1 / viewport.zoom}
               width={background.width}
             />
-            {background.kind === "pdf" && pdfSource ? (
+            {background.kind === "pdf" &&
+            pdfSource &&
+            pdfCompare?.mode !== "previous" ? (
               <KonvaImage
                 height={pdfSource.bounds.height}
                 image={pdfSource.canvas}
@@ -3064,6 +3311,46 @@ export const DrawingCanvas = forwardRef<
                 y={pdfSource.bounds.y}
               />
             ) : null}
+            {background.kind === "pdf" &&
+            previousPdfSource &&
+            pdfCompare?.mode !== "current" ? (
+              <KonvaImage
+                height={previousPdfSource.bounds.height}
+                image={previousPdfSource.canvas}
+                listening={false}
+                opacity={
+                  pdfCompare?.mode === "overlay" ? pdfCompare.opacity : 1
+                }
+                width={previousPdfSource.bounds.width}
+                x={previousPdfSource.bounds.x}
+                y={previousPdfSource.bounds.y}
+              />
+            ) : null}
+          </Layer>
+          <Layer
+            listening={false}
+            name="pdf-diff-preview"
+            scaleX={viewport.zoom}
+            scaleY={viewport.zoom}
+            x={viewport.x}
+            y={viewport.y}
+          >
+            {pdfCompare?.mode !== "current" && pdfSource
+              ? pdfDiffMarkers.map((marker, index) => (
+                  <Rect
+                    dash={[8 / viewport.zoom, 4 / viewport.zoom]}
+                    fill="rgba(245,158,11,0.16)"
+                    height={marker.height * pdfSource.bounds.height}
+                    key={`${marker.x}:${marker.y}:${index}`}
+                    listening={false}
+                    stroke="#f59e0b"
+                    strokeWidth={2 / viewport.zoom}
+                    width={marker.width * pdfSource.bounds.width}
+                    x={pdfSource.bounds.x + marker.x * pdfSource.bounds.width}
+                    y={pdfSource.bounds.y + marker.y * pdfSource.bounds.height}
+                  />
+                ))
+              : null}
           </Layer>
           <Layer
             listening={false}
@@ -3267,6 +3554,21 @@ export const DrawingCanvas = forwardRef<
         </p>
       ) : null}
       <DrawingCollaborationOverlay store={awarenessStore} viewport={viewport} />
+      {pdfCompare?.mode !== "current" && pdfDiffMarkers.length > 0 ? (
+        <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-md bg-amber-100 px-3 py-2 text-xs font-bold text-amber-950 shadow">
+          브라우저 미리보기 · {pdfDiffMarkers.length}개
+          {pdfDiffMarkers.map((marker, index) => (
+            <span
+              className="sr-only"
+              data-listening="false"
+              data-pdf-diff-marker="true"
+              key={`${marker.x}:${marker.y}:${index}`}
+            >
+              {marker.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {textPosition ? (
         <form
           className="absolute z-10"

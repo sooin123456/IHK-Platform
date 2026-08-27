@@ -4,7 +4,9 @@ import { Box, FileText } from "lucide-react";
 import { Link, useRevalidator } from "react-router";
 
 import DrawingIssuePanel from "~/lukas/components/drawing-issue-panel";
-import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
+import IfcPropertyBrowser, {
+  type IfcFocusRequest,
+} from "~/lukas/components/ifc-property-browser.client";
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
 import {
@@ -84,6 +86,12 @@ export default function DrawingRoomClient({
       : (issues[0]?.id ?? null),
   );
   const [pendingAnchor, setPendingAnchor] = useState<object | null>(null);
+  const [relinkSelection, setRelinkSelection] = useState<{
+    candidate: DrawingRevisionReviewItem;
+    newAnchorId: string;
+  } | null>(null);
+  const [ifcFocusRequest, setIfcFocusRequest] =
+    useState<IfcFocusRequest | null>(null);
   const [realtimeState, setRealtimeState] =
     useState<DrawingRealtimeState | null>(null);
 
@@ -243,6 +251,7 @@ export default function DrawingRoomClient({
               }
               byteSize={file.byte_size}
               fileName={file.original_filename}
+              focusRequest={ifcFocusRequest}
               sourceKey={file.id}
               initialGlobalId={
                 activeAnchor?.kind === "ifc_element"
@@ -297,6 +306,32 @@ export default function DrawingRoomClient({
             currentFileId={file.id}
             events={events}
             revisionReview={revisionReview}
+            relinkCandidate={relinkSelection?.candidate ?? null}
+            relinkNewAnchorId={relinkSelection?.newAnchorId ?? null}
+            onCancelRelinkCandidate={() => {
+              setRelinkSelection(null);
+              setPendingAnchor(null);
+              setIfcFocusRequest(null);
+            }}
+            onFocusRelinkCandidate={(candidate) => {
+              setSelectedIssueId(candidate.issueId);
+              setPendingAnchor(null);
+              setRelinkSelection({
+                candidate,
+                newAnchorId: crypto.randomUUID(),
+              });
+              setIfcFocusRequest(
+                candidate.kind === "ifc_candidate" && candidate.ifcGlobalId
+                  ? {
+                      requestId: crypto.randomUUID(),
+                      ifcGlobalId: candidate.ifcGlobalId,
+                      elementId: null,
+                      camera: null,
+                    }
+                  : null,
+              );
+              setMobileTab("drawing");
+            }}
             role={role}
             selectedIssueId={selectedIssueId}
           />

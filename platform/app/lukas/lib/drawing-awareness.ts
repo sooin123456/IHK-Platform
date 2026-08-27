@@ -341,8 +341,12 @@ function structureActionTargetIds(value: unknown) {
     case "put_object":
     case "put_block_instance":
       return [canonicalTargetId(action.entity.id)];
+    case "put_source":
+      return [canonicalTargetId(action.entity.objectId)];
     case "delete_object":
     case "delete_block_instance":
+      return [canonicalTargetId(action.id)];
+    case "delete_source":
       return [canonicalTargetId(action.id)];
     case "put_property_value":
       return [action.entity.objectId, action.entity.blockInstanceId].flatMap(

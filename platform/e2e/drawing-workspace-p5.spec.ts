@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { PDFDocument, rgb } from "pdf-lib";
 
 const previewPath = "/workspace-preview/drawing-workspace?p5IfcTest=1&view=2d";
 
@@ -15,6 +19,160 @@ async function openP5Preview(page: Page) {
 }
 
 test.describe.configure({ mode: "serial", timeout: 120_000 });
+
+test("active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial", async ({
+  page,
+}) => {
+  const source = await readFile(
+    path.resolve(
+      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+    ),
+  );
+  const changedDocument = await PDFDocument.load(source);
+  changedDocument.getPage(0).drawRectangle({
+    x: 72,
+    y: 72,
+    width: 144,
+    height: 96,
+    color: rgb(0.9, 0.05, 0.05),
+  });
+  const changed = Buffer.from(await changedDocument.save());
+  const before = {
+    current: createHash("sha256").update(changed).digest("hex"),
+    previous: createHash("sha256").update(source).digest("hex"),
+  };
+  let previousRequests = 0;
+  await page.route("**/__p5-current.pdf", (route) =>
+    route.fulfill({ body: changed, contentType: "application/pdf" }),
+  );
+  await page.route("**/__p5-previous.pdf", async (route) => {
+    previousRequests += 1;
+    await route.fulfill({ body: source, contentType: "application/pdf" });
+  });
+
+  await page.goto(
+    "/workspace-preview/drawing-workspace?p5PdfTest=1&realtimeTest=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect(
+    page.getByRole("group", { name: "PDF 개정 비교" }),
+  ).toBeVisible();
+  expect(previousRequests).toBe(0);
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect.poll(() => previousRequests).toBe(1);
+  await page.getByLabel("이전 도면 불투명도").fill("35");
+  await page.getByRole("button", { name: "변경 표시 계산" }).click();
+  await expect(page.getByText("브라우저 미리보기").first()).toBeVisible();
+  expect(previousRequests).toBe(1);
+  await expect(
+    page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
+  ).not.toHaveCount(0);
+  await page.screenshot({
+    path: path.resolve(
+      "../.superpowers/sdd/2026-08-27-drawing-workspace-p5/task-5-pdf-overlay.png",
+    ),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "현재 도면" }).click();
+  await expect(page.locator('[data-pdf-diff-marker="true"]')).toHaveCount(0);
+
+  await page.getByRole("button", { name: "테스트 보기 권한" }).click();
+  await expect(
+    page.getByRole("group", { name: "PDF 개정 비교" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "선택 객체 원본 근거" }),
+  ).toContainText("조회 전용");
+  await expect(
+    page.getByRole("button", { name: /원본 근거 연결|원본 근거 해제/ }),
+  ).toHaveCount(0);
+
+  expect(createHash("sha256").update(changed).digest("hex")).toBe(
+    before.current,
+  );
+  expect(createHash("sha256").update(source).digest("hex")).toBe(
+    before.previous,
+  );
+});
+
+test("disabling PDF compare cancels pending predecessor work and clears transient resources", async ({
+  page,
+}) => {
+  const source = await readFile(
+    path.resolve(
+      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+    ),
+  );
+  let releasePrevious!: () => void;
+  const previousReleased = new Promise<void>((resolve) => {
+    releasePrevious = resolve;
+  });
+  let previousStarted = false;
+  await page.route("**/__p5-current.pdf", (route) =>
+    route.fulfill({ body: source, contentType: "application/pdf" }),
+  );
+  await page.route("**/__p5-previous.pdf", async (route) => {
+    previousStarted = true;
+    await previousReleased;
+    if (!route.request().isNavigationRequest())
+      await route.fulfill({ body: source, contentType: "application/pdf" });
+  });
+  await page.goto("/workspace-preview/drawing-workspace?p5PdfTest=1", {
+    waitUntil: "domcontentloaded",
+  });
+  const canvas = page.getByLabel(/도면 화면/);
+  await expect(canvas).toHaveAttribute("data-pdf-current-mounted", "true", {
+    timeout: 20_000,
+  });
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect.poll(() => previousStarted, { timeout: 15_000 }).toBe(true);
+  await page.getByRole("button", { name: "현재 도면" }).click();
+  releasePrevious();
+  await expect(canvas).toHaveAttribute("data-pdf-previous-mounted", "false");
+  await expect(page.getByText("브라우저 미리보기")).toHaveCount(0);
+  await expect(page.getByText("이전 PDF를 여는 중입니다.")).toHaveCount(0);
+});
+
+test("mounted PDF inspector uses operation commands for exact link and unlink", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const source = await readFile(
+    path.resolve(
+      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+    ),
+  );
+  const hash = createHash("sha256").update(source).digest("hex");
+  await page.route("**/__p5-current.pdf", (route) =>
+    route.fulfill({ body: source, contentType: "application/pdf" }),
+  );
+  await page.goto("/workspace-preview/drawing-workspace?p5PdfTest=1", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+    "data-pdf-current-mounted",
+    "true",
+    { timeout: 20_000 },
+  );
+  await page.getByRole("button", { name: "P5 연결 객체 선택" }).click();
+  const snapshot = page.getByLabel("P5 mounted workspace snapshot");
+  await expect(snapshot).toContainText(
+    '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
+  );
+  await page.getByRole("button", { name: "PDF 영역 원본 근거 연결" }).click();
+  expect(pageErrors).toEqual([]);
+  await expect(snapshot).toContainText('"sourceKind":"pdf_region"');
+  await expect(snapshot).toContainText(
+    '"sourceFileId":"00000000-0000-4000-8000-000000000002"',
+  );
+  await expect(snapshot).not.toContainText("signedUrl");
+  await expect(snapshot).not.toContainText("브라우저 미리보기");
+  await page.getByRole("button", { name: "원본 근거 해제" }).click();
+  await expect(snapshot).not.toContainText('"sourceKind":"pdf_region"');
+  expect(createHash("sha256").update(source).digest("hex")).toBe(hash);
+});
 
 test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries WebGL without refetch", async ({
   page,

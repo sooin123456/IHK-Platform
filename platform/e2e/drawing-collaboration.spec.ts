@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { expect, test } from "@playwright/test";
 
 import {
@@ -60,6 +62,25 @@ test.describe.serial("1HK drawing collaboration", () => {
       .getByRole("button", { name: "선택한 도면 근거 연결" })
       .click();
     await expect(ownerPage.getByText("PDF 영역 근거")).toBeVisible();
+    const ownerApi = await authenticateApiClient(fixture, fixture.owner);
+    const { data: createdIssue, error: createdIssueError } = await ownerApi
+      .from("lukas_drawing_issues")
+      .select("id")
+      .eq("project_id", fixture.projectId)
+      .eq("title", "창호 치수 확인 E2E")
+      .single();
+    if (createdIssueError || !createdIssue)
+      throw createdIssueError ?? new Error("Created issue was not persisted");
+    const { data: previousAnchor, error: previousAnchorError } = await ownerApi
+      .from("lukas_drawing_issue_anchors")
+      .select("id")
+      .eq("issue_id", createdIssue.id)
+      .eq("active", true)
+      .single();
+    if (previousAnchorError || !previousAnchor)
+      throw (
+        previousAnchorError ?? new Error("Previous anchor was not persisted")
+      );
     await expect(ownerPage.locator('input[id^="due-"]')).toHaveValue(
       "2099-12-31",
     );
@@ -79,6 +100,78 @@ test.describe.serial("1HK drawing collaboration", () => {
         "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
       ),
     ).toBeVisible();
+    await ownerPage.getByRole("button", { name: "후보 검토" }).click();
+    await expect(
+      ownerPage.getByRole("button", { name: "검토 중인 후보" }),
+    ).toBeVisible();
+    await ownerPage.getByRole("button", { name: "영역 지정" }).click();
+    const revisedCanvas = ownerPage.getByTestId("pdf-canvas");
+    const revisedBox = await revisedCanvas.boundingBox();
+    if (!revisedBox) throw new Error("Revised PDF canvas has no layout box");
+    await ownerPage.mouse.move(
+      revisedBox.x + revisedBox.width * 0.3,
+      revisedBox.y + revisedBox.height * 0.25,
+    );
+    await ownerPage.mouse.down();
+    await ownerPage.mouse.move(
+      revisedBox.x + revisedBox.width * 0.65,
+      revisedBox.y + revisedBox.height * 0.55,
+    );
+    await ownerPage.mouse.up();
+    await ownerPage
+      .getByLabel("교체 검토 메모")
+      .fill("개정본에서 새 영역을 직접 확인함");
+    let atomicRelinkPosts = 0;
+    ownerPage.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        request.postData()?.includes("relink_anchor")
+      )
+        atomicRelinkPosts += 1;
+    });
+    await ownerPage
+      .getByRole("button", { name: "원자적으로 근거 교체 확인" })
+      .click();
+    await expect(
+      ownerPage.getByText(/두 변경은 한 번의 원자적 작업/),
+    ).toBeVisible();
+    expect(atomicRelinkPosts).toBe(1);
+
+    const { data: relinkedAnchors, error: relinkedAnchorsError } =
+      await ownerApi
+        .from("lukas_drawing_issue_anchors")
+        .select("id,file_id,active,replaces_anchor_id")
+        .eq("issue_id", createdIssue.id);
+    if (relinkedAnchorsError) throw relinkedAnchorsError;
+    expect(relinkedAnchors).toHaveLength(2);
+    expect(relinkedAnchors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: previousAnchor.id,
+          file_id: fixture.pdfFileId,
+          active: false,
+          replaces_anchor_id: null,
+        }),
+        expect.objectContaining({
+          file_id: fixture.revisedPdfFileId,
+          active: true,
+          replaces_anchor_id: previousAnchor.id,
+        }),
+      ]),
+    );
+    for (const [fileId, storagePath] of [
+      [fixture.pdfFileId, fixture.storagePaths[0]],
+      [fixture.revisedPdfFileId, fixture.storagePaths[2]],
+    ] as const) {
+      const { data: sourceBlob, error: sourceError } =
+        await fixture.admin.storage.from("lukas-qto").download(storagePath);
+      if (sourceError || !sourceBlob)
+        throw sourceError ?? new Error("Source bytes are unavailable");
+      const sourceBytes = Buffer.from(await sourceBlob.arrayBuffer());
+      expect(createHash("sha256").update(sourceBytes).digest("hex")).toBe(
+        fixture.sourceEvidence[fileId].storageByteSha256,
+      );
+    }
 
     const reviewerPage = await authenticateContext(
       fixture,

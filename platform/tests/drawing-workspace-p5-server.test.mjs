@@ -80,6 +80,8 @@ const sourceBundleIds = {
   primary: "10000000-0000-4000-8000-000000000001",
   ifc: "10000000-0000-4000-8000-000000000002",
   foreign: "10000000-0000-4000-8000-000000000003",
+  previous: "10000000-0000-4000-8000-000000000004",
+  edge: "10000000-0000-4000-8000-000000000005",
 };
 
 function workspaceFile(overrides = {}) {
@@ -142,12 +144,14 @@ function sourceWorkspace(file = workspaceFile()) {
   };
 }
 
-function sourceBundleClient(rows) {
+function sourceBundleClient(rows, revisionEdges = []) {
   const calls = [];
   return {
     calls,
     from(table) {
-      assert.equal(table, "lukas_qto_files");
+      assert.ok(
+        table === "lukas_qto_files" || table === "lukas_qto_file_revisions",
+      );
       const query = {
         select(columns) {
           calls.push(["select", columns]);
@@ -167,7 +171,10 @@ function sourceBundleClient(rows) {
         },
         limit(size) {
           calls.push(["limit", size]);
-          return Promise.resolve({ data: rows, error: null });
+          return Promise.resolve({
+            data: table === "lukas_qto_file_revisions" ? revisionEdges : rows,
+            error: null,
+          });
         },
       };
       return query;
@@ -188,6 +195,80 @@ function sourceBundleClient(rows) {
     },
   };
 }
+
+test("PDF source bundle signs only the exact immediate immutable predecessor edge", async () => {
+  const current = workspaceFile();
+  const previous = workspaceFile({
+    id: sourceBundleIds.previous,
+    original_filename: "plan-r1.pdf",
+    storage_path: "projects/plan-r1.pdf",
+    byte_size: 3072,
+    sha256: "c".repeat(64),
+  });
+  const edge = {
+    id: sourceBundleIds.edge,
+    project_id: p5Ids.project,
+    previous_file_id: previous.id,
+    previous_sha256: previous.sha256,
+    current_file_id: current.id,
+    current_sha256: current.sha256,
+    relation_kind: "supersedes",
+  };
+  const client = sourceBundleClient([current, previous], [edge]);
+
+  const bundle = await workspaceServer.loadDrawingWorkspaceSourceBundle(
+    client,
+    sourceWorkspace(current),
+    null,
+  );
+
+  assert.deepEqual(bundle.previousPdf, {
+    id: previous.id,
+    kind: "pdf",
+    originalFilename: "plan-r1.pdf",
+    byteSize: 3072,
+    sha256: "c".repeat(64),
+    signedUrl: "https://storage.test/projects/plan-r1.pdf",
+  });
+  assert.deepEqual(bundle.revisionEdge, {
+    id: edge.id,
+    previousFileId: previous.id,
+    previousSha256: previous.sha256,
+    currentFileId: current.id,
+    currentSha256: current.sha256,
+  });
+  assert.deepEqual(
+    client.calls.filter(([kind]) => kind === "sign"),
+    [
+      ["sign", "projects/plan.pdf", 300],
+      ["sign", "projects/plan-r1.pdf", 300],
+    ],
+  );
+});
+
+test("PDF source bundle never guesses a predecessor without one exact supersedes edge", async () => {
+  const current = workspaceFile();
+  const unrelatedPdf = workspaceFile({
+    id: sourceBundleIds.previous,
+    original_filename: "similar-sheet.pdf",
+    storage_path: "projects/similar-sheet.pdf",
+    sha256: "c".repeat(64),
+  });
+  const client = sourceBundleClient([current, unrelatedPdf]);
+
+  const bundle = await workspaceServer.loadDrawingWorkspaceSourceBundle(
+    client,
+    sourceWorkspace(current),
+    null,
+  );
+
+  assert.equal(bundle.previousPdf, null);
+  assert.equal(bundle.revisionEdge, null);
+  assert.deepEqual(
+    client.calls.filter(([kind]) => kind === "sign"),
+    [["sign", "projects/plan.pdf", 300]],
+  );
+});
 
 test("workspace view state accepts only strict shareable 2D, 3D, and split values", () => {
   assert.deepEqual(

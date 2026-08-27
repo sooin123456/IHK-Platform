@@ -18,6 +18,8 @@ const ids = {
   property: "00000000-0000-4000-8000-000000000710",
   schema: "00000000-0000-4000-8000-000000000711",
   blockInstance: "00000000-0000-4000-8000-000000000712",
+  source: "00000000-0000-4000-8000-000000000713",
+  file: "00000000-0000-4000-8000-000000000714",
 };
 
 function requireAwareness() {
@@ -291,10 +293,8 @@ test("one canonical publication authority sanitizes initial connect reconnect re
 });
 
 test("canonical visibility revokes real leases before reconnect and prevents renewal resurrection", () => {
-  const {
-    createDrawingAwarenessPublication,
-    createDrawingSoftLockLease,
-  } = requireAwareness();
+  const { createDrawingAwarenessPublication, createDrawingSoftLockLease } =
+    requireAwareness();
   const frames = [];
   const firstAdapterStates = [];
   const reconnectAdapterStates = [];
@@ -363,8 +363,16 @@ test("canonical visibility revokes real leases before reconnect and prevents ren
     user: { id: ids.me, displayName: "나" },
   });
   frames.shift()(3);
-  assert.equal(leases.has(ids.objectA), false, "hidden opening lease is removed");
-  assert.equal(leases.has(ids.objectB), true, "unrelated visible lease remains");
+  assert.equal(
+    leases.has(ids.objectA),
+    false,
+    "hidden opening lease is removed",
+  );
+  assert.equal(
+    leases.has(ids.objectB),
+    true,
+    "unrelated visible lease remains",
+  );
   assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, [ids.objectB]);
   assert.deepEqual(
     reconnectAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
@@ -787,6 +795,45 @@ test("recorded-operation gating unions forward and inverse ownership targets", (
       () => drawingRecordedOperationTargetIds(malformed),
       /recorded operation/i,
     );
+});
+
+test("source link commands acquire advisory targets without rejecting valid actions", () => {
+  const { drawingCommandTargetIds } = requireAwareness();
+  assert.deepEqual(
+    drawingCommandTargetIds({
+      type: "mutate_structure",
+      actorId: ids.me,
+      actions: [
+        {
+          kind: "put_source",
+          entity: {
+            id: ids.source,
+            objectId: ids.objectA,
+            revisionId: ids.me,
+            sourceFileId: ids.file,
+            sourceSha256: "a".repeat(64),
+            sourceKind: "pdf_region",
+            pdfPageNumber: 1,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.4,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    }),
+    [ids.objectA],
+  );
+  assert.deepEqual(
+    drawingCommandTargetIds({
+      type: "mutate_structure",
+      actorId: ids.me,
+      actions: [{ kind: "delete_source", id: ids.source, baseVersion: 1 }],
+    }),
+    [ids.source],
+  );
 });
 
 test("peer views filter cursor, selection, and locks to the active canvas", () => {

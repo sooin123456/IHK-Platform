@@ -143,6 +143,29 @@ test("P5 preview exposes a controlled IFC pair without putting its URL in drawin
   assert.equal(twoDimensional.sourceBundle.ifc, null);
 });
 
+test("P5 preview exposes one exact PDF predecessor edge without canonical compare state", async () => {
+  const loaded = await preview.loader({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5PdfTest=1",
+    ),
+    params: {},
+  });
+
+  assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
+  assert.equal(loaded.sourceBundle.previousPdf.signedUrl, "/__p5-previous.pdf");
+  assert.deepEqual(loaded.sourceBundle.revisionEdge, {
+    id: "00000000-0000-4000-8000-0000000000b2",
+    previousFileId: "00000000-0000-4000-8000-0000000000b1",
+    previousSha256: "b".repeat(64),
+    currentFileId: "00000000-0000-4000-8000-000000000002",
+    currentSha256: "a".repeat(64),
+  });
+  const canonical = JSON.stringify(loaded.workspace.document.revision);
+  assert.equal(canonical.includes("signedUrl"), false);
+  assert.equal(canonical.includes("브라우저 미리보기"), false);
+  assert.equal(canonical.includes("diff"), false);
+});
+
 test("P4 vertical preview exposes only mounted-workspace test instrumentation", async () => {
   const loaded = await preview.loader({
     request: request(

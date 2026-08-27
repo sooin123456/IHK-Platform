@@ -137,6 +137,27 @@ export type RelinkDrawingAnchorInput = z.infer<
   typeof RelinkDrawingAnchorInputSchema
 >;
 
+export function parseRelinkDrawingAnchorForm(
+  form: FormData,
+): RelinkDrawingAnchorInput {
+  const anchorJson = form.get("anchor_json");
+  if (form.get("intent") !== "relink_anchor" || typeof anchorJson !== "string")
+    throw new Error("새 도면 근거 후보가 없습니다.");
+  let anchor: unknown;
+  try {
+    anchor = JSON.parse(anchorJson);
+  } catch {
+    throw new Error("새 도면 근거 후보 형식이 올바르지 않습니다.");
+  }
+  return RelinkDrawingAnchorInputSchema.parse({
+    previousAnchorId: form.get("previous_anchor_id"),
+    newAnchorId: form.get("new_anchor_id"),
+    currentFileId: form.get("current_file_id"),
+    anchor,
+    note: form.get("note"),
+  });
+}
+
 export async function relinkDrawingIssueAnchor(
   baseClient: DrawingClient,
   input: RelinkDrawingAnchorInput,

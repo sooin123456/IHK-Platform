@@ -92,6 +92,8 @@ const previewIfcSha256 =
   "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
 const previewIfcUrl =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
+const previewPreviousPdfFileId = "00000000-0000-4000-8000-0000000000b1";
+const previewPdfRevisionEdgeId = "00000000-0000-4000-8000-0000000000b2";
 function previewCollaborationConnectionFactory(
   testPeers = false,
   onLocalState?: (state: unknown) => void,
@@ -778,6 +780,7 @@ type PreviewFixture = {
 export function localDrawingWorkspacePreviewFixture(options?: {
   hiddenHostTest?: boolean;
   p5IfcTest?: boolean;
+  p5PdfTest?: boolean;
   selectedIfcFileId?: string | null;
   viewMode?: "2d" | "3d" | "split";
   performanceObjects?: DrawingObject[];
@@ -796,6 +799,21 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         layer.id === ids.layerPlanWork ? { ...layer, visible: false } : layer,
       )
     : layers;
+  const fixtureCanvases = options?.p5PdfTest
+    ? canvases.map((canvas) =>
+        canvas.id === ids.canvasPlanPaper
+          ? {
+              ...canvas,
+              background: {
+                sourceFileId: ids.file,
+                sourceSha256,
+                pdfPageNumber: 1,
+                calibration: null,
+              },
+            }
+          : canvas,
+      )
+    : canvases;
   const performance = Boolean(options?.performanceObjects);
   const fixturePropertyValues = performance ? [] : propertyValues;
   const fixtureTables = performance ? [] : tables;
@@ -831,7 +849,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     activePageId: ids.pagePlan,
     activeCanvasId: ids.canvasPlanPaper,
     pages,
-    canvases,
+    canvases: fixtureCanvases,
     layers: fixtureLayers,
     objects: fixtureObjects,
     styles: [styleWall, styleNote],
@@ -879,7 +897,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
                 version: 1,
               },
               pages,
-              canvases,
+              canvases: fixtureCanvases,
               layers: fixtureLayers,
               objects: fixtureObjects,
               styles: [styleWall, styleNote],
@@ -911,13 +929,45 @@ export function localDrawingWorkspacePreviewFixture(options?: {
   const selectedIfc = ifcCatalog.find(
     (item) => item.id === (options?.selectedIfcFileId ?? previewIfcFileId),
   );
+  const pdfSourceBundle: DrawingWorkspaceSourceBundle = {
+    primary: { ...primary, signedUrl: "/__p5-current.pdf" },
+    pdf: { ...primary, signedUrl: "/__p5-current.pdf" },
+    ifc: null,
+    previousPdf: {
+      id: previewPreviousPdfFileId,
+      kind: "pdf",
+      originalFilename: "근린생활시설_A-101-r1.pdf",
+      byteSize: 1_048_576,
+      sha256: "b".repeat(64),
+      signedUrl: "/__p5-previous.pdf",
+    },
+    revisionEdge: {
+      id: previewPdfRevisionEdgeId,
+      previousFileId: previewPreviousPdfFileId,
+      previousSha256: "b".repeat(64),
+      currentFileId: ids.file,
+      currentSha256: sourceSha256,
+    },
+    catalog: [
+      primary,
+      {
+        id: previewPreviousPdfFileId,
+        kind: "pdf",
+        originalFilename: "근린생활시설_A-101-r1.pdf",
+        byteSize: 1_048_576,
+        sha256: "b".repeat(64),
+      },
+      ...ifcCatalog,
+    ],
+  };
   return {
     capability: "editor",
     currentUserId: ids.user,
     roomUrl: "/workspace-preview",
     sourceUrl: null,
-    sourceBundle:
-      options?.p5IfcTest && selectedIfc
+    sourceBundle: options?.p5PdfTest
+      ? pdfSourceBundle
+      : options?.p5IfcTest && selectedIfc
         ? {
             primary,
             pdf: null,
@@ -1045,12 +1095,14 @@ export function loader({ request }: Route.LoaderArgs) {
   const hiddenHostTest =
     new URL(request.url).searchParams.get("hiddenHostTest") === "1";
   const p5IfcTest = new URL(request.url).searchParams.get("p5IfcTest") === "1";
+  const p5PdfTest = new URL(request.url).searchParams.get("p5PdfTest") === "1";
   const viewState = parseDrawingWorkspaceViewState(
     new URL(request.url).searchParams,
   );
   const fixture = localDrawingWorkspacePreviewFixture({
     hiddenHostTest,
     p5IfcTest,
+    p5PdfTest,
     selectedIfcFileId: viewState.ifcFileId,
     viewMode: viewState.view,
     performanceObjects: performanceFixture?.objects,
@@ -1168,6 +1220,7 @@ export function loader({ request }: Route.LoaderArgs) {
     verticalTest,
     performanceTest,
     p5IfcTest,
+    p5PdfTest,
   };
 }
 
@@ -1259,6 +1312,10 @@ export default function LocalDrawingWorkspacePreview({
   );
   const p5PreviewHarness = useMemo(
     () => ({ onStateChange: setVerticalSnapshot, p5IfcTest: true }),
+    [],
+  );
+  const p5PdfPreviewHarness = useMemo(
+    () => ({ onStateChange: setVerticalSnapshot, p5PdfTest: true }),
     [],
   );
   useEffect(() => setHydrated(true), []);
@@ -1371,11 +1428,13 @@ export default function LocalDrawingWorkspacePreview({
             ? verticalPreviewHarness
             : loaderData.p5IfcTest
               ? p5PreviewHarness
-              : loaderData.realtimeTest
-                ? previewHarness
-                : loaderData.awarenessTest
-                  ? awarenessPreviewHarness
-                  : undefined
+              : loaderData.p5PdfTest
+                ? p5PdfPreviewHarness
+                : loaderData.realtimeTest
+                  ? previewHarness
+                  : loaderData.awarenessTest
+                    ? awarenessPreviewHarness
+                    : undefined
         }
       />
       <aside
@@ -1394,7 +1453,7 @@ export default function LocalDrawingWorkspacePreview({
             {JSON.stringify(verticalSnapshot)}
           </output>
         ) : null}
-        {loaderData.p5IfcTest ? (
+        {loaderData.p5IfcTest || loaderData.p5PdfTest ? (
           <output
             aria-label="P5 mounted workspace snapshot"
             className="sr-only"

@@ -154,8 +154,15 @@ import {
   canMutateDrawingObjectSources,
   createDrawingIfcSourceIndex,
   linkDrawingIfcSourceCommand,
+  linkDrawingPdfRegionSourceCommand,
   matchDrawingObjectsForIfcSelection,
+  unlinkDrawingObjectSourceCommand,
 } from "~/lukas/lib/drawing-source-links";
+import {
+  worldBoundsToPdfNormalizedRegion,
+  type DrawingPdfPageTransform,
+} from "~/lukas/lib/drawing-pdf-transform";
+import { geometryBounds } from "~/lukas/lib/drawing-geometry";
 import {
   useDrawingWorkspaceRealtime,
   type DrawingWorkspaceRealtimeAdapter,
@@ -199,6 +206,7 @@ const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
+  DrawingPdfCompareState,
   DrawingTool,
   DimensionCalibrationEvidence,
 } from "./drawing-canvas.client";
@@ -715,12 +723,14 @@ type Props = {
       activeCanvasId: string | null;
       layers: DrawingDocumentState["layers"];
       objects: DrawingDocumentState["objects"];
+      sources: NonNullable<DrawingDocumentState["structure"]>["sources"];
       operationIds: string[];
       redoIds: string[];
       selectedIds: string[];
       undoIds: string[];
     }) => void;
     p5IfcTest?: boolean;
+    p5PdfTest?: boolean;
     verticalTest?: boolean;
   };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
@@ -781,6 +791,16 @@ export default function DrawingWorkspaceClient({
   >({ status: "idle" });
   const [ifcFocusRequest, setIfcFocusRequest] =
     useState<IfcFocusRequest | null>(null);
+  const [pdfCompareMode, setPdfCompareMode] = useState<
+    "current" | "overlay" | "previous"
+  >("current");
+  const [pdfCompareOpacity, setPdfCompareOpacity] = useState(0.5);
+  const [pdfDiffGeneration, setPdfDiffGeneration] = useState(0);
+  const [pdfCompareState, setPdfCompareState] =
+    useState<DrawingPdfCompareState>({ status: "idle", markers: [] });
+  const [pdfPageTransform, setPdfPageTransform] =
+    useState<DrawingPdfPageTransform | null>(null);
+  const [sourceInspectorMessage, setSourceInspectorMessage] = useState("");
   const ifcFocusSequenceRef = useRef(0);
   const pendingIfcSelectionRef = useRef<string | null>(null);
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
@@ -985,6 +1005,7 @@ export default function DrawingWorkspaceClient({
       activeCanvasId: drawingState.activeCanvasId,
       layers: drawingState.layers,
       objects: drawingState.objects,
+      sources: drawingState.structure?.sources ?? {},
       operationIds: drawingState.operations.map(
         (operation) => operation.clientOperationId,
       ),
@@ -2622,6 +2643,77 @@ export default function DrawingWorkspaceClient({
     selectedDrawingObjectId,
     selectedIfc,
   ]);
+  const selectedObjectSources = selectedDrawingObjectId
+    ? Object.values(drawingSources).filter(
+        (source) => source.objectId === selectedDrawingObjectId,
+      )
+    : [];
+  const mayMutateSources =
+    canMutateDrawingObjectSources({
+      capability: effectiveCapability,
+      revisionStatus: effectiveRevisionStatus,
+      frozen: reviewPreparing,
+    }) && baseCanEdit;
+  const selectedObjectHasCurrentPdf = Boolean(
+    sourceBundle?.pdf &&
+    selectedObjectSources.some(
+      (source) =>
+        source.sourceKind === "pdf_region" &&
+        source.sourceFileId === sourceBundle.pdf?.id &&
+        source.sourceSha256 === sourceBundle.pdf.sha256,
+    ),
+  );
+  const linkSelectedObjectPdfRegion = useCallback(() => {
+    const state = drawingStateRef.current;
+    const object = selectedDrawingObjectId
+      ? state.objects[selectedDrawingObjectId]
+      : null;
+    const currentPdf = sourceBundle?.pdf;
+    if (!object || !currentPdf || !pdfPageTransform || !mayMutateSources)
+      return;
+    const region = worldBoundsToPdfNormalizedRegion(
+      pdfPageTransform,
+      geometryBounds(object.geometry, state.objects),
+    );
+    if (!region) {
+      setSourceInspectorMessage("선택 객체가 현재 PDF 페이지 밖에 있습니다.");
+      return;
+    }
+    const applied = applyCommand(
+      linkDrawingPdfRegionSourceCommand(state, currentUserId, object.id, {
+        id: crypto.randomUUID(),
+        sourceFileId: currentPdf.id,
+        sourceSha256: currentPdf.sha256,
+        pdfPageNumber: pdfPageTransform.pageNumber,
+        ...region,
+      }),
+    );
+    if (applied)
+      setSourceInspectorMessage(
+        `${pdfPageTransform.pageNumber}쪽의 회전된 PDF 좌표로 연결했습니다.`,
+      );
+  }, [
+    applyCommand,
+    currentUserId,
+    mayMutateSources,
+    pdfPageTransform,
+    selectedDrawingObjectId,
+    sourceBundle?.pdf,
+  ]);
+  const unlinkSelectedObjectSource = useCallback(
+    (sourceId: string) => {
+      if (!mayMutateSources) return;
+      const applied = applyCommand(
+        unlinkDrawingObjectSourceCommand(
+          drawingStateRef.current,
+          currentUserId,
+          sourceId,
+        ),
+      );
+      if (applied) setSourceInspectorMessage("원본 근거 연결을 해제했습니다.");
+    },
+    [applyCommand, currentUserId, mayMutateSources],
+  );
   const updateWorkspaceView = useCallback(
     (view: DrawingWorkspaceViewMode) => {
       const next = new URLSearchParams(searchParams);
@@ -2648,6 +2740,47 @@ export default function DrawingWorkspaceClient({
           height: activeCanvas.heightMillimeters,
         }
     : surface.background;
+  const exactPreviousPdf =
+    background.kind === "pdf" &&
+    sourceBundle?.pdf &&
+    sourceBundle.previousPdf &&
+    sourceBundle.revisionEdge?.currentFileId === sourceBundle.pdf.id &&
+    sourceBundle.revisionEdge.currentSha256 === sourceBundle.pdf.sha256 &&
+    sourceBundle.revisionEdge.previousFileId === sourceBundle.previousPdf.id &&
+    sourceBundle.revisionEdge.previousSha256 === sourceBundle.previousPdf.sha256
+      ? sourceBundle.previousPdf
+      : null;
+  useEffect(() => {
+    setPdfCompareMode("current");
+    setPdfDiffGeneration(0);
+    setPdfCompareState({ status: "idle", markers: [] });
+  }, [
+    background.kind === "pdf" ? background.pageNumber : 0,
+    exactPreviousPdf?.id,
+    exactPreviousPdf?.sha256,
+  ]);
+  const pdfCompare = useMemo(
+    () =>
+      background.kind === "pdf" && exactPreviousPdf
+        ? {
+            generation: pdfDiffGeneration,
+            mode: pdfCompareMode,
+            opacity: pdfCompareOpacity,
+            previousPageNumber: background.pageNumber,
+            previousSignedUrl: exactPreviousPdf.signedUrl,
+          }
+        : null,
+    [
+      background.kind,
+      background.kind === "pdf" ? background.pageNumber : 0,
+      exactPreviousPdf?.id,
+      exactPreviousPdf?.sha256,
+      exactPreviousPdf?.signedUrl,
+      pdfCompareMode,
+      pdfCompareOpacity,
+      pdfDiffGeneration,
+    ],
+  );
   const saveStatus = drawingSaveStatus({
     ...saveState,
     volatileCount: persistenceState.volatileCount,
@@ -2750,23 +2883,32 @@ export default function DrawingWorkspaceClient({
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      {previewHarness?.verticalTest || previewHarness?.p5IfcTest ? (
+      {previewHarness?.verticalTest ||
+      previewHarness?.p5IfcTest ||
+      previewHarness?.p5PdfTest ? (
         <aside
           aria-label={
-            previewHarness.p5IfcTest
+            previewHarness.p5IfcTest || previewHarness.p5PdfTest
               ? "P5 mounted command controls"
               : "P4 mounted command controls"
           }
           className="fixed bottom-14 right-3 z-[60] flex gap-2 rounded-md bg-slate-950 p-2 text-xs"
         >
-          {previewHarness.p5IfcTest ? (
+          {previewHarness.p5IfcTest || previewHarness.p5PdfTest ? (
             <>
               <button
                 onClick={() => {
-                  const source = Object.values(
-                    drawingStateRef.current.structure?.sources ?? {},
-                  ).find((candidate) => candidate.sourceKind === "ifc_element");
-                  if (source) setAuthorizedSelection([source.objectId]);
+                  const source = previewHarness.p5IfcTest
+                    ? Object.values(
+                        drawingStateRef.current.structure?.sources ?? {},
+                      ).find(
+                        (candidate) => candidate.sourceKind === "ifc_element",
+                      )
+                    : null;
+                  const objectId =
+                    source?.objectId ??
+                    Object.keys(drawingStateRef.current.objects)[1];
+                  if (objectId) setAuthorizedSelection([objectId]);
                 }}
                 type="button"
               >
@@ -3136,6 +3278,73 @@ export default function DrawingWorkspaceClient({
             <p className="text-xs text-amber-200" role="status">
               IFC 파일을 선택하면 3D와 분할 보기를 사용할 수 있습니다.
             </p>
+          ) : null}
+          {background.kind === "pdf" ? (
+            exactPreviousPdf ? (
+              <div
+                aria-label="PDF 개정 비교"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-white/15 p-1 text-xs text-white"
+                role="group"
+              >
+                {(
+                  [
+                    ["current", "현재 도면"],
+                    ["overlay", "겹쳐 보기"],
+                    ["previous", "이전 도면"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    aria-pressed={pdfCompareMode === mode}
+                    className={`min-h-9 rounded px-2 font-semibold ${pdfCompareMode === mode ? "bg-amber-400 text-slate-950" : "text-slate-200"}`}
+                    key={mode}
+                    onClick={() => setPdfCompareMode(mode)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+                <label className="flex min-h-9 items-center gap-2 px-1">
+                  이전 도면 불투명도
+                  <input
+                    aria-label="이전 도면 불투명도"
+                    disabled={pdfCompareMode !== "overlay"}
+                    max="100"
+                    min="0"
+                    onChange={(event) =>
+                      setPdfCompareOpacity(Number(event.target.value) / 100)
+                    }
+                    type="range"
+                    value={Math.round(pdfCompareOpacity * 100)}
+                  />
+                </label>
+                <button
+                  className="min-h-9 rounded bg-amber-500 px-3 font-semibold text-slate-950 disabled:opacity-50"
+                  disabled={pdfCompareMode === "current"}
+                  onClick={() => setPdfDiffGeneration((value) => value + 1)}
+                  type="button"
+                >
+                  변경 표시 계산
+                </button>
+                {pdfCompareState.status === "loading" ? (
+                  <span role="status">이전 PDF를 여는 중입니다.</span>
+                ) : pdfCompareState.status === "missing" ||
+                  pdfCompareState.status === "error" ? (
+                  <span className="text-amber-200" role="alert">
+                    {pdfCompareState.message}
+                  </span>
+                ) : pdfCompareState.status === "refused" ? (
+                  <span className="text-amber-200" role="alert">
+                    {pdfCompareState.reason === "rotation_mismatch"
+                      ? "회전이 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."
+                      : "페이지 비율이 1% 넘게 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."}
+                  </span>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-300" role="status">
+                바로 이전 PDF 개정본이 없어 비교할 수 없습니다.
+              </p>
+            )
           ) : null}
           {activeView === "split" ? (
             <div
@@ -3858,6 +4067,9 @@ export default function DrawingWorkspaceClient({
                   actorId={currentUserId}
                   awarenessStore={awarenessStoreRef.current}
                   background={background}
+                  onPdfCompareState={setPdfCompareState}
+                  onPdfPageTransform={setPdfPageTransform}
+                  pdfCompare={pdfCompare}
                   calibration={calibration}
                   calibrationId={calibrationId}
                   canEdit={editing.canEdit}
@@ -4322,6 +4534,85 @@ export default function DrawingWorkspaceClient({
             )}
             store={awarenessStoreRef.current}
           />
+          <section
+            aria-label="선택 객체 원본 근거"
+            className="mb-3 rounded-lg border border-white/15 bg-slate-950/60 p-3 text-xs"
+          >
+            <h2 className="font-bold text-white">선택 객체 원본 근거</h2>
+            {!mayMutateSources ? (
+              <p className="mt-2 text-slate-400">
+                조회 전용 · 원본 근거를 연결하거나 해제할 수 없습니다.
+              </p>
+            ) : null}
+            {!selectedDrawingObjectId ? (
+              <p className="mt-2 text-slate-400">
+                도면 객체 하나를 선택하세요.
+              </p>
+            ) : (
+              <>
+                <ul className="mt-2 space-y-2">
+                  {selectedObjectSources.map((source) => (
+                    <li
+                      className="rounded border border-white/10 p-2"
+                      key={source.id}
+                    >
+                      <p className="font-semibold text-slate-200">
+                        {source.sourceKind === "pdf_region"
+                          ? `PDF ${source.pdfPageNumber}쪽 영역`
+                          : `IFC GlobalId ${source.ifcGlobalId}`}
+                      </p>
+                      <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
+                        {source.sourceFileId} · {source.sourceSha256}
+                      </p>
+                      {mayMutateSources ? (
+                        <button
+                          className="mt-2 min-h-9 rounded border border-white/20 px-2 font-semibold text-white"
+                          onClick={() => unlinkSelectedObjectSource(source.id)}
+                          type="button"
+                        >
+                          원본 근거 해제
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {selectedObjectSources.length === 0 ? (
+                  <p className="mt-2 text-slate-400">
+                    연결된 원본 근거가 없습니다.
+                  </p>
+                ) : null}
+                {mayMutateSources ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {sourceBundle?.pdf &&
+                    pdfPageTransform &&
+                    !selectedObjectHasCurrentPdf ? (
+                      <button
+                        className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
+                        onClick={linkSelectedObjectPdfRegion}
+                        type="button"
+                      >
+                        PDF 영역 원본 근거 연결
+                      </button>
+                    ) : null}
+                    {canLinkIfcSelection ? (
+                      <button
+                        className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
+                        onClick={linkIfcSelection}
+                        type="button"
+                      >
+                        IFC 원본 근거 연결
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {sourceInspectorMessage ? (
+                  <p className="mt-2 text-amber-200" role="status">
+                    {sourceInspectorMessage}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </section>
           <DrawingInspector
             awarenessStore={awarenessStoreRef.current}
             actorId={currentUserId}

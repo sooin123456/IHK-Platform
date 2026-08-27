@@ -51,6 +51,7 @@ export type DrawingAnchorRow = {
   deactivated_by: string | null;
   deactivated_at: string | null;
   deactivation_note: string | null;
+  replaces_anchor_id: string | null;
 };
 type DrawingCommentRow = {
   id: string;
@@ -669,6 +670,7 @@ function anchorInsert(
       height: null,
       label: anchor.label,
       created_by: actorId,
+      replaces_anchor_id: null,
     };
   return {
     issue_id: issueId,
@@ -685,6 +687,7 @@ function anchorInsert(
     height: anchor.height,
     label: anchor.label,
     created_by: actorId,
+    replaces_anchor_id: null,
   };
 }
 

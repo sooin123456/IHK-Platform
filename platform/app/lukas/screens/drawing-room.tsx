@@ -14,7 +14,11 @@ import {
   mutateDrawingIssue,
   parseDrawingMutationForm,
 } from "~/lukas/lib/drawing-collaboration.server";
-import { loadDrawingRevisionReview } from "~/lukas/lib/drawing-revision.server";
+import {
+  loadDrawingRevisionReview,
+  parseRelinkDrawingAnchorForm,
+  relinkDrawingIssueAnchor,
+} from "~/lukas/lib/drawing-revision.server";
 import {
   drawingViewerAnchor,
   drawingLegacyGlobalId,
@@ -100,9 +104,17 @@ export async function action({ request, params }: Route.ActionArgs) {
     params.projectId!,
   );
   try {
-    const input = parseDrawingMutationForm(await request.formData());
+    const form = await request.formData();
+    if (form.get("intent") === "relink_anchor") {
+      const result = await relinkDrawingIssueAnchor(
+        client,
+        parseRelinkDrawingAnchorForm(form),
+      );
+      return data({ ok: true, error: null, relink: result }, { headers });
+    }
+    const input = parseDrawingMutationForm(form);
     await mutateDrawingIssue(client, user.id, project.id, input);
-    return data({ ok: true, error: null }, { headers });
+    return data({ ok: true, error: null, relink: null }, { headers });
   } catch (error) {
     if (error instanceof Response) throw error;
     return data(
@@ -112,6 +124,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           error instanceof Error
             ? error.message
             : "요청을 저장하지 못했습니다.",
+        relink: null,
       },
       { status: 400, headers },
     );
@@ -155,6 +168,15 @@ export default function DrawingRoom({
           role="alert"
         >
           {actionData.error}
+        </p>
+      ) : null}
+      {actionData?.relink ? (
+        <p
+          className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+          role="status"
+        >
+          이전 근거를 해제하고 새 근거를 활성화했습니다. 두 변경은 한 번의
+          원자적 작업으로 저장되었습니다.
         </p>
       ) : null}
       <DrawingRoomClient
