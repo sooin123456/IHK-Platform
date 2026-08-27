@@ -414,10 +414,20 @@ begin
     insert into public.lukas_drawing_blocks(id,revision_id,project_id,name,primitives,version,created_by)
     values(v_new_id,v_revision_id,p_target_project_id,v_row.name,v_json,1,p_actor);
   end loop;
+  for v_row in select id from public.lukas_drawing_objects where revision_id=p_source_revision_id and status='active' order by id loop
+    v_object_map:=v_object_map||pg_catalog.jsonb_build_object(
+      v_row.id::text,extensions.gen_random_uuid()
+    );
+  end loop;
   for v_row in select * from public.lukas_drawing_objects where revision_id=p_source_revision_id and status='active' order by id loop
-    v_new_id:=extensions.gen_random_uuid(); v_object_map:=v_object_map||pg_catalog.jsonb_build_object(v_row.id::text,v_new_id);
+    v_new_id:=(v_object_map->>v_row.id::text)::uuid;
     insert into public.lukas_drawing_objects(id,lineage_id,page_id,layer_id,revision_id,project_id,name,object_type,geometry,style_id,style,status,version,created_by,updated_by)
-    values(v_new_id,v_row.lineage_id,(v_page_map->>v_row.page_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.object_type,v_row.geometry,
+    values(v_new_id,v_row.lineage_id,(v_page_map->>v_row.page_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.object_type,
+      case when v_row.object_type='opening' then pg_catalog.jsonb_set(
+        v_row.geometry,'{hostWallId}',pg_catalog.to_jsonb(
+          (v_object_map->>(v_row.geometry->>'hostWallId'))::uuid
+        )
+      ) else v_row.geometry end,
       case when v_row.style_id is null then null else (v_style_map->>v_row.style_id::text)::uuid end,v_row.style,'active',1,p_actor,p_actor);
   end loop;
   for v_row in select * from public.lukas_drawing_block_instances where revision_id=p_source_revision_id order by id loop
@@ -456,6 +466,7 @@ begin
     insert into public.lukas_drawing_tables(id,revision_id,project_id,name,columns_json,rows_json,version,created_by)
     values(extensions.gen_random_uuid(),v_revision_id,p_target_project_id,v_row.name,v_columns,v_rows,1,p_actor);
   end loop;
+  perform private.lukas_drawing_p4_assert_semantic_graph(v_revision_id);
   return pg_catalog.jsonb_build_object('documentId',v_document_id,'revisionId',v_revision_id);
 end;
 $$;

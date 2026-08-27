@@ -129,12 +129,50 @@ test("imports copy into the existing canonical tables without a second drawing s
   assert.match(sql, /private\.lukas_drawing_clone_library_template/i);
   assert.match(sql, /private\.lukas_drawing_p2_canonical_snapshot/i);
   assert.match(sql, /v_current is distinct from v_live/i);
+  assert.match(
+    sql,
+    /object_type='opening'[\s\S]*hostWallId[\s\S]*v_object_map/i,
+  );
+  assert.match(sql, /private\.lukas_drawing_p4_assert_semantic_graph/i);
   assert.doesNotMatch(
     sql,
     /create table public\.lukas_drawing_library_(styles|blocks|property_schemas|templates)/i,
   );
   assert.match(sql, /source_content_sha256/i);
   assert.match(sql, /target_entity_id/i);
+});
+
+test("workspace template copy remaps every canonical internal edge and drops project-scoped evidence", async () => {
+  const sql = await migration();
+  const clone = sql.slice(
+    sql.indexOf(
+      "create or replace function private.lukas_drawing_clone_library_template",
+    ),
+    sql.indexOf(
+      "create or replace function public.lukas_drawing_import_library_version",
+    ),
+  );
+  for (const mapping of [
+    "v_page_map->>v_row.page_id::text",
+    "v_canvas_map->>v_row.canvas_id::text",
+    "v_layer_map->>v_row.layer_id::text",
+    "v_style_map->>v_row.style_id::text",
+    "v_block_map->>v_row.block_id::text",
+    "v_schema_map->>v_row.schema_id::text",
+    "v_object_map->>v_row.object_id::text",
+    "v_instance_map->>v_row.block_instance_id::text",
+    "v_column_map->>cell.key",
+    "v_object_map->>(v_row.geometry->>'hostWallId')",
+  ])
+    assert.equal(clone.includes(mapping), true, mapping);
+  assert.match(clone, /private\.lukas_drawing_p4_assert_semantic_graph/i);
+  assert.doesNotMatch(
+    clone,
+    /insert into public\.lukas_drawing_object_sources/i,
+  );
+  assert.doesNotMatch(clone, /insert into public\.lukas_drawing_issue_links/i);
+  assert.doesNotMatch(clone, /background_source_file_id/i);
+  assert.doesNotMatch(clone, /source_sha256/i);
 });
 
 const runtimeIds = Object.freeze({
