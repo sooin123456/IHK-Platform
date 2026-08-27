@@ -1,10 +1,11 @@
 import type { Route } from "./+types/local-drawing-pdf-preview";
 
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
-const representativeDrawing = new URL(
-  "../../../../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
-  import.meta.url,
+const representativeDrawing = path.resolve(
+  process.cwd(),
+  "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
 );
 
 function isLocalPreviewRequest(request: Request) {

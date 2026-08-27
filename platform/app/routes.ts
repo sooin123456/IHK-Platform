@@ -18,6 +18,10 @@ export default [
     "/workspace-preview/drawing-workspace",
     "lukas/screens/local-drawing-workspace-preview.tsx",
   ),
+  route(
+    "/workspace-preview/drawing-workspace/operation",
+    "lukas/screens/local-drawing-workspace-operation.ts",
+  ),
   route("/__p5-current.pdf", "lukas/screens/local-drawing-pdf-current.ts"),
   route("/__p5-previous.pdf", "lukas/screens/local-drawing-pdf-preview.ts"),
   layout("core/layouts/navigation.layout.tsx", [
@@ -55,6 +59,10 @@ export default [
       route(
         "/projects/:projectId/drawings/:fileId/workspace",
         "lukas/screens/drawing-workspace.tsx",
+      ),
+      route(
+        "/projects/:projectId/drawings/:fileId/workspace/operation",
+        "lukas/screens/drawing-workspace-operation.ts",
       ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(

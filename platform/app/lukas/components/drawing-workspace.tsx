@@ -929,9 +929,11 @@ export default function DrawingWorkspaceClient({
   const collaborationBootstrapRef = useRef(collaborationBootstrap);
   const capabilityRef = useRef(effectiveCapability);
   const revisionStatusRef = useRef(effectiveRevisionStatus);
+  const authorityCanWriteRef = useRef(authorityCanWrite);
   collaborationBootstrapRef.current = collaborationBootstrap;
   capabilityRef.current = effectiveCapability;
   revisionStatusRef.current = effectiveRevisionStatus;
+  authorityCanWriteRef.current = authorityCanWrite;
   const persistenceLifecycleKey = drawingCollaborationLifecycleKey(
     currentUserId,
     revision.project_id,
@@ -1425,7 +1427,7 @@ export default function DrawingWorkspaceClient({
       awarenessPublicationRef.current?.disconnect();
       awarenessStoreRef.current.replace([]);
     };
-    const actionUrl = window.location.href;
+    const actionUrl = `${window.location.pathname.replace(/\/$/, "")}/operation${window.location.search}`;
     const refresh = async () => {
       const [entries, legacy] = await Promise.all([
         outbox.entries(),
@@ -1448,7 +1450,7 @@ export default function DrawingWorkspaceClient({
     legacyOutboxRef.current = outbox;
 
     const flush = async () => {
-      if (!active || !navigator.onLine) {
+      if (!active || !navigator.onLine || !authorityCanWriteRef.current) {
         await refresh();
         return;
       }
@@ -1625,6 +1627,7 @@ export default function DrawingWorkspaceClient({
         setSaveState((current) => ({ ...current, storageError: false }));
         await refresh();
         await connect();
+        await flush();
       } catch {
         if (active) {
           markStorageFailed();

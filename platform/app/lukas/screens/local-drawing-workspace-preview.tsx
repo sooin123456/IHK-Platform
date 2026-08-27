@@ -84,6 +84,9 @@ const ids = {
 };
 
 const sourceSha256 = "a".repeat(64);
+const representativePdfByteSize = 62_602;
+const representativePdfSha256 =
+  "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326";
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
@@ -781,11 +784,21 @@ type PreviewFixture = {
 export function localDrawingWorkspacePreviewFixture(options?: {
   hiddenHostTest?: boolean;
   p5IfcTest?: boolean;
+  p5Integrated?: boolean;
   p5PdfTest?: boolean;
   selectedIfcFileId?: string | null;
   viewMode?: "2d" | "3d" | "split";
   performanceObjects?: DrawingObject[];
 }): PreviewFixture {
+  const activePdfByteSize = options?.p5Integrated
+    ? representativePdfByteSize
+    : 1_048_576;
+  const activePdfSha256 = options?.p5Integrated
+    ? representativePdfSha256
+    : sourceSha256;
+  const activeIfcByteSize = 413_681;
+  const activeIfcSha256 = previewIfcSha256;
+  const activeIfcUrl = previewIfcUrl;
   const fixtureObjects = options?.performanceObjects
     ? options.performanceObjects
     : options?.hiddenHostTest
@@ -800,40 +813,55 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         layer.id === ids.layerPlanWork ? { ...layer, visible: false } : layer,
       )
     : layers;
-  const fixtureCanvases = options?.p5PdfTest
-    ? canvases.map((canvas) =>
-        canvas.id === ids.canvasPlanPaper
-          ? {
-              ...canvas,
-              background: {
-                sourceFileId: ids.file,
-                sourceSha256,
-                pdfPageNumber: 1,
-                calibration: null,
-              },
-            }
-          : canvas,
-      )
-    : canvases;
+  const fixtureCanvases =
+    options?.p5PdfTest || options?.p5Integrated
+      ? canvases.map((canvas) =>
+          canvas.id === ids.canvasPlanPaper
+            ? {
+                ...canvas,
+                background: {
+                  sourceFileId: ids.file,
+                  sourceSha256: activePdfSha256,
+                  pdfPageNumber: 1,
+                  calibration: null,
+                },
+              }
+            : canvas,
+        )
+      : canvases;
   const performance = Boolean(options?.performanceObjects);
   const fixturePropertyValues = performance ? [] : propertyValues;
   const fixtureTables = performance ? [] : tables;
-  const fixtureSources: DrawingObjectSource[] = options?.p5IfcTest
-    ? [
-        {
-          id: "00000000-0000-4000-8000-0000000000a0",
-          objectId: objects[0].id,
+  const fixtureSources: DrawingObjectSource[] =
+    options?.p5Integrated && options.performanceObjects
+      ? fixtureObjects.slice(0, 2_000).map((object, index) => ({
+          id: `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+          objectId: object.id,
           revisionId: ids.revision,
           sourceFileId: previewIfcFileId,
-          sourceSha256: previewIfcSha256,
-          sourceKind: "ifc_element",
-          ifcGlobalId: "0VNYAWfXv8JvIRVfOzYH1j",
-          elementId: "2863",
+          sourceSha256: activeIfcSha256,
+          sourceKind: "ifc_element" as const,
+          ifcGlobalId: `P5${String(index + 1).padStart(20, "0")}`,
+          elementId: null,
           camera: null,
           version: 1,
-        },
-      ]
-    : [];
+        }))
+      : options?.p5IfcTest || options?.p5Integrated
+        ? [
+            {
+              id: "00000000-0000-4000-8000-0000000000a0",
+              objectId: objects[0].id,
+              revisionId: ids.revision,
+              sourceFileId: previewIfcFileId,
+              sourceSha256: activeIfcSha256,
+              sourceKind: "ifc_element",
+              ifcGlobalId: "0VNYAWfXv8JvIRVfOzYH1j",
+              elementId: "2863",
+              camera: null,
+              version: 1,
+            },
+          ]
+        : [];
   const revision = {
     id: ids.revision,
     document_id: ids.document,
@@ -915,16 +943,16 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     id: ids.file,
     kind: "pdf" as const,
     originalFilename: "근린생활시설_A-101.pdf",
-    byteSize: 1_048_576,
-    sha256: sourceSha256,
+    byteSize: activePdfByteSize,
+    sha256: activePdfSha256,
   };
   const ifcCatalog = [previewIfcFileId, previewAlternateIfcFileId].map(
     (id, index) => ({
       id,
       kind: "ifc" as const,
       originalFilename: index === 0 ? "example.ifc" : "example-copy.ifc",
-      byteSize: 413_681,
-      sha256: previewIfcSha256,
+      byteSize: activeIfcByteSize,
+      sha256: activeIfcSha256,
     }),
   );
   const selectedIfc = ifcCatalog.find(
@@ -938,15 +966,17 @@ export function localDrawingWorkspacePreviewFixture(options?: {
       id: previewPreviousPdfFileId,
       kind: "pdf",
       originalFilename: "근린생활시설_A-101-r1.pdf",
-      byteSize: 1_048_576,
-      sha256: "b".repeat(64),
+      byteSize: activePdfByteSize,
+      sha256: options?.p5Integrated ? representativePdfSha256 : "b".repeat(64),
     },
     revisionEdge: {
       id: previewPdfRevisionEdgeId,
       previousFileId: previewPreviousPdfFileId,
-      previousSha256: "b".repeat(64),
+      previousSha256: options?.p5Integrated
+        ? representativePdfSha256
+        : "b".repeat(64),
       currentFileId: ids.file,
-      currentSha256: sourceSha256,
+      currentSha256: activePdfSha256,
     },
     catalog: [
       primary,
@@ -954,8 +984,10 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         id: previewPreviousPdfFileId,
         kind: "pdf",
         originalFilename: "근린생활시설_A-101-r1.pdf",
-        byteSize: 1_048_576,
-        sha256: "b".repeat(64),
+        byteSize: activePdfByteSize,
+        sha256: options?.p5Integrated
+          ? representativePdfSha256
+          : "b".repeat(64),
       },
       ...ifcCatalog,
     ],
@@ -965,21 +997,29 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     currentUserId: ids.user,
     roomUrl: "/workspace-preview",
     sourceUrl: null,
-    sourceBundle: options?.p5PdfTest
-      ? pdfSourceBundle
-      : options?.p5IfcTest && selectedIfc
-        ? {
-            primary,
-            pdf: null,
-            ifc:
-              options.viewMode === "2d"
-                ? null
-                : { ...selectedIfc, signedUrl: previewIfcUrl },
-            previousPdf: null,
-            revisionEdge: null,
-            catalog: [primary, ...ifcCatalog],
-          }
-        : undefined,
+    sourceBundle: options?.p5Integrated
+      ? {
+          ...pdfSourceBundle,
+          ifc:
+            options.viewMode === "2d" || !selectedIfc
+              ? null
+              : { ...selectedIfc, signedUrl: activeIfcUrl },
+        }
+      : options?.p5PdfTest
+        ? pdfSourceBundle
+        : options?.p5IfcTest && selectedIfc
+          ? {
+              primary,
+              pdf: null,
+              ifc:
+                options.viewMode === "2d"
+                  ? null
+                  : { ...selectedIfc, signedUrl: activeIfcUrl },
+              previousPdf: null,
+              revisionEdge: null,
+              catalog: [primary, ...ifcCatalog],
+            }
+          : undefined,
     selectedIfcFileId: selectedIfc?.id ?? null,
     viewMode: options?.viewMode,
     workspace: {
@@ -990,8 +1030,8 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         original_filename: "근린생활시설_A-101.pdf",
         storage_path: "local-preview/rayon-a101.pdf",
         content_type: "application/pdf",
-        byte_size: 1_048_576,
-        sha256: sourceSha256,
+        byte_size: activePdfByteSize,
+        sha256: activePdfSha256,
         immutable: true,
         created_at: createdAt,
       },
@@ -1000,7 +1040,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         id: ids.document,
         project_id: ids.project,
         source_file_id: ids.file,
-        source_sha256: sourceSha256,
+        source_sha256: activePdfSha256,
         title: "A-101 도면 작업실",
         created_by: ids.user,
         created_at: createdAt,
@@ -1096,16 +1136,31 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("hiddenHostTest") === "1";
   const p5IfcTest = new URL(request.url).searchParams.get("p5IfcTest") === "1";
   const p5PdfTest = new URL(request.url).searchParams.get("p5PdfTest") === "1";
+  const p5BaselineTest =
+    new URL(request.url).searchParams.get("p5BaselineTest") === "1";
+  const p5ReleaseTest =
+    new URL(request.url).searchParams.get("p5ReleaseTest") === "1";
+  const canonicalP5 =
+    !performanceTest &&
+    !hiddenHostTest &&
+    !p5IfcTest &&
+    !p5PdfTest &&
+    !p5ReleaseTest;
   const viewState = parseDrawingWorkspaceViewState(
     new URL(request.url).searchParams,
   );
   const fixture = localDrawingWorkspacePreviewFixture({
     hiddenHostTest,
     p5IfcTest,
+    p5Integrated: canonicalP5 || p5BaselineTest || p5ReleaseTest,
     p5PdfTest,
     selectedIfcFileId: viewState.ifcFileId,
     viewMode: viewState.view,
-    performanceObjects: performanceFixture?.objects,
+    performanceObjects:
+      performanceFixture?.objects ??
+      (p5BaselineTest
+        ? buildDrawingP4PerformanceFixture(10_000, ids.layerPlanWork).objects
+        : undefined),
   });
   validateLocalDrawingWorkspacePreviewFixture(fixture);
   const realtimeTest =
@@ -1221,6 +1276,9 @@ export function loader({ request }: Route.LoaderArgs) {
     performanceTest,
     p5IfcTest,
     p5PdfTest,
+    p5BaselineTest,
+    p5ReleaseTest,
+    canonicalP5,
   };
 }
 
@@ -1234,13 +1292,25 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ ok: true, kind: "pdf_compare_cancelled", error: null });
     if (intent === "load_pdf_compare") {
       const input = parseDrawingWorkspacePreviousPdfForm(form);
+      const parameters = new URL(request.url).searchParams;
+      const integratedPdf =
+        parameters.get("p5BaselineTest") === "1" ||
+        (parameters.get("p5PdfTest") !== "1" && !parameters.has("p5IfcTest"));
+      const expectedCurrentSha = integratedPdf
+        ? representativePdfSha256
+        : sourceSha256;
+      const expectedPreviousSha = integratedPdf
+        ? representativePdfSha256
+        : "b".repeat(64);
       if (
-        new URL(request.url).searchParams.get("p5PdfTest") !== "1" ||
+        (parameters.get("p5PdfTest") !== "1" &&
+          parameters.get("p5BaselineTest") !== "1" &&
+          parameters.has("p5IfcTest")) ||
         input.revisionEdgeId !== previewPdfRevisionEdgeId ||
         input.currentFileId !== ids.file ||
-        input.currentSha256 !== sourceSha256 ||
+        input.currentSha256 !== expectedCurrentSha ||
         input.previousFileId !== previewPreviousPdfFileId ||
-        input.previousSha256 !== "b".repeat(64) ||
+        input.previousSha256 !== expectedPreviousSha ||
         input.pageNumber !== 1
       )
         return data(
@@ -1255,8 +1325,8 @@ export async function action({ request }: Route.ActionArgs) {
           id: previewPreviousPdfFileId,
           kind: "pdf",
           originalFilename: "근린생활시설_A-101-r1.pdf",
-          byteSize: 1_048_576,
-          sha256: "b".repeat(64),
+          byteSize: integratedPdf ? representativePdfByteSize : 1_048_576,
+          sha256: expectedPreviousSha,
           signedUrl: "/__p5-previous.pdf",
         },
       });
@@ -1459,15 +1529,19 @@ export default function LocalDrawingWorkspacePreview({
         previewHarness={
           loaderData.verticalTest
             ? verticalPreviewHarness
-            : loaderData.p5IfcTest
+            : loaderData.p5ReleaseTest
               ? p5PreviewHarness
-              : loaderData.p5PdfTest
-                ? p5PdfPreviewHarness
-                : loaderData.realtimeTest
-                  ? previewHarness
-                  : loaderData.awarenessTest
-                    ? awarenessPreviewHarness
-                    : undefined
+              : loaderData.p5IfcTest
+                ? p5PreviewHarness
+                : loaderData.p5PdfTest
+                  ? p5PdfPreviewHarness
+                  : loaderData.canonicalP5
+                    ? undefined
+                    : loaderData.realtimeTest
+                      ? previewHarness
+                      : loaderData.awarenessTest
+                        ? awarenessPreviewHarness
+                        : undefined
         }
       />
       <aside
@@ -1486,13 +1560,25 @@ export default function LocalDrawingWorkspacePreview({
             {JSON.stringify(verticalSnapshot)}
           </output>
         ) : null}
-        {loaderData.p5IfcTest || loaderData.p5PdfTest ? (
+        {loaderData.p5IfcTest ||
+        loaderData.p5PdfTest ||
+        loaderData.p5ReleaseTest ? (
           <output
             aria-label="P5 mounted workspace snapshot"
             className="sr-only"
           >
             {JSON.stringify(verticalSnapshot)}
           </output>
+        ) : null}
+        {loaderData.p5BaselineTest ? (
+          <>
+            <output aria-label="P5 baseline object count">
+              {loaderData.workspace.document.revision.objects.length}
+            </output>
+            <output aria-label="P5 baseline source link count">
+              {loaderData.workspace.document.revision.sources?.length ?? 0}
+            </output>
+          </>
         ) : null}
         {loaderData.awarenessTest ? (
           <>

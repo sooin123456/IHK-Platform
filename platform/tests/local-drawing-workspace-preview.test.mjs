@@ -126,6 +126,108 @@ test("P2 local drawing preview loader allows only development loopback", async (
   process.env.NODE_ENV = "development";
 });
 
+test("P5 canonical preview mounts PDF and an IFC chooser without test-only query flags", async () => {
+  const loaded = await preview.loader({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
+    ),
+    params: {},
+  });
+
+  assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
+  assert.equal(loaded.sourceBundle.pdf.byteSize, 62_602);
+  assert.equal(
+    loaded.sourceBundle.pdf.sha256,
+    "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+  );
+  assert.equal(loaded.workspace.file.byte_size, 62_602);
+  assert.equal(loaded.workspace.file.sha256, loaded.sourceBundle.pdf.sha256);
+  assert.equal(
+    loaded.selectedIfcFileId,
+    "00000000-0000-4000-8000-0000000000a1",
+  );
+  assert.equal(loaded.sourceBundle.ifc, null);
+  assert.ok(
+    loaded.sourceBundle.catalog.some(
+      (item) =>
+        item.id === "00000000-0000-4000-8000-0000000000a1" &&
+        item.kind === "ifc",
+    ),
+  );
+  assert.equal(loaded.workspace.document.revision.sources.length, 1);
+  assert.equal(
+    loaded.workspace.document.revision.canvases.find(
+      (canvas) =>
+        canvas.id === loaded.workspace.document.revision.activeCanvasId,
+    ).background.sourceFileId,
+    loaded.workspace.file.id,
+  );
+  assert.equal(loaded.canonicalP5, true);
+
+  const compare = new FormData();
+  compare.set("intent", "load_pdf_compare");
+  compare.set("revision_edge_id", loaded.sourceBundle.revisionEdge.id);
+  compare.set(
+    "current_file_id",
+    loaded.sourceBundle.revisionEdge.currentFileId,
+  );
+  compare.set("current_sha256", loaded.sourceBundle.revisionEdge.currentSha256);
+  compare.set("previous_file_id", loaded.sourceBundle.previousPdf.id);
+  compare.set("previous_sha256", loaded.sourceBundle.previousPdf.sha256);
+  compare.set("page_number", "1");
+  const compared = await preview.action({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
+      { method: "POST", body: compare },
+    ),
+    params: {},
+  });
+  assert.equal(compared.data.ok, true);
+  assert.equal(
+    compared.data.previousPdf.sha256,
+    loaded.sourceBundle.pdf.sha256,
+  );
+
+  const source = await readFile(
+    new URL(
+      "../app/lukas/screens/local-drawing-workspace-preview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /canonicalP5/);
+  assert.doesNotMatch(source, /canonicalP5\s*\?\s*p5PreviewHarness/);
+});
+
+test("P5 local baseline contains exactly 10,000 objects and 2,000 immutable IFC links", async () => {
+  const loaded = await preview.loader({
+    request: request(
+      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5BaselineTest=1",
+    ),
+    params: {},
+  });
+  const revision = loaded.workspace.document.revision;
+  assert.equal(revision.objects.length, 10_000);
+  assert.equal(revision.sources.length, 2_000);
+  assert.equal(new Set(revision.sources.map(({ id }) => id)).size, 2_000);
+  assert.equal(
+    new Set(revision.sources.map(({ objectId }) => objectId)).size,
+    2_000,
+  );
+  assert.ok(
+    revision.sources.every(
+      (source) =>
+        source.sourceKind === "ifc_element" &&
+        source.sourceFileId === loaded.selectedIfcFileId &&
+        source.sourceSha256 ===
+          loaded.sourceBundle.catalog.find(
+            (item) => item.id === loaded.selectedIfcFileId,
+          ).sha256,
+    ),
+  );
+  assert.equal(loaded.p5BaselineTest, true);
+});
+
 test("P5 preview exposes a controlled IFC pair without putting its URL in drawing state", async () => {
   const ifcFileId = "00000000-0000-4000-8000-0000000000a1";
   const loaded = await preview.loader({

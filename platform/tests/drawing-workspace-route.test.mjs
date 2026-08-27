@@ -33,6 +33,10 @@ test("workspace route is additive and keeps the collaboration room", () => {
         "/projects/:projectId/drawings/:fileId/workspace",
         "lukas/screens/drawing-workspace.tsx",
       ],
+      [
+        "/projects/:projectId/drawings/:fileId/workspace/operation",
+        "lukas/screens/drawing-workspace-operation.ts",
+      ],
     ],
   );
 });
