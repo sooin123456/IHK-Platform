@@ -353,3 +353,34 @@ test("checkpoint restore orders object/source additions and source/object deleti
   assert.deepEqual(deleted.state.structure.sources, {});
   assert.deepEqual(deleted.state.objects, {});
 });
+
+test("checkpoint relink releases the active source triple before its replacement", () => {
+  const current = state({ sources: { [ids.source2]: source(ids.source2) } });
+  const checkpoint = state({ sources: { [ids.source]: source(ids.source) } });
+  const command = createDrawingCheckpointRestoreCommand(
+    current,
+    checkpoint,
+    ids.actor,
+    ids.checkpoint,
+  );
+  assert.deepEqual(command.actions, [
+    { kind: "delete_source", id: ids.source2, baseVersion: 1 },
+    {
+      kind: "put_source",
+      entity: source(ids.source),
+      baseVersion: null,
+    },
+  ]);
+  const restored = applied(current, command, ids.linkOperation);
+  assert.deepEqual(restored.state.structure.sources, {
+    [ids.source]: source(ids.source),
+  });
+  assert.deepEqual(restored.operation.inverse.actions, [
+    { kind: "delete_source", id: ids.source, baseVersion: 1 },
+    {
+      kind: "put_source",
+      entity: source(ids.source2),
+      baseVersion: null,
+    },
+  ]);
+});

@@ -482,9 +482,31 @@ test("style preset reset replaces the stored override and undo redo preserves it
   const state = createDrawingDocumentState({
     revisionId: ids.revision,
     structure: {
-      pages: {},
-      canvases: {},
-      layers: { [ids.layer]: layer() },
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [ids.canvas]: {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: layer({ canvasId: ids.canvas, sortOrder: 0 }),
+      },
       objects: {
         [ids.rectangle]: rectangle({
           styleId: styleA,

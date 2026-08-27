@@ -126,6 +126,7 @@ import {
   DrawingLayerSchema,
   DrawingObjectSchema,
   PdfCalibrationSchema,
+  normalizeDrawingCanonicalSources,
 } from "~/lukas/lib/drawing-workspace.types";
 import type {
   DrawingObject,
@@ -1960,7 +1961,7 @@ export default function DrawingWorkspaceClient({
             "pageId",
             "type",
           ]) as DrawingDocumentHydration["objects"],
-          sources: graph.sources as DrawingDocumentHydration["sources"],
+          sources: normalizeDrawingCanonicalSources(graph.sources, revision.id),
           styles: graph.styles as DrawingDocumentHydration["styles"],
           blocks: graph.blocks as DrawingDocumentHydration["blocks"],
           blockInstances:

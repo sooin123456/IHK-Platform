@@ -17,6 +17,7 @@ import {
 import { appendDrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-yjs.ts";
 import { createDrawingDraftAdapter } from "../app/lukas/lib/drawing-yjs-draft.ts";
 import { resolveDrawingOpening } from "../app/lukas/lib/drawing-semantic-geometry.ts";
+import { normalizeDrawingCanonicalSources } from "../app/lukas/lib/drawing-workspace.types.ts";
 import {
   deliverDrawingCollaborationOutcome,
   handleWorkspaceMutation,
@@ -714,6 +715,126 @@ test("snapshot bootstrap sources are strict canonical evidence before client hyd
   await assert.rejects(
     loadDrawingWorkspaceCollaborationBootstrap(
       client({ ...canonicalSource, signedUrl: "https://example.invalid/file" }),
+      ids.revision,
+    ),
+  );
+});
+
+test("trusted bootstrap and checkpoint boundaries canonicalize only the exact P4 source producer", async () => {
+  const legacyPdf = {
+    id: "00000000-0000-4000-8000-000000000623",
+    objectId: "00000000-0000-4000-8000-000000000624",
+    sourceFileId: "00000000-0000-4000-8000-000000000625",
+    sourceSha256: "c".repeat(64),
+    sourceKind: "pdf_region",
+    pdfPageNumber: 2,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    elementId: null,
+    ifcGlobalId: null,
+    camera: null,
+  };
+  const legacyIfc = {
+    id: "00000000-0000-4000-8000-000000000626",
+    objectId: "00000000-0000-4000-8000-000000000627",
+    sourceFileId: "00000000-0000-4000-8000-000000000628",
+    sourceSha256: "d".repeat(64),
+    sourceKind: "ifc_element",
+    pdfPageNumber: null,
+    x: null,
+    y: null,
+    width: null,
+    height: null,
+    elementId: "42",
+    ifcGlobalId: "3ABCdefghijklmnopqrstu",
+    camera: { position: [1, 2, 3], target: [4, 5, 6] },
+  };
+  const payload = (sources) => ({
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.other,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources,
+      pages: [],
+      canvases: [],
+      layers: [],
+      objects: [],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [],
+      operationSequence: 0,
+    },
+    operationSequence: 0,
+    schemaVersion: 2,
+    sha256: "e".repeat(64),
+    revisionStatus: "approved",
+    capability: "viewer",
+    canWrite: false,
+    recentOutcomes: [],
+  });
+  const load = (sources) =>
+    loadDrawingWorkspaceCollaborationBootstrap(
+      {
+        async rpc() {
+          return { data: payload(sources), error: null };
+        },
+      },
+      ids.revision,
+    );
+  const loaded = await load([legacyPdf]);
+  assert.deepEqual(loaded.canonicalJson.sources, [
+    {
+      id: legacyPdf.id,
+      objectId: legacyPdf.objectId,
+      revisionId: ids.revision,
+      sourceFileId: legacyPdf.sourceFileId,
+      sourceSha256: legacyPdf.sourceSha256,
+      sourceKind: "pdf_region",
+      pdfPageNumber: 2,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      version: 1,
+    },
+  ]);
+  assert.deepEqual(
+    normalizeDrawingCanonicalSources([legacyIfc], ids.revision),
+    [
+      {
+        id: legacyIfc.id,
+        objectId: legacyIfc.objectId,
+        revisionId: ids.revision,
+        sourceFileId: legacyIfc.sourceFileId,
+        sourceSha256: legacyIfc.sourceSha256,
+        sourceKind: "ifc_element",
+        ifcGlobalId: legacyIfc.ifcGlobalId,
+        elementId: "42",
+        camera: legacyIfc.camera,
+        version: 1,
+      },
+    ],
+  );
+  assert.throws(() =>
+    normalizeDrawingCanonicalSources(
+      [{ ...legacyPdf, ifcGlobalId: legacyIfc.ifcGlobalId }],
+      ids.revision,
+    ),
+  );
+  assert.throws(() =>
+    normalizeDrawingCanonicalSources(
+      [{ ...legacyPdf, signedUrl: "https://example.invalid/file" }],
       ids.revision,
     ),
   );

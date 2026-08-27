@@ -459,6 +459,100 @@ export const DrawingObjectSourceSchema = z.union([
   DrawingIfcObjectSourceSchema,
 ]);
 
+const LegacyDrawingObjectSourceSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: DrawingSourceSha256Schema,
+    sourceKind: z.enum(["pdf_region", "ifc_element"]),
+    pdfPageNumber: PositiveInteger.nullable(),
+    x: DrawingSourceNormalizedCoordinateSchema.nullable(),
+    y: DrawingSourceNormalizedCoordinateSchema.nullable(),
+    width: DrawingSourceNormalizedSizeSchema.nullable(),
+    height: DrawingSourceNormalizedSizeSchema.nullable(),
+    elementId: z
+      .string()
+      .regex(/^[1-9][0-9]*$/)
+      .nullable(),
+    ifcGlobalId: z
+      .string()
+      .regex(/^[0-9A-Za-z_$]{22}$/)
+      .nullable(),
+    camera: IfcCameraStateSchema.nullable(),
+  })
+  .strict()
+  .superRefine((source, context) => {
+    const pdfFields = [
+      source.pdfPageNumber,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+    ];
+    const ifcFields = [source.elementId, source.ifcGlobalId, source.camera];
+    if (
+      source.sourceKind === "pdf_region"
+        ? pdfFields.some((value) => value === null) ||
+          ifcFields.some((value) => value !== null)
+        : pdfFields.some((value) => value !== null) ||
+          source.ifcGlobalId === null
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Legacy drawing source fields do not match their source kind.",
+      });
+  });
+
+/** Normalizes only canonical P5 or the exact trusted P4 snapshot producer shape. */
+export function normalizeDrawingCanonicalSources(
+  input: unknown,
+  revisionId: string,
+): DrawingObjectSource[] {
+  const owningRevisionId = Uuid.parse(revisionId);
+  return z
+    .array(z.unknown())
+    .parse(input)
+    .map((value) => {
+      const canonical = DrawingObjectSourceSchema.safeParse(value);
+      if (canonical.success) {
+        if (canonical.data.revisionId !== owningRevisionId)
+          throw new Error("Drawing source revision ownership is inconsistent.");
+        return canonical.data;
+      }
+      const legacy = LegacyDrawingObjectSourceSchema.parse(value);
+      return DrawingObjectSourceSchema.parse(
+        legacy.sourceKind === "pdf_region"
+          ? {
+              id: legacy.id,
+              objectId: legacy.objectId,
+              revisionId: owningRevisionId,
+              sourceFileId: legacy.sourceFileId,
+              sourceSha256: legacy.sourceSha256,
+              sourceKind: legacy.sourceKind,
+              pdfPageNumber: legacy.pdfPageNumber,
+              x: legacy.x,
+              y: legacy.y,
+              width: legacy.width,
+              height: legacy.height,
+              version: 1,
+            }
+          : {
+              id: legacy.id,
+              objectId: legacy.objectId,
+              revisionId: owningRevisionId,
+              sourceFileId: legacy.sourceFileId,
+              sourceSha256: legacy.sourceSha256,
+              sourceKind: legacy.sourceKind,
+              ifcGlobalId: legacy.ifcGlobalId,
+              elementId: legacy.elementId,
+              camera: legacy.camera,
+              version: 1,
+            },
+      );
+    });
+}
+
 const DrawingObjectValidatedSchema = z
   .object({
     id: Uuid,

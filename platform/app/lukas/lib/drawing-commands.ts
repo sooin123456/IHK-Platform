@@ -1265,6 +1265,20 @@ function reduceCommand(
             throw new DrawingCommandError(
               `Drawing object ${object.id} restore version is stale.`,
             );
+          const tombstone = structureState.tombstones?.[object.id];
+          const expectedTombstone = {
+            collection: "objects" as const,
+            entity: { ...clone(object), version: restoreBaseVersion - 1 },
+            version: restoreBaseVersion,
+          };
+          if (
+            tombstone &&
+            JSON.stringify(tombstone) !== JSON.stringify(expectedTombstone)
+          )
+            throw new DrawingCommandError(
+              `Drawing object ${object.id} restore tombstone is stale.`,
+            );
+          delete structureState.tombstones?.[object.id];
           structureState.objects[object.id] = object;
         }
       }
@@ -1291,6 +1305,12 @@ function reduceCommand(
             version: object.version + 2,
           });
           delete applied.state.objects[object.id];
+          applied.state.tombstones ??= {};
+          applied.state.tombstones[object.id] = {
+            collection: "objects",
+            entity: clone(object),
+            version: object.version + 1,
+          };
         } else {
           const restoreBaseVersion = options.restoreBaseVersions?.[object.id];
           if (restoreBaseVersion === undefined)
@@ -1363,10 +1383,25 @@ function appendOperation(
   options: ReductionOptions = {},
 ): AppliedDrawingCommand {
   const reduced = reduceCommand(state, command, options);
-  validateDrawingSemanticReferences({
-    objects: reduced.objects,
-    layers: reduced.layers,
-  });
+  const structure =
+    reduced.structure ??
+    (state.structure
+      ? {
+          ...state.structure,
+          objects: reduced.objects,
+          layers: reduced.layers,
+        }
+      : undefined);
+  if (structure)
+    validateDrawingStructureState({
+      revisionId: state.revisionId,
+      ...structure,
+    });
+  else
+    validateDrawingSemanticReferences({
+      objects: reduced.objects,
+      layers: reduced.layers,
+    });
   const operation: DrawingRecordedOperation = {
     clientOperationId: environment.createId?.() ?? crypto.randomUUID(),
     revisionId: state.revisionId,
@@ -1386,15 +1421,7 @@ function appendOperation(
       ...state,
       objects: reduced.objects,
       layers: reduced.layers,
-      structure:
-        reduced.structure ??
-        (state.structure
-          ? {
-              ...state.structure,
-              objects: reduced.objects,
-              layers: reduced.layers,
-            }
-          : undefined),
+      structure,
       operations: [...state.operations, operation],
     },
     operation,
@@ -1465,7 +1492,17 @@ function conflictFor(
         : current?.version !== expectedVersion;
     })
     .map(([objectId]) => objectId);
-  return objectIds.length > 0 ? { kind: "conflict", objectIds } : undefined;
+  const dependentSourceIds =
+    operation.type === "add_objects"
+      ? Object.values(state.structure?.sources ?? {})
+          .filter((source) => source.objectId in operation.resultVersions)
+          .map((source) => source.id)
+          .sort()
+      : [];
+  const conflicts = [...objectIds, ...dependentSourceIds];
+  return conflicts.length > 0
+    ? { kind: "conflict", objectIds: conflicts }
+    : undefined;
 }
 
 function structureCollectionFor(
@@ -1924,7 +1961,20 @@ export function createDrawingCheckpointRestoreCommand(
       string,
       { id: string; version: number }
     >;
-    for (const [id, target] of Object.entries(targetEntities)) {
+    const targetEntries = Object.entries(targetEntities).sort(
+      ([leftId, left], [rightId, right]) => {
+        if (collection === "objects") {
+          const priority = (entity: { id: string; version: number }) => {
+            const type = (entity as DrawingObject).geometry.type;
+            return type === "opening" ? 0 : type === "wall" ? 2 : 1;
+          };
+          const difference = priority(left) - priority(right);
+          if (difference !== 0) return difference;
+        }
+        return leftId.localeCompare(rightId);
+      },
+    );
+    for (const [id, target] of targetEntries) {
       const present = currentEntities[id];
       if (present && checkpointEntityEqual(present, target)) continue;
       const tombstone = current.structure.tombstones?.[id];
@@ -1943,7 +1993,9 @@ export function createDrawingCheckpointRestoreCommand(
       } as DrawingStructureAction;
       (present ? updates : additions).push(action);
     }
-    for (const [id, present] of Object.entries(currentEntities)) {
+    for (const [id, present] of Object.entries(currentEntities).sort(
+      ([left], [right]) => left.localeCompare(right),
+    )) {
       if (targetEntities[id]) continue;
       deletions.push({
         kind: `delete_${suffix}`,
@@ -1968,7 +2020,18 @@ export function createDrawingCheckpointRestoreCommand(
       ? objectDeletions[objectDeletionIndex++]
       : action,
   );
-  const actions = [...additions, ...updates, ...orderedDeletions];
+  const sourceDeletions = orderedDeletions.filter(
+    (action) => action.kind === "delete_source",
+  );
+  const remainingDeletions = orderedDeletions.filter(
+    (action) => action.kind !== "delete_source",
+  );
+  const actions = [
+    ...sourceDeletions,
+    ...additions,
+    ...updates,
+    ...remainingDeletions,
+  ];
   if (actions.length === 0)
     throw new DrawingCommandError(
       "Drawing checkpoint already matches current state.",

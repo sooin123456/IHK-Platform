@@ -15,7 +15,6 @@ import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectNameSchema,
-  DrawingObjectSourceSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
   DrawingPageSchema,
@@ -26,6 +25,7 @@ import {
   DrawingStyleOverrideSchema,
   DrawingStructureLayerSchema,
   DrawingTableSchema,
+  normalizeDrawingCanonicalSources,
 } from "./drawing-workspace.types.ts";
 import { validateDrawingSemanticReferences } from "./drawing-structure.ts";
 import {
@@ -783,7 +783,7 @@ const CollaborationCanonicalJsonSchema = z
         version: z.number().int().positive(),
       })
       .strict(),
-    sources: z.array(DrawingObjectSourceSchema),
+    sources: z.array(z.unknown()),
     pages: z.array(z.unknown()),
     canvases: z.array(z.unknown()),
     layers: z.array(z.unknown()),
@@ -797,7 +797,11 @@ const CollaborationCanonicalJsonSchema = z
     issues: z.array(z.unknown()),
     operationSequence: z.number().int().nonnegative(),
   })
-  .strict();
+  .strict()
+  .transform((value) => ({
+    ...value,
+    sources: normalizeDrawingCanonicalSources(value.sources, value.revision.id),
+  }));
 
 const CollaborationRecentOutcomeSchema = z
   .object({

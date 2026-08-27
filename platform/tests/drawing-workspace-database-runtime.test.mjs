@@ -5247,7 +5247,7 @@ test("generated undo and redo operations parse on the server and replay through 
 
 test("style-aware delete and restore stay exact and monotonic on a hidden unlocked layer", async () => {
   const ids = await createDocument();
-  await addCustomLayer(ids, "Visible fallback");
+  const fallbackLayerId = await addCustomLayer(ids, "Visible fallback");
   const styleId = randomUUID();
   const objectId = randomUUID();
   const style = {
@@ -5281,8 +5281,28 @@ test("style-aware delete and restore stay exact and monotonic on a hidden unlock
   let local = drawingCommands.createDrawingDocumentState({
     revisionId: ids.revisionId,
     structure: {
-      pages: {},
-      canvases: {},
+      pages: {
+        [ids.pageId]: {
+          id: ids.pageId,
+          revisionId: ids.revisionId,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [ids.canvasId]: {
+          id: ids.canvasId,
+          pageId: ids.pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
       layers: {
         [ids.workLayerId]: {
           id: ids.workLayerId,
@@ -5292,6 +5312,16 @@ test("style-aware delete and restore stay exact and monotonic on a hidden unlock
           systemKind: "work",
           canvasId: ids.canvasId,
           sortOrder: 1,
+          version: 1,
+        },
+        [fallbackLayerId]: {
+          id: fallbackLayerId,
+          name: "Visible fallback",
+          visible: true,
+          locked: false,
+          systemKind: "custom",
+          canvasId: ids.canvasId,
+          sortOrder: 2,
           version: 1,
         },
       },

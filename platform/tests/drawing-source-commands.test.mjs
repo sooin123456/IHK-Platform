@@ -11,6 +11,7 @@ import {
   undoDrawingCommand,
 } from "../app/lukas/lib/drawing-commands.ts";
 import { deleteDrawingObjectsWithReferencesCommand } from "../app/lukas/lib/drawing-properties.ts";
+import { recoverPendingDrawingState } from "../app/lukas/lib/drawing-outbox.ts";
 import {
   canMutateDrawingObjectSources,
   linkDrawingIfcSourceCommand,
@@ -31,12 +32,15 @@ const ids = Object.fromEntries(
     "file",
     "ifcFile",
     "actor",
+    "otherActor",
+    "addOperation",
     "linkOperation",
     "unlinkOperation",
     "deleteOperation",
     "undoOperation",
     "redoOperation",
     "duplicate",
+    "otherObject",
   ].map((name, index) => [
     name,
     `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
@@ -270,6 +274,63 @@ test("history revert realizes the current source version and preserves provenanc
   });
 });
 
+test("cross-actor source dependencies conflict object-add undo and revert and fence direct deletion", () => {
+  const empty = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      ...state().structure,
+      objects: {},
+      sources: {},
+    },
+  });
+  const added = applyDrawingCommand(
+    empty,
+    { type: "add_objects", actorId: ids.actor, objects: [object()] },
+    environment(ids.addOperation),
+  );
+  const linked = applyDrawingCommand(
+    added.state,
+    linkDrawingPdfRegionSourceCommand(added.state, ids.otherActor, ids.object, {
+      id: ids.source,
+      sourceFileId: ids.file,
+      sourceSha256: sha,
+      pdfPageNumber: 2,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+    }),
+    environment(ids.linkOperation),
+  );
+
+  assert.deepEqual(
+    undoDrawingCommand(linked.state, ids.actor, environment(ids.undoOperation)),
+    { kind: "conflict", objectIds: [ids.source] },
+  );
+  assert.deepEqual(
+    revertDrawingOperation(
+      linked.state,
+      ids.actor,
+      ids.addOperation,
+      environment(ids.undoOperation),
+    ),
+    { kind: "conflict", objectIds: [ids.source] },
+  );
+  assert.throws(
+    () =>
+      applyDrawingCommand(
+        linked.state,
+        {
+          type: "delete_objects",
+          actorId: ids.actor,
+          objectIds: [ids.object],
+        },
+        environment(ids.deleteOperation),
+      ),
+    /missing object/,
+  );
+});
+
 test("object deletion removes sources first and undo restores objects before sources", () => {
   const initial = state({ [ids.source]: source() });
   const command = deleteDrawingObjectsWithReferencesCommand(
@@ -302,6 +363,62 @@ test("object deletion removes sources first and undo restores objects before sou
     ...source(),
     version: 3,
   });
+});
+
+test("reference-aware deletion reserves the exact object UUID tombstone through undo and recovery", () => {
+  const other = { ...object(), id: ids.otherObject, name: "Other target" };
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      ...state().structure,
+      objects: { [ids.object]: object(), [ids.otherObject]: other },
+      sources: {},
+    },
+  });
+  const deleted = applyDrawingCommand(
+    initial,
+    deleteDrawingObjectsWithReferencesCommand(initial, ids.actor, [ids.object]),
+    environment(ids.deleteOperation),
+  );
+  const tombstone = {
+    collection: "objects",
+    entity: object(),
+    version: 2,
+  };
+  assert.deepEqual(deleted.state.structure.tombstones?.[ids.object], tombstone);
+  assert.throws(
+    () =>
+      linkDrawingPdfRegionSourceCommand(
+        deleted.state,
+        ids.actor,
+        ids.otherObject,
+        {
+          id: ids.object,
+          sourceFileId: ids.file,
+          sourceSha256: sha,
+          pdfPageNumber: 1,
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4,
+        },
+      ),
+    /reuses a UUID/,
+  );
+
+  const restored = undoDrawingCommand(
+    deleted.state,
+    ids.actor,
+    environment(ids.undoOperation),
+  );
+  assert.ok(restored && !("kind" in restored));
+  assert.equal(restored.state.objects[ids.object].version, 3);
+  assert.equal(restored.state.structure.tombstones[ids.object], undefined);
+
+  const recovered = recoverPendingDrawingState(initial, [deleted.operation]);
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.deepEqual(recovered.state.structure.tombstones[ids.object], tombstone);
 });
 
 test("same-document duplicate and clipboard copies begin without source evidence", () => {
