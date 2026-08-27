@@ -5,7 +5,7 @@ import path from "node:path";
 
 const representativeDrawing = path.resolve(
   process.cwd(),
-  "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+  "tests/fixtures/p5-previous-revision.pdf",
 );
 
 function isLocalPreviewRequest(request: Request) {

@@ -87,6 +87,9 @@ const sourceSha256 = "a".repeat(64);
 const representativePdfByteSize = 62_602;
 const representativePdfSha256 =
   "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326";
+const representativePreviousPdfByteSize = 63_118;
+const representativePreviousPdfSha256 =
+  "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc";
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
@@ -966,14 +969,18 @@ export function localDrawingWorkspacePreviewFixture(options?: {
       id: previewPreviousPdfFileId,
       kind: "pdf",
       originalFilename: "근린생활시설_A-101-r1.pdf",
-      byteSize: activePdfByteSize,
-      sha256: options?.p5Integrated ? representativePdfSha256 : "b".repeat(64),
+      byteSize: options?.p5Integrated
+        ? representativePreviousPdfByteSize
+        : activePdfByteSize,
+      sha256: options?.p5Integrated
+        ? representativePreviousPdfSha256
+        : "b".repeat(64),
     },
     revisionEdge: {
       id: previewPdfRevisionEdgeId,
       previousFileId: previewPreviousPdfFileId,
       previousSha256: options?.p5Integrated
-        ? representativePdfSha256
+        ? representativePreviousPdfSha256
         : "b".repeat(64),
       currentFileId: ids.file,
       currentSha256: activePdfSha256,
@@ -984,9 +991,11 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         id: previewPreviousPdfFileId,
         kind: "pdf",
         originalFilename: "근린생활시설_A-101-r1.pdf",
-        byteSize: activePdfByteSize,
+        byteSize: options?.p5Integrated
+          ? representativePreviousPdfByteSize
+          : activePdfByteSize,
         sha256: options?.p5Integrated
-          ? representativePdfSha256
+          ? representativePreviousPdfSha256
           : "b".repeat(64),
       },
       ...ifcCatalog,
@@ -1300,7 +1309,7 @@ export async function action({ request }: Route.ActionArgs) {
         ? representativePdfSha256
         : sourceSha256;
       const expectedPreviousSha = integratedPdf
-        ? representativePdfSha256
+        ? representativePreviousPdfSha256
         : "b".repeat(64);
       if (
         (parameters.get("p5PdfTest") !== "1" &&
@@ -1325,7 +1334,9 @@ export async function action({ request }: Route.ActionArgs) {
           id: previewPreviousPdfFileId,
           kind: "pdf",
           originalFilename: "근린생활시설_A-101-r1.pdf",
-          byteSize: integratedPdf ? representativePdfByteSize : 1_048_576,
+          byteSize: integratedPdf
+            ? representativePreviousPdfByteSize
+            : 1_048_576,
           sha256: expectedPreviousSha,
           signedUrl: "/__p5-previous.pdf",
         },

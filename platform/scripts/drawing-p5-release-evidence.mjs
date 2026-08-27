@@ -12,10 +12,16 @@ export const P5_RELEASE_EVIDENCE_PATH = fileURLToPath(
 
 export const P5_SOURCE_FIXTURES = [
   {
-    kind: "pdf",
+    kind: "pdf_current",
     file: "../../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
     byteSize: 62_602,
     sha256: "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+  },
+  {
+    kind: "pdf_previous",
+    file: "../tests/fixtures/p5-previous-revision.pdf",
+    byteSize: 63_118,
+    sha256: "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
   },
   {
     kind: "ifc",

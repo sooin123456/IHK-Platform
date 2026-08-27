@@ -19,7 +19,11 @@ const sha256 = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 
 async function sourceByteEvidence(page: Page) {
-  const urls = ["/__p5-current.pdf", P5_SOURCE_FIXTURES[1].url as string];
+  const urls = [
+    "/__p5-current.pdf",
+    "/__p5-previous.pdf",
+    P5_SOURCE_FIXTURES[2].url as string,
+  ];
   const evidence = [];
   for (const [index, url] of urls.entries()) {
     const response = await page.request.get(url);
@@ -88,6 +92,10 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
     "data-pdf-previous-mounted",
     "true",
   );
+  await page.getByRole("button", { name: "변경 표시 계산" }).click();
+  await expect(
+    page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
+  ).not.toHaveCount(0, { timeout: 30_000 });
   await page.getByRole("button", { name: "IFC 3D" }).click();
   await expect(page).toHaveURL(/view=3d/);
   await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(

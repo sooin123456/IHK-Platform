@@ -1,6 +1,6 @@
 export const P5_RELEASE_EVIDENCE_PATH: string;
 export const P5_SOURCE_FIXTURES: ReadonlyArray<{
-  kind: "pdf" | "ifc";
+  kind: "pdf_current" | "pdf_previous" | "ifc";
   file?: string;
   url?: string;
   byteSize: number;

@@ -142,6 +142,15 @@ test("P5 canonical preview mounts PDF and an IFC chooser without test-only query
   );
   assert.equal(loaded.workspace.file.byte_size, 62_602);
   assert.equal(loaded.workspace.file.sha256, loaded.sourceBundle.pdf.sha256);
+  assert.equal(loaded.sourceBundle.previousPdf.byteSize, 63_118);
+  assert.equal(
+    loaded.sourceBundle.previousPdf.sha256,
+    "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
+  );
+  assert.notEqual(
+    loaded.sourceBundle.previousPdf.sha256,
+    loaded.sourceBundle.pdf.sha256,
+  );
   assert.equal(
     loaded.selectedIfcFileId,
     "00000000-0000-4000-8000-0000000000a1",
@@ -185,7 +194,7 @@ test("P5 canonical preview mounts PDF and an IFC chooser without test-only query
   assert.equal(compared.data.ok, true);
   assert.equal(
     compared.data.previousPdf.sha256,
-    loaded.sourceBundle.pdf.sha256,
+    loaded.sourceBundle.previousPdf.sha256,
   );
 
   const source = await readFile(
