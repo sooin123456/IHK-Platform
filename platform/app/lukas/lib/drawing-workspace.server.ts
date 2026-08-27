@@ -758,6 +758,24 @@ export function parseDrawingQuantityLinkForm(form: FormData) {
   });
 }
 
+export function parseDrawingQuantityLineageSearch(
+  searchParams: URLSearchParams,
+) {
+  try {
+    const revision = searchParams.get("revision");
+    const object = searchParams.get("object");
+    const cursor = searchParams.get("quantityCursor");
+    if (cursor && !object) throw new Error("orphan cursor");
+    return {
+      revisionId: revision ? Uuid.parse(revision) : null,
+      objectId: object ? Uuid.parse(object) : null,
+      cursor,
+    };
+  } catch {
+    throw new Error("도면 수량 근거 URL이 올바르지 않습니다.");
+  }
+}
+
 export type WorkspaceMutation =
   | z.infer<typeof CreateDocumentMutationSchema>
   | z.infer<typeof CreateFromTemplateMutationSchema>

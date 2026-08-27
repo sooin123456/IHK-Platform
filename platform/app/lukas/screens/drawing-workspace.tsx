@@ -32,6 +32,7 @@ import {
   loadDrawingWorkspacePreviousPdf,
   loadDrawingWorkspaceSourceBundle,
   parseDrawingQuantityLinkForm,
+  parseDrawingQuantityLineageSearch,
   parseDrawingWorkspacePreviousPdfForm,
   resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
@@ -52,9 +53,6 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
-
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function workspaceContext(request: Request, projectId: string) {
   const context = await drawingContext(request, projectId);
@@ -77,6 +75,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     params.projectId!,
   );
   const searchParams = new URL(request.url).searchParams;
+  let lineageSearch;
+  try {
+    lineageSearch = parseDrawingQuantityLineageSearch(searchParams);
+  } catch {
+    throw new Response("도면 수량 근거 URL이 올바르지 않습니다.", {
+      status: 400,
+    });
+  }
   let viewState;
   try {
     viewState = parseDrawingWorkspaceViewState(
@@ -92,7 +98,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     project.id,
     params.fileId!,
     searchParams.get("document") ?? undefined,
-    searchParams.get("revision") ?? undefined,
+    lineageSearch.revisionId ?? undefined,
   );
   const selectedIfcFileId =
     viewState.ifcFileId ??
@@ -112,32 +118,41 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     : null;
   const collaborationBootstrap =
     measurementState?.collaborationBootstrap ?? null;
-  const lineageObjectId = searchParams.get("object");
-  const requestedRevisionId = searchParams.get("revision");
-  const lineageCursor = searchParams.get("quantityCursor");
-  if (
-    (lineageObjectId && !uuidPattern.test(lineageObjectId)) ||
-    (requestedRevisionId && !uuidPattern.test(requestedRevisionId)) ||
-    (lineageCursor && !lineageObjectId)
-  )
-    throw new Response("도면 수량 근거 URL이 올바르지 않습니다.", {
-      status: 400,
-    });
+  const lineageObjectId = lineageSearch.objectId;
+  const requestedRevisionId = lineageSearch.revisionId;
+  const lineageCursor = lineageSearch.cursor;
   if (
     requestedRevisionId &&
     workspace.document?.revision.id !== requestedRevisionId
   )
     throw new Response("연결된 도면 근거를 열 수 없습니다.", { status: 404 });
   let quantityLineage = null;
+  if (lineageObjectId && !workspace.document)
+    throw new Response("연결된 도면 근거를 열 수 없습니다.", {
+      status: 404,
+    });
   if (workspace.document && lineageObjectId) {
-    if (
-      !workspace.document.revision.objects.some(
-        (object) => object.id === lineageObjectId,
-      )
-    )
+    try {
+      const scope = assertDrawingQuantityWorkspaceScope(workspace, {
+        fileId: params.fileId!,
+        revisionId: workspace.document.revision.id,
+        objectId: lineageObjectId,
+      });
+      if (scope.requiresEntryResolution) {
+        const entry = await resolveDrawingDocumentEntry(
+          client,
+          project.id,
+          workspace.document.id,
+          lineageObjectId,
+        );
+        if (entry.fileId !== workspace.file.id)
+          throw new Error("workspace entry mismatch");
+      }
+    } catch {
       throw new Response("연결된 도면 근거를 열 수 없습니다.", {
         status: 404,
       });
+    }
     try {
       quantityLineage = await listDrawingObjectQuantityLineage(client, {
         projectId: project.id,

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   assertDrawingQuantityWorkspaceScope,
   parseDrawingQuantityLinkForm,
+  parseDrawingQuantityLineageSearch,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {
@@ -69,4 +71,55 @@ test("quantity action scope binds the posted object to the current file document
       () => assertDrawingQuantityWorkspaceScope(workspace, mismatch),
       /연결된 도면 근거/,
     );
+});
+
+test("quantity lineage URL identity is validated before workspace loading", async () => {
+  assert.deepEqual(
+    parseDrawingQuantityLineageSearch(
+      new URLSearchParams({
+        revision: "00000000-0000-4000-8000-000000000021",
+        object: "00000000-0000-4000-8000-000000000022",
+        quantityCursor: "cursor",
+      }),
+    ),
+    {
+      revisionId: "00000000-0000-4000-8000-000000000021",
+      objectId: "00000000-0000-4000-8000-000000000022",
+      cursor: "cursor",
+    },
+  );
+  for (const input of [
+    { revision: "not-a-uuid" },
+    { object: "not-a-uuid" },
+    { quantityCursor: "orphan-cursor" },
+  ])
+    assert.throws(
+      () => parseDrawingQuantityLineageSearch(new URLSearchParams(input)),
+      /URL이 올바르지 않습니다/,
+    );
+
+  const source = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const parseAt = source.indexOf(
+    "parseDrawingQuantityLineageSearch(searchParams)",
+  );
+  const loadAt = source.indexOf("await loadDrawingWorkspace(");
+  assert.ok(parseAt >= 0 && parseAt < loadAt);
+});
+
+test("quantity lineage loader binds the URL file, revision, and object before reading lineage", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const loaderStart = source.indexOf("export async function loader");
+  const actionStart = source.indexOf("export async function action");
+  const loader = source.slice(loaderStart, actionStart);
+  const scopeAt = loader.indexOf("assertDrawingQuantityWorkspaceScope(");
+  const lineageAt = loader.indexOf("listDrawingObjectQuantityLineage(");
+  assert.ok(scopeAt >= 0 && scopeAt < lineageAt);
+  assert.match(loader, /if \(scope\.requiresEntryResolution\)/);
+  assert.match(loader, /entry\.fileId !== workspace\.file\.id/);
 });
