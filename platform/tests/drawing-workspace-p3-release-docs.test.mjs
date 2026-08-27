@@ -279,7 +279,7 @@ test("P3 service smoke is executable and matches endpoint authentication contrac
 
   assert.equal(
     packageJson.scripts["smoke:drawing-collaboration:production"],
-    "npx playwright test e2e/drawing-collaboration-service-smoke.spec.ts --project=chromium --workers=1",
+    "playwright test e2e/drawing-collaboration-service-smoke.spec.ts --project=chromium --workers=1",
   );
   assert.match(p3, /npm run smoke:drawing-collaboration:production/);
   for (const boundary of [

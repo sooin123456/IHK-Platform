@@ -398,7 +398,7 @@ test("Task 11 scripts and release records separate local and production evidence
 
   assert.equal(
     packageJson.scripts["test:e2e:drawing-workspace-p2:production"],
-    "npx playwright test e2e/drawing-workspace-p2.spec.ts --project=chromium",
+    "playwright test e2e/drawing-workspace-p2.spec.ts --project=chromium",
   );
   for (const evidence of [
     "duplicate/invariant preflight",

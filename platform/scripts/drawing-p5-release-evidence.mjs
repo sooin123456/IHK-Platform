@@ -41,7 +41,7 @@ const exactKeys = [
   "viewport",
   "workload",
   "lifecycle",
-  "sourceFixtures",
+  "sourceObservation",
   "firstUsableMs",
   "firstUsableTargetMs",
   "firstUsableTargetStatus",
@@ -100,17 +100,38 @@ export function validateDrawingP5ReleaseEvidence(
   assert.deepEqual(evidence.lifecycle, {
     ifcFetches: 1,
     ifcCanvasesAfterUnmount: 0,
+    ifcOwnedDisposals: 1,
+    ifcContextLossRequests: 1,
   });
-  assert.deepEqual(
-    evidence.sourceFixtures,
-    P5_SOURCE_FIXTURES.map(({ kind, byteSize, sha256 }) => ({
-      kind,
-      byteSize,
-      sha256,
-      beforeSha256: sha256,
-      afterSha256: sha256,
-    })),
+  assert.equal(
+    evidence.sourceObservation?.observedBy,
+    "browser_mutation_workflow",
   );
+  assert.match(evidence.sourceObservation?.runId, /^[0-9a-f-]{36}$/);
+  for (const phase of ["before", "after"]) {
+    const observations = evidence.sourceObservation?.[phase];
+    assert.equal(observations?.length, P5_SOURCE_FIXTURES.length);
+    for (const [index, expected] of P5_SOURCE_FIXTURES.entries()) {
+      const observation = observations[index];
+      assert.deepEqual(
+        {
+          kind: observation?.kind,
+          byteSize: observation?.byteSize,
+          sha256: observation?.sha256,
+          rowByteSize: observation?.fileRow?.byteSize,
+          rowSha256: observation?.fileRow?.sha256,
+        },
+        {
+          kind: expected.kind,
+          byteSize: expected.byteSize,
+          sha256: expected.sha256,
+          rowByteSize: expected.byteSize,
+          rowSha256: expected.sha256,
+        },
+      );
+      assert.match(observation?.fileRow?.id, /^[0-9a-f-]{36}$/);
+    }
+  }
   assert.equal(Number.isFinite(evidence.firstUsableMs), true);
   assert.ok(evidence.firstUsableMs > 0);
   assert.equal(evidence.firstUsableTargetMs, 2_500);

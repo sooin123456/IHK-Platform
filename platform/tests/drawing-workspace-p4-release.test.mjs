@@ -186,11 +186,11 @@ test("P4 package exposes separate fail-closed local and production commands", as
   );
   assert.equal(
     packageJson.scripts["test:e2e:drawing-workspace-p4:performance"],
-    "P4_RELEASE_PRODUCTION_BUILD=1 npx playwright test e2e/drawing-workspace-p4-release.spec.ts --config=playwright.p4-release.config.ts --project=chromium --workers=1",
+    "P4_RELEASE_PRODUCTION_BUILD=1 playwright test e2e/drawing-workspace-p4-release.spec.ts --config=playwright.p4-release.config.ts --project=chromium --workers=1",
   );
   assert.equal(
     packageJson.scripts["test:e2e:drawing-workspace-p4:production"],
-    "npx playwright test e2e/drawing-workspace-p4-production.spec.ts --project=chromium --workers=1",
+    "playwright test e2e/drawing-workspace-p4-production.spec.ts --project=chromium --workers=1",
   );
 });
 

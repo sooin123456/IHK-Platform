@@ -63,6 +63,6 @@ test("production drawing E2E has one deterministic npm entrypoint", async () => 
 
   assert.equal(
     packageJson.scripts["test:e2e:drawing:production"],
-    "npx playwright test e2e/drawing-collaboration.spec.ts --project=chromium",
+    "playwright test e2e/drawing-collaboration.spec.ts --project=chromium",
   );
 });

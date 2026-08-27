@@ -2567,13 +2567,19 @@ export const DrawingCanvas = forwardRef<
     return () => {
       alive = false;
       controller.abort();
-      renderCleanup?.();
+      setPdfSource((current) => (current?.canvas === canvas ? null : current));
+      const cleanup = renderCleanup;
+      renderCleanup = null;
       const documentToDestroy = opened;
       opened = null;
-      void documentToDestroy?.destroy();
-      canvas.width = 0;
-      canvas.height = 0;
       onPdfPageTransform?.(null);
+      requestAnimationFrame(() => {
+        cleanup?.();
+        void documentToDestroy?.destroy().finally(() => {
+          canvas.width = 0;
+          canvas.height = 0;
+        });
+      });
     };
   }, [
     background.kind,
@@ -2658,10 +2664,20 @@ export const DrawingCanvas = forwardRef<
     return () => {
       alive = false;
       controller.abort();
-      renderCleanup?.();
-      void opened?.destroy();
-      canvas.width = 0;
-      canvas.height = 0;
+      setPreviousPdfSource((current) =>
+        current?.canvas === canvas ? null : current,
+      );
+      const cleanup = renderCleanup;
+      renderCleanup = null;
+      const documentToDestroy = opened;
+      opened = null;
+      requestAnimationFrame(() => {
+        cleanup?.();
+        void documentToDestroy?.destroy().finally(() => {
+          canvas.width = 0;
+          canvas.height = 0;
+        });
+      });
     };
   }, [
     background.height,

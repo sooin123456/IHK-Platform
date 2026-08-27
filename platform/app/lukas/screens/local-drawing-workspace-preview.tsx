@@ -101,6 +101,32 @@ const previewIfcUrl =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
 const previewPreviousPdfFileId = "00000000-0000-4000-8000-0000000000b1";
 const previewPdfRevisionEdgeId = "00000000-0000-4000-8000-0000000000b2";
+
+export function localP5SourceManifest() {
+  return [
+    {
+      kind: "pdf_current",
+      id: ids.file,
+      byteSize: representativePdfByteSize,
+      sha256: representativePdfSha256,
+      signedUrl: "/__p5-current.pdf",
+    },
+    {
+      kind: "pdf_previous",
+      id: previewPreviousPdfFileId,
+      byteSize: representativePreviousPdfByteSize,
+      sha256: representativePreviousPdfSha256,
+      signedUrl: "/__p5-previous.pdf",
+    },
+    {
+      kind: "ifc",
+      id: previewIfcFileId,
+      byteSize: 413_681,
+      sha256: previewIfcSha256,
+      signedUrl: previewIfcUrl,
+    },
+  ] as const;
+}
 function previewCollaborationConnectionFactory(
   testPeers = false,
   onLocalState?: (state: unknown) => void,
@@ -785,6 +811,7 @@ type PreviewFixture = {
 
 /** Canonical P2 data kept entirely in process for development-only visual review. */
 export function localDrawingWorkspacePreviewFixture(options?: {
+  disableDefaultIfc?: boolean;
   hiddenHostTest?: boolean;
   p5IfcTest?: boolean;
   p5Integrated?: boolean;
@@ -958,9 +985,11 @@ export function localDrawingWorkspacePreviewFixture(options?: {
       sha256: activeIfcSha256,
     }),
   );
-  const selectedIfc = ifcCatalog.find(
-    (item) => item.id === (options?.selectedIfcFileId ?? previewIfcFileId),
-  );
+  const selectedIfc = options?.disableDefaultIfc
+    ? undefined
+    : ifcCatalog.find(
+        (item) => item.id === (options?.selectedIfcFileId ?? previewIfcFileId),
+      );
   const pdfSourceBundle: DrawingWorkspaceSourceBundle = {
     primary: { ...primary, signedUrl: "/__p5-current.pdf" },
     pdf: { ...primary, signedUrl: "/__p5-current.pdf" },
@@ -1159,6 +1188,10 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams,
   );
   const fixture = localDrawingWorkspacePreviewFixture({
+    disableDefaultIfc:
+      p5BaselineTest &&
+      new URL(request.url).searchParams.has("view") &&
+      viewState.view === "2d",
     hiddenHostTest,
     p5IfcTest,
     p5Integrated: canonicalP5 || p5BaselineTest || p5ReleaseTest,

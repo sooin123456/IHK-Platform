@@ -489,6 +489,15 @@ export function createIfcModelViewer({
     elementMeshes.clear();
     geometryCache.clear();
     materialCache.clear();
+    window.dispatchEvent(
+      new CustomEvent("drawing:ifc-viewer-lifecycle", {
+        detail: {
+          phase: "disposed",
+          contextLossRequested: true,
+          viewerInstance: renderer.domElement.dataset.ifcViewerInstance,
+        },
+      }),
+    );
     if (notify)
       onStatus?.("IFC 3D 화면을 닫았습니다.", {
         phase: "disposed",

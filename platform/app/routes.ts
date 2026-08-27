@@ -24,6 +24,10 @@ export default [
   ),
   route("/__p5-current.pdf", "lukas/screens/local-drawing-pdf-current.ts"),
   route("/__p5-previous.pdf", "lukas/screens/local-drawing-pdf-preview.ts"),
+  route(
+    "/__p5-source-manifest",
+    "lukas/screens/local-drawing-p5-source-manifest.ts",
+  ),
   layout("core/layouts/navigation.layout.tsx", [
     route("/auth/confirm", "features/auth/screens/confirm.tsx"),
     index("features/home/screens/home.tsx"),

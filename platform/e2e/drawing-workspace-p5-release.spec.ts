@@ -19,24 +19,41 @@ const sha256 = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 
 async function sourceByteEvidence(page: Page) {
-  const urls = [
-    "/__p5-current.pdf",
-    "/__p5-previous.pdf",
-    P5_SOURCE_FIXTURES[2].url as string,
-  ];
+  const manifestResponse = await page.request.get("/__p5-source-manifest");
+  expect(manifestResponse.ok()).toBe(true);
+  const rows = (await manifestResponse.json()) as Array<{
+    kind: string;
+    id: string;
+    byteSize: number;
+    sha256: string;
+    signedUrl: string;
+  }>;
   const evidence = [];
-  for (const [index, url] of urls.entries()) {
-    const response = await page.request.get(url);
+  for (const row of rows) {
+    const response = await page.request.get(row.signedUrl);
     expect(response.ok()).toBe(true);
     const bytes = await response.body();
     evidence.push({
-      kind: P5_SOURCE_FIXTURES[index].kind,
+      kind: row.kind,
       byteSize: bytes.byteLength,
       sha256: sha256(bytes),
+      fileRow: {
+        id: row.id,
+        byteSize: row.byteSize,
+        sha256: row.sha256,
+      },
     });
   }
   return evidence;
 }
+
+let mutationWorkflowEvidence:
+  | {
+      runId: string;
+      before: Awaited<ReturnType<typeof sourceByteEvidence>>;
+      after: Awaited<ReturnType<typeof sourceByteEvidence>>;
+    }
+  | undefined;
 
 async function ready(page: Page, path: string) {
   await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -59,6 +76,10 @@ test.beforeAll(() => {
 test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug controls", async ({
   page,
 }) => {
+  const renderingErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") renderingErrors.push(message.text());
+  });
   let ifcFetches = 0;
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.endsWith("/examples/example.ifc"))
@@ -125,6 +146,10 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
   await page.getByRole("button", { name: "분할 보기" }).click();
   await expect(page).toHaveURL(/view=split/);
   expect(ifcFetches).toBe(1);
+  await page.waitForTimeout(100);
+  expect(
+    renderingErrors.filter((message) => message.includes("InvalidStateError")),
+  ).toEqual([]);
 
   const sourceAfter = await sourceByteEvidence(page);
   expect(sourceBefore).toEqual(
@@ -132,6 +157,7 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
       kind,
       byteSize,
       sha256,
+      fileRow: expect.objectContaining({ byteSize, sha256 }),
     })),
   );
   expect(sourceAfter).toEqual(sourceBefore);
@@ -234,6 +260,11 @@ test("offline unlink and undo survive reopen, acknowledge, and remain denied to 
   expect(operationPosts[1]).toContain(recoveredOperationIds[1]);
   expect((await snapshot(page)).sources).toEqual(offline.sources);
   expect(await sourceByteEvidence(page)).toEqual(sourceBefore);
+  mutationWorkflowEvidence = {
+    runId: crypto.randomUUID(),
+    before: sourceBefore,
+    after: await sourceByteEvidence(page),
+  };
 
   await page.getByRole("button", { name: "테스트 보기 권한" }).click();
   await expect(
@@ -250,7 +281,27 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   browserName,
   page,
 }) => {
+  const ifcOwnedDisposals: Array<{ contextLossRequested?: boolean }> = [];
+  await page.exposeFunction(
+    "__recordDrawingIfcDisposal",
+    (detail: { contextLossRequested?: boolean }) => {
+      ifcOwnedDisposals.push(detail);
+    },
+  );
+  await page.addInitScript(() => {
+    const target = window as typeof window & {
+      __recordDrawingIfcDisposal?: (detail: {
+        contextLossRequested?: boolean;
+      }) => void;
+    };
+    window.addEventListener("drawing:ifc-viewer-lifecycle", (event) => {
+      target.__recordDrawingIfcDisposal?.(
+        (event as CustomEvent<{ contextLossRequested?: boolean }>).detail,
+      );
+    });
+  });
   await page.setViewportSize({ width: 1440, height: 900 });
+  expect(mutationWorkflowEvidence).toBeDefined();
   let ifcFetches = 0;
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.endsWith("/examples/example.ifc"))
@@ -270,16 +321,34 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
     "2000",
   );
   await expect.poll(() => ifcFetches).toBe(1);
+  await expect(page.getByText("3D 요소 115개를 표시했습니다.")).toBeVisible({
+    timeout: 60_000,
+  });
+  await page
+    .getByRole("button", {
+      name: /NZ-PFC Channels beam:300PFC40\.1:691733 #2863/,
+    })
+    .click();
+  await expect(page.getByText("선택한 요소: #2863 IfcBeam")).toBeVisible();
   await page.getByRole("button", { name: "겹쳐 보기" }).click();
   await expect(surface).toHaveAttribute("data-pdf-previous-mounted", "true", {
     timeout: 30_000,
   });
   const firstUsableMs = await page.evaluate(() => performance.now());
 
-  await page.goto("about:blank");
+  await page.getByLabel("IFC 원본 선택").selectOption("");
+  await expect(page.getByRole("button", { name: "2D 도면" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(0);
   const ifcCanvasesAfterUnmount = await page
     .locator('canvas[aria-label="IFC 3D 모델"]')
     .count();
+  await expect.poll(() => ifcOwnedDisposals.length).toBe(1);
+  expect(ifcOwnedDisposals).toEqual([
+    expect.objectContaining({ contextLossRequested: true }),
+  ]);
   const evidence = {
     schemaVersion: 1,
     status: "MEASURED",
@@ -294,14 +363,18 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
       selectedIfcModels: 1,
       activeComparePages: 1,
     },
-    lifecycle: { ifcFetches, ifcCanvasesAfterUnmount },
-    sourceFixtures: P5_SOURCE_FIXTURES.map(({ kind, byteSize, sha256 }) => ({
-      kind,
-      byteSize,
-      sha256,
-      beforeSha256: sha256,
-      afterSha256: sha256,
-    })),
+    lifecycle: {
+      ifcFetches,
+      ifcCanvasesAfterUnmount,
+      ifcOwnedDisposals: ifcOwnedDisposals.length,
+      ifcContextLossRequests: ifcOwnedDisposals.filter(
+        ({ contextLossRequested }) => contextLossRequested,
+      ).length,
+    },
+    sourceObservation: {
+      observedBy: "browser_mutation_workflow",
+      ...mutationWorkflowEvidence!,
+    },
     firstUsableMs,
     firstUsableTargetMs: 2_500,
     firstUsableTargetStatus: firstUsableMs <= 2_500 ? "MET" : "NOT MET",

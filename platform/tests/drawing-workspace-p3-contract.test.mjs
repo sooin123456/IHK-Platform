@@ -304,7 +304,7 @@ test("P3 command and Playwright config keep local and production execution separ
   const config = await read("playwright.config.ts");
   assert.equal(
     packageJson.scripts["test:e2e:drawing-workspace-p3:production"],
-    "npx playwright test e2e/drawing-workspace-p3.spec.ts --project=chromium",
+    "playwright test e2e/drawing-workspace-p3.spec.ts --project=chromium",
   );
   assert.match(config, /P3_E2E_RUN_ID/);
   assert.match(config, /remote.*webServer/s);

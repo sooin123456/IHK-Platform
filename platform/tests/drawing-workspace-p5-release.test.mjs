@@ -65,6 +65,30 @@ test("P5 operation resource routes reuse the authenticated actions and notices c
   assert.match(notice, /\| web-ifc\s+\| 0\.0\.77\s+\|.*MPL-2\.0/);
 });
 
+test("P5 browser scripts use installed Playwright and isolate Vite-only import lifecycle", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.match(
+    packageJson.scripts["test:e2e:drawing-workspace-p5:dev-lifecycle"],
+    /^playwright test .*playwright\.p5-dev\.config\.ts.*source swap/,
+  );
+  assert.match(
+    packageJson.scripts["test:e2e:drawing-workspace-p5:local"],
+    /^P5_RELEASE_PRODUCTION_BUILD=1 playwright test .*--grep-invert.*source swap/,
+  );
+  assert.doesNotMatch(
+    packageJson.scripts["test:e2e:drawing-workspace-p5:local"],
+    /\bnpx\b/,
+  );
+  assert.equal(
+    Object.values(packageJson.scripts).some((script) =>
+      /\bnpx playwright\b/.test(script),
+    ),
+    false,
+  );
+});
+
 test("P5 local release manifest composes the complete P4 gate before P5 browser evidence", () => {
   assert.doesNotThrow(() =>
     assertExactP5LocalGateManifest(P5_LOCAL_RELEASE_GATES),
@@ -75,7 +99,11 @@ test("P5 local release manifest composes the complete P4 gate before P5 browser 
       argv: ["npm", "run", "release:drawing-workspace-p4:local"],
     },
     {
-      label: "P5 production-build vertical and baseline",
+      label: "P5 development import-generation lifecycle",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p5:dev-lifecycle"],
+    },
+    {
+      label: "P5 production-build vertical and stable lifecycle",
       argv: ["npm", "run", "test:e2e:drawing-workspace-p5:local"],
     },
     {
@@ -129,6 +157,36 @@ test("P5 production authority fails closed for provider and exact Storage CORS o
   );
 });
 
+test("P5 hosted command targets the new workspace source authority surface", async () => {
+  const [packageJson, productionSpec] = await Promise.all([
+    readFile(new URL("../package.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+    readFile(
+      new URL(
+        "../e2e/drawing-workspace-p5-production.spec.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(
+    packageJson.scripts["test:e2e:drawing-workspace-p5:production"],
+    /drawing-workspace-p5-production\.spec\.ts/,
+  );
+  for (const boundary of [
+    "/workspace?document=",
+    "put_source",
+    "delete_source",
+    "fixture.viewer",
+    "fixture.nonMember",
+    "readSourceEvidence",
+    "view=split",
+    "겹쳐 보기",
+  ])
+    assert.match(productionSpec, new RegExp(boundary.replace("?", "\\?")));
+});
+
 test("P5 pinned source fixtures are byte-exact PDF and renderable IFC inputs", async () => {
   for (const fixture of P5_SOURCE_FIXTURES) {
     const bytes = fixture.file
@@ -157,14 +215,36 @@ test("P5 evidence validates exact workload, lifecycle, immutable hashes, and hon
       selectedIfcModels: 1,
       activeComparePages: 1,
     },
-    lifecycle: { ifcFetches: 1, ifcCanvasesAfterUnmount: 0 },
-    sourceFixtures: P5_SOURCE_FIXTURES.map(({ kind, byteSize, sha256 }) => ({
-      kind,
-      byteSize,
-      sha256,
-      beforeSha256: sha256,
-      afterSha256: sha256,
-    })),
+    lifecycle: {
+      ifcFetches: 1,
+      ifcCanvasesAfterUnmount: 0,
+      ifcOwnedDisposals: 1,
+      ifcContextLossRequests: 1,
+    },
+    sourceObservation: {
+      observedBy: "browser_mutation_workflow",
+      runId: "00000000-0000-4000-8000-000000000099",
+      before: P5_SOURCE_FIXTURES.map(({ kind, byteSize, sha256 }, index) => ({
+        kind,
+        byteSize,
+        sha256,
+        fileRow: {
+          id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+          byteSize,
+          sha256,
+        },
+      })),
+      after: P5_SOURCE_FIXTURES.map(({ kind, byteSize, sha256 }, index) => ({
+        kind,
+        byteSize,
+        sha256,
+        fileRow: {
+          id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+          byteSize,
+          sha256,
+        },
+      })),
+    },
     firstUsableMs: 5_900,
     firstUsableTargetMs: 2_500,
     firstUsableTargetStatus: "NOT MET",

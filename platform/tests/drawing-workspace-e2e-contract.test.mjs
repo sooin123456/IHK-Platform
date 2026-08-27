@@ -112,7 +112,7 @@ test("drawing workspace has one complete serial production contract", async () =
   );
   assert.equal(
     packageJson.scripts["test:e2e:drawing-workspace:production"],
-    "npx playwright test e2e/drawing-workspace.spec.ts --project=chromium",
+    "playwright test e2e/drawing-workspace.spec.ts --project=chromium",
   );
   assert.equal(
     packageJson.scripts["test:ifc"],

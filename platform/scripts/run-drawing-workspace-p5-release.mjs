@@ -13,7 +13,11 @@ function exactLocalManifest() {
       argv: ["npm", "run", "release:drawing-workspace-p4:local"],
     },
     {
-      label: "P5 production-build vertical and baseline",
+      label: "P5 development import-generation lifecycle",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p5:dev-lifecycle"],
+    },
+    {
+      label: "P5 production-build vertical and stable lifecycle",
       argv: ["npm", "run", "test:e2e:drawing-workspace-p5:local"],
     },
     {

@@ -59,6 +59,7 @@ async function finalPublicationRace({ previous, current, finalWorkCheck }) {
         while (Atomics.load(control, 1) < Atomics.load(control, 2))
           Atomics.wait(control, 1, Atomics.load(control, 1));
         Atomics.store(control, 0, 5);
+        Atomics.notify(control, 0);
       }
     `,
     { eval: true, workerData: control.buffer },
@@ -82,9 +83,13 @@ async function finalPublicationRace({ previous, current, finalWorkCheck }) {
             generation: {
               requested: 4,
               current: () => {
-                const generation = Atomics.load(control, 0);
-                Atomics.add(control, 1, 1);
+                let generation = Atomics.load(control, 0);
+                const workCheck = Atomics.add(control, 1, 1) + 1;
                 Atomics.notify(control, 1);
+                if (workCheck === finalWorkCheck)
+                  while (Atomics.load(control, 0) === 4)
+                    Atomics.wait(control, 0, 4);
+                generation = Atomics.load(control, 0);
                 return generation;
               },
             },
