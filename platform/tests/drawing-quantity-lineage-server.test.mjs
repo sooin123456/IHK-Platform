@@ -3,6 +3,7 @@ import test from "node:test";
 import { strFromU8, unzipSync } from "fflate";
 
 import {
+  createP6MaterialHandoff,
   createDrawingQuantityLink,
   deleteDrawingBoqLink,
   listDrawingObjectQuantityLineage,
@@ -13,6 +14,7 @@ import {
   resolveDrawingWorkspaceEntry,
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+import { boqManifestStorageObjectPath } from "../app/lukas/lib/storage-object-key.server.ts";
 import {
   assertVerifiedBoqSourceAnchorIds,
   loadApprovedVerifiedBoqExport,
@@ -20,6 +22,140 @@ import {
 
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
+
+test("approved BOQ material handoff persists only selected authoritative material components", async () => {
+  const operationId = "00000000-0000-4000-8000-000000000121";
+  const manifestFileId = "00000000-0000-4000-8000-000000000122";
+  const inserted = [];
+  const manifestJson = new TextEncoder().encode(
+    JSON.stringify({ handoffSha256: P6_SHA_B }),
+  );
+  const result = await createP6MaterialHandoff(
+    authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+    p6Ids.actor,
+    {
+      projectId: p6Ids.project,
+      boqVersionId: p6Ids.version,
+      operationId,
+      selectedRateComponentIds: [p6Ids.component],
+    },
+    {
+      async loadApprovedExport() {
+        return {
+          resultSha256: P6_SHA_A,
+          manifestSha256: "c".repeat(64),
+          handoffSha256: P6_SHA_B,
+          manifestJson,
+        };
+      },
+      async loadContext() {
+        return {
+          ownerId: p6Ids.actor,
+          projectId: p6Ids.project,
+          boqVersionId: p6Ids.version,
+          priceBookId: p6Ids.priceBook,
+          resultSha256: P6_SHA_A,
+          components: [
+            {
+              boqVersionId: p6Ids.version,
+              lineId: p6Ids.line,
+              rateComponentId: p6Ids.component,
+              resourceId: p6Ids.resource,
+              resourceCode: "M-001",
+              resourceName: "벽체재",
+              resourceSpecification: "12.5T",
+              resourceUnit: "m2",
+              resourceType: "material",
+              resourcePriceBookId: p6Ids.priceBook,
+              resourceCoefficient: "2",
+              finalQuantity: "4.75",
+            },
+          ],
+        };
+      },
+      async persistManifest(input) {
+        assert.deepEqual(input.bytes, manifestJson);
+        assert.equal(input.path, `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${P6_SHA_B}.manifest.json`);
+        return manifestFileId;
+      },
+      async insertHandoff(input) {
+        inserted.push(input);
+        return input;
+      },
+    },
+  );
+  assert.equal(result.manifestFileId, manifestFileId);
+  assert.equal(result.materialPlanIds.length, 1);
+  assert.equal(result.materialLinkIds.length, 1);
+  assert.deepEqual(inserted[0].plans.map((row) => ({
+    materialCode: row.materialCode,
+    designQuantity: row.designQuantity,
+    allowanceRate: row.allowanceRate,
+    requiredQuantity: row.requiredQuantity,
+  })), [{ materialCode: "M-001", designQuantity: "9.5", allowanceRate: "0", requiredQuantity: "9.5" }]);
+  assert.deepEqual(inserted[0].links.map((row) => row.derivedDesignQuantity), ["9.5"]);
+});
+
+test("material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components", async () => {
+  const base = {
+    boqVersionId: p6Ids.version,
+    lineId: p6Ids.line,
+    rateComponentId: p6Ids.component,
+    resourceId: p6Ids.resource,
+    resourceCode: "M-001",
+    resourceName: "벽체재",
+    resourceSpecification: "12.5T",
+    resourceUnit: "m2",
+    resourceType: "material",
+    resourcePriceBookId: p6Ids.priceBook,
+    resourceCoefficient: "2",
+    finalQuantity: "4.75",
+  };
+  for (const components of [
+    [],
+    [{ ...base, resourceType: "labor" }],
+    [{ ...base, resourcePriceBookId: "00000000-0000-4000-8000-000000000199" }],
+    [{ ...base, resourceCoefficient: "0" }],
+  ]) {
+    let persisted = false;
+    await assert.rejects(
+      createP6MaterialHandoff(
+        authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+        p6Ids.actor,
+        {
+          projectId: p6Ids.project,
+          boqVersionId: p6Ids.version,
+          operationId: "00000000-0000-4000-8000-000000000121",
+          selectedRateComponentIds: [p6Ids.component],
+        },
+        {
+          async loadApprovedExport() {
+            return { resultSha256: P6_SHA_A, manifestSha256: "c".repeat(64), handoffSha256: P6_SHA_B, manifestJson: new Uint8Array([123, 125]) };
+          },
+          async loadContext() {
+            return { ownerId: p6Ids.actor, projectId: p6Ids.project, boqVersionId: p6Ids.version, priceBookId: p6Ids.priceBook, resultSha256: P6_SHA_A, components };
+          },
+          async persistManifest() { persisted = true; return p6Ids.quantity; },
+          async insertHandoff() { throw new Error("unexpected"); },
+        },
+      ),
+      (error) => error.code === "P6M01",
+    );
+    assert.equal(persisted, false);
+  }
+});
+
+test("BOQ manifest storage path accepts only canonical UUIDs and lowercase handoff digests", () => {
+  assert.equal(
+    boqManifestStorageObjectPath({ ownerId: p6Ids.actor, projectId: p6Ids.project, handoffSha256: P6_SHA_A }),
+    `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${P6_SHA_A}.manifest.json`,
+  );
+  for (const input of [
+    { ownerId: "not-a-uuid", projectId: p6Ids.project, handoffSha256: P6_SHA_A },
+    { ownerId: p6Ids.actor.toUpperCase(), projectId: p6Ids.project, handoffSha256: P6_SHA_A },
+    { ownerId: p6Ids.actor, projectId: p6Ids.project, handoffSha256: P6_SHA_A.toUpperCase() },
+  ]) assert.throws(() => boqManifestStorageObjectPath(input));
+});
 
 const p6Ids = {
   actor: "00000000-0000-4000-8000-000000000101",
