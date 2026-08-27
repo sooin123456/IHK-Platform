@@ -16,6 +16,13 @@ import {
 } from "~/lukas/lib/drawing-collaboration.server";
 import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
+  createDrawingQuantityLink,
+  DrawingQuantityLineageServerError,
+  drawingQuantityLineageErrorResponse,
+  listDrawingObjectQuantityLineage,
+} from "~/lukas/lib/drawing-quantity-lineage.server";
+import {
+  assertDrawingQuantityWorkspaceScope,
   handleWorkspaceMutation,
   drawingTemplateCloneLocation,
   drawingTemplateWorkspaceLocation,
@@ -24,7 +31,9 @@ import {
   loadDrawingWorkspaceCapability,
   loadDrawingWorkspacePreviousPdf,
   loadDrawingWorkspaceSourceBundle,
+  parseDrawingQuantityLinkForm,
   parseDrawingWorkspacePreviousPdfForm,
+  resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
 import type {
@@ -43,6 +52,9 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function workspaceContext(request: Request, projectId: string) {
   const context = await drawingContext(request, projectId);
@@ -80,6 +92,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     project.id,
     params.fileId!,
     searchParams.get("document") ?? undefined,
+    searchParams.get("revision") ?? undefined,
   );
   const selectedIfcFileId =
     viewState.ifcFileId ??
@@ -99,6 +112,47 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     : null;
   const collaborationBootstrap =
     measurementState?.collaborationBootstrap ?? null;
+  const lineageObjectId = searchParams.get("object");
+  const requestedRevisionId = searchParams.get("revision");
+  const lineageCursor = searchParams.get("quantityCursor");
+  if (
+    (lineageObjectId && !uuidPattern.test(lineageObjectId)) ||
+    (requestedRevisionId && !uuidPattern.test(requestedRevisionId)) ||
+    (lineageCursor && !lineageObjectId)
+  )
+    throw new Response("도면 수량 근거 URL이 올바르지 않습니다.", {
+      status: 400,
+    });
+  if (
+    requestedRevisionId &&
+    workspace.document?.revision.id !== requestedRevisionId
+  )
+    throw new Response("연결된 도면 근거를 열 수 없습니다.", { status: 404 });
+  let quantityLineage = null;
+  if (workspace.document && lineageObjectId) {
+    if (
+      !workspace.document.revision.objects.some(
+        (object) => object.id === lineageObjectId,
+      )
+    )
+      throw new Response("연결된 도면 근거를 열 수 없습니다.", {
+        status: 404,
+      });
+    try {
+      quantityLineage = await listDrawingObjectQuantityLineage(client, {
+        projectId: project.id,
+        revisionId: workspace.document.revision.id,
+        objectId: lineageObjectId,
+        cursor: lineageCursor,
+        limit: 200,
+      });
+    } catch (error) {
+      const bounded = drawingQuantityLineageErrorResponse(error);
+      throw new Response(bounded.body.error, {
+        status: bounded.body.errorCode === "P6O01" ? 400 : bounded.status,
+      });
+    }
+  }
   const activityPage = workspace.document
     ? await loadDrawingActivityPage(
         client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
@@ -121,6 +175,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       measurementEvidence: measurementState?.measurementEvidence ?? null,
       measurementEvidenceError:
         measurementState?.measurementEvidenceError ?? null,
+      quantityLineage,
       activityPage,
       collaborationRoom,
       assignees,
@@ -139,13 +194,72 @@ export async function action({ request, params }: Route.ActionArgs) {
     params.projectId!,
   );
   const form = await request.formData();
+  const searchParams = new URL(request.url).searchParams;
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
     params.fileId!,
-    new URL(request.url).searchParams.get("document") ?? undefined,
+    searchParams.get("document") ?? undefined,
+    searchParams.get("revision") ?? undefined,
   );
   const intent = form.get("intent");
+  if (intent === "create_drawing_quantity_link") {
+    const stableLinkId = form.get("link_id");
+    try {
+      const mutation = parseDrawingQuantityLinkForm(form);
+      const scope = assertDrawingQuantityWorkspaceScope(workspace, {
+        fileId: params.fileId!,
+        revisionId: mutation.drawingRevisionId,
+        objectId: mutation.drawingObjectId,
+      });
+      if (scope.requiresEntryResolution) {
+        const entry = await resolveDrawingDocumentEntry(
+          client,
+          project.id,
+          workspace.document!.id,
+          mutation.drawingObjectId,
+        );
+        if (entry.fileId !== workspace.file.id)
+          throw new DrawingQuantityLineageServerError("P6O01");
+      }
+      const created = await createDrawingQuantityLink(client, user.id, {
+        projectId: project.id,
+        drawingRevisionId: mutation.drawingRevisionId,
+        drawingObjectId: mutation.drawingObjectId,
+        measurementKind: mutation.measurementKind,
+        linkId: mutation.linkId,
+      });
+      const persisted = await listDrawingObjectQuantityLineage(client, {
+        projectId: project.id,
+        revisionId: mutation.drawingRevisionId,
+        objectId: mutation.drawingObjectId,
+        cursor: null,
+        limit: 200,
+      });
+      if (!persisted.rows.some((row) => row.quantity.id === created.id))
+        throw new DrawingQuantityLineageServerError("P6O01");
+      return data(
+        {
+          ok: true,
+          kind: "drawing_quantity_link" as const,
+          error: null,
+          stableLinkId: mutation.linkId,
+          result: created,
+          quantityLineage: persisted,
+        },
+        { headers },
+      );
+    } catch (error) {
+      const bounded = drawingQuantityLineageErrorResponse(error);
+      return data(
+        {
+          ...bounded.body,
+          stableLinkId: typeof stableLinkId === "string" ? stableLinkId : null,
+        },
+        { status: bounded.status, headers },
+      );
+    }
+  }
   if (intent === "cancel_pdf_compare")
     return data(
       { ok: true, kind: "pdf_compare_cancelled" as const, error: null },

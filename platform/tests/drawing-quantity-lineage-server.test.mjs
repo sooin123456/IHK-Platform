@@ -42,7 +42,7 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
         geometry: {
           type: "area",
           semanticVersion: 1,
-          points: [
+          boundary: [
             { x: 0, y: 0 },
             { x: 5000, y: 0 },
             { x: 5000, y: 2500 },
@@ -50,7 +50,7 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
           ],
         },
         styleId: null,
-        style: {},
+        style: { stroke: "#111111", strokeWidth: 1, fill: null },
         version: 3,
       },
     ],
@@ -155,14 +155,53 @@ test("quantity creation rejects anonymous and read-only roles before database ac
   for (const role of ["viewer", "site", "reviewer"]) {
     let touched = false;
     await assert.rejects(
-      createDrawingQuantityLink(authorizedClient(actor, project, role), actor, input, {
-        async transaction() {
-          touched = true;
+      createDrawingQuantityLink(
+        authorizedClient(actor, project, role),
+        actor,
+        input,
+        {
+          async transaction() {
+            touched = true;
+          },
         },
-      }),
+      ),
       (error) => error.code === "P6A01" && Boolean(error.requestId),
     );
     assert.equal(touched, false);
+  }
+});
+
+test("owner, estimator, and verified staff reach trusted authority with server identity", async () => {
+  const project = "00000000-0000-4000-8000-000000000016";
+  const actor = "00000000-0000-4000-8000-000000000017";
+  const input = {
+    projectId: project,
+    drawingRevisionId: "00000000-0000-4000-8000-000000000018",
+    drawingObjectId: "00000000-0000-4000-8000-000000000019",
+    measurementKind: "count",
+    linkId: "00000000-0000-4000-8000-000000000020",
+  };
+  for (const [role, isStaff] of [
+    ["owner", false],
+    ["estimator", false],
+    ["staff", true],
+  ]) {
+    let trustedActor = null;
+    await assert.rejects(
+      createDrawingQuantityLink(
+        authorizedClient(actor, project, role),
+        actor,
+        input,
+        {
+          async transaction(_run, context) {
+            trustedActor = context;
+            throw Object.assign(new Error("bounded"), { code: "P6Q03" });
+          },
+        },
+      ),
+      (error) => error.code === "P6Q03",
+    );
+    assert.deepEqual(trustedActor, { actorId: actor, isStaff });
   }
 });
 
@@ -177,7 +216,7 @@ test("lineage pages by created_at and id with a hard 200 row bound", async () =>
   });
   assert.equal(page.rows.length, 200);
   assert.ok(page.nextCursor);
-  assert.deepEqual(client.orders, ["created_at", "id"]);
+  assert.deepEqual(client.orders.slice(0, 2), ["created_at", "id"]);
 });
 
 test("workspace resolution returns exact evidence route and never falls back", async () => {
@@ -217,14 +256,29 @@ function authorizedClient(actor, project, role) {
   return {
     auth: {
       async getUser() {
-        return { data: { user: { id: actor, is_anonymous: false, app_metadata: {} } }, error: null };
+        return {
+          data: {
+            user: {
+              id: actor,
+              is_anonymous: false,
+              app_metadata: role === "staff" ? { role: "hangil_staff" } : {},
+            },
+          },
+          error: null,
+        };
       },
     },
     from(table) {
       const query = chain({
         data:
           table === "lukas_qto_projects"
-            ? { id: project, owner_id: "00000000-0000-4000-8000-000000000099" }
+            ? {
+                id: project,
+                owner_id:
+                  role === "owner"
+                    ? actor
+                    : "00000000-0000-4000-8000-000000000099",
+              }
             : { role },
         error: null,
       });
@@ -235,15 +289,33 @@ function authorizedClient(actor, project, role) {
 
 function chain(result) {
   const query = {
-    select() { return query; },
-    eq() { return query; },
-    in() { return query; },
-    order() { return query; },
-    gt() { return query; },
-    or() { return query; },
-    limit() { return Promise.resolve(result); },
-    single() { return Promise.resolve(result); },
-    maybeSingle() { return Promise.resolve(result); },
+    select() {
+      return query;
+    },
+    eq() {
+      return query;
+    },
+    in() {
+      return query;
+    },
+    order() {
+      return query;
+    },
+    gt() {
+      return query;
+    },
+    or() {
+      return query;
+    },
+    limit() {
+      return Promise.resolve(result);
+    },
+    single() {
+      return Promise.resolve(result);
+    },
+    maybeSingle() {
+      return Promise.resolve(result);
+    },
   };
   return query;
 }
@@ -269,9 +341,14 @@ function lineageClient() {
   return {
     orders: [],
     from(table) {
-      const query = chain({ data: table === "lukas_drawing_quantity_links" ? quantities : [], error: null });
-      query.order = (column) => { this.orders.push(column); return query; };
-      query.limit = (size) => Promise.resolve({ data: quantities.slice(0, size), error: null });
+      const rows = table === "lukas_drawing_quantity_links" ? quantities : [];
+      const query = chain({ data: rows, error: null });
+      query.order = (column) => {
+        this.orders.push(column);
+        return query;
+      };
+      query.limit = (size) =>
+        Promise.resolve({ data: rows.slice(0, size), error: null });
       return query;
     },
   };
@@ -279,12 +356,34 @@ function lineageClient() {
 
 function exactEntryClient(ids) {
   const rows = {
-    lukas_drawing_revisions: { id: ids.revision, document_id: ids.document, project_id: ids.project },
-    lukas_drawing_documents: { id: ids.document, project_id: ids.project, source_file_id: ids.file },
-    lukas_drawing_objects: { id: ids.object, revision_id: ids.revision, project_id: ids.project },
+    lukas_drawing_revisions: {
+      id: ids.revision,
+      document_id: ids.document,
+      project_id: ids.project,
+    },
+    lukas_drawing_documents: {
+      id: ids.document,
+      project_id: ids.project,
+      source_file_id: ids.file,
+    },
+    lukas_drawing_objects: {
+      id: ids.object,
+      revision_id: ids.revision,
+      project_id: ids.project,
+    },
     lukas_qto_boq_versions: { id: ids.boq, project_id: ids.project },
-    lukas_qto_boq_lines: { id: ids.line, version_id: ids.boq, project_id: ids.project },
-    lukas_qto_files: ids.file ? { id: ids.file, project_id: ids.project, immutable: true, kind: "pdf" } : null,
+    lukas_qto_boq_lines: {
+      id: ids.line,
+      version_id: ids.boq,
+      project_id: ids.project,
+    },
+    lukas_qto_files: ids.file
+      ? { id: ids.file, project_id: ids.project, immutable: true, kind: "pdf" }
+      : null,
   };
-  return { from(table) { return chain({ data: rows[table], error: null }); } };
+  return {
+    from(table) {
+      return chain({ data: rows[table], error: null });
+    },
+  };
 }

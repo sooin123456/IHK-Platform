@@ -728,6 +728,36 @@ const RestoreApprovedSnapshotMutationSchema = z.object({
   requestId: Uuid,
 });
 
+const DrawingQuantityLinkFormSchema = z
+  .object({
+    intent: z.literal("create_drawing_quantity_link"),
+    linkId: Uuid,
+    drawingRevisionId: Uuid,
+    drawingObjectId: Uuid,
+    measurementKind: z.enum(["length", "area", "count"]),
+  })
+  .strict();
+
+export function parseDrawingQuantityLinkForm(form: FormData) {
+  const allowed = new Set([
+    "intent",
+    "link_id",
+    "revision_id",
+    "object_id",
+    "measurement_kind",
+  ]);
+  for (const key of form.keys())
+    if (!allowed.has(key))
+      throw new Error("요청에 허용되지 않은 필드가 있습니다.");
+  return DrawingQuantityLinkFormSchema.parse({
+    intent: form.get("intent"),
+    linkId: form.get("link_id"),
+    drawingRevisionId: form.get("revision_id"),
+    drawingObjectId: form.get("object_id"),
+    measurementKind: form.get("measurement_kind"),
+  });
+}
+
 export type WorkspaceMutation =
   | z.infer<typeof CreateDocumentMutationSchema>
   | z.infer<typeof CreateFromTemplateMutationSchema>
@@ -875,6 +905,25 @@ export type DrawingWorkspace = {
     | null;
 };
 
+export function assertDrawingQuantityWorkspaceScope(
+  workspace: DrawingWorkspace,
+  input: { fileId: string; revisionId: string; objectId: string },
+) {
+  const document = workspace.document;
+  if (
+    workspace.file.id !== Uuid.parse(input.fileId) ||
+    !document ||
+    document.revision.id !== Uuid.parse(input.revisionId) ||
+    !document.revision.objects.some((object) => object.id === input.objectId) ||
+    (document.source_file_id !== null &&
+      document.source_file_id !== workspace.file.id)
+  )
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  return { requiresEntryResolution: document.source_file_id === null };
+}
+
 const CollaborationCanonicalJsonSchema = z
   .object({
     schemaVersion: z.literal(2),
@@ -978,6 +1027,10 @@ const DrawingWorkspaceCollaborationBootstrapSchema = z
 export type DrawingWorkspaceCollaborationBootstrap = z.infer<
   typeof DrawingWorkspaceCollaborationBootstrapSchema
 >;
+
+export function parseDrawingWorkspaceCollaborationBootstrap(input: unknown) {
+  return DrawingWorkspaceCollaborationBootstrapSchema.parse(input);
+}
 
 const AuthorizedMeasurementObjectSchema = z
   .object({
@@ -1989,6 +2042,7 @@ export async function loadDrawingWorkspace(
   projectId: string,
   fileId: string,
   documentId?: string,
+  revisionId?: string,
 ): Promise<DrawingWorkspace> {
   const { data: file, error: fileError } = await client
     .from("lukas_qto_files")
@@ -2032,14 +2086,16 @@ export async function loadDrawingWorkspace(
       document: null,
     };
 
-  const { data: revision, error: revisionError } = await client
+  let revisionQuery = client
     .from("lukas_drawing_revisions")
     .select("*")
     .eq("project_id", projectId)
-    .eq("document_id", document.id)
-    .order("sequence", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("document_id", document.id);
+  revisionQuery = revisionId
+    ? revisionQuery.eq("id", Uuid.parse(revisionId))
+    : revisionQuery.order("sequence", { ascending: false }).limit(1);
+  const { data: revision, error: revisionError } =
+    await revisionQuery.maybeSingle();
   if (revisionError)
     throw new Error(
       `도면 리비전을 불러오지 못했습니다: ${revisionError.message}`,
@@ -2862,6 +2918,54 @@ export function drawingTemplateWorkspaceLocation(
   documentId: string,
 ) {
   return `/projects/${Uuid.parse(projectId)}/drawings/${Uuid.parse(fileId)}/workspace?document=${Uuid.parse(documentId)}`;
+}
+
+export async function resolveDrawingDocumentEntry(
+  client: DrawingWorkspaceClient,
+  projectId: string,
+  documentId: string,
+  objectId: string,
+) {
+  const parsedProjectId = Uuid.parse(projectId);
+  const parsedDocumentId = Uuid.parse(documentId);
+  const parsedObjectId = Uuid.parse(objectId);
+  const { data: document, error: documentError } = await client
+    .from("lukas_drawing_documents")
+    .select("id,project_id,source_file_id")
+    .eq("id", parsedDocumentId)
+    .eq("project_id", parsedProjectId)
+    .single();
+  if (documentError || !document)
+    throw new Error("연결된 도면 근거를 열 수 없습니다.");
+
+  let fileId = document.source_file_id;
+  if (!fileId) {
+    const { data: sources, error: sourceError } = await client
+      .from("lukas_drawing_object_sources")
+      .select("source_file_id")
+      .eq("project_id", parsedProjectId)
+      .eq("object_id", parsedObjectId)
+      .eq("status", "active")
+      .order("source_file_id", { ascending: true })
+      .limit(2);
+    const identities = [
+      ...new Set((sources ?? []).map((source) => source.source_file_id)),
+    ];
+    if (sourceError || identities.length !== 1)
+      throw new Error("연결된 도면 근거를 열 수 없습니다.");
+    fileId = identities[0];
+  }
+
+  const { data: file, error: fileError } = await client
+    .from("lukas_qto_files")
+    .select("id,project_id,kind,immutable")
+    .eq("id", fileId)
+    .eq("project_id", parsedProjectId)
+    .in("kind", ["pdf", "ifc"])
+    .eq("immutable", true)
+    .single();
+  if (fileError || !file) throw new Error("연결된 도면 근거를 열 수 없습니다.");
+  return { documentId: parsedDocumentId, fileId: Uuid.parse(file.id) };
 }
 
 export function drawingTemplateCloneLocation(
