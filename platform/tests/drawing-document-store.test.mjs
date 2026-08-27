@@ -25,6 +25,11 @@ const ids = {
   table: "00000000-0000-4000-8000-000000000111",
   actor: "00000000-0000-4000-8000-000000000112",
   operation: "00000000-0000-4000-8000-000000000113",
+  hostLayer: "00000000-0000-4000-8000-000000000120",
+  openingLayer: "00000000-0000-4000-8000-000000000121",
+  hostWall: "00000000-0000-4000-8000-000000000122",
+  opening: "00000000-0000-4000-8000-000000000123",
+  unrelated: "00000000-0000-4000-8000-000000000124",
 };
 
 function structure() {
@@ -214,6 +219,124 @@ test("read-only viewers preserve visible active-canvas selection without gaining
   assert.deepEqual(transient.selectedIds, [ids.object]);
   assert.equal(transient.activeLayerId, null);
   assert.equal(transient.activeTool, "select");
+});
+
+test("transient selection inherits host visibility without pruning unrelated or locked-host selections", () => {
+  const base = structure();
+  const style = { stroke: "#112233", strokeWidth: 2, fill: null };
+  const hostLayer = {
+    ...base.layers[ids.work],
+    id: ids.hostLayer,
+    name: "Host",
+    visible: false,
+  };
+  const openingLayer = {
+    ...base.layers[ids.work],
+    id: ids.openingLayer,
+    name: "Opening",
+    sortOrder: 1,
+  };
+  const hostWall = {
+    id: ids.hostWall,
+    name: "Host wall",
+    layerId: ids.hostLayer,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 200, y: 0 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
+    style,
+    version: 1,
+  };
+  const opening = {
+    id: ids.opening,
+    name: "Door",
+    layerId: ids.openingLayer,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: ids.hostWall,
+      offsetMillimeters: 90,
+      widthMillimeters: 90,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+    style,
+    version: 1,
+  };
+  const unrelated = {
+    ...base.objects[ids.object],
+    id: ids.unrelated,
+    name: "Unrelated",
+    layerId: ids.openingLayer,
+  };
+  const snapshot = createDrawingDocumentStore(
+    createDrawingDocumentState({
+      revisionId: ids.revision,
+      structure: {
+        ...base,
+        layers: {
+          ...base.layers,
+          [ids.hostLayer]: hostLayer,
+          [ids.openingLayer]: openingLayer,
+        },
+        objects: {
+          ...base.objects,
+          [ids.hostWall]: hostWall,
+          [ids.opening]: opening,
+          [ids.unrelated]: unrelated,
+        },
+      },
+    }),
+    { activePageId: ids.page, activeCanvasId: ids.paper },
+  ).getSnapshot();
+  const hidden = deriveDrawingTransientState(snapshot, {
+    canEdit: true,
+    canSelect: true,
+    activeLayerId: ids.openingLayer,
+    activeTool: "select",
+    selectedIds: [ids.opening, ids.unrelated],
+  });
+  assert.deepEqual(hidden.selectedIds, [ids.unrelated]);
+
+  const visibleHost = {
+    ...snapshot,
+    layers: {
+      ...snapshot.layers,
+      [ids.hostLayer]: { ...hostLayer, visible: true, locked: true },
+    },
+    structure: {
+      ...snapshot.structure,
+      layers: {
+        ...snapshot.structure.layers,
+        [ids.hostLayer]: { ...hostLayer, visible: true, locked: true },
+      },
+    },
+  };
+  assert.deepEqual(
+    deriveDrawingTransientState(visibleHost, {
+      canEdit: true,
+      canSelect: true,
+      activeLayerId: ids.openingLayer,
+      activeTool: "select",
+      selectedIds: [ids.opening, ids.unrelated],
+    }).selectedIds,
+    [ids.opening, ids.unrelated],
+  );
+  assert.deepEqual(
+    deriveDrawingTransientState(visibleHost, {
+      canEdit: true,
+      canSelect: true,
+      activeLayerId: ids.openingLayer,
+      activeTool: "select",
+      selectedIds: hidden.selectedIds,
+    }).selectedIds,
+    [ids.unrelated],
+  );
 });
 
 test("definition-only store updates change every effective style without changing object versions", () => {

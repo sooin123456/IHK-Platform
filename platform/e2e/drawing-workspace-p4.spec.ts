@@ -189,9 +189,11 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openPreview(page, "?hiddenHostTest=1&awarenessTest=1");
+  await openPreview(page, "?hiddenHostTest=1&awarenessTest=1&verticalTest=1");
   const surface = page.getByLabel(/도면 화면/);
   const semanticList = page.getByRole("list", { name: "건축 객체 목록" });
+  const localAwareness = page.getByLabel("로컬 Awareness payload");
+  const openingId = "00000000-0000-4000-8000-000000000101";
   await expect(surface).toHaveAttribute(
     "data-rendered-semantic-object-count",
     "0",
@@ -215,6 +217,43 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
   await expect(semanticList).toContainText(
     "D-101 · opening · door · 오프셋 230 mm · 너비 90 mm · 높이 2100 mm · 문턱 0 mm",
   );
+
+  await page.getByRole("button", { name: "P4 첫 개구부 선택" }).click();
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([openingId]);
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await localAwareness.textContent()) ?? "null")?.selectedIds,
+    )
+    .toEqual([openingId]);
+
+  await hostLayerVisibility.click();
+  await expect(hostLayerVisibility).not.toBeChecked();
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([]);
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await localAwareness.textContent()) ?? "null")?.selectedIds,
+    )
+    .toEqual([]);
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "0");
+
+  await hostLayerVisibility.click();
+  await expect(hostLayerVisibility).toBeChecked();
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([]);
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await localAwareness.textContent()) ?? "null")?.selectedIds,
+    )
+    .toEqual([]);
+  await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
 });
 
 test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({

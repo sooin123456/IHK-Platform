@@ -6,6 +6,7 @@ import {
   type DrawingCommandEnvironment,
   type DrawingDocumentState,
 } from "./drawing-commands.ts";
+import { drawingVisibleCanvasObjects } from "./drawing-blocks.ts";
 import { validateDrawingStructureState } from "./drawing-structure.ts";
 import type {
   DrawingBlock,
@@ -411,13 +412,20 @@ export function deriveDrawingTransientState(
   const semanticBlockInstanceIds = new Set(
     input.semanticBlockInstanceIds ?? [],
   );
+  const visibleObjectIds = new Set(
+    drawingVisibleCanvasObjects(Object.values(objects), layers).map(
+      (object) => object.id,
+    ),
+  );
   const selectedIds =
     (input.canSelect ?? input.canEdit)
       ? input.selectedIds.filter((id) => {
           const object = objects[id];
           const instance = blockInstances[id];
           return Boolean(
-            (object && eligible(layers[object.layerId])) ||
+            (object &&
+              visibleObjectIds.has(object.id) &&
+              eligible(layers[object.layerId])) ||
               (instance &&
                 (eligible(layers[instance.layerId]) ||
                   (semanticBlockInstanceIds.has(instance.id) &&

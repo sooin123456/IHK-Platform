@@ -82,7 +82,10 @@ const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
-function previewCollaborationConnectionFactory(testPeers = false) {
+function previewCollaborationConnectionFactory(
+  testPeers = false,
+  onLocalState?: (state: unknown) => void,
+) {
   return async ({
     onPhase,
   }: {
@@ -165,6 +168,7 @@ function previewCollaborationConnectionFactory(testPeers = false) {
         setLocalState(state: unknown) {
           if (state === null) states.delete(1);
           else states.set(1, state);
+          onLocalState?.(state);
           for (const listener of listeners) listener();
         },
         subscribe(listener: () => void) {
@@ -1154,6 +1158,8 @@ export default function LocalDrawingWorkspacePreview({
   const [previewSoftLockRequest, setPreviewSoftLockRequest] = useState<
     string | null
   >(null);
+  const [localAwarenessPayload, setLocalAwarenessPayload] =
+    useState<unknown>(null);
   const [verticalSnapshot, setVerticalSnapshot] = useState<unknown>(null);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
@@ -1262,7 +1268,10 @@ export default function LocalDrawingWorkspacePreview({
         collaborationConnectionFactory={
           loaderData.collaborationRetryTest
             ? retryConnectionFactory
-            : previewCollaborationConnectionFactory(loaderData.awarenessTest)
+            : previewCollaborationConnectionFactory(
+                loaderData.awarenessTest,
+                setLocalAwarenessPayload,
+              )
         }
         collaborationPersistenceFactory={
           loaderData.collaborationRetryTest
@@ -1302,6 +1311,9 @@ export default function LocalDrawingWorkspacePreview({
           <>
             <output aria-label="로컬 advisory 잠금" className="sr-only">
               {previewSoftLockRequest ?? "없음"}
+            </output>
+            <output aria-label="로컬 Awareness payload" className="sr-only">
+              {JSON.stringify(localAwarenessPayload)}
             </output>
           </>
         ) : null}

@@ -985,6 +985,9 @@ export default function DrawingWorkspaceClient({
       selectedIdsKey,
     ],
   );
+  const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
+  const awarenessSelectionRef = useRef(transient.selectedIds);
+  awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
   const selectionLockConflict = useMemo(
     () =>
@@ -1009,7 +1012,11 @@ export default function DrawingWorkspaceClient({
   );
   const publishAwareness = useCallback(
     (patch: Partial<DrawingAwarenessLocalInput>) => {
-      const next = { ...awarenessLocalRef.current, ...patch };
+      const next = {
+        ...awarenessLocalRef.current,
+        ...patch,
+        selectedIds: patch.selectedIds ?? awarenessSelectionRef.current,
+      };
       awarenessLocalRef.current = next;
       awarenessPublisherRef.current?.update(next);
     },
@@ -1515,12 +1522,21 @@ export default function DrawingWorkspaceClient({
   ]);
 
   useEffect(() => {
+    if (
+      selectedIds.length === transient.selectedIds.length &&
+      selectedIds.every((id, index) => id === transient.selectedIds[index])
+    )
+      return;
+    setAuthorizedSelection(transient.selectedIds);
+  }, [selectedIds, setAuthorizedSelection, transientSelectedIdsKey]);
+
+  useEffect(() => {
     publishAwareness({
       cursorWorld: awarenessCursorRef.current,
       selectedIds: transient.selectedIds,
       activeTool: transient.activeTool,
     });
-  }, [publishAwareness, selectedIdsKey, transient.activeTool]);
+  }, [publishAwareness, transient.activeTool, transientSelectedIdsKey]);
 
   useEffect(() => {
     const adapter = collaborationAdapterRef.current;
