@@ -588,6 +588,30 @@ export function compareVerifiedBoqApprovedStates(
   try {
     const previousReplay = replay(previous);
     const currentReplay = replay(current);
+    if (
+      canonicalJson(previousReplay.input) === canonicalJson(currentReplay.input)
+    ) {
+      const rows = previousReplay.result.lines
+        .map((line) => ({
+          itemCode: line.itemCode,
+          rowState: "unchanged" as const,
+          causes: [],
+          previousAmountKrw: line.amountKrw ?? "0",
+          currentAmountKrw: line.amountKrw ?? "0",
+          amountDeltaKrw: "0",
+        }))
+        .sort((left, right) => bytewise(left.itemCode, right.itemCode));
+      return {
+        status: "comparable",
+        rows,
+        amountDeltaKrw: "0",
+        causeAmountDeltaKrw: "0",
+        rowAmountDeltaKrw: "0",
+        amountCloses: true,
+        message:
+          "다섯 원인과 행별 증감이 전체 직접공사비 증감에 정확히 일치합니다.",
+      };
+    }
     const left = comparisonModel(previous.engineVersion, previousReplay.input);
     const right = comparisonModel(current.engineVersion, currentReplay.input);
     const visible = visibleCauses(left, right);

@@ -127,7 +127,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     client,
     project.id,
     params.fileId!,
-    searchParams.get("document") ?? undefined,
+    new URL(request.url).searchParams.get("document") ?? undefined,
     lineageSearch.revisionId ?? undefined,
     lineageSearch.objectId ?? undefined,
     lineageSearch.evidenceFileId ?? undefined,
