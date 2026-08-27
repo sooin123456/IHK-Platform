@@ -124,7 +124,7 @@ function mixedInput() {
         sourceQuantity: "10.00",
         factor: "1.0",
         unit: "m2",
-        elementIds: ["01002", "1001"],
+        elementIds: ["1002", "1001"],
       },
     ],
     drawingMappings: [
@@ -313,6 +313,36 @@ test("1.1 fails closed on split, unit, ID, volume, adjusted, and review errors",
       },
       /Element ID/,
     ],
+    [
+      (input) => {
+        input.priceBook.sourceSha256 = "BAD";
+      },
+      /P6B04.*단가표/,
+    ],
+    [
+      (input) => {
+        input.priceBook.rightsBasis = " ";
+      },
+      /P6B04.*권리/,
+    ],
+    [
+      (input) => {
+        input.priceBook.effectiveDate = "2026-02-30";
+      },
+      /P6B04.*기준일/,
+    ],
+    [
+      (input) => {
+        input.drawingMappings[0].source.revisionVersion = 0;
+      },
+      /P6B04.*개정 버전/,
+    ],
+    [
+      (input) => {
+        input.drawingMappings[0].source.objectVersion = 1.5;
+      },
+      /P6B04.*객체 버전/,
+    ],
   ];
   for (const [mutate, pattern] of cases) {
     const input = mixedInput();
@@ -330,7 +360,7 @@ test("calculation and approval manifests bind canonical lineage and evidence", (
   });
   assert.equal(
     calculation.manifestSha256,
-    "7d5b7e41ca70768108168aa7b7dc79cd8368dc9426cab8e45630d0b4baef9567",
+    "5fc033a23d2ba9071a2f1a99de0695fd0d7311f79c11abea6beae34d7cf7b36e",
   );
   assert.equal(
     new TextDecoder().decode(calculation.canonicalBytes),
@@ -344,6 +374,10 @@ test("calculation and approval manifests bind canonical lineage and evidence", (
   assert.deepEqual(
     calculation.manifest.mappings.map((row) => row.sourceKind),
     ["drawing", "drawing", "legacy"],
+  );
+  assert.equal(
+    calculation.manifest.mappings[2].sourceId,
+    `${ids.legacyFile}\u001fLEGACY-A\u001fm2`,
   );
   assert.equal(
     calculation.manifest.result.resultSha256,
@@ -365,7 +399,7 @@ test("calculation and approval manifests bind canonical lineage and evidence", (
   );
   assert.equal(
     handoff.handoffSha256,
-    "9ad25095857182db744d66e65bbcec782d38868f3d0dfd7d69f6aa01c81fb9a5",
+    "c40e6020cd87be0852a432051bc2295b5ab3d30e32d28420f58e2e3f9a4c44b6",
   );
   assert.equal(handoff.manifest.handoffSha256, handoff.handoffSha256);
   assert.deepEqual(handoff.manifest.evidenceFiles, [

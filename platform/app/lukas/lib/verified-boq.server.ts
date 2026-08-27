@@ -11,13 +11,13 @@ import {
 } from "./exact-decimal.server.ts";
 
 export type BoqCalculationPolicy =
-  | "general_half_away"
-  | "ems_component_truncate";
+  "general_half_away" | "ems_component_truncate";
 
 export type BoqResource = {
   id: string;
   code: string;
   type: "material" | "labor" | "equipment" | "expense";
+  unit?: string;
   unitPriceKrw: string;
 };
 
@@ -111,9 +111,65 @@ export type VerifiedBoqResult = {
 const sha256Pattern = /^[0-9a-f]{64}$/;
 const positiveElementId = /^[1-9][0-9]*$/;
 
+/** @internal Shared exact-engine input used by the additive 1.1 adapter. */
+export type VerifiedBoqCalculationMapping = {
+  id: string;
+  lineId: string;
+  sourceKind: "legacy" | "drawing";
+  sourceId: string;
+  sourceSha256: string;
+  sourceQuantity: string;
+  factor: string;
+  unit: "EA" | "m" | "m2" | "m3";
+  elementIds: string[];
+};
+
+type VerifiedBoqCoreInput = Omit<VerifiedBoqInput, "mappings"> & {
+  mappings: VerifiedBoqCalculationMapping[];
+};
+
+type VerifiedBoqCoreResult = Omit<
+  VerifiedBoqResult,
+  "engineVersion" | "canonicalSha256"
+>;
+
 export function calculateVerifiedBoq(
   input: VerifiedBoqInput,
 ): VerifiedBoqResult {
+  const core = calculateVerifiedBoqCore(
+    {
+      ...input,
+      mappings: input.mappings.map((mapping) => ({
+        id: mapping.id,
+        lineId: mapping.lineId,
+        sourceKind: "legacy",
+        sourceId: `${mapping.sourceFileId}\u001f${mapping.subjectKey}`,
+        sourceSha256: mapping.sourceSha256,
+        sourceQuantity: mapping.sourceQuantity,
+        factor: mapping.factor,
+        unit: mapping.unit,
+        elementIds: mapping.elementIds,
+      })),
+    },
+    false,
+  );
+  const resultWithoutHash = {
+    engineVersion: VERIFIED_BOQ_ENGINE_VERSION,
+    ...core,
+  };
+  return {
+    ...resultWithoutHash,
+    canonicalSha256: createHash("sha256")
+      .update(JSON.stringify(resultWithoutHash))
+      .digest("hex"),
+  };
+}
+
+/** @internal Reuses the 1.0 arithmetic without relaxing its public input. */
+export function calculateVerifiedBoqCore(
+  input: VerifiedBoqCoreInput,
+  allowDrawing: boolean,
+): VerifiedBoqCoreResult {
   if (!input.versionId.trim()) throw new Error("내역 버전 ID가 없습니다.");
   if (
     !Number.isInteger(input.quantityScale) ||
@@ -130,12 +186,15 @@ export function calculateVerifiedBoq(
   uniqueBy(input.exclusions ?? [], (item) => item.id, "제외 결정 ID");
   uniqueBy(input.components, (item) => item.id, "일위대가 구성 ID");
 
-  const mappingsByLine = new Map<string, BoqQuantityMapping[]>();
+  const mappingsByLine = new Map<string, VerifiedBoqCalculationMapping[]>();
   const sourceFactorTotals = new Map<
     string,
     ReturnType<typeof parseExactDecimal>
   >();
   for (const mapping of input.mappings) {
+    if (mapping.sourceKind === "drawing" && !allowDrawing)
+      throw new Error("Drawing 원수량은 1.0 계산에 사용할 수 없습니다.");
+    if (!mapping.sourceId.trim()) throw new Error("원수량 ID가 비어 있습니다.");
     const line = lineById.get(mapping.lineId);
     if (!line) throw new Error(`수량 연결 ${mapping.id}의 내역 행이 없습니다.`);
     if (mapping.unit !== line.unit)
@@ -151,10 +210,12 @@ export function calculateVerifiedBoq(
     if (compareExact(factor, exactZero) <= 0)
       throw new Error(`${line.itemCode}의 연결 계수는 0보다 커야 합니다.`);
     const canonicalIds = canonicalElementIds(mapping.elementIds);
-    if (canonicalIds.length === 0)
+    if (mapping.sourceKind === "legacy" && canonicalIds.length === 0)
       throw new Error(`${line.itemCode}의 원본 Element ID가 없습니다.`);
+    if (mapping.sourceKind === "drawing" && canonicalIds.length !== 0)
+      throw new Error("Drawing 원수량에는 Element ID를 복제할 수 없습니다.");
     const normalizedMapping = { ...mapping, elementIds: canonicalIds };
-    const sourceKey = `${mapping.sourceFileId}\u001f${mapping.subjectKey}\u001f${mapping.unit}`;
+    const sourceKey = `${mapping.sourceKind}\u001f${mapping.sourceId}\u001f${mapping.unit}`;
     sourceFactorTotals.set(
       sourceKey,
       addExact(sourceFactorTotals.get(sourceKey) ?? exactZero, factor),
@@ -169,10 +230,9 @@ export function calculateVerifiedBoq(
       throw new Error("같은 원수량의 연결 계수 합계는 정확히 1이어야 합니다.");
 
   const mappedSourceKeys = new Set(
-    input.mappings.map(
-      (mapping) =>
-        `${mapping.sourceFileId}\u001f${mapping.subjectKey}\u001f${mapping.unit}`,
-    ),
+    input.mappings
+      .filter((mapping) => mapping.sourceKind === "legacy")
+      .map((mapping) => `${mapping.sourceId}\u001f${mapping.unit}`),
   );
   const exclusionKeys = new Set<string>();
   const exclusions = (input.exclusions ?? [])
@@ -255,8 +315,7 @@ export function calculateVerifiedBoq(
         : addExact(total, parseExactDecimal(line.amountKrw, "내역 금액")),
     exactZero,
   );
-  const resultWithoutHash = {
-    engineVersion: VERIFIED_BOQ_ENGINE_VERSION,
+  return {
     versionId: input.versionId,
     calculationPolicy: input.calculationPolicy,
     status: lines.every((line) => line.status === "calculated")
@@ -266,17 +325,11 @@ export function calculateVerifiedBoq(
     directCostKrw: exactToString(directCost),
     exclusions,
   };
-  return {
-    ...resultWithoutHash,
-    canonicalSha256: createHash("sha256")
-      .update(JSON.stringify(resultWithoutHash))
-      .digest("hex"),
-  };
 }
 
 function calculateLine(
   line: BoqInputLine,
-  mappings: BoqQuantityMapping[],
+  mappings: VerifiedBoqCalculationMapping[],
   components: BoqRateComponent[],
   resources: Map<string, BoqResource>,
   policy: BoqCalculationPolicy,
