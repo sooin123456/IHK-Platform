@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { strFromU8, unzipSync } from "fflate";
 
@@ -15,6 +16,7 @@ import {
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 import { boqManifestStorageObjectPath } from "../app/lukas/lib/storage-object-key.server.ts";
+import { listMaterialBoqLineage } from "../app/lukas/lib/material-control.server.ts";
 import {
   assertVerifiedBoqSourceAnchorIds,
   loadApprovedVerifiedBoqExport,
@@ -23,13 +25,96 @@ import {
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
 
+function materialManifestJson() {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      handoffSha256: P6_SHA_B,
+      resultSha256: P6_SHA_A,
+      calculationManifest: {
+        projectId: p6Ids.project,
+        boqVersionId: p6Ids.version,
+        rateComponents: [
+          {
+            id: p6Ids.component,
+            lineId: p6Ids.line,
+            resourceId: p6Ids.resource,
+            coefficient: "2",
+          },
+        ],
+        resources: [
+          {
+            id: p6Ids.resource,
+            code: "M-001",
+            type: "material",
+            unit: "m2",
+          },
+        ],
+        result: {
+          canonicalLines: [
+            { lineId: p6Ids.line, unit: "m2", finalQuantity: "4.75" },
+          ],
+        },
+      },
+    }),
+  );
+}
+
 test("approved BOQ material handoff persists only selected authoritative material components", async () => {
   const operationId = "00000000-0000-4000-8000-000000000121";
   const manifestFileId = "00000000-0000-4000-8000-000000000122";
   const inserted = [];
-  const manifestJson = new TextEncoder().encode(
-    JSON.stringify({ handoffSha256: P6_SHA_B }),
-  );
+  const manifestJson = materialManifestJson();
+  const manifestFileSha256 = createHash("sha256")
+    .update(manifestJson)
+    .digest("hex");
+  const authority = {
+    async loadApprovedExport() {
+      return {
+        resultSha256: P6_SHA_A,
+        manifestSha256: "c".repeat(64),
+        handoffSha256: P6_SHA_B,
+        manifestJson,
+      };
+    },
+    async loadContext() {
+      return {
+        ownerId: p6Ids.actor,
+        projectId: p6Ids.project,
+        boqVersionId: p6Ids.version,
+        priceBookId: p6Ids.priceBook,
+        resultSha256: P6_SHA_A,
+        components: [
+          {
+            boqVersionId: p6Ids.version,
+            lineId: p6Ids.line,
+            rateComponentId: p6Ids.component,
+            resourceId: p6Ids.resource,
+            resourceCode: "M-001",
+            resourceName: "벽체재",
+            resourceSpecification: "12.5T",
+            resourceUnit: "m2",
+            resourceType: "material",
+            resourcePriceBookId: p6Ids.priceBook,
+            resourceCoefficient: "2",
+            finalQuantity: "4.75",
+          },
+        ],
+      };
+    },
+    async persistManifest(input) {
+      assert.deepEqual(input.bytes, manifestJson);
+      assert.equal(
+        input.path,
+        `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`,
+      );
+      assert.equal(input.manifestFileSha256, manifestFileSha256);
+      return manifestFileId;
+    },
+    async insertHandoff(input) {
+      inserted.push(input);
+      return input;
+    },
+  };
   const result = await createP6MaterialHandoff(
     authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
     p6Ids.actor,
@@ -39,61 +124,44 @@ test("approved BOQ material handoff persists only selected authoritative materia
       operationId,
       selectedRateComponentIds: [p6Ids.component],
     },
-    {
-      async loadApprovedExport() {
-        return {
-          resultSha256: P6_SHA_A,
-          manifestSha256: "c".repeat(64),
-          handoffSha256: P6_SHA_B,
-          manifestJson,
-        };
-      },
-      async loadContext() {
-        return {
-          ownerId: p6Ids.actor,
-          projectId: p6Ids.project,
-          boqVersionId: p6Ids.version,
-          priceBookId: p6Ids.priceBook,
-          resultSha256: P6_SHA_A,
-          components: [
-            {
-              boqVersionId: p6Ids.version,
-              lineId: p6Ids.line,
-              rateComponentId: p6Ids.component,
-              resourceId: p6Ids.resource,
-              resourceCode: "M-001",
-              resourceName: "벽체재",
-              resourceSpecification: "12.5T",
-              resourceUnit: "m2",
-              resourceType: "material",
-              resourcePriceBookId: p6Ids.priceBook,
-              resourceCoefficient: "2",
-              finalQuantity: "4.75",
-            },
-          ],
-        };
-      },
-      async persistManifest(input) {
-        assert.deepEqual(input.bytes, manifestJson);
-        assert.equal(input.path, `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${P6_SHA_B}.manifest.json`);
-        return manifestFileId;
-      },
-      async insertHandoff(input) {
-        inserted.push(input);
-        return input;
-      },
-    },
+    authority,
   );
   assert.equal(result.manifestFileId, manifestFileId);
   assert.equal(result.materialPlanIds.length, 1);
   assert.equal(result.materialLinkIds.length, 1);
-  assert.deepEqual(inserted[0].plans.map((row) => ({
-    materialCode: row.materialCode,
-    designQuantity: row.designQuantity,
-    allowanceRate: row.allowanceRate,
-    requiredQuantity: row.requiredQuantity,
-  })), [{ materialCode: "M-001", designQuantity: "9.5", allowanceRate: "0", requiredQuantity: "9.5" }]);
-  assert.deepEqual(inserted[0].links.map((row) => row.derivedDesignQuantity), ["9.5"]);
+  assert.deepEqual(
+    inserted[0].plans.map((row) => ({
+      materialCode: row.materialCode,
+      designQuantity: row.designQuantity,
+      allowanceRate: row.allowanceRate,
+      requiredQuantity: row.requiredQuantity,
+    })),
+    [
+      {
+        materialCode: "M-001",
+        designQuantity: "9.5",
+        allowanceRate: "0",
+        requiredQuantity: "9.5",
+      },
+    ],
+  );
+  assert.deepEqual(
+    inserted[0].links.map((row) => row.derivedDesignQuantity),
+    ["9.5"],
+  );
+  const retry = await createP6MaterialHandoff(
+    authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
+    p6Ids.actor,
+    {
+      projectId: p6Ids.project,
+      boqVersionId: p6Ids.version,
+      operationId,
+      selectedRateComponentIds: [p6Ids.component],
+    },
+    authority,
+  );
+  assert.deepEqual(retry, result);
+  assert.deepEqual(inserted[1], inserted[0]);
 });
 
 test("material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components", async () => {
@@ -130,13 +198,30 @@ test("material handoff fails closed on non-material, stale, missing, duplicate, 
         },
         {
           async loadApprovedExport() {
-            return { resultSha256: P6_SHA_A, manifestSha256: "c".repeat(64), handoffSha256: P6_SHA_B, manifestJson: new Uint8Array([123, 125]) };
+            return {
+              resultSha256: P6_SHA_A,
+              manifestSha256: "c".repeat(64),
+              handoffSha256: P6_SHA_B,
+              manifestJson: materialManifestJson(),
+            };
           },
           async loadContext() {
-            return { ownerId: p6Ids.actor, projectId: p6Ids.project, boqVersionId: p6Ids.version, priceBookId: p6Ids.priceBook, resultSha256: P6_SHA_A, components };
+            return {
+              ownerId: p6Ids.actor,
+              projectId: p6Ids.project,
+              boqVersionId: p6Ids.version,
+              priceBookId: p6Ids.priceBook,
+              resultSha256: P6_SHA_A,
+              components,
+            };
           },
-          async persistManifest() { persisted = true; return p6Ids.quantity; },
-          async insertHandoff() { throw new Error("unexpected"); },
+          async persistManifest() {
+            persisted = true;
+            return p6Ids.quantity;
+          },
+          async insertHandoff() {
+            throw new Error("unexpected");
+          },
         },
       ),
       (error) => error.code === "P6M01",
@@ -145,17 +230,277 @@ test("material handoff fails closed on non-material, stale, missing, duplicate, 
   }
 });
 
-test("BOQ manifest storage path accepts only canonical UUIDs and lowercase handoff digests", () => {
+test("BOQ manifest storage path accepts only canonical UUIDs and lowercase file digests", () => {
   assert.equal(
-    boqManifestStorageObjectPath({ ownerId: p6Ids.actor, projectId: p6Ids.project, handoffSha256: P6_SHA_A }),
+    boqManifestStorageObjectPath({
+      ownerId: p6Ids.actor,
+      projectId: p6Ids.project,
+      manifestFileSha256: P6_SHA_A,
+    }),
     `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${P6_SHA_A}.manifest.json`,
   );
   for (const input of [
-    { ownerId: "not-a-uuid", projectId: p6Ids.project, handoffSha256: P6_SHA_A },
-    { ownerId: p6Ids.actor.toUpperCase(), projectId: p6Ids.project, handoffSha256: P6_SHA_A },
-    { ownerId: p6Ids.actor, projectId: p6Ids.project, handoffSha256: P6_SHA_A.toUpperCase() },
-  ]) assert.throws(() => boqManifestStorageObjectPath(input));
+    {
+      ownerId: "not-a-uuid",
+      projectId: p6Ids.project,
+      manifestFileSha256: P6_SHA_A,
+    },
+    {
+      ownerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".toUpperCase(),
+      projectId: p6Ids.project,
+      manifestFileSha256: P6_SHA_A,
+    },
+    {
+      ownerId: p6Ids.actor,
+      projectId: p6Ids.project,
+      manifestFileSha256: P6_SHA_A.toUpperCase(),
+    },
+  ])
+    assert.throws(() => boqManifestStorageObjectPath(input));
 });
+
+test("material lineage traverses approved BOQ through plan, transactions, carbon, and file digests", async () => {
+  const planId = "00000000-0000-4000-8000-000000000131";
+  const linkId = "00000000-0000-4000-8000-000000000132";
+  const transactionId = "00000000-0000-4000-8000-000000000133";
+  const factorId = "00000000-0000-4000-8000-000000000134";
+  const client = tableClient({
+    lukas_drawing_material_links: [
+      {
+        id: linkId,
+        project_id: p6Ids.project,
+        boq_version_id: p6Ids.version,
+        boq_line_id: p6Ids.line,
+        boq_rate_component_id: p6Ids.component,
+        material_resource_id: p6Ids.resource,
+        boq_result_sha256: P6_SHA_A,
+        material_plan_id: planId,
+        derived_design_quantity: "9.5",
+        created_at: "2026-08-28T00:00:00.000Z",
+        boq_line: { item_code: "001-A" },
+        material_plan: {
+          id: planId,
+          material_code: "M-001",
+          material_name: "벽체재",
+          specification: "12.5T",
+          unit: "m2",
+          design_quantity: "9.5",
+          allowance_rate: "0",
+          required_quantity: "9.5",
+          rule_id: "P6_MATERIAL_HANDOFF_V1",
+          baseline_factor_id: null,
+          source_file_id: p6Ids.quantity,
+          source_sha256: P6_SHA_B,
+        },
+      },
+    ],
+    lukas_qto_material_transactions: [
+      {
+        id: transactionId,
+        material_plan_id: planId,
+        transaction_type: "goods_receipt",
+        document_number: "GR-1",
+        supplier_name: "공급사",
+        quantity: "9.5",
+        unit_price_krw: null,
+        amount_krw: null,
+        related_order_id: null,
+        carbon_factor_id: factorId,
+        evidence_sha256: "c".repeat(64),
+      },
+    ],
+    lukas_qto_carbon_factors: [
+      {
+        id: factorId,
+        material_code: "M-001",
+        product_name: "제품 EPD",
+        declared_unit: "m2",
+        gwp_a1_a3_per_unit: "1.2",
+        source_type: "product_epd",
+        standard: "EN 15804",
+        manufacturer: "공급사",
+        epd_program_operator: "EPD",
+        epd_declaration_number: "D-1",
+        epd_verifier: "V",
+        pcr_reference: "PCR",
+        valid_until: null,
+        source_sha256: "d".repeat(64),
+      },
+    ],
+  });
+  const result = await listMaterialBoqLineage(client, {
+    projectId: p6Ids.project,
+    materialPlanId: planId,
+    cursor: null,
+  });
+  assert.equal(result.nextCursor, null);
+  assert.equal(result.rows[0].itemCode, "001-A");
+  assert.equal(result.rows[0].materialPlanId, planId);
+  assert.deepEqual(
+    result.rows[0].transactions.map((row) => row.id),
+    [transactionId],
+  );
+  assert.deepEqual(
+    result.rows[0].carbonFactors.map((row) => row.id),
+    [factorId],
+  );
+  assert.equal(result.rows[0].manifestFileSha256, P6_SHA_B);
+});
+
+test("material lineage cursor returns every link once across bounded pages", async () => {
+  const planId = "00000000-0000-4000-8000-000000000141";
+  const links = [1, 2, 3].map((value) => ({
+    id: `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    boq_rate_component_id: `00000000-0000-4000-8100-${String(value).padStart(12, "0")}`,
+    material_resource_id: p6Ids.resource,
+    boq_result_sha256: P6_SHA_A,
+    material_plan_id: planId,
+    derived_design_quantity: String(value),
+    created_at: `2026-08-28T00:00:0${4 - value}.000Z`,
+    boq_line: { item_code: `I-${value}` },
+    material_plan: {
+      id: planId,
+      material_code: "M-001",
+      material_name: "벽체재",
+      specification: "12.5T",
+      unit: "m2",
+      design_quantity: "6",
+      allowance_rate: "0",
+      required_quantity: "6",
+      rule_id: "P6_MATERIAL_HANDOFF_V1",
+      baseline_factor_id: null,
+      source_file_id: p6Ids.quantity,
+      source_sha256: P6_SHA_B,
+    },
+  }));
+  const client = pagedLineageClient(links);
+  const first = await listMaterialBoqLineage(client, {
+    projectId: p6Ids.project,
+    cursor: null,
+    limit: 2,
+  });
+  const second = await listMaterialBoqLineage(client, {
+    projectId: p6Ids.project,
+    cursor: first.nextCursor,
+    limit: 2,
+  });
+  assert.ok(first.nextCursor);
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(
+    [...first.rows, ...second.rows].map((row) => row.rateComponentId),
+    links.map((row) => row.boq_rate_component_id),
+  );
+});
+
+test("procurement and site roles gain no BOQ material handoff write authority", async () => {
+  for (const role of ["procurement", "site", "viewer"]) {
+    let privileged = false;
+    await assert.rejects(
+      createP6MaterialHandoff(
+        authorizedClient(p6Ids.actor, p6Ids.project, role),
+        p6Ids.actor,
+        {
+          projectId: p6Ids.project,
+          boqVersionId: p6Ids.version,
+          operationId: "00000000-0000-4000-8000-000000000151",
+          selectedRateComponentIds: [p6Ids.component],
+        },
+        {
+          async loadApprovedExport() {
+            privileged = true;
+            throw new Error("unexpected");
+          },
+          async loadContext() {
+            throw new Error("unexpected");
+          },
+          async persistManifest() {
+            throw new Error("unexpected");
+          },
+          async insertHandoff() {
+            throw new Error("unexpected");
+          },
+        },
+      ),
+      (error) => error.code === "P6A01",
+    );
+    assert.equal(privileged, false);
+  }
+});
+
+function tableClient(rows) {
+  return {
+    from(table) {
+      const result = { data: rows[table] ?? [], error: null };
+      const query = {
+        select() {
+          return query;
+        },
+        eq() {
+          return query;
+        },
+        in() {
+          return query;
+        },
+        order() {
+          return query;
+        },
+        or() {
+          return query;
+        },
+        limit() {
+          return Promise.resolve(result);
+        },
+      };
+      return query;
+    },
+  };
+}
+
+function pagedLineageClient(links) {
+  return {
+    from(table) {
+      let cursor = null;
+      const query = {
+        select() {
+          return query;
+        },
+        eq() {
+          return query;
+        },
+        in() {
+          return query;
+        },
+        order() {
+          return query;
+        },
+        or(value) {
+          const match =
+            /^created_at\.lt\.([^,]+),and\(created_at\.eq\.[^,]+,id\.lt\.([^)]+)\)$/.exec(
+              value,
+            );
+          if (match) cursor = { createdAt: match[1], id: match[2] };
+          return query;
+        },
+        limit(size) {
+          if (table !== "lukas_drawing_material_links")
+            return Promise.resolve({ data: [], error: null });
+          const rows = cursor
+            ? links.filter(
+                (row) =>
+                  row.created_at < cursor.createdAt ||
+                  (row.created_at === cursor.createdAt && row.id < cursor.id),
+              )
+            : links;
+          return Promise.resolve({ data: rows.slice(0, size), error: null });
+        },
+      };
+      return query;
+    },
+  };
+}
 
 const p6Ids = {
   actor: "00000000-0000-4000-8000-000000000101",

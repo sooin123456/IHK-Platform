@@ -51,3 +51,20 @@ export function storageObjectPath({
   segments.push(storageObjectName(originalFilename, objectId));
   return segments.join("/");
 }
+
+export function boqManifestStorageObjectPath(input: {
+  ownerId: string;
+  projectId: string;
+  manifestFileSha256: string;
+}) {
+  const lowercaseUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  if (
+    !lowercaseUuid.test(input.ownerId) ||
+    !lowercaseUuid.test(input.projectId)
+  )
+    throw new Error("승인 BOQ 저장 경로 ID가 올바르지 않습니다.");
+  if (!/^[0-9a-f]{64}$/.test(input.manifestFileSha256))
+    throw new Error("승인 BOQ 파일 확인번호가 올바르지 않습니다.");
+  return `${input.ownerId}/${input.projectId}/boq-manifests/${input.manifestFileSha256}.manifest.json`;
+}

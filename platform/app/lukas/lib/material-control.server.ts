@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ConcreteTakeoffRow } from "./concrete-takeoff-artifact.server.ts";
 
@@ -55,6 +56,216 @@ export type CarbonFactor = {
   validUntil: string | null;
   sourceSha256: string;
 };
+
+export type MaterialBoqLineageRow = {
+  boqVersionId: string;
+  boqResultSha256: string;
+  boqLineId: string;
+  itemCode: string;
+  rateComponentId: string;
+  materialResourceId: string;
+  materialPlanId: string;
+  derivedDesignQuantity: string;
+  materialPlan: MaterialPlan;
+  transactions: MaterialTransaction[];
+  carbonFactors: CarbonFactor[];
+  manifestFileId: string;
+  manifestFileSha256: string;
+};
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function lineageCursor(cursor: string | null) {
+  if (!cursor) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (
+      !value ||
+      typeof value.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(value.createdAt)) ||
+      !UUID.test(value.id)
+    )
+      throw new Error("invalid cursor");
+    return { createdAt: value.createdAt as string, id: value.id as string };
+  } catch {
+    throw new Error("자재 계보 커서가 올바르지 않습니다.");
+  }
+}
+
+function transactionRow(row: Record<string, unknown>): MaterialTransaction {
+  return {
+    id: String(row.id),
+    materialPlanId: String(row.material_plan_id),
+    transactionType:
+      row.transaction_type as MaterialTransaction["transactionType"],
+    documentNumber: String(row.document_number),
+    supplierName: String(row.supplier_name),
+    quantity: String(row.quantity),
+    unitPriceKrw:
+      row.unit_price_krw === null ? null : String(row.unit_price_krw),
+    amountKrw: row.amount_krw === null ? null : String(row.amount_krw),
+    relatedOrderId: row.related_order_id ? String(row.related_order_id) : null,
+    carbonFactorId: row.carbon_factor_id ? String(row.carbon_factor_id) : null,
+    evidenceSha256: row.evidence_sha256 ? String(row.evidence_sha256) : null,
+  };
+}
+
+function carbonRow(row: Record<string, unknown>): CarbonFactor {
+  return {
+    id: String(row.id),
+    materialCode: String(row.material_code),
+    productName: String(row.product_name),
+    declaredUnit: String(row.declared_unit),
+    gwpA1A3PerUnit: String(row.gwp_a1_a3_per_unit),
+    sourceType: row.source_type as CarbonFactor["sourceType"],
+    standard: String(row.standard),
+    manufacturer: String(row.manufacturer ?? ""),
+    epdProgramOperator: String(row.epd_program_operator ?? ""),
+    epdDeclarationNumber: String(row.epd_declaration_number ?? ""),
+    epdVerifier: String(row.epd_verifier ?? ""),
+    pcrReference: String(row.pcr_reference ?? ""),
+    validUntil: row.valid_until ? String(row.valid_until) : null,
+    sourceSha256: String(row.source_sha256),
+  };
+}
+
+export async function listMaterialBoqLineage(
+  userClient: SupabaseClient,
+  input: {
+    projectId: string;
+    materialPlanId?: string;
+    boqLineId?: string;
+    cursor: string | null;
+    limit?: number;
+  },
+): Promise<{ rows: MaterialBoqLineageRow[]; nextCursor: string | null }> {
+  if (
+    !UUID.test(input.projectId) ||
+    (input.materialPlanId !== undefined && !UUID.test(input.materialPlanId)) ||
+    (input.boqLineId !== undefined && !UUID.test(input.boqLineId))
+  )
+    throw new Error("자재 계보 범위가 올바르지 않습니다.");
+  const limit = Math.min(200, Math.max(1, input.limit ?? 200));
+  const cursor = lineageCursor(input.cursor);
+  let query = userClient
+    .from("lukas_drawing_material_links")
+    .select(
+      "id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,material_resource_id,boq_result_sha256,material_plan_id,derived_design_quantity,created_at,boq_line:lukas_qto_boq_lines!inner(item_code),material_plan:lukas_qto_material_plans!inner(id,material_code,material_name,specification,unit,design_quantity,allowance_rate,required_quantity,rule_id,baseline_factor_id,source_file_id,source_sha256)",
+    )
+    .eq("project_id", input.projectId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+  if (input.materialPlanId)
+    query = query.eq("material_plan_id", input.materialPlanId);
+  if (input.boqLineId) query = query.eq("boq_line_id", input.boqLineId);
+  if (cursor)
+    query = query.or(
+      `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+    );
+  const { data, error } = await query.limit(limit + 1);
+  if (error) throw new Error("자재 계보를 읽지 못했습니다.");
+  const page = (data ?? []).slice(0, limit) as unknown as Array<
+    Record<string, unknown>
+  >;
+  const planIds = [...new Set(page.map((row) => String(row.material_plan_id)))];
+  const { data: transactionData, error: transactionError } = planIds.length
+    ? await userClient
+        .from("lukas_qto_material_transactions")
+        .select(
+          "id,material_plan_id,transaction_type,document_number,supplier_name,quantity,unit_price_krw,amount_krw,related_order_id,carbon_factor_id,evidence_sha256",
+        )
+        .eq("project_id", input.projectId)
+        .in("material_plan_id", planIds)
+        .order("created_at", { ascending: true })
+        .limit(10_001)
+    : { data: [], error: null };
+  if (transactionError || (transactionData?.length ?? 0) > 10_000)
+    throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
+  const transactions = (transactionData ?? []).map((row) =>
+    transactionRow(row as unknown as Record<string, unknown>),
+  );
+  const factorIds = [
+    ...new Set([
+      ...page.flatMap((row) => {
+        const plan = row.material_plan as Record<string, unknown>;
+        return plan.baseline_factor_id ? [String(plan.baseline_factor_id)] : [];
+      }),
+      ...transactions.flatMap((row) =>
+        row.carbonFactorId ? [row.carbonFactorId] : [],
+      ),
+    ]),
+  ];
+  const { data: factorData, error: factorError } = factorIds.length
+    ? await userClient
+        .from("lukas_qto_carbon_factors")
+        .select(
+          "id,material_code,product_name,declared_unit,gwp_a1_a3_per_unit,source_type,standard,manufacturer,epd_program_operator,epd_declaration_number,epd_verifier,pcr_reference,valid_until,source_sha256",
+        )
+        .eq("project_id", input.projectId)
+        .in("id", factorIds)
+        .limit(201)
+    : { data: [], error: null };
+  if (factorError || (factorData?.length ?? 0) !== factorIds.length)
+    throw new Error("자재 탄소 근거를 읽지 못했습니다.");
+  const factors = (factorData ?? []).map((row) =>
+    carbonRow(row as unknown as Record<string, unknown>),
+  );
+  const rows = page.map((row): MaterialBoqLineageRow => {
+    const plan = row.material_plan as Record<string, unknown>;
+    const boqLine = row.boq_line as Record<string, unknown>;
+    const materialPlanId = String(row.material_plan_id);
+    const planTransactions = transactions.filter(
+      (transaction) => transaction.materialPlanId === materialPlanId,
+    );
+    const linkedFactorIds = new Set([
+      ...(plan.baseline_factor_id ? [String(plan.baseline_factor_id)] : []),
+      ...planTransactions.flatMap((transaction) =>
+        transaction.carbonFactorId ? [transaction.carbonFactorId] : [],
+      ),
+    ]);
+    return {
+      boqVersionId: String(row.boq_version_id),
+      boqResultSha256: String(row.boq_result_sha256),
+      boqLineId: String(row.boq_line_id),
+      itemCode: String(boqLine.item_code),
+      rateComponentId: String(row.boq_rate_component_id),
+      materialResourceId: String(row.material_resource_id),
+      materialPlanId,
+      derivedDesignQuantity: String(row.derived_design_quantity),
+      materialPlan: {
+        id: String(plan.id),
+        materialCode: String(plan.material_code),
+        materialName: String(plan.material_name),
+        specification: String(plan.specification),
+        unit: String(plan.unit),
+        designQuantity: String(plan.design_quantity),
+        allowanceRate: String(plan.allowance_rate),
+        requiredQuantity: String(plan.required_quantity),
+        ruleId: String(plan.rule_id),
+        baselineFactorId: plan.baseline_factor_id
+          ? String(plan.baseline_factor_id)
+          : null,
+        sourceSha256: String(plan.source_sha256),
+      },
+      transactions: planTransactions,
+      carbonFactors: factors.filter((factor) => linkedFactorIds.has(factor.id)),
+      manifestFileId: String(plan.source_file_id),
+      manifestFileSha256: String(plan.source_sha256),
+    };
+  });
+  const last = page.at(-1);
+  return {
+    rows,
+    nextCursor:
+      (data?.length ?? 0) > limit && last
+        ? Buffer.from(
+            JSON.stringify({ createdAt: last.created_at, id: last.id }),
+            "utf8",
+          ).toString("base64url")
+        : null,
+  };
+}
 
 export type MaterialControlSummary = {
   materialPlanId: string;
@@ -156,7 +367,9 @@ export function deriveMaterialPlansFromApprovedTakeoff(
       );
     const specification = row.spec.normalize("NFKC").trim();
     if (!specification || specification.length > 200)
-      throw new Error(`콘크리트 산출 ${index + 1}행의 규격이 올바르지 않습니다.`);
+      throw new Error(
+        `콘크리트 산출 ${index + 1}행의 규격이 올바르지 않습니다.`,
+      );
     if (row.final_m3 === null)
       throw new Error(`콘크리트 산출 ${index + 1}행의 최종수량이 없습니다.`);
     const quantity = parseFixed(row.final_m3, "콘크리트 최종수량");
@@ -405,9 +618,15 @@ export function buildMaterialControlSummaries(
     const actual = carbonTotal(receipts);
     const installedCarbon = carbonTotal(installations);
     const carbonRows =
-      orders.length + receipts.length + installations.length + (baseline ? 1 : 0);
+      orders.length +
+      receipts.length +
+      installations.length +
+      (baseline ? 1 : 0);
     const coveredRows =
-      committed.covered + actual.covered + installedCarbon.covered + (baseline ? 1 : 0);
+      committed.covered +
+      actual.covered +
+      installedCarbon.covered +
+      (baseline ? 1 : 0);
     const carbonCoverage =
       coveredRows === 0
         ? "missing"
@@ -424,7 +643,8 @@ export function buildMaterialControlSummaries(
     const productEpdCoveredRows = usedFactors.filter(
       (factor) => factor.sourceType === "product_epd",
     ).length;
-    const nonProductFactorCoveredRows = usedFactors.length - productEpdCoveredRows;
+    const nonProductFactorCoveredRows =
+      usedFactors.length - productEpdCoveredRows;
     const carbonFactorProvenance = [
       ...new Set(
         usedFactors.map((factor) =>

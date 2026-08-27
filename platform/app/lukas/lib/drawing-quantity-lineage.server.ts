@@ -1,15 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { z } from "zod";
 
 import {
   convertDrawingMeasurement,
+  deriveP6MaterialPlans,
   drawingObjectFingerprintSha256,
   P6_MEASUREMENT_RULE_VERSION,
   type DrawingQuantityMeasurementKind,
   type DrawingQuantityUnit,
+  type P6MaterialComponentInput,
 } from "./drawing-quantity-lineage.ts";
+import { boqManifestStorageObjectPath } from "./storage-object-key.server.ts";
 import {
   deriveAuthorizedDrawingMeasurementEvidence,
   parseDrawingWorkspaceCollaborationBootstrap,
@@ -20,6 +23,7 @@ import {
   DrawingObjectSchema,
   DrawingObjectSourceSchema,
 } from "./drawing-workspace.types.ts";
+import { compareExact, parseExactDecimal } from "./exact-decimal.server.ts";
 import { buildVerifiedBoqCalculationManifest } from "./verified-boq-manifest.server.ts";
 import {
   calculateVerifiedBoqV1_1,
@@ -852,6 +856,592 @@ export async function resolveDrawingWorkspaceEntry(
     return `/projects/${parsed.projectId}/drawings/${entry.fileId}/workspace?${search}`;
   } catch {
     throw new Error("연결된 도면 근거를 열 수 없습니다.");
+  }
+}
+
+export type CreateP6MaterialHandoffInput = {
+  projectId: string;
+  boqVersionId: string;
+  operationId: string;
+  selectedRateComponentIds: string[];
+};
+
+type ApprovedMaterialComponent = P6MaterialComponentInput & {
+  resourceType: string;
+  resourcePriceBookId: string;
+  boqLineUnit?: string;
+};
+
+type P6MaterialHandoffContext = {
+  ownerId: string;
+  projectId: string;
+  boqVersionId: string;
+  priceBookId: string;
+  resultSha256: string;
+  components: ApprovedMaterialComponent[];
+};
+
+type P6MaterialPlanInsert = {
+  id: string;
+  materialResourceId: string;
+  materialCode: string;
+  materialName: string;
+  specification: string;
+  unit: string;
+  designQuantity: string;
+  allowanceRate: "0";
+  requiredQuantity: string;
+  ruleId: "P6_MATERIAL_HANDOFF_V1";
+};
+
+type P6MaterialLinkInsert = {
+  id: string;
+  boqLineId: string;
+  boqRateComponentId: string;
+  materialResourceId: string;
+  materialPlanId: string;
+  derivedDesignQuantity: string;
+};
+
+type P6MaterialHandoffAuthority = {
+  loadApprovedExport(
+    userClient: SupabaseClient,
+    actorId: string,
+    boqVersionId: string,
+  ): Promise<{
+    resultSha256: string;
+    manifestSha256: string;
+    handoffSha256: string;
+    manifestJson: Uint8Array;
+  }>;
+  loadContext(
+    userClient: SupabaseClient,
+    input: CreateP6MaterialHandoffInput,
+  ): Promise<P6MaterialHandoffContext>;
+  persistManifest(input: {
+    userClient: SupabaseClient;
+    actorId: string;
+    operationId: string;
+    ownerId: string;
+    projectId: string;
+    handoffSha256: string;
+    manifestFileSha256: string;
+    bytes: Uint8Array;
+    path: string;
+  }): Promise<string>;
+  insertHandoff(input: {
+    actorId: string;
+    boqVersionId: string;
+    resultSha256: string;
+    manifestFileId: string;
+    manifestFileSha256: string;
+    plans: P6MaterialPlanInsert[];
+    links: P6MaterialLinkInsert[];
+  }): Promise<unknown>;
+};
+
+const CreateMaterialHandoffSchema = z
+  .object({
+    projectId: Uuid,
+    boqVersionId: Uuid,
+    operationId: Uuid,
+    selectedRateComponentIds: z.array(Uuid).min(1).max(2_000),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      new Set(value.selectedRateComponentIds).size !==
+      value.selectedRateComponentIds.length
+    )
+      context.addIssue({ code: "custom", message: "중복 구성요소" });
+  });
+
+export function parseP6MaterialHandoffForm(form: FormData) {
+  const allowed = new Set([
+    "intent",
+    "version_id",
+    "operation_id",
+    "component_id",
+  ]);
+  if ([...form.keys()].some((key) => !allowed.has(key)))
+    throw new Error("허용되지 않은 필드가 포함되어 있습니다.");
+  const single = (key: string) => {
+    const values = form.getAll(key);
+    if (values.length !== 1 || typeof values[0] !== "string")
+      throw new DrawingQuantityLineageServerError("P6M01");
+    return values[0];
+  };
+  const componentIds = form.getAll("component_id");
+  if (componentIds.some((value) => typeof value !== "string"))
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const parsed = z
+    .object({
+      boqVersionId: Uuid,
+      operationId: Uuid,
+      selectedRateComponentIds: z.array(Uuid).min(1).max(2_000),
+    })
+    .strict()
+    .parse({
+      boqVersionId: single("version_id"),
+      operationId: single("operation_id"),
+      selectedRateComponentIds: componentIds,
+    });
+  if (
+    new Set(parsed.selectedRateComponentIds).size !==
+    parsed.selectedRateComponentIds.length
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  if (single("intent") !== "boq_handoff")
+    throw new DrawingQuantityLineageServerError("P6M01");
+  return { intent: "boq_handoff" as const, ...parsed };
+}
+
+function stableP6Uuid(...parts: string[]) {
+  const bytes = createHash("sha256").update(parts.join("\u001f")).digest();
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.subarray(0, 16).toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function positiveDecimal(value: string) {
+  try {
+    return compareExact(parseExactDecimal(value), parseExactDecimal("0")) > 0;
+  } catch {
+    return false;
+  }
+}
+
+function materialHandoffRows(
+  operationId: string,
+  components: ApprovedMaterialComponent[],
+) {
+  const derived = deriveP6MaterialPlans(components);
+  const componentById = new Map(
+    components.map((component) => [component.rateComponentId, component]),
+  );
+  const plans: P6MaterialPlanInsert[] = [];
+  const links: P6MaterialLinkInsert[] = [];
+  for (const plan of derived) {
+    const identity = JSON.stringify([
+      plan.materialCode,
+      plan.materialName,
+      plan.specification,
+      plan.unit,
+    ]);
+    const planId = stableP6Uuid(operationId, "plan", identity);
+    const first = componentById.get(plan.components[0].rateComponentId);
+    if (!first) throw new DrawingQuantityLineageServerError("P6M01");
+    plans.push({
+      id: planId,
+      materialResourceId: first.resourceId,
+      materialCode: plan.materialCode,
+      materialName: plan.materialName,
+      specification: plan.specification,
+      unit: plan.unit,
+      designQuantity: plan.designQuantity,
+      allowanceRate: plan.allowanceRate,
+      requiredQuantity: plan.requiredQuantity,
+      ruleId: plan.ruleId,
+    });
+    for (const component of plan.components) {
+      const source = componentById.get(component.rateComponentId);
+      if (!source) throw new DrawingQuantityLineageServerError("P6M01");
+      links.push({
+        id: stableP6Uuid(operationId, "link", source.rateComponentId),
+        boqLineId: source.lineId,
+        boqRateComponentId: source.rateComponentId,
+        materialResourceId: source.resourceId,
+        materialPlanId: planId,
+        derivedDesignQuantity: component.derivedDesignQuantity,
+      });
+    }
+  }
+  return { plans, links };
+}
+
+async function loadMaterialHandoffContext(
+  userClient: SupabaseClient,
+  input: CreateP6MaterialHandoffInput,
+): Promise<P6MaterialHandoffContext> {
+  const { data: version, error: versionError } = await userClient
+    .from("lukas_qto_boq_versions")
+    .select("id,project_id,price_book_id,result_sha256,status")
+    .eq("id", input.boqVersionId)
+    .eq("project_id", input.projectId)
+    .single();
+  if (
+    versionError ||
+    !version ||
+    !["approved", "superseded"].includes(String(version.status)) ||
+    !Sha256.safeParse(version.result_sha256).success
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const [{ data: project, error: projectError }, componentResult] =
+    await Promise.all([
+      userClient
+        .from("lukas_qto_projects")
+        .select("id,owner_id")
+        .eq("id", input.projectId)
+        .single(),
+      userClient
+        .from("lukas_qto_boq_rate_components")
+        .select("id,version_id,line_id,resource_id,coefficient")
+        .eq("project_id", input.projectId)
+        .eq("version_id", input.boqVersionId)
+        .in("id", input.selectedRateComponentIds)
+        .limit(input.selectedRateComponentIds.length + 1),
+    ]);
+  const componentRows = componentResult.data ?? [];
+  if (
+    projectError ||
+    !project ||
+    componentResult.error ||
+    componentRows.length !== input.selectedRateComponentIds.length
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const resourceIds = [...new Set(componentRows.map((row) => row.resource_id))];
+  const lineIds = [...new Set(componentRows.map((row) => row.line_id))];
+  const [
+    { data: resources, error: resourceError },
+    { data: lines, error: lineError },
+  ] = await Promise.all([
+    userClient
+      .from("lukas_qto_price_resources")
+      .select(
+        "id,project_id,price_book_id,resource_type,resource_code,resource_name,specification,unit",
+      )
+      .eq("project_id", input.projectId)
+      .eq("price_book_id", version.price_book_id)
+      .in("id", resourceIds)
+      .limit(resourceIds.length + 1),
+    userClient
+      .from("lukas_qto_boq_lines")
+      .select("id,version_id,project_id,item_code,unit")
+      .eq("project_id", input.projectId)
+      .eq("version_id", input.boqVersionId)
+      .in("id", lineIds)
+      .limit(lineIds.length + 1),
+  ]);
+  if (
+    resourceError ||
+    lineError ||
+    (resources?.length ?? 0) !== resourceIds.length ||
+    (lines?.length ?? 0) !== lineIds.length
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const resourceById = new Map((resources ?? []).map((row) => [row.id, row]));
+  const lineById = new Map((lines ?? []).map((row) => [row.id, row]));
+  return {
+    ownerId: Uuid.parse(project.owner_id),
+    projectId: input.projectId,
+    boqVersionId: input.boqVersionId,
+    priceBookId: Uuid.parse(version.price_book_id),
+    resultSha256: Sha256.parse(version.result_sha256),
+    components: componentRows.map((row) => {
+      const resource = resourceById.get(row.resource_id);
+      const line = lineById.get(row.line_id);
+      if (!resource || !line)
+        throw new DrawingQuantityLineageServerError("P6M01");
+      return {
+        boqVersionId: input.boqVersionId,
+        lineId: Uuid.parse(row.line_id),
+        rateComponentId: Uuid.parse(row.id),
+        resourceId: Uuid.parse(row.resource_id),
+        resourceCode: String(resource.resource_code),
+        resourceName: String(resource.resource_name),
+        resourceSpecification: String(resource.specification),
+        resourceUnit: String(resource.unit),
+        resourceType: String(resource.resource_type),
+        resourcePriceBookId: Uuid.parse(resource.price_book_id),
+        resourceCoefficient: String(row.coefficient),
+        finalQuantity: "",
+        boqLineUnit: String(line.unit),
+      };
+    }),
+  };
+}
+
+function applyApprovedManifest(
+  context: P6MaterialHandoffContext,
+  bytes: Uint8Array,
+  handoffSha256: string,
+) {
+  const manifest = z
+    .object({
+      handoffSha256: Sha256,
+      resultSha256: Sha256,
+      calculationManifest: z.object({
+        projectId: Uuid,
+        boqVersionId: Uuid,
+        rateComponents: z.array(
+          z.object({
+            id: Uuid,
+            lineId: Uuid,
+            resourceId: Uuid,
+            coefficient: DecimalText,
+          }),
+        ),
+        resources: z.array(
+          z.object({
+            id: Uuid,
+            code: z.string(),
+            type: z.string(),
+            unit: z.string(),
+          }),
+        ),
+        result: z.object({
+          canonicalLines: z.array(
+            z.object({
+              lineId: Uuid,
+              unit: z.string(),
+              finalQuantity: DecimalText,
+            }),
+          ),
+        }),
+      }),
+    })
+    .parse(JSON.parse(new TextDecoder().decode(bytes)));
+  if (
+    manifest.handoffSha256 !== handoffSha256 ||
+    manifest.resultSha256 !== context.resultSha256 ||
+    manifest.calculationManifest.projectId !== context.projectId ||
+    manifest.calculationManifest.boqVersionId !== context.boqVersionId
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const manifestComponents = new Map(
+    manifest.calculationManifest.rateComponents.map((row) => [row.id, row]),
+  );
+  const manifestResources = new Map(
+    manifest.calculationManifest.resources.map((row) => [row.id, row]),
+  );
+  const resultLines = new Map(
+    manifest.calculationManifest.result.canonicalLines.map((row) => [
+      row.lineId,
+      row,
+    ]),
+  );
+  return {
+    ...context,
+    components: context.components.map((component) => {
+      const frozen = manifestComponents.get(component.rateComponentId);
+      const resource = manifestResources.get(component.resourceId);
+      const line = resultLines.get(component.lineId);
+      if (
+        !frozen ||
+        !resource ||
+        !line ||
+        frozen.lineId !== component.lineId ||
+        frozen.resourceId !== component.resourceId ||
+        compareExact(
+          parseExactDecimal(frozen.coefficient),
+          parseExactDecimal(component.resourceCoefficient),
+        ) !== 0 ||
+        resource.code !== component.resourceCode ||
+        resource.type !== component.resourceType ||
+        resource.unit !== component.resourceUnit ||
+        (component.boqLineUnit !== undefined &&
+          line.unit !== component.boqLineUnit)
+      )
+        throw new DrawingQuantityLineageServerError("P6M01");
+      return { ...component, finalQuantity: line.finalQuantity };
+    }),
+  };
+}
+
+async function persistMaterialManifest(
+  input: Parameters<P6MaterialHandoffAuthority["persistManifest"]>[0],
+) {
+  const manifestFileId = stableP6Uuid(input.operationId, "manifest");
+  const storage = input.userClient.storage.from("lukas-qto");
+  const upload = await storage.upload(input.path, input.bytes, {
+    contentType: "application/json",
+    upsert: false,
+  });
+  if (upload.error) {
+    const status = Number(
+      (upload.error as unknown as { statusCode?: string; status?: number })
+        .statusCode ?? (upload.error as unknown as { status?: number }).status,
+    );
+    if (status !== 409) throw new DrawingQuantityLineageServerError("P6M01");
+  }
+  const downloaded = await storage.download(input.path);
+  if (downloaded.error || !downloaded.data)
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const downloadedBytes = new Uint8Array(await downloaded.data.arrayBuffer());
+  if (
+    createHash("sha256").update(downloadedBytes).digest("hex") !==
+      input.manifestFileSha256 ||
+    !Buffer.from(downloadedBytes).equals(Buffer.from(input.bytes))
+  )
+    throw new DrawingQuantityLineageServerError("P6M01");
+  const inserted = await input.userClient.from("lukas_qto_files").insert({
+    id: manifestFileId,
+    project_id: input.projectId,
+    uploaded_by: input.actorId,
+    kind: "other",
+    storage_path: input.path,
+    original_filename: `${input.handoffSha256}.manifest.json`,
+    content_type: "application/json",
+    byte_size: input.bytes.byteLength,
+    sha256: input.manifestFileSha256,
+    immutable: true,
+  });
+  if (inserted.error) {
+    if (inserted.error.code !== "23505")
+      throw new DrawingQuantityLineageServerError("P6M01");
+    const { data: existing, error } = await input.userClient
+      .from("lukas_qto_files")
+      .select("id,project_id,storage_path,sha256,byte_size,immutable")
+      .eq("id", manifestFileId)
+      .eq("project_id", input.projectId)
+      .maybeSingle();
+    if (
+      error ||
+      !existing ||
+      existing.storage_path !== input.path ||
+      existing.sha256 !== input.manifestFileSha256 ||
+      Number(existing.byte_size) !== input.bytes.byteLength ||
+      existing.immutable !== true
+    )
+      throw new DrawingQuantityLineageServerError("P6O01");
+  }
+  return manifestFileId;
+}
+
+function databaseMaterialHandoffAuthority(): P6MaterialHandoffAuthority {
+  return {
+    async loadApprovedExport(userClient, actorId, boqVersionId) {
+      const { loadApprovedVerifiedBoqExport } =
+        await import("./verified-boq-approved-export.server.ts");
+      return loadApprovedVerifiedBoqExport(userClient, actorId, boqVersionId);
+    },
+    loadContext: loadMaterialHandoffContext,
+    persistManifest: persistMaterialManifest,
+    async insertHandoff(input) {
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) throw new DrawingQuantityLineageServerError("P6C01");
+      const sql = postgres(databaseUrl, { max: 1, prepare: false });
+      try {
+        const rows = await sql.begin(async (tx) => {
+          await tx.unsafe("set local role service_role");
+          return tx`
+            select private.lukas_drawing_insert_material_handoff(
+              ${input.actorId}::uuid,${input.boqVersionId}::uuid,
+              ${input.resultSha256},${input.manifestFileId}::uuid,
+              ${input.manifestFileSha256},${tx.json(input.plans)}::jsonb,
+              ${tx.json(input.links)}::jsonb
+            ) value
+          `;
+        });
+        if (rows.length !== 1)
+          throw new DrawingQuantityLineageServerError("P6O01");
+        return rows[0].value;
+      } finally {
+        await sql.end({ timeout: 5 });
+      }
+    },
+  };
+}
+
+/** @internal Optional fourth argument is a server-test seam, never route input. */
+export async function createP6MaterialHandoff(
+  userClient: SupabaseClient,
+  actorId: string,
+  input: CreateP6MaterialHandoffInput,
+  authority?: P6MaterialHandoffAuthority,
+): Promise<{
+  manifestFileId: string;
+  materialPlanIds: string[];
+  materialLinkIds: string[];
+}> {
+  const requestId = randomUUID();
+  try {
+    const trusted = authority ?? databaseMaterialHandoffAuthority();
+    const parsed = CreateMaterialHandoffSchema.parse(input);
+    Uuid.parse(actorId);
+    await requireQuantityWriter(userClient, actorId, parsed.projectId);
+    const approved = await trusted.loadApprovedExport(
+      userClient,
+      actorId,
+      parsed.boqVersionId,
+    );
+    Sha256.parse(approved.resultSha256);
+    Sha256.parse(approved.manifestSha256);
+    Sha256.parse(approved.handoffSha256);
+    const loaded = await trusted.loadContext(userClient, parsed);
+    if (
+      loaded.projectId !== parsed.projectId ||
+      loaded.boqVersionId !== parsed.boqVersionId ||
+      loaded.resultSha256 !== approved.resultSha256 ||
+      loaded.components.length !== parsed.selectedRateComponentIds.length ||
+      loaded.components.some(
+        (component) =>
+          !parsed.selectedRateComponentIds.includes(
+            component.rateComponentId,
+          ) ||
+          component.boqVersionId !== parsed.boqVersionId ||
+          component.resourceType !== "material" ||
+          component.resourcePriceBookId !== loaded.priceBookId ||
+          !positiveDecimal(component.resourceCoefficient),
+      )
+    )
+      throw new DrawingQuantityLineageServerError("P6M01");
+    const context = applyApprovedManifest(
+      loaded,
+      approved.manifestJson,
+      approved.handoffSha256,
+    );
+    const { plans, links } = materialHandoffRows(
+      parsed.operationId,
+      context.components,
+    );
+    if (!plans.length || !links.length)
+      throw new DrawingQuantityLineageServerError("P6M01");
+    const manifestFileSha256 = createHash("sha256")
+      .update(approved.manifestJson)
+      .digest("hex");
+    const path = boqManifestStorageObjectPath({
+      ownerId: context.ownerId,
+      projectId: context.projectId,
+      manifestFileSha256,
+    });
+    const manifestFileId = await trusted.persistManifest({
+      userClient,
+      actorId,
+      operationId: parsed.operationId,
+      ownerId: context.ownerId,
+      projectId: context.projectId,
+      handoffSha256: approved.handoffSha256,
+      manifestFileSha256,
+      bytes: approved.manifestJson,
+      path,
+    });
+    Uuid.parse(manifestFileId);
+    await trusted.insertHandoff({
+      actorId,
+      boqVersionId: parsed.boqVersionId,
+      resultSha256: approved.resultSha256,
+      manifestFileId,
+      manifestFileSha256,
+      plans,
+      links,
+    });
+    return {
+      manifestFileId,
+      materialPlanIds: plans.map((row) => row.id),
+      materialLinkIds: links.map((row) => row.id),
+    };
+  } catch (error) {
+    const bounded = p6Error(error, requestId);
+    console.error("Approved BOQ material handoff failed", {
+      requestId: bounded.requestId,
+      code: bounded.code,
+      projectId: input.projectId,
+      boqVersionId: input.boqVersionId,
+      operationId: input.operationId,
+    });
+    throw bounded;
   }
 }
 

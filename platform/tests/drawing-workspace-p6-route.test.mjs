@@ -14,7 +14,43 @@ import {
   drawingWorkspaceObjectFocusViewport,
 } from "../app/lukas/lib/drawing-workspace-view.ts";
 import { sanitizeDrawingTransientInput } from "../app/lukas/lib/drawing-document-store.ts";
-import { parseDrawingBoqMutationForm } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+import {
+  parseDrawingBoqMutationForm,
+  parseP6MaterialHandoffForm,
+} from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+
+test("material handoff action accepts stable IDs only", () => {
+  const form = new FormData();
+  form.set("intent", "boq_handoff");
+  form.set("version_id", "00000000-0000-4000-8000-000000000041");
+  form.set("operation_id", "00000000-0000-4000-8000-000000000042");
+  form.append("component_id", "00000000-0000-4000-8000-000000000043");
+  form.append("component_id", "00000000-0000-4000-8000-000000000044");
+  assert.deepEqual(parseP6MaterialHandoffForm(form), {
+    intent: "boq_handoff",
+    boqVersionId: "00000000-0000-4000-8000-000000000041",
+    operationId: "00000000-0000-4000-8000-000000000042",
+    selectedRateComponentIds: [
+      "00000000-0000-4000-8000-000000000043",
+      "00000000-0000-4000-8000-000000000044",
+    ],
+  });
+  for (const forbidden of [
+    "quantity",
+    "coefficient",
+    "resource_id",
+    "result_sha256",
+    "manifest_sha256",
+  ]) {
+    const injected = new FormData();
+    for (const [key, value] of form) injected.append(key, value);
+    injected.set(forbidden, "attacker-controlled");
+    assert.throws(
+      () => parseP6MaterialHandoffForm(injected),
+      /허용되지 않은 필드/,
+    );
+  }
+});
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {
   const form = new FormData();

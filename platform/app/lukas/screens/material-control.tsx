@@ -1,6 +1,6 @@
 import type { Route } from "./+types/material-control";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "database.types";
 import {
@@ -20,12 +20,18 @@ import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
 import { storageObjectPath } from "~/lukas/lib/storage-object-key.server";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
+import { MaterialBoqLineage } from "~/lukas/components/material-boq-lineage";
 import { verifyConcreteTakeoffBundle } from "~/lukas/lib/concrete-takeoff-artifact.server";
 import {
   buildMaterialControlSummaries,
   calculateRequiredQuantity,
   deriveMaterialPlansFromApprovedTakeoff,
+  listMaterialBoqLineage,
 } from "~/lukas/lib/material-control.server";
+import {
+  createP6MaterialHandoff,
+  parseP6MaterialHandoffForm,
+} from "~/lukas/lib/drawing-quantity-lineage.server";
 
 type SourceFile = {
   id: string;
@@ -155,15 +161,22 @@ type TransactionInsert = Omit<TransactionRow, "id" | "created_at"> & {
   created_by: string;
   created_at?: string;
 };
+type DrawingMaterialLinkRow = {
+  boq_rate_component_id: string;
+  project_id: string;
+  boq_version_id: string;
+};
 type MaterialDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables"> & {
     Tables: Omit<
       Database["public"]["Tables"],
       | "lukas_qto_carbon_factors"
+      | "lukas_drawing_material_links"
       | "lukas_qto_material_plans"
       | "lukas_qto_material_transactions"
     > & {
       lukas_qto_carbon_factors: Table<FactorRow & FactorInsert, FactorInsert>;
+      lukas_drawing_material_links: Table<DrawingMaterialLinkRow, never>;
       lukas_qto_material_plans: Table<PlanRow & PlanInsert, PlanInsert>;
       lukas_qto_material_transactions: Table<
         TransactionRow & TransactionInsert,
@@ -403,6 +416,77 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       reportSha256: artifact.report_sha256,
       alreadyImported: importedArtifactIds.has(artifact.id),
     }));
+  const requestUrl = new URL(request.url);
+  const lineage = await listMaterialBoqLineage(client, {
+    projectId: project.id,
+    cursor: requestUrl.searchParams.get("lineageCursor"),
+  });
+  const { data: approvedBoqRows } = await client
+    .from("lukas_qto_boq_versions")
+    .select("id,version_no,title,status")
+    .eq("project_id", project.id)
+    .eq("engine_version", "VERIFIED-BOQ-1.1")
+    .in("status", ["approved", "superseded"])
+    .order("version_no", { ascending: false })
+    .limit(200);
+  const approvedBoqIds = (approvedBoqRows ?? []).map((row) => row.id);
+  const [componentResult, existingLinkResult] = approvedBoqIds.length
+    ? await Promise.all([
+        client
+          .from("lukas_qto_boq_rate_components")
+          .select(
+            "id,version_id,coefficient,line:lukas_qto_boq_lines!inner(item_code),resource:lukas_qto_price_resources!inner(resource_code,resource_name,specification,unit,resource_type)",
+          )
+          .eq("project_id", project.id)
+          .eq("resource.resource_type", "material")
+          .in("version_id", approvedBoqIds)
+          .order("id", { ascending: true })
+          .limit(2_001),
+        db
+          .from("lukas_drawing_material_links")
+          .select("boq_rate_component_id")
+          .eq("project_id", project.id)
+          .in("boq_version_id", approvedBoqIds)
+          .limit(2_001),
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+  const componentRows = componentResult.data;
+  if (
+    componentResult.error ||
+    existingLinkResult.error ||
+    (componentRows?.length ?? 0) > 2_000 ||
+    (existingLinkResult.data?.length ?? 0) > 2_000
+  )
+    throw new Response("승인 BOQ 자재 구성이 허용 범위를 초과했습니다.", {
+      status: 409,
+    });
+  const handedComponentIds = new Set(
+    (existingLinkResult.data ?? []).map((row) => row.boq_rate_component_id),
+  );
+  const approvedBoqs = (approvedBoqRows ?? [])
+    .map((version) => ({
+      id: version.id,
+      label: `V${version.version_no} ${version.title} · ${version.status}`,
+      components: (componentRows ?? [])
+        .filter(
+          (component) =>
+            component.version_id === version.id &&
+            !handedComponentIds.has(component.id),
+        )
+        .map((component) => ({
+          id: component.id,
+          itemCode: component.line.item_code,
+          resourceCode: component.resource.resource_code,
+          resourceName: component.resource.resource_name,
+          specification: component.resource.specification,
+          unit: component.resource.unit,
+          coefficient: String(component.coefficient),
+        })),
+    }))
+    .filter((version) => version.components.length > 0);
   const summaries = buildMaterialControlSummaries(
     planRows.map((row) => ({
       id: row.id,
@@ -455,6 +539,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     factors: factorRows,
     files: (files ?? []) as unknown as SourceFile[],
     approvedTakeoffs,
+    approvedBoqs,
+    materialLineage: lineage,
+    materialHandoffOperationId: randomUUID(),
     summaries,
   };
 }
@@ -484,7 +571,15 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const values = formObject(form);
   try {
-    if (values.intent === "import_takeoff") {
+    if (values.intent === "boq_handoff") {
+      const parsed = parseP6MaterialHandoffForm(form);
+      await createP6MaterialHandoff(client, user.id, {
+        projectId,
+        boqVersionId: parsed.boqVersionId,
+        operationId: parsed.operationId,
+        selectedRateComponentIds: parsed.selectedRateComponentIds,
+      });
+    } else if (values.intent === "import_takeoff") {
       const artifactId = z.string().uuid().parse(values.artifact_id);
       const { data: artifact } = await db
         .from("lukas_qto_takeoff_artifacts")
@@ -556,26 +651,24 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Error("등록 당시 산출 근거와 현재 파일이 일치하지 않습니다.");
       const derived = deriveMaterialPlansFromApprovedTakeoff(verified.rows);
       const { error } = await db.from("lukas_qto_material_plans").insert(
-        derived.map(
-          (plan): PlanInsert => ({
-            project_id: projectId,
-            material_code: plan.materialCode,
-            material_name: plan.materialName,
-            specification: plan.specification,
-            unit: plan.unit,
-            design_quantity: plan.designQuantity,
-            allowance_rate: plan.allowanceRate,
-            required_quantity: plan.requiredQuantity,
-            rule_id: plan.ruleId,
-            required_by: null,
-            baseline_factor_id: null,
-            source_file_id: reportFile.id,
-            source_sha256: verified.reportSha256,
-            source_artifact_id: artifact.id,
-            source_group_key: plan.sourceGroupKey,
-            created_by: user.id,
-          }),
-        ),
+        derived.map((plan): PlanInsert => ({
+          project_id: projectId,
+          material_code: plan.materialCode,
+          material_name: plan.materialName,
+          specification: plan.specification,
+          unit: plan.unit,
+          design_quantity: plan.designQuantity,
+          allowance_rate: plan.allowanceRate,
+          required_quantity: plan.requiredQuantity,
+          rule_id: plan.ruleId,
+          required_by: null,
+          baseline_factor_id: null,
+          source_file_id: reportFile.id,
+          source_sha256: verified.reportSha256,
+          source_artifact_id: artifact.id,
+          source_group_key: plan.sourceGroupKey,
+          created_by: user.id,
+        })),
       );
       if (error?.code === "23505")
         throw new Error("이 승인 산출 결과는 이미 자재계획으로 가져왔습니다.");
@@ -818,6 +911,13 @@ export default function MaterialControl({
           </div>
         ))}
       </section>
+      <MaterialBoqLineage
+        approvedBoqs={loaderData.approvedBoqs}
+        nextCursor={loaderData.materialLineage.nextCursor}
+        operationId={loaderData.materialHandoffOperationId}
+        projectId={loaderData.project.id}
+        rows={loaderData.materialLineage.rows}
+      />
       <section className="mt-8 rounded-2xl border border-primary/20 bg-primary/5 p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
