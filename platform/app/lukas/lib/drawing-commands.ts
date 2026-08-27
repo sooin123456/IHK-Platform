@@ -922,6 +922,9 @@ function reduceCommand(
   switch (command.type) {
     case "add_objects": {
       const objectIds = new Set<string>();
+      const structureState = state.structure
+        ? { revisionId: state.revisionId, ...clone(state.structure) }
+        : undefined;
       for (const object of command.objects) {
         if (objectIds.has(object.id) || objects[object.id]) {
           throw new DrawingCommandError(
@@ -945,11 +948,31 @@ function reduceCommand(
             );
           }
           baseVersions[added.id] = restoreBaseVersion;
+          const tombstone = structureState?.tombstones?.[added.id];
+          const expectedTombstone = {
+            collection: "objects" as const,
+            entity: { ...clone(added), version: restoreBaseVersion - 1 },
+            version: restoreBaseVersion,
+          };
+          if (
+            tombstone &&
+            JSON.stringify(tombstone) !== JSON.stringify(expectedTombstone)
+          )
+            throw new DrawingCommandError(
+              `Drawing object ${added.id} restore tombstone is stale.`,
+            );
+          delete structureState?.tombstones?.[added.id];
         }
         objects[added.id] = added;
         resultVersions[added.id] = added.version;
         realizedVersions[added.id] = added.version;
       }
+      if (structureState) structureState.objects = objects;
+      const structure = structureState
+        ? (({ revisionId: _revisionId, ...canonical }) => canonical)(
+            structureState,
+          )
+        : undefined;
       return {
         objects,
         layers,
@@ -959,6 +982,7 @@ function reduceCommand(
         resultVersions,
         realizedVersions,
         undoable: true,
+        ...(structure ? { structure } : {}),
       };
     }
     case "update_objects": {
@@ -1024,6 +1048,9 @@ function reduceCommand(
       };
     }
     case "delete_objects": {
+      const structureState = state.structure
+        ? { revisionId: state.revisionId, ...clone(state.structure) }
+        : undefined;
       if (!options.allowHostedWallDelete) {
         const hostedWallIds = new Set(
           Object.values(state.objects).flatMap((object) =>
@@ -1053,9 +1080,24 @@ function reduceCommand(
         baseVersions[object.id] = object.version;
         resultVersions[object.id] = null;
         realizedVersions[object.id] = object.version + 1;
-        deleted.push({ ...clone(object), version: object.version + 2 });
+        const canonicalObject = DrawingObjectSchema.parse(clone(object));
+        deleted.push({ ...canonicalObject, version: object.version + 2 });
         delete objects[object.id];
+        if (structureState) {
+          delete structureState.objects[object.id];
+          structureState.tombstones ??= {};
+          structureState.tombstones[object.id] = {
+            collection: "objects",
+            entity: canonicalObject,
+            version: object.version + 1,
+          };
+        }
       }
+      const structure = structureState
+        ? (({ revisionId: _revisionId, ...canonical }) => canonical)(
+            structureState,
+          )
+        : undefined;
       return {
         objects,
         layers,
@@ -1065,6 +1107,7 @@ function reduceCommand(
         resultVersions,
         realizedVersions,
         undoable: true,
+        ...(structure ? { structure } : {}),
       };
     }
     case "add_layer": {
@@ -1444,6 +1487,95 @@ function operationFor(
   );
 }
 
+function structuredUuidOwner(
+  structure: DrawingDocumentState["structure"],
+  id: string,
+):
+  | { collection: string; entity: { version: number }; version: number }
+  | undefined {
+  if (!structure) return undefined;
+  for (const collection of [
+    "objects",
+    "sources",
+    "pages",
+    "canvases",
+    "layers",
+    "styles",
+    "blocks",
+    "blockInstances",
+    "propertySchemas",
+    "propertyValues",
+    "tables",
+  ] as const) {
+    const entity = structure[collection]?.[id] as
+      { version: number } | undefined;
+    if (entity) return { collection, entity, version: entity.version };
+  }
+  return structure.tombstones?.[id];
+}
+
+function expectedObjectDeletionTombstone(
+  operation: DrawingRecordedOperation,
+  objectId: string,
+) {
+  const baseVersion = operation.baseVersions[objectId];
+  const realizedVersion = operation.realizedVersions[objectId];
+  if (baseVersion === undefined || realizedVersion === undefined)
+    return undefined;
+  if (operation.type === "delete_objects") {
+    const restored = (
+      operation.inverse as Extract<
+        DrawingCommandPayload,
+        { type: "add_objects" }
+      >
+    ).objects.find((object) => object.id === objectId);
+    return restored
+      ? {
+          collection: "objects",
+          entity: { ...clone(restored), version: baseVersion },
+          version: realizedVersion,
+        }
+      : undefined;
+  }
+  if (operation.type === "mutate_objects_with_references") {
+    const forward = operation.forward as Extract<
+      DrawingCommandPayload,
+      { type: "mutate_objects_with_references" }
+    >;
+    const snapshot =
+      forward.objectAction === "delete"
+        ? forward.objects.find((object) => object.id === objectId)
+        : undefined;
+    return snapshot
+      ? {
+          collection: "objects",
+          entity: clone(snapshot),
+          version: realizedVersion,
+        }
+      : undefined;
+  }
+  return undefined;
+}
+
+function sameObjectDeletionTombstone(
+  owner: ReturnType<typeof structuredUuidOwner>,
+  expected: NonNullable<ReturnType<typeof expectedObjectDeletionTombstone>>,
+) {
+  if (
+    !owner ||
+    owner.collection !== "objects" ||
+    owner.version !== expected.version
+  )
+    return false;
+  const ownerEntity = DrawingObjectSchema.safeParse(owner.entity);
+  const expectedEntity = DrawingObjectSchema.safeParse(expected.entity);
+  return (
+    ownerEntity.success &&
+    expectedEntity.success &&
+    JSON.stringify(ownerEntity.data) === JSON.stringify(expectedEntity.data)
+  );
+}
+
 function conflictFor(
   state: DrawingDocumentState,
   operation: DrawingRecordedOperation,
@@ -1499,7 +1631,25 @@ function conflictFor(
           .map((source) => source.id)
           .sort()
       : [];
-  const conflicts = [...objectIds, ...dependentSourceIds];
+  const identityConflictIds = state.structure
+    ? Object.entries(operation.resultVersions)
+        .filter(([objectId, expectedVersion]) => {
+          if (expectedVersion !== null) return false;
+          const expected = expectedObjectDeletionTombstone(operation, objectId);
+          if (!expected) return false;
+          const owner = structuredUuidOwner(state.structure, objectId);
+          // Authoritative database snapshots omit tombstones. Absence is
+          // therefore replayable, but any present owner must be the exact
+          // object tombstone produced by this deletion.
+          return (
+            owner !== undefined && !sameObjectDeletionTombstone(owner, expected)
+          );
+        })
+        .map(([objectId]) => objectId)
+    : [];
+  const conflicts = [
+    ...new Set([...objectIds, ...dependentSourceIds, ...identityConflictIds]),
+  ];
   return conflicts.length > 0
     ? { kind: "conflict", objectIds: conflicts }
     : undefined;

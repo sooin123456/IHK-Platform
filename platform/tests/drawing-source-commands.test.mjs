@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   applyDrawingCommand,
+  applyDrawingCommandForReplay,
   copyDrawingSelection,
   createDrawingDocumentState,
   duplicateDrawingSelection,
@@ -328,6 +329,151 @@ test("cross-actor source dependencies conflict object-add undo and revert and fe
         environment(ids.deleteOperation),
       ),
     /missing object/,
+  );
+});
+
+test("structured semantic add undo reserves its UUID through recovery and redo", () => {
+  const semantic = {
+    ...object(),
+    name: "Semantic wall",
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 1000, y: 0 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
+  };
+  const other = { ...object(), id: ids.otherObject, name: "Other target" };
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      ...state().structure,
+      objects: { [ids.otherObject]: other },
+      sources: {},
+    },
+  });
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actor, objects: [semantic] },
+    environment(ids.addOperation),
+  );
+  const undone = undoDrawingCommand(
+    added.state,
+    ids.actor,
+    environment(ids.undoOperation),
+  );
+  assert.ok(undone && !("kind" in undone));
+  const tombstone = {
+    collection: "objects",
+    entity: semantic,
+    version: 2,
+  };
+  assert.deepEqual(undone.state.structure.tombstones?.[ids.object], tombstone);
+  assert.throws(
+    () =>
+      linkDrawingPdfRegionSourceCommand(
+        undone.state,
+        ids.otherActor,
+        ids.otherObject,
+        {
+          id: ids.object,
+          sourceFileId: ids.file,
+          sourceSha256: sha,
+          pdfPageNumber: 1,
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4,
+        },
+      ),
+    /reuses a UUID/,
+  );
+
+  const redone = redoDrawingCommand(
+    undone.state,
+    ids.actor,
+    environment(ids.redoOperation),
+  );
+  assert.ok(redone && !("kind" in redone));
+  assert.deepEqual(redone.state.objects[ids.object], {
+    ...semantic,
+    version: 3,
+  });
+  assert.equal(redone.state.structure.tombstones?.[ids.object], undefined);
+
+  const recovered = recoverPendingDrawingState(initial, [
+    added.operation,
+    undone.operation,
+  ]);
+  assert.deepEqual(recovered.conflictedOperationIds, []);
+  assert.deepEqual(recovered.ambiguousOperationIds, []);
+  assert.deepEqual(
+    recovered.state.structure.tombstones?.[ids.object],
+    tombstone,
+  );
+});
+
+test("structured add redo returns a deterministic conflict after a legitimate restore", () => {
+  const other = { ...object(), id: ids.otherObject, name: "Other target" };
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: {
+      ...state().structure,
+      objects: { [ids.otherObject]: other },
+      sources: {},
+    },
+  });
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actor, objects: [object()] },
+    environment(ids.addOperation),
+  );
+  const undone = undoDrawingCommand(
+    added.state,
+    ids.actor,
+    environment(ids.undoOperation),
+  );
+  assert.ok(undone && !("kind" in undone));
+  const restoredByOtherActor = applyDrawingCommandForReplay(
+    undone.state,
+    {
+      type: "add_objects",
+      actorId: ids.otherActor,
+      objects: [{ ...object(), version: 3 }],
+    },
+    environment(ids.linkOperation),
+    {},
+    { [ids.object]: 2 },
+  );
+
+  assert.deepEqual(
+    redoDrawingCommand(
+      restoredByOtherActor.state,
+      ids.actor,
+      environment(ids.redoOperation),
+    ),
+    { kind: "conflict", objectIds: [ids.object] },
+  );
+
+  const claimedBySource = {
+    ...undone.state,
+    structure: {
+      ...undone.state.structure,
+      tombstones: {},
+      sources: {
+        [ids.object]: source({ id: ids.object, objectId: ids.otherObject }),
+      },
+    },
+  };
+  assert.deepEqual(
+    redoDrawingCommand(
+      claimedBySource,
+      ids.actor,
+      environment(ids.redoOperation),
+    ),
+    { kind: "conflict", objectIds: [ids.object] },
   );
 });
 

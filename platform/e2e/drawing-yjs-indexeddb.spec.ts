@@ -515,12 +515,17 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
   const sourceId = "00000000-0000-4000-8000-000000000631";
   const fileId = "00000000-0000-4000-8000-000000000632";
   const objectId = "00000000-0000-4000-8000-000000000633";
+  const semanticObjectId = "00000000-0000-4000-8000-000000000639";
   const pageId = "00000000-0000-4000-8000-000000000634";
   const canvasId = "00000000-0000-4000-8000-000000000635";
   const operationIds = [
     "00000000-0000-4000-8000-000000000636",
     "00000000-0000-4000-8000-000000000637",
     "00000000-0000-4000-8000-000000000638",
+    "00000000-0000-4000-8000-000000000640",
+    "00000000-0000-4000-8000-000000000641",
+    "00000000-0000-4000-8000-000000000642",
+    "00000000-0000-4000-8000-000000000643",
   ];
   const initialUpdate = authoritativeFixture(revision, "active");
   await openPreview(page);
@@ -535,6 +540,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
       operationIds,
       pageId,
       revision,
+      semanticObjectId,
       sourceId,
     }) => {
       const persistencePath =
@@ -640,6 +646,80 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
         adapter,
         outbox,
       });
+      await bridge.applyCommand({
+        type: "add_objects",
+        actorId: fixtureIds.actor,
+        objects: [
+          {
+            id: semanticObjectId,
+            name: "Crash wall",
+            layerId: fixtureIds.layer,
+            geometry: {
+              type: "wall",
+              semanticVersion: 1,
+              start: { x: 0, y: 0 },
+              end: { x: 1000, y: 0 },
+              thicknessMillimeters: 200,
+              heightMillimeters: 3000,
+            },
+            style: { stroke: "#111111", strokeWidth: 1, fill: null },
+            version: 1,
+          },
+        ],
+      });
+      const undoAdded = commands.undoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T00:00:01.000Z",
+        },
+      );
+      if (!undoAdded || "kind" in undoAdded)
+        throw new Error("Added object undo conflicted.");
+      await bridge.applyRecorded(undoAdded);
+      let sourceIdClaimDenied = false;
+      try {
+        sourceLinks.linkDrawingPdfRegionSourceCommand(
+          adapter.getSnapshot().state,
+          fixtureIds.actor,
+          objectId,
+          {
+            id: semanticObjectId,
+            sourceFileId: fileId,
+            sourceSha256: "e".repeat(64),
+            pdfPageNumber: 1,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.4,
+          },
+        );
+      } catch {
+        sourceIdClaimDenied = true;
+      }
+      const redoAdded = commands.redoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T00:00:02.000Z",
+        },
+      );
+      if (!redoAdded || "kind" in redoAdded)
+        throw new Error("Added object redo conflicted.");
+      await bridge.applyRecorded(redoAdded);
+      const undoAddedAgain = commands.undoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T00:00:03.000Z",
+        },
+      );
+      if (!undoAddedAgain || "kind" in undoAddedAgain)
+        throw new Error("Redone object undo conflicted.");
+      await bridge.applyRecorded(undoAddedAgain);
       await bridge.applyCommand(
         sourceLinks.linkDrawingPdfRegionSourceCommand(
           adapter.getSnapshot().state,
@@ -687,6 +767,9 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
           .operations()
           .map((operation: any) => operation.clientOperationId),
         sourceVersion: snapshot.state.structure.sources[sourceId]?.version,
+        sourceIdClaimDenied,
+        semanticTombstone:
+          snapshot.state.structure.tombstones?.[semanticObjectId],
         clipboardJson: JSON.stringify(clipboard),
       };
       // Deliberately do not dispose: navigation below simulates a renderer crash.
@@ -700,12 +783,19 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
       operationIds,
       pageId,
       revision,
+      semanticObjectId,
       sourceId,
     },
   );
   expect(written.outboxIds).toEqual(operationIds);
   expect(written.operationIds).toEqual(operationIds);
   expect(written.sourceVersion).toBe(3);
+  expect(written.sourceIdClaimDenied).toBe(true);
+  expect(written.semanticTombstone).toMatchObject({
+    collection: "objects",
+    version: 4,
+    entity: { id: semanticObjectId, version: 3, geometry: { type: "wall" } },
+  });
   expect(written.clipboardJson).not.toContain(sourceId);
 
   await page.reload();
@@ -717,6 +807,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
       objectId,
       pageId,
       revision,
+      semanticObjectId,
       sourceId,
     }) => {
       const persistencePath =
@@ -828,6 +919,10 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
         sourceVersion: snapshot.state.structure.sources[sourceId]?.version,
         recoveredSourceVersion:
           recovered.state.structure.sources[sourceId]?.version,
+        semanticTombstone:
+          snapshot.state.structure.tombstones?.[semanticObjectId],
+        recoveredSemanticTombstone:
+          recovered.state.structure.tombstones?.[semanticObjectId],
         conflicts: recovered.conflictedOperationIds,
         ambiguous: recovered.ambiguousOperationIds,
       };
@@ -844,6 +939,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
       objectId,
       pageId,
       revision,
+      semanticObjectId,
       sourceId,
     },
   );
@@ -853,6 +949,24 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
     operationIds,
     sourceVersion: 3,
     recoveredSourceVersion: 3,
+    semanticTombstone: {
+      collection: "objects",
+      version: 4,
+      entity: expect.objectContaining({
+        id: semanticObjectId,
+        version: 3,
+        geometry: expect.objectContaining({ type: "wall" }),
+      }),
+    },
+    recoveredSemanticTombstone: {
+      collection: "objects",
+      version: 4,
+      entity: expect.objectContaining({
+        id: semanticObjectId,
+        version: 3,
+        geometry: expect.objectContaining({ type: "wall" }),
+      }),
+    },
     conflicts: [],
     ambiguous: [],
   });

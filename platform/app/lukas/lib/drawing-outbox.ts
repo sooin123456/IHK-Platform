@@ -1009,6 +1009,9 @@ export function recoverPendingDrawingState(
     ...Object.values(state.objects).map(
       (object) => [object.id, object.version] as const,
     ),
+    ...Object.entries(state.structure?.tombstones ?? {}).map(
+      ([id, tombstone]) => [id, tombstone.version] as const,
+    ),
   ]);
   const conflictedOperationIds: string[] = [];
   const ambiguousOperationIds: string[] = [];
@@ -1081,7 +1084,20 @@ export function recoverPendingDrawingState(
             object.version !== (base === undefined ? 1 : base + 1)
           )
             throw new Error("Object add version is stale.");
+          const tombstone = candidate.structure?.tombstones?.[object.id];
+          if (base !== undefined && tombstone) {
+            const expectedTombstone = {
+              collection: "objects",
+              entity: { ...structuredClone(object), version: base - 1 },
+              version: base,
+            };
+            if (!valuesMatch(tombstone, expectedTombstone))
+              throw new Error("Object add tombstone is stale.");
+          }
+          delete candidate.structure?.tombstones?.[object.id];
           candidate.objects[object.id] = object;
+          if (candidate.structure)
+            candidate.structure.objects[object.id] = object;
           candidateVersions.set(object.id, object.version);
         }
       } else if (operation.type === "update_objects") {
@@ -1109,6 +1125,15 @@ export function recoverPendingDrawingState(
           if (!current || base === undefined || current.version !== base)
             throw new Error("Object delete version is stale.");
           delete candidate.objects[objectId];
+          if (candidate.structure) {
+            delete candidate.structure.objects[objectId];
+            candidate.structure.tombstones ??= {};
+            candidate.structure.tombstones[objectId] = {
+              collection: "objects",
+              entity: structuredClone(current),
+              version: base + 1,
+            };
+          }
           candidateVersions.set(objectId, base + 1);
         }
       } else if (operation.type === "add_layer") {
@@ -1308,6 +1333,11 @@ export function recoverPendingDrawingState(
         candidate.layers[layer.id] = layer;
         candidateVersions.set(layer.id, layer.version);
       }
+      if (candidate.structure)
+        validateDrawingStructureState({
+          revisionId: candidate.revisionId,
+          ...candidate.structure,
+        });
       state = candidate;
       versions = candidateVersions;
     } catch (error) {

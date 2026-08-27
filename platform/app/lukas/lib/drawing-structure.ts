@@ -424,6 +424,7 @@ function requireEntity(
 function validateActionBases(
   state: DrawingStructureState,
   actions: DrawingStructureAction[],
+  allowCheckpointRestore = false,
 ): void {
   const targets = new Set<string>();
   for (const action of actions) {
@@ -475,6 +476,7 @@ function validateActionBases(
         }
         if (
           tombstone &&
+          !allowCheckpointRestore &&
           JSON.stringify(tombstone.entity) !== JSON.stringify(action.entity)
         ) {
           throw new DrawingStructureError(
@@ -1191,7 +1193,7 @@ export function applyDrawingStructureActions(
     !options.allowReferenceAwareObjectMutation
   )
     validateObjectCompound(state, actions);
-  validateActionBases(state, actions);
+  validateActionBases(state, actions, options.allowCheckpointRestore);
   const protectedDefaultCanvasIds = new Set(
     Object.values(state.canvases)
       .filter(
