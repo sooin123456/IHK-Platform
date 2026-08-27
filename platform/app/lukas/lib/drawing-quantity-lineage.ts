@@ -118,6 +118,8 @@ export function convertDrawingMeasurement(
           : null;
   if (source === null)
     throw new P6LineageError("P6Q01", "선택한 측정값을 확정할 수 없습니다.");
+  if (measurementKind === "count" && source !== "1")
+    throw new P6LineageError("P6Q01", "선택한 측정값을 확정할 수 없습니다.");
 
   const factor =
     measurementKind === "length"
@@ -131,11 +133,21 @@ export function convertDrawingMeasurement(
     throw new P6LineageError("P6Q01", "지원하지 않는 측정 종류입니다.");
 
   try {
+    const value = multiplyExact(
+      parseExactDecimal(source),
+      parseExactDecimal(factor),
+    );
+    const rawQuantity = exactToString(value);
+    const [whole, fraction = ""] = rawQuantity.split(".");
+    if (
+      compareExact(value, exactZero) < 0 ||
+      whole.length > 17 ||
+      fraction.length > 12
+    )
+      throw new Error("unsupported quantity precision");
     return {
       measurementKind,
-      rawQuantity: exactToString(
-        multiplyExact(parseExactDecimal(source), parseExactDecimal(factor)),
-      ),
+      rawQuantity,
       unit:
         measurementKind === "length"
           ? "m"
@@ -192,12 +204,7 @@ function sameMaterialIdentity(left: MaterialIdentity, right: MaterialIdentity) {
 }
 
 function materialKey(identity: MaterialIdentity) {
-  return JSON.stringify([
-    identity.code,
-    identity.name,
-    identity.specification,
-    identity.unit,
-  ]);
+  return JSON.stringify([identity.code, identity.specification, identity.unit]);
 }
 
 function validComponent(component: P6MaterialComponentInput) {
@@ -250,17 +257,18 @@ export function deriveP6MaterialPlans(
         "half_away_from_zero",
       );
       const key = materialKey(identity);
-      const group = groups.get(key) ?? {
-        ...identity,
-        total: exactZero,
-        components: [],
-      };
+      let group = groups.get(key);
+      if (group && !sameMaterialIdentity(group, identity))
+        throw new Error("incompatible material group");
+      if (!group) {
+        group = { ...identity, total: exactZero, components: [] };
+        groups.set(key, group);
+      }
       group.total = addExact(group.total, derived);
       group.components.push({
         rateComponentId: component.rateComponentId,
         derivedDesignQuantity: exactToString(derived),
       });
-      groups.set(key, group);
     }
 
     return [...groups.values()]

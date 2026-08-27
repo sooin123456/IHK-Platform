@@ -103,13 +103,13 @@ test("P6 converts P4 length, area, and count exactly", () => {
     convertDrawingMeasurement(
       {
         ruleVersion: "P4_MEASUREMENT_V1",
-        lengthMillimeters: "12345678901234567890123.123456",
-        areaSquareMillimeters: null,
+        lengthMillimeters: null,
+        areaSquareMillimeters: "12345678901234567890123.123456",
         count: "1",
       },
-      "length",
+      "area",
     ).rawQuantity,
-    "12345678901234567890.123123456",
+    "12345678901234567.890123123456",
   );
 });
 
@@ -120,6 +120,60 @@ test("P6 rejects unavailable, wrong-rule, and volume measurements", () => {
     [measurement, "volume"],
     [measurement, "m3"],
     [{ ...measurement, ruleVersion: "P4_MEASUREMENT_V0" }, "count"],
+  ])
+    assert.throws(
+      () => convertDrawingMeasurement(value, kind),
+      (error) => p6Code(error) === "P6Q01",
+    );
+});
+
+test("P6 conversion rejects quantities outside the approved numeric(29,12) contract", () => {
+  for (const [value, kind] of [
+    [
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        lengthMillimeters: "-1",
+        areaSquareMillimeters: null,
+        count: "1",
+      },
+      "length",
+    ],
+    [
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        lengthMillimeters: null,
+        areaSquareMillimeters: null,
+        count: "2",
+      },
+      "count",
+    ],
+    [
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        lengthMillimeters: null,
+        areaSquareMillimeters: null,
+        count: "1.0",
+      },
+      "count",
+    ],
+    [
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        lengthMillimeters: null,
+        areaSquareMillimeters: "0.0000001",
+        count: "1",
+      },
+      "area",
+    ],
+    [
+      {
+        ruleVersion: "P4_MEASUREMENT_V1",
+        lengthMillimeters: "100000000000000000000",
+        areaSquareMillimeters: null,
+        count: "1",
+      },
+      "length",
+    ],
   ])
     assert.throws(
       () => convertDrawingMeasurement(value, kind),
@@ -193,6 +247,26 @@ test("P6 material handoff rejects incompatible, duplicate, negative, and overflo
         resourceCoefficient: "99999999999999999999999999999",
       },
     ],
+  ])
+    assert.throws(
+      () => deriveP6MaterialPlans(components),
+      (error) => p6Code(error) === "P6M01",
+    );
+});
+
+test("P6 rejects conflicting material identities in either input order", () => {
+  const first = {
+    ...materialA,
+    resourceId: "00000000-0000-4000-8000-000000000210",
+  };
+  const second = {
+    ...materialB,
+    resourceId: "00000000-0000-4000-8000-000000000211",
+    resourceName: "다른 석고보드",
+  };
+  for (const components of [
+    [first, second],
+    [second, first],
   ])
     assert.throws(
       () => deriveP6MaterialPlans(components),
