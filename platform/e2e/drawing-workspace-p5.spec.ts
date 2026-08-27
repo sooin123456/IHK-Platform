@@ -137,6 +137,20 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     ),
   ).toBe(explicitImageReads);
   expect(compareCapabilityRequests).toBe(1);
+  await page.getByRole("button", { name: "현재 도면" }).click();
+  await expect(page.locator('[data-pdf-diff-marker="true"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect.poll(() => previousRequests).toBe(2);
+  expect(compareCapabilityRequests).toBe(2);
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __p5ImageReads?: number })
+          .__p5ImageReads ?? 0,
+    ),
+  ).toBe(explicitImageReads);
+  await expect(page.locator('[data-pdf-diff-marker="true"]')).toHaveCount(0);
   await page.getByRole("button", { name: "변경 표시 계산" }).click();
   await expect
     .poll(() =>
@@ -147,6 +161,9 @@ test("active PDF page compares only its exact predecessor with transient non-lis
       ),
     )
     .toBe(explicitImageReads + 2);
+  await expect(
+    page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
+  ).not.toHaveCount(0);
   await page.screenshot({
     path: path.resolve(
       "../.superpowers/sdd/2026-08-27-drawing-workspace-p5/task-5-pdf-overlay.png",

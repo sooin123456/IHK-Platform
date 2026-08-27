@@ -2816,6 +2816,8 @@ export default function DrawingWorkspaceClient({
       setPdfCompareMode(mode);
       if (mode === "current") {
         setPreviousPdfCapability(null);
+        setPdfDiffGeneration(0);
+        setPdfCompareState({ status: "idle", markers: [] });
         if (pdfCompareFetcher.state !== "idle")
           pdfCompareFetcher.submit(
             { intent: "cancel_pdf_compare" },
