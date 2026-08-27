@@ -19,6 +19,7 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
 import { VerifiedBoqDrawingSources } from "~/lukas/components/verified-boq-drawing-sources";
+import { VerifiedBoqComparison } from "~/lukas/components/verified-boq-comparison";
 import {
   deleteDrawingBoqLink,
   drawingQuantityLineageErrorResponse,
@@ -38,13 +39,17 @@ import {
   buildVerifiedBoqCsv,
   calculateVerifiedBoq,
   type BoqCalculationPolicy,
+  type VerifiedBoqInput,
   type VerifiedBoqResult,
 } from "~/lukas/lib/verified-boq.server";
 import { buildVerifiedBoqXlsx } from "~/lukas/lib/verified-boq-xlsx.server";
 import {
-  compareVerifiedBoq,
-  type VerifiedBoqComparison,
-} from "~/lukas/lib/verified-boq-comparison.server";
+  compareVerifiedBoqApprovedStates,
+  type ReplayableApprovedBoqState,
+  type VerifiedBoqV1_1Comparison,
+  verifiedBoqStoredReplayMatches,
+} from "~/lukas/lib/verified-boq-comparison-v1-1.server";
+import { compareVerifiedBoq } from "~/lukas/lib/verified-boq-comparison.server";
 import {
   assertVerifiedBoqSourceCoverage,
   listVerifiedBoqSources,
@@ -59,7 +64,10 @@ import {
   buildVerifiedBoqStructureTemplateCsv,
   parseVerifiedBoqStructure,
 } from "~/lukas/lib/verified-boq-structure.server";
-import type { VerifiedBoqV1_1Result } from "~/lukas/lib/verified-boq-v1-1.server";
+import type {
+  VerifiedBoqV1_1Input,
+  VerifiedBoqV1_1Result,
+} from "~/lukas/lib/verified-boq-v1-1.server";
 
 type Row = Record<string, unknown>;
 type Project = { id: string; name: string; owner_id: string };
@@ -397,12 +405,12 @@ async function loadVersionData(client: SupabaseClient<any>, version: Version) {
   };
 }
 
-function calculate(
+function verifiedBoqInput(
   version: Version,
   rows: Awaited<ReturnType<typeof loadVersionData>>,
   resources: Resource[],
-) {
-  return calculateVerifiedBoq({
+): VerifiedBoqInput {
+  return {
     versionId: version.id,
     calculationPolicy: version.calculation_policy,
     quantityScale: version.quantity_scale,
@@ -451,7 +459,27 @@ function calculate(
       resourceId: component.resource_id,
       coefficient: String(component.coefficient),
     })),
-  });
+  };
+}
+
+function calculate(
+  version: Version,
+  rows: Awaited<ReturnType<typeof loadVersionData>>,
+  resources: Resource[],
+) {
+  return calculateVerifiedBoq(verifiedBoqInput(version, rows, resources));
+}
+
+function unreplayableComparison(): VerifiedBoqV1_1Comparison {
+  return {
+    status: "review",
+    rows: [],
+    amountDeltaKrw: "0",
+    causeAmountDeltaKrw: "0",
+    rowAmountDeltaKrw: "0",
+    amountCloses: false,
+    message: "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
+  };
 }
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
@@ -515,7 +543,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   let result: VerifiedBoqResult | VerifiedBoqV1_1Result | null = null;
   let calculationError: string | null = null;
   let snapshotValid = true;
-  let comparison: VerifiedBoqComparison | null = null;
+  let comparison: VerifiedBoqV1_1Comparison | null = null;
+  let replayInput: VerifiedBoqInput | VerifiedBoqV1_1Input | null = null;
   let identityLinks: IdentityLink[] = [];
   let drawingSources: VerifiedBoqDrawingSourceRow[] = [];
   let drawingSourcesHaveMore = false;
@@ -551,56 +580,159 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           version.id,
         );
         result = calculated.result;
+        replayInput = calculated.parsed.input;
         if (
           version.status !== "draft" &&
-          (version.input_state_sha256 !== calculated.parsed.inputStateSha256 ||
-            version.result_sha256 !== result.canonicalSha256 ||
-            version.manifest_sha256 !== calculated.manifest.manifestSha256)
+          !verifiedBoqStoredReplayMatches({
+            engineVersion: version.engine_version,
+            stored: {
+              inputStateSha256: version.input_state_sha256,
+              resultSha256: version.result_sha256,
+              manifestSha256: version.manifest_sha256,
+              directCostKrw: version.direct_cost_krw,
+              lineCount: version.line_count,
+            },
+            replayed: {
+              inputStateSha256: calculated.parsed.inputStateSha256,
+              resultSha256: result.canonicalSha256,
+              manifestSha256: calculated.manifest.manifestSha256,
+              directCostKrw: result.directCostKrw,
+              lineCount: result.lines.length,
+            },
+          })
         ) {
           snapshotValid = false;
           calculationError =
             "승인 요청 당시 입력·결과·manifest 확인번호와 현재 재계산 결과가 다릅니다. 승인·내보내기를 중지했습니다.";
         }
       } else {
-        result = calculate(version, loaded, resources);
+        replayInput = verifiedBoqInput(version, loaded, resources);
+        result = calculateVerifiedBoq(replayInput);
       }
       if (
         version.engine_version === "VERIFIED-BOQ-1.0" &&
         version.status !== "draft" &&
-        version.result_sha256 !== result.canonicalSha256
+        !verifiedBoqStoredReplayMatches({
+          engineVersion: version.engine_version,
+          stored: {
+            inputStateSha256: version.input_state_sha256,
+            resultSha256: version.result_sha256,
+            manifestSha256: version.manifest_sha256,
+            directCostKrw: version.direct_cost_krw,
+            lineCount: version.line_count,
+          },
+          replayed: {
+            resultSha256: result.canonicalSha256,
+            directCostKrw: result.directCostKrw,
+            lineCount: result.lines.length,
+          },
+        })
       ) {
         snapshotValid = false;
         calculationError =
           "승인 요청 당시 결과 확인번호와 현재 재계산 결과가 다릅니다. 승인·내보내기를 중지했습니다.";
       }
       if (
-        version.engine_version === "VERIFIED-BOQ-1.0" &&
-        result.engineVersion === "VERIFIED-BOQ-1.0" &&
+        replayInput &&
+        ["approved", "superseded"].includes(version.status) &&
         version.supersedes_id
       ) {
         const previous = versions.find(
           (item) => item.id === version.supersedes_id,
         );
-        if (previous?.engine_version === "VERIFIED-BOQ-1.0") {
-          const [previousRows, previousResourcesResult] = await Promise.all([
-            loadVersionData(context.client, previous),
-            context.client
-              .from("lukas_qto_price_resources")
-              .select(
-                "id,price_book_id,resource_code,resource_type,resource_name,specification,unit,unit_price_krw",
-              )
-              .eq("price_book_id", previous.price_book_id),
-          ]);
-          if (previousResourcesResult.error)
-            throw previousResourcesResult.error;
-          comparison = compareVerifiedBoq(
-            calculate(
+        if (previous && ["approved", "superseded"].includes(previous.status)) {
+          const previousRows = await loadVersionData(context.client, previous);
+          let previousInput: VerifiedBoqInput | VerifiedBoqV1_1Input;
+          let previousResult: VerifiedBoqResult | VerifiedBoqV1_1Result;
+          let previousSnapshotValid = true;
+          if (previous.engine_version === "VERIFIED-BOQ-1.1") {
+            const replay = await loadVerifiedBoqV1_1Calculation(
+              context.client,
+              context.user.id,
+              previous.id,
+            );
+            previousInput = replay.parsed.input;
+            previousResult = replay.result;
+            previousSnapshotValid = verifiedBoqStoredReplayMatches({
+              engineVersion: previous.engine_version,
+              stored: {
+                inputStateSha256: previous.input_state_sha256,
+                resultSha256: previous.result_sha256,
+                manifestSha256: previous.manifest_sha256,
+                directCostKrw: previous.direct_cost_krw,
+                lineCount: previous.line_count,
+              },
+              replayed: {
+                inputStateSha256: replay.parsed.inputStateSha256,
+                resultSha256: replay.result.canonicalSha256,
+                manifestSha256: replay.manifest.manifestSha256,
+                directCostKrw: replay.result.directCostKrw,
+                lineCount: replay.result.lines.length,
+              },
+            });
+          } else {
+            const { data: previousResources, error: previousResourceError } =
+              await context.client
+                .from("lukas_qto_price_resources")
+                .select(
+                  "id,price_book_id,resource_code,resource_type,resource_name,specification,unit,unit_price_krw",
+                )
+                .eq("price_book_id", previous.price_book_id);
+            if (previousResourceError) throw previousResourceError;
+            previousInput = verifiedBoqInput(
               previous,
               previousRows,
-              (previousResourcesResult.data ?? []) as Resource[],
-            ),
-            result,
-          );
+              (previousResources ?? []) as Resource[],
+            );
+            previousResult = calculateVerifiedBoq(previousInput);
+            previousSnapshotValid = verifiedBoqStoredReplayMatches({
+              engineVersion: previous.engine_version,
+              stored: {
+                inputStateSha256: previous.input_state_sha256,
+                resultSha256: previous.result_sha256,
+                manifestSha256: previous.manifest_sha256,
+                directCostKrw: previous.direct_cost_krw,
+                lineCount: previous.line_count,
+              },
+              replayed: {
+                resultSha256: previousResult.canonicalSha256,
+                directCostKrw: previousResult.directCostKrw,
+                lineCount: previousResult.lines.length,
+              },
+            });
+          }
+          const decision = (rows: typeof previousRows) => {
+            const approved = rows.approvals.find(
+              (approval) => approval.decision === "approved",
+            );
+            return approved
+              ? {
+                  decidedBy: approved.decided_by,
+                  createdAt: approved.created_at,
+                }
+              : { decidedBy: "", createdAt: "" };
+          };
+          comparison =
+            snapshotValid && previousSnapshotValid
+              ? compareVerifiedBoqApprovedStates(
+                  {
+                    engineVersion: previous.engine_version,
+                    status:
+                      previous.status as ReplayableApprovedBoqState["status"],
+                    approvedDecision: decision(previousRows),
+                    input: previousInput,
+                    result: previousResult,
+                  },
+                  {
+                    engineVersion: version.engine_version,
+                    status:
+                      version.status as ReplayableApprovedBoqState["status"],
+                    approvedDecision: decision(loaded),
+                    input: replayInput,
+                    result,
+                  },
+                )
+              : unreplayableComparison();
         }
       }
     } catch (error) {
@@ -2397,57 +2529,7 @@ export default function VerifiedBoq({
           </section>
 
           {loaderData.comparison ? (
-            <section className="mt-5 rounded-2xl border bg-card p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h2 className="font-semibold">이전 승인 버전과 변경 비교</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {loaderData.comparison.message}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    직접공사비 증감
-                  </p>
-                  <p className="text-xl font-bold">
-                    {moneyText(loaderData.comparison.amountDeltaKrw)}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-sm">
-                  <thead className="border-b text-muted-foreground">
-                    <tr>
-                      <th className="pb-3">품목</th>
-                      <th className="pb-3">변경</th>
-                      <th className="pb-3">이전→현재 수량</th>
-                      <th className="pb-3">금액 증감</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loaderData.comparison.rows.map((row) => (
-                      <tr className="border-b" key={row.itemCode}>
-                        <td className="py-3">
-                          <b>{row.itemCode}</b> · {row.itemName}
-                        </td>
-                        <td>{row.changes.join(" · ")}</td>
-                        <td>
-                          {row.previousQuantity ?? "—"} →{" "}
-                          {row.currentQuantity ?? "—"} {row.unit}
-                        </td>
-                        <td>{moneyText(row.amountDeltaKrw)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="mt-4 text-xs text-muted-foreground">
-                단위별 수량 증감:{" "}
-                {Object.entries(loaderData.comparison.quantityDeltaByUnit)
-                  .map(([key, value]) => `${key} ${value}`)
-                  .join(" · ") || "없음"}
-              </p>
-            </section>
+            <VerifiedBoqComparison comparison={loaderData.comparison} />
           ) : null}
 
           <section className="mt-5 rounded-2xl border bg-[#17124a] p-6 text-white">

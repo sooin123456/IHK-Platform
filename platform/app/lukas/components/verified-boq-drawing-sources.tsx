@@ -76,13 +76,20 @@ function SourceCard({
                     {line?.itemCode ?? "품목"} {line?.itemName ?? ""} · 배분{" "}
                     {link.allocationFactor} · OCC V{link.version}
                   </span>
-                  {link.workspaceHref ? (
-                    <Link
-                      className="font-semibold text-primary underline"
-                      to={link.workspaceHref}
-                    >
-                      도면 객체 열기
-                    </Link>
+                  {link.evidenceHrefs.length ? (
+                    <span className="flex flex-wrap gap-2">
+                      {link.evidenceHrefs.map((evidence) => (
+                        <Link
+                          className="font-semibold text-primary underline"
+                          key={`${link.id}:${evidence.sourceFileId}`}
+                          to={evidence.href}
+                        >
+                          {evidence.sourceKind === "ifc_element"
+                            ? "IFC 근거 열기"
+                            : "PDF 근거 열기"}
+                        </Link>
+                      ))}
+                    </span>
                   ) : null}
                 </div>
                 {editable ? (

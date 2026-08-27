@@ -20,8 +20,10 @@ import {
   DrawingQuantityLineageServerError,
   drawingQuantityLineageErrorResponse,
   listDrawingObjectQuantityLineage,
+  resolveDrawingWorkspaceEntry,
 } from "~/lukas/lib/drawing-quantity-lineage.server";
 import {
+  assertDrawingBoqEvidenceScope,
   assertDrawingQuantityWorkspaceScope,
   handleWorkspaceMutation,
   drawingTemplateCloneLocation,
@@ -83,6 +85,34 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       status: 400,
     });
   }
+  if (lineageSearch.boqVersionId && lineageSearch.boqLineId) {
+    try {
+      if (!lineageSearch.evidenceFileId)
+        throw new Error("missing evidence file");
+      const authorizedLocation = await resolveDrawingWorkspaceEntry(client, {
+        projectId: project.id,
+        revisionId: lineageSearch.revisionId!,
+        objectId: lineageSearch.objectId!,
+        boqVersionId: lineageSearch.boqVersionId,
+        boqLineId: lineageSearch.boqLineId,
+        fileId: lineageSearch.evidenceFileId,
+      });
+      const authorized = new URL(authorizedLocation, request.url);
+      const current = new URL(request.url);
+      if (
+        authorized.pathname !== current.pathname ||
+        ["document", "evidence", "view", "ifc"].some(
+          (name) =>
+            authorized.searchParams.get(name) !== searchParams.get(name),
+        )
+      )
+        throw new Error("evidence route mismatch");
+    } catch {
+      throw new Response("연결된 도면 근거를 열 수 없습니다.", {
+        status: 404,
+      });
+    }
+  }
   let viewState;
   try {
     viewState = parseDrawingWorkspaceViewState(
@@ -99,6 +129,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     params.fileId!,
     searchParams.get("document") ?? undefined,
     lineageSearch.revisionId ?? undefined,
+    lineageSearch.objectId ?? undefined,
+    lineageSearch.evidenceFileId ?? undefined,
   );
   const selectedIfcFileId =
     viewState.ifcFileId ??
@@ -160,8 +192,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         objectId: lineageObjectId,
         cursor: lineageCursor,
         limit: 200,
+        boqEvidence:
+          lineageSearch.boqVersionId && lineageSearch.boqLineId
+            ? {
+                boqVersionId: lineageSearch.boqVersionId,
+                boqLineId: lineageSearch.boqLineId,
+              }
+            : undefined,
       });
+      if (lineageSearch.boqVersionId && lineageSearch.boqLineId)
+        assertDrawingBoqEvidenceScope(quantityLineage, {
+          boqVersionId: lineageSearch.boqVersionId,
+          boqLineId: lineageSearch.boqLineId,
+        });
     } catch (error) {
+      if (lineageSearch.boqVersionId && lineageSearch.boqLineId)
+        throw new Response("연결된 도면 근거를 열 수 없습니다.", {
+          status: 404,
+        });
       const bounded = drawingQuantityLineageErrorResponse(error);
       throw new Response(bounded.body.error, {
         status: bounded.body.errorCode === "P6O01" ? 400 : bounded.status,

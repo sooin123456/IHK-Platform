@@ -8,7 +8,11 @@ import {
   parseDrawingQuantityLinkForm,
   parseDrawingQuantityLineageSearch,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
-import { drawingWorkspaceObjectFocusViewport } from "../app/lukas/lib/drawing-workspace-view.ts";
+import {
+  drawingWorkspaceEvidenceFocusBounds,
+  drawingWorkspaceEvidenceFocusKey,
+  drawingWorkspaceObjectFocusViewport,
+} from "../app/lukas/lib/drawing-workspace-view.ts";
 import { sanitizeDrawingTransientInput } from "../app/lukas/lib/drawing-document-store.ts";
 import { parseDrawingBoqMutationForm } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 
@@ -91,6 +95,7 @@ test("quantity lineage URL identity is validated before workspace loading", asyn
       objectId: "00000000-0000-4000-8000-000000000022",
       boqVersionId: null,
       boqLineId: null,
+      evidenceFileId: null,
       cursor: "cursor",
     },
   );
@@ -121,6 +126,7 @@ test("BOQ evidence URL requires one exact UUID ancestry tuple", () => {
     object: "00000000-0000-4000-8000-000000000022",
     boq: "00000000-0000-4000-8000-000000000023",
     line: "00000000-0000-4000-8000-000000000024",
+    evidence: "00000000-0000-4000-8000-000000000025",
   };
   assert.deepEqual(
     parseDrawingQuantityLineageSearch(new URLSearchParams(tuple)),
@@ -129,6 +135,7 @@ test("BOQ evidence URL requires one exact UUID ancestry tuple", () => {
       objectId: tuple.object,
       boqVersionId: tuple.boq,
       boqLineId: tuple.line,
+      evidenceFileId: tuple.evidence,
       cursor: null,
     },
   );
@@ -138,6 +145,13 @@ test("BOQ evidence URL requires one exact UUID ancestry tuple", () => {
     { revision: tuple.revision, object: tuple.object, boq: tuple.boq },
     { revision: tuple.revision, object: tuple.object, line: tuple.line },
     { boq: tuple.boq, line: tuple.line },
+    {
+      revision: tuple.revision,
+      object: tuple.object,
+      boq: tuple.boq,
+      line: tuple.line,
+    },
+    { evidence: tuple.evidence },
   ])
     assert.throws(
       () => parseDrawingQuantityLineageSearch(new URLSearchParams(input)),
@@ -187,7 +201,11 @@ test("BOQ evidence focus accepts only the exact authorized persisted link", () =
       /연결된 도면 근거를 열 수 없습니다/,
     );
   assert.throws(
-    () => assertDrawingBoqEvidenceScope({ rows: [], nextCursor: null }, { boqVersionId, boqLineId }),
+    () =>
+      assertDrawingBoqEvidenceScope(
+        { rows: [], nextCursor: null },
+        { boqVersionId, boqLineId },
+      ),
     /연결된 도면 근거를 열 수 없습니다/,
   );
 });
@@ -208,6 +226,75 @@ test("BOQ object focus selects its non-default canvas and computes a bounded ini
   );
 });
 
+test("BOQ evidence focus is one-shot per exact authorized tuple", () => {
+  const tuple = {
+    revisionId: "00000000-0000-4000-8000-000000000031",
+    objectId: "00000000-0000-4000-8000-000000000032",
+    boqVersionId: "00000000-0000-4000-8000-000000000033",
+    boqLineId: "00000000-0000-4000-8000-000000000034",
+    evidenceFileId: "00000000-0000-4000-8000-000000000035",
+  };
+  const key = drawingWorkspaceEvidenceFocusKey(tuple);
+  assert.equal(key, drawingWorkspaceEvidenceFocusKey({ ...tuple }));
+  assert.notEqual(
+    key,
+    drawingWorkspaceEvidenceFocusKey({
+      ...tuple,
+      objectId: "00000000-0000-4000-8000-000000000036",
+    }),
+  );
+  assert.notEqual(
+    key,
+    drawingWorkspaceEvidenceFocusKey({
+      ...tuple,
+      evidenceFileId: "00000000-0000-4000-8000-000000000037",
+    }),
+  );
+  assert.equal(
+    drawingWorkspaceEvidenceFocusKey({ ...tuple, evidenceFileId: null }),
+    null,
+  );
+});
+
+test("PDF evidence focus consumes the persisted page and normalized region", () => {
+  const evidence = {
+    id: "00000000-0000-4000-8000-000000000041",
+    objectId: "00000000-0000-4000-8000-000000000042",
+    revisionId: "00000000-0000-4000-8000-000000000043",
+    sourceFileId: "00000000-0000-4000-8000-000000000044",
+    sourceSha256: "a".repeat(64),
+    sourceKind: "pdf_region",
+    pdfPageNumber: 3,
+    x: 0.25,
+    y: 0.5,
+    width: 0.5,
+    height: 0.25,
+    version: 1,
+  };
+  const transform = {
+    pageNumber: 3,
+    rotation: 0,
+    pdfViewport: { width: 1000, height: 500 },
+    worldBounds: { x: 10, y: 20, width: 800, height: 400 },
+  };
+  assert.deepEqual(
+    drawingWorkspaceEvidenceFocusBounds({
+      evidence,
+      objectBounds: { x: 999, y: 999, width: 1, height: 1 },
+      pdfPageTransform: transform,
+    }),
+    { x: 210, y: 220, width: 400, height: 100 },
+  );
+  assert.equal(
+    drawingWorkspaceEvidenceFocusBounds({
+      evidence,
+      objectBounds: { x: 999, y: 999, width: 1, height: 1 },
+      pdfPageTransform: { ...transform, pageNumber: 2 },
+    }),
+    null,
+  );
+});
+
 test("workspace loader binds the BOQ tuple before returning focus and never falls back", async () => {
   const source = await readFile(
     new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
@@ -221,16 +308,35 @@ test("workspace loader binds the BOQ tuple before returning focus and never fall
   assert.match(loader, /assertDrawingBoqEvidenceScope\(/);
   assert.match(loader, /boqVersionId: lineageSearch\.boqVersionId/);
   assert.match(loader, /boqLineId: lineageSearch\.boqLineId/);
+  assert.match(loader, /boqEvidence:/);
   assert.match(loader, /연결된 도면 근거를 열 수 없습니다/);
-  assert.doesNotMatch(loader, /boqVersionId[\s\S]{0,180}(?:versions\[0\]|rows\[0\])/);
+  assert.doesNotMatch(
+    loader,
+    /boqVersionId[\s\S]{0,180}(?:versions\[0\]|rows\[0\])/,
+  );
 
   const client = await readFile(
     new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(client, /drawingWorkspaceObjectFocusViewport\(/);
-  assert.match(client, /canvasRef\.current\?\.setViewport\(/);
-  assert.match(client, /initialEvidenceFocusAppliedRef/);
+  assert.match(client, /drawingWorkspaceEvidenceFocusBounds\(/);
+  assert.match(client, /canvasRef\.current\.setViewport\(/);
+  assert.match(client, /initialEvidenceFocusKeyRef/);
+  assert.match(
+    client,
+    /initialEvidenceFocusKeyRef\.current === evidenceFocusKey/,
+  );
+  assert.match(client, /setAuthorizedSelection\(\[evidenceFocusObjectId\]\)/);
+  assert.match(client, /selectedDrawingObjectId !== evidenceFocusObjectId/);
+  const workspaceServer = await readFile(
+    new URL("../app/lukas/lib/drawing-workspace.server.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    workspaceServer,
+    /focusedObject && \(!focusedLayer \|\| !focusedCanvas\)/,
+  );
 });
 
 test("quantity lineage loader binds the URL file, revision, and object before reading lineage", async () => {

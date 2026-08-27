@@ -762,18 +762,58 @@ export function parseDrawingQuantityLineageSearch(
   searchParams: URLSearchParams,
 ) {
   try {
-    const revision = searchParams.get("revision");
-    const object = searchParams.get("object");
-    const cursor = searchParams.get("quantityCursor");
+    const one = (name: string) => {
+      const values = searchParams.getAll(name);
+      if (values.length > 1) throw new Error("duplicate URL value");
+      return values[0] ?? null;
+    };
+    const revision = one("revision");
+    const object = one("object");
+    const boq = one("boq");
+    const line = one("line");
+    const evidence = one("evidence");
+    const cursor = one("quantityCursor");
     if (cursor && !object) throw new Error("orphan cursor");
+    if (
+      (boq || line || evidence) &&
+      !(revision && object && boq && line && evidence)
+    )
+      throw new Error("incomplete BOQ evidence");
     return {
       revisionId: revision ? Uuid.parse(revision) : null,
       objectId: object ? Uuid.parse(object) : null,
+      boqVersionId: boq ? Uuid.parse(boq) : null,
+      boqLineId: line ? Uuid.parse(line) : null,
+      evidenceFileId: evidence ? Uuid.parse(evidence) : null,
       cursor,
     };
   } catch {
     throw new Error("도면 수량 근거 URL이 올바르지 않습니다.");
   }
+}
+
+export function assertDrawingBoqEvidenceScope(
+  lineage: {
+    rows: Array<{
+      boqLinks: Array<{ boqVersionId: string; boqLineId: string }>;
+    }>;
+  },
+  input: { boqVersionId: string; boqLineId: string },
+) {
+  const boqVersionId = Uuid.parse(input.boqVersionId);
+  const boqLineId = Uuid.parse(input.boqLineId);
+  if (
+    !lineage.rows.some((row) =>
+      row.boqLinks.some(
+        (link) =>
+          link.boqVersionId === boqVersionId && link.boqLineId === boqLineId,
+      ),
+    )
+  )
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  return { boqVersionId, boqLineId };
 }
 
 export type WorkspaceMutation =
@@ -1545,6 +1585,8 @@ function parseP2Workspace(
     tables: unknown[];
     sources: DrawingObjectSource[];
   },
+  focusObjectId?: string,
+  focusEvidenceFileId?: string,
 ): DrawingWorkspaceP2 {
   const pages = rows.pages.map((row) => {
     const value = P2PageRowSchema.safeParse(row);
@@ -1858,18 +1900,61 @@ function parseP2Workspace(
         order(left) - order(right) || left.id.localeCompare(right.id),
     );
   const orderedPages = sorted(pages, (page) => page.sortOrder);
-  const activePage = orderedPages[0];
+  const focusedObject = focusObjectId
+    ? objects.find((object) => object.id === focusObjectId)
+    : null;
+  if (focusObjectId && !focusedObject)
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  const focusedLayer = focusedObject
+    ? layers.find((layer) => layer.id === focusedObject.layerId)
+    : null;
+  const focusedCanvas = focusedLayer
+    ? canvases.find((canvas) => canvas.id === focusedLayer.canvasId)
+    : null;
+  if (focusedObject && (!focusedLayer || !focusedCanvas))
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  const focusedEvidence = focusEvidenceFileId
+    ? sources.filter(
+        (source) =>
+          source.objectId === focusObjectId &&
+          source.sourceFileId === focusEvidenceFileId,
+      )
+    : [];
+  if (focusEvidenceFileId && focusedEvidence.length !== 1)
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  const focusedPdfEvidence = focusedEvidence.find(
+    (source) => source.sourceKind === "pdf_region",
+  );
+  const focusedBackground = focusedCanvas?.background;
+  if (
+    focusedPdfEvidence &&
+    (focusedBackground?.sourceFileId !== focusEvidenceFileId ||
+      focusedBackground?.pdfPageNumber !== focusedPdfEvidence.pdfPageNumber)
+  )
+    throw new DrawingWorkspaceConflictError(
+      "연결된 도면 근거를 열 수 없습니다.",
+    );
+  const activePage = focusedCanvas
+    ? orderedPages.find((page) => page.id === focusedCanvas.pageId)
+    : orderedPages[0];
   const activeCanvas =
-    activePage &&
-    sorted(
-      canvases.filter(
-        (canvas) =>
-          canvas.pageId === activePage.id &&
-          canvas.spaceKind === "paper" &&
-          canvas.sortOrder === 0,
-      ),
-      (canvas) => canvas.sortOrder,
-    )[0];
+    focusedCanvas ??
+    (activePage &&
+      sorted(
+        canvases.filter(
+          (canvas) =>
+            canvas.pageId === activePage.id &&
+            canvas.spaceKind === "paper" &&
+            canvas.sortOrder === 0,
+        ),
+        (canvas) => canvas.sortOrder,
+      )[0]);
   requireP2Ancestry(
     activePage && activeCanvas,
     "Drawing default canvas is missing.",
@@ -2061,6 +2146,8 @@ export async function loadDrawingWorkspace(
   fileId: string,
   documentId?: string,
   revisionId?: string,
+  focusObjectId?: string,
+  focusEvidenceFileId?: string,
 ): Promise<DrawingWorkspace> {
   const { data: file, error: fileError } = await client
     .from("lukas_qto_files")
@@ -2303,6 +2390,8 @@ export async function loadDrawingWorkspace(
         tables,
         sources,
       },
+      focusObjectId,
+      focusEvidenceFileId,
     );
     const objectIds = new Set(p2.objects.map((object) => object.id));
     const issueIds = new Set(issues.map((issue) => issue.id));

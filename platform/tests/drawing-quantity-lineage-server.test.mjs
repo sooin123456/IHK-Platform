@@ -334,6 +334,53 @@ test("lineage pages by created_at and id with a hard 200 row bound", async () =>
   assert.deepEqual(client.orders.slice(0, 2), ["created_at", "id"]);
 });
 
+test("exact BOQ evidence is included even when its quantity is older than the first page", async () => {
+  const target = quantityFixture({
+    id: "00000000-0000-4000-8000-0000000002ff",
+    created_at: "2020-01-01T00:00:00.000Z",
+  });
+  const recent = Array.from({ length: 201 }, (_, index) =>
+    quantityFixture({
+      id: `00000000-0000-4000-8001-${String(index + 1).padStart(12, "0")}`,
+      created_at: `2026-08-28T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+    }),
+  );
+  const exactLink = {
+    ...drawingLinkFixture(target.id),
+    boq_version: { status: "approved" },
+    boq_line: { item_code: "001-A" },
+    quantity: { id: target.id },
+  };
+  const client = {
+    from(table) {
+      if (table === "lukas_drawing_quantity_links") {
+        const query = chain({ data: target, error: null });
+        query.limit = (size) =>
+          Promise.resolve({ data: recent.slice(0, size), error: null });
+        return query;
+      }
+      const query = chain({ data: exactLink, error: null });
+      query.limit = () => Promise.resolve({ data: [], error: null });
+      return query;
+    },
+  };
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+    boqEvidence: {
+      boqVersionId: p6Ids.version,
+      boqLineId: p6Ids.line,
+    },
+  });
+  assert.equal(page.rows.length, 200);
+  assert.equal(page.rows[0].quantity.id, target.id);
+  assert.equal(page.rows[0].boqLinks[0].id, exactLink.id);
+  assert.ok(page.nextCursor);
+});
+
 test("workspace resolution returns exact evidence route and never falls back", async () => {
   const ids = {
     project: "00000000-0000-4000-8000-000000000031",
@@ -352,8 +399,9 @@ test("workspace resolution returns exact evidence route and never falls back", a
       objectId: ids.object,
       boqVersionId: ids.boq,
       boqLineId: ids.line,
+      fileId: ids.file,
     }),
-    `/projects/${ids.project}/drawings/${ids.file}/workspace?document=${ids.document}&revision=${ids.revision}&object=${ids.object}&boq=${ids.boq}&line=${ids.line}`,
+    `/projects/${ids.project}/drawings/${ids.file}/workspace?document=${ids.document}&revision=${ids.revision}&object=${ids.object}&boq=${ids.boq}&line=${ids.line}&evidence=${ids.file}&view=2d`,
   );
   await assert.rejects(
     resolveDrawingWorkspaceEntry(exactEntryClient({ ...ids, file: null }), {
@@ -362,6 +410,7 @@ test("workspace resolution returns exact evidence route and never falls back", a
       objectId: ids.object,
       boqVersionId: ids.boq,
       boqLineId: ids.line,
+      fileId: ids.file,
     }),
     /연결된 도면 근거를 열 수 없습니다/,
   );
@@ -620,14 +669,22 @@ test("verified BOQ Drawing links resolve exact immutable workspace ancestry in b
       links: [link],
       revisions: [{ id: p6Ids.revision, document_id: document }],
       documents: [{ id: document, source_file_id: file }],
-      files: [{ id: file }],
+      sources: [
+        {
+          revision_id: p6Ids.revision,
+          object_id: p6Ids.object,
+          source_file_id: file,
+          source_kind: "pdf_region",
+        },
+      ],
+      files: [{ id: file, kind: "pdf" }],
     }),
     { projectId: p6Ids.project, boqVersionId: p6Ids.version },
   );
   assert.equal(page.rows[0].allocationTotal, "1");
   assert.equal(
     page.rows[0].links[0].workspaceHref,
-    `/projects/${p6Ids.project}/drawings/${file}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}`,
+    `/projects/${p6Ids.project}/drawings/${file}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${file}&view=2d`,
   );
 });
 
@@ -649,18 +706,128 @@ test("verified BOQ Drawing source fallback is bound to the exact revision and ob
           revision_id: otherRevision,
           object_id: p6Ids.object,
           source_file_id: otherFile,
+          source_kind: "pdf_region",
         },
         {
           revision_id: p6Ids.revision,
           object_id: p6Ids.object,
           source_file_id: exactFile,
+          source_kind: "pdf_region",
         },
       ],
-      files: [{ id: exactFile }, { id: otherFile }],
+      files: [
+        { id: exactFile, kind: "pdf" },
+        { id: otherFile, kind: "pdf" },
+      ],
     }),
     { projectId: p6Ids.project, boqVersionId: p6Ids.version },
   );
   assert.match(page.rows[0].links[0].workspaceHref, new RegExp(exactFile));
+});
+
+test("PDF document entry keeps its pathname while IFC evidence opens exact split focus", async () => {
+  const document = "00000000-0000-4000-8000-000000000123";
+  const pdfFile = "00000000-0000-4000-8000-000000000124";
+  const ifcFile = "00000000-0000-4000-8000-000000000125";
+  const page = await listVerifiedBoqDrawingSources(
+    listClient({
+      quantities: [quantityFixture()],
+      links: [drawingLinkFixture(p6Ids.quantity)],
+      revisions: [{ id: p6Ids.revision, document_id: document }],
+      documents: [{ id: document, source_file_id: pdfFile }],
+      sources: [
+        {
+          revision_id: p6Ids.revision,
+          object_id: p6Ids.object,
+          source_file_id: pdfFile,
+          source_kind: "pdf_region",
+        },
+        {
+          revision_id: p6Ids.revision,
+          object_id: p6Ids.object,
+          source_file_id: ifcFile,
+          source_kind: "ifc_element",
+        },
+      ],
+      files: [
+        { id: pdfFile, kind: "pdf" },
+        { id: ifcFile, kind: "ifc" },
+      ],
+    }),
+    { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+  );
+  const link = page.rows[0].links[0];
+  assert.equal(link.workspaceHref, null);
+  assert.deepEqual(
+    link.evidenceHrefs.map((row) => [row.sourceKind, row.href]),
+    [
+      [
+        "pdf_region",
+        `/projects/${p6Ids.project}/drawings/${pdfFile}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${pdfFile}&view=2d`,
+      ],
+      [
+        "ifc_element",
+        `/projects/${p6Ids.project}/drawings/${pdfFile}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${ifcFile}&view=split&ifc=${ifcFile}`,
+      ],
+    ],
+  );
+});
+
+test("bulk evidence resolution fetches the complete bounded entry and anchor file union", async () => {
+  const id = (prefix, index) =>
+    `00000000-0000-4000-8000-${prefix}${String(index + 1).padStart(9, "0")}`;
+  const quantities = Array.from({ length: 200 }, (_, index) =>
+    quantityFixture({
+      id: id("300", index),
+      drawing_revision_id: id("100", index),
+      drawing_object_id: id("200", index),
+    }),
+  );
+  const client = listClient({
+    quantities,
+    links: quantities.map((quantity, index) => ({
+      ...drawingLinkFixture(quantity.id),
+      id: id("400", index),
+    })),
+    revisions: quantities.map((quantity, index) => ({
+      id: quantity.drawing_revision_id,
+      document_id: id("500", index),
+    })),
+    documents: quantities.map((_quantity, index) => ({
+      id: id("500", index),
+      source_file_id: id("600", index),
+    })),
+    sources: quantities.flatMap((quantity, index) => [
+      {
+        revision_id: quantity.drawing_revision_id,
+        object_id: quantity.drawing_object_id,
+        source_file_id: id("700", index),
+        source_kind: "pdf_region",
+      },
+      {
+        revision_id: quantity.drawing_revision_id,
+        object_id: quantity.drawing_object_id,
+        source_file_id: id("800", index),
+        source_kind: "ifc_element",
+      },
+    ]),
+    files: quantities.flatMap((_quantity, index) => [
+      { id: id("600", index), kind: "pdf" },
+      { id: id("700", index), kind: "pdf" },
+      { id: id("800", index), kind: "ifc" },
+    ]),
+  });
+  const page = await listVerifiedBoqDrawingSources(client, {
+    projectId: p6Ids.project,
+    boqVersionId: p6Ids.version,
+  });
+  assert.equal(page.rows.length, 200);
+  assert.equal(
+    page.rows.every((row) => row.links[0].evidenceHrefs.length === 2),
+    true,
+  );
+  assert.equal(client.limits.includes(401), true);
+  assert.equal(client.limits.includes(601), true);
 });
 
 test("verified BOQ Drawing source loader always includes old mapped sources before filling the 200 row page", async () => {
@@ -997,6 +1164,13 @@ function exactEntryClient(ids) {
       id: ids.line,
       version_id: ids.boq,
       project_id: ids.project,
+    },
+    lukas_drawing_boq_links: {
+      id: "00000000-0000-4000-8000-000000000038",
+      quantity: { id: "00000000-0000-4000-8000-000000000039" },
+    },
+    lukas_drawing_object_sources: {
+      id: "00000000-0000-4000-8000-00000000003a",
     },
     lukas_qto_files: ids.file
       ? { id: ids.file, project_id: ids.project, immutable: true, kind: "pdf" }

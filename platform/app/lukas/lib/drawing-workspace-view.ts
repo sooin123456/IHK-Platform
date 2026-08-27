@@ -1,6 +1,10 @@
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
 import { containPdfSource } from "./drawing-geometry.ts";
 import {
+  pdfNormalizedRegionToWorldBounds,
+  type DrawingPdfPageTransform,
+} from "./drawing-pdf-transform.ts";
+import {
   DrawingObjectSourceSchema,
   type DrawingObjectSource,
 } from "./drawing-workspace.types.ts";
@@ -8,6 +12,92 @@ import {
 type RevisionStatus = "draft" | "review_requested" | "approved" | "superseded";
 
 export type DrawingWorkspaceViewMode = "2d" | "3d" | "split";
+
+export function drawingWorkspaceEvidenceFocusKey(input: {
+  boqVersionId: string | null;
+  boqLineId: string | null;
+  evidenceFileId: string | null;
+  objectId: string | null;
+  revisionId: string | null;
+}) {
+  const values = [
+    input.revisionId,
+    input.objectId,
+    input.boqVersionId,
+    input.boqLineId,
+    input.evidenceFileId,
+  ];
+  return values.every((value): value is string => Boolean(value))
+    ? values.join(":")
+    : null;
+}
+
+export function drawingWorkspaceEvidenceFocusBounds(input: {
+  evidence: DrawingObjectSource;
+  objectBounds: { x: number; y: number; width: number; height: number };
+  pdfPageTransform: DrawingPdfPageTransform | null;
+}) {
+  if (input.evidence.sourceKind !== "pdf_region") return input.objectBounds;
+  if (
+    !input.pdfPageTransform ||
+    input.pdfPageTransform.pageNumber !== input.evidence.pdfPageNumber
+  )
+    return null;
+  return pdfNormalizedRegionToWorldBounds(input.pdfPageTransform, {
+    x: input.evidence.x,
+    y: input.evidence.y,
+    width: input.evidence.width,
+    height: input.evidence.height,
+  });
+}
+
+export function drawingWorkspaceObjectFocusViewport(input: {
+  bounds: { x: number; y: number; width: number; height: number };
+  canvasId: string;
+  pageId: string;
+  viewportSize: { width: number; height: number };
+}) {
+  const values = [
+    input.bounds.x,
+    input.bounds.y,
+    input.bounds.width,
+    input.bounds.height,
+    input.viewportSize.width,
+    input.viewportSize.height,
+  ];
+  if (
+    values.some((value) => !Number.isFinite(value)) ||
+    input.bounds.width < 0 ||
+    input.bounds.height < 0 ||
+    input.viewportSize.width <= 0 ||
+    input.viewportSize.height <= 0
+  )
+    throw new Error("도면 객체 화면 맞춤 값이 올바르지 않습니다.");
+  const padding = 48;
+  const availableWidth = Math.max(1, input.viewportSize.width - padding * 2);
+  const availableHeight = Math.max(1, input.viewportSize.height - padding * 2);
+  const zoom = Math.min(
+    4,
+    Math.max(
+      0.05,
+      Math.min(
+        availableWidth / Math.max(1, input.bounds.width),
+        availableHeight / Math.max(1, input.bounds.height),
+      ),
+    ),
+  );
+  const centerX = input.bounds.x + input.bounds.width / 2;
+  const centerY = input.bounds.y + input.bounds.height / 2;
+  return {
+    activeCanvasId: input.canvasId,
+    activePageId: input.pageId,
+    viewport: {
+      x: input.viewportSize.width / 2 - centerX * zoom,
+      y: input.viewportSize.height / 2 - centerY * zoom,
+      zoom,
+    },
+  };
+}
 
 export function parseDrawingWorkspaceViewState(search: URLSearchParams): {
   view: DrawingWorkspaceViewMode;

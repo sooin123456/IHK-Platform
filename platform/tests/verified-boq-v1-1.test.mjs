@@ -13,7 +13,10 @@ import {
   buildVerifiedBoqHandoffManifest,
 } from "../app/lukas/lib/verified-boq-manifest.server.ts";
 import { calculateVerifiedBoq } from "../app/lukas/lib/verified-boq.server.ts";
-import { compareVerifiedBoqApprovedStates } from "../app/lukas/lib/verified-boq-comparison-v1-1.server.ts";
+import {
+  compareVerifiedBoqApprovedStates,
+  verifiedBoqStoredReplayMatches,
+} from "../app/lukas/lib/verified-boq-comparison-v1-1.server.ts";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -660,6 +663,28 @@ test("verified BOQ 1.1 renders four distinct quantity columns and Drawing mappin
   );
 });
 
+test("approved comparison UI renders every cause state and closure without a primary cause", async () => {
+  const component = await readFile(
+    new URL(
+      "../app/lukas/components/verified-boq-comparison.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  for (const cause of ["RAW", "MAPPING", "ADJUSTMENT", "PRICE", "FORMULA"])
+    assert.match(component, new RegExp(`id: "${cause}"`));
+  for (const state of ["added", "removed", "changed", "unchanged"])
+    assert.match(component, new RegExp(`${state}:`));
+  for (const total of [
+    "comparison.amountDeltaKrw",
+    "comparison.causeAmountDeltaKrw",
+    "comparison.rowAmountDeltaKrw",
+    "comparison.amountCloses",
+  ])
+    assert.match(component, new RegExp(total.replaceAll(".", "\\.")));
+  assert.doesNotMatch(component, /primary/i);
+});
+
 function approved(input, engineVersion = "VERIFIED-BOQ-1.1") {
   return {
     engineVersion,
@@ -729,7 +754,13 @@ test("approved 1.1 comparison attributes each exact waterfall category", () => {
     assert.equal(comparison.rowAmountDeltaKrw, amountDeltaKrw, cause);
     assert.equal(comparison.amountCloses, true, cause);
     assert.deepEqual(
-      [...new Set(comparison.rows.flatMap((row) => row.causes.map((item) => item.cause)))],
+      [
+        ...new Set(
+          comparison.rows.flatMap((row) =>
+            row.causes.map((item) => item.cause),
+          ),
+        ),
+      ],
       [cause],
       cause,
     );
@@ -754,20 +785,71 @@ test("comparison keeps multiple visible causes and closes their exact row totals
   assert.equal(comparison.causeAmountDeltaKrw, comparison.amountDeltaKrw);
   assert.equal(comparison.rowAmountDeltaKrw, comparison.amountDeltaKrw);
   assert.deepEqual(
-    [...new Set(comparison.rows.flatMap((row) => row.causes.map((item) => item.cause)))],
+    [
+      ...new Set(
+        comparison.rows.flatMap((row) => row.causes.map((item) => item.cause)),
+      ),
+    ],
     ["RAW", "MAPPING", "ADJUSTMENT", "PRICE", "FORMULA"],
   );
 });
 
+test("zero-amount semantic changes remain visible in their declared cause", () => {
+  const cases = [
+    [
+      "RAW",
+      (input) => {
+        input.drawingMappings[0].source.objectFingerprint = D;
+        input.drawingMappings[1].source.objectFingerprint = D;
+      },
+    ],
+    [
+      "ADJUSTMENT",
+      (input) => {
+        input.lines[0].adjustmentReason = "동일 수량의 변경 사유";
+      },
+    ],
+    [
+      "PRICE",
+      (input) => {
+        input.priceBook.effectiveDate = "2026-08-02";
+      },
+    ],
+    [
+      "FORMULA",
+      (input) => {
+        input.quantityScale = 4;
+      },
+    ],
+  ];
+  for (const [cause, mutate] of cases) {
+    const current = mixedInput();
+    mutate(current);
+    const comparison = compareVerifiedBoqApprovedStates(
+      approved(mixedInput()),
+      approved(current),
+    );
+    assert.equal(comparison.status, "comparable", cause);
+    assert.equal(comparison.amountDeltaKrw, "0", cause);
+    assert.ok(
+      comparison.rows.some((row) =>
+        row.causes.some(
+          (item) => item.cause === cause && item.amountDeltaKrw === "0",
+        ),
+      ),
+      cause,
+    );
+  }
+});
+
 test("comparison reports added and removed rows without inventing a sixth cause", () => {
   const removed = mixedInput();
-  removed.lines = removed.lines.filter((line) => line.itemCode === "002-B");
-  removed.legacyMappings = [];
+  removed.lines = removed.lines.filter((line) => line.itemCode === "001-A");
   removed.drawingMappings = removed.drawingMappings
-    .filter((mapping) => mapping.lineId === ids.lineB)
+    .filter((mapping) => mapping.lineId === ids.lineA)
     .map((mapping) => ({ ...mapping, allocationFactor: "1" }));
   removed.components = removed.components.filter(
-    (component) => component.lineId === ids.lineB,
+    (component) => component.lineId === ids.lineA,
   );
   const removal = compareVerifiedBoqApprovedStates(
     approved(mixedInput()),
@@ -775,8 +857,16 @@ test("comparison reports added and removed rows without inventing a sixth cause"
   );
   assert.equal(removal.status, "comparable");
   assert.equal(
-    removal.rows.find((row) => row.itemCode === "001-A").rowState,
+    removal.rows.find((row) => row.itemCode === "002-B").rowState,
     "removed",
+  );
+  assert.deepEqual(
+    removal.rows.find((row) => row.itemCode === "002-B").causes,
+    [
+      { cause: "MAPPING", amountDeltaKrw: "-369" },
+      { cause: "ADJUSTMENT", amountDeltaKrw: "0" },
+      { cause: "PRICE", amountDeltaKrw: "0" },
+    ],
   );
 
   const addition = compareVerifiedBoqApprovedStates(
@@ -785,8 +875,16 @@ test("comparison reports added and removed rows without inventing a sixth cause"
   );
   assert.equal(addition.status, "comparable");
   assert.equal(
-    addition.rows.find((row) => row.itemCode === "001-A").rowState,
+    addition.rows.find((row) => row.itemCode === "002-B").rowState,
     "added",
+  );
+  assert.deepEqual(
+    addition.rows.find((row) => row.itemCode === "002-B").causes,
+    [
+      { cause: "MAPPING", amountDeltaKrw: "0" },
+      { cause: "ADJUSTMENT", amountDeltaKrw: "0" },
+      { cause: "PRICE", amountDeltaKrw: "369" },
+    ],
   );
   for (const row of [...removal.rows, ...addition.rows])
     assert.ok(
@@ -796,6 +894,110 @@ test("comparison reports added and removed rows without inventing a sixth cause"
         ),
       ),
     );
+});
+
+test("a brand-new source and row enters RAW before mapping and price", () => {
+  const previous = mixedInput();
+  const current = mixedInput();
+  current.lines.push({
+    id: "00000000-0000-4000-8000-000000000a01",
+    sectionCode: "S",
+    itemCode: "003-C",
+    itemName: "신규",
+    specification: "",
+    unit: "EA",
+    signedAdjustment: "0",
+    adjustmentReason: "",
+  });
+  current.drawingMappings.push({
+    id: "00000000-0000-4000-8000-000000000a02",
+    lineId: "00000000-0000-4000-8000-000000000a01",
+    quantityLinkId: "00000000-0000-4000-8000-000000000a03",
+    allocationFactor: "1",
+    source: {
+      ...drawingSource(),
+      quantityLinkId: "00000000-0000-4000-8000-000000000a03",
+      revisionId: "00000000-0000-4000-8000-000000000a04",
+      objectId: "00000000-0000-4000-8000-000000000a05",
+      lineageId: "00000000-0000-4000-8000-000000000a06",
+      measurementKind: "count",
+      rawQuantity: "2",
+      unit: "EA",
+      snapshotSha256: "c".repeat(64),
+      objectFingerprint: "d".repeat(64),
+      measurementRuleVersion: "P4_MEASUREMENT_V1",
+    },
+  });
+  current.resources.push({
+    id: "00000000-0000-4000-8000-000000000a07",
+    code: "R-C",
+    type: "material",
+    unit: "EA",
+    unitPriceKrw: "50",
+  });
+  current.components.push({
+    id: "00000000-0000-4000-8000-000000000a08",
+    lineId: "00000000-0000-4000-8000-000000000a01",
+    resourceId: "00000000-0000-4000-8000-000000000a07",
+    coefficient: "1",
+  });
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(previous),
+    approved(current),
+  );
+  assert.equal(comparison.status, "comparable");
+  assert.deepEqual(
+    comparison.rows.find((row) => row.itemCode === "003-C").causes,
+    [
+      { cause: "RAW", amountDeltaKrw: "0" },
+      { cause: "MAPPING", amountDeltaKrw: "0" },
+      { cause: "ADJUSTMENT", amountDeltaKrw: "0" },
+      { cause: "PRICE", amountDeltaKrw: "100" },
+    ],
+  );
+});
+
+test("comparison ignores regenerated database IDs and byte-sorts business item codes", () => {
+  const previousInput = mixedInput();
+  previousInput.lines[0].itemCode = "A-002";
+  previousInput.lines[1].itemCode = "가-001";
+  const current = structuredClone(previousInput);
+  current.versionId = "00000000-0000-4000-8000-000000000011";
+  const lineIds = new Map([
+    [ids.lineA, "00000000-0000-4000-8000-000000000111"],
+    [ids.lineB, "00000000-0000-4000-8000-000000000112"],
+  ]);
+  for (const line of current.lines) line.id = lineIds.get(line.id);
+  for (const mapping of current.legacyMappings) {
+    mapping.id = "00000000-0000-4000-8000-000000000611";
+    mapping.lineId = lineIds.get(mapping.lineId);
+  }
+  for (const [index, mapping] of current.drawingMappings.entries()) {
+    mapping.id = `00000000-0000-4000-8000-00000000062${index + 1}`;
+    mapping.lineId = lineIds.get(mapping.lineId);
+    mapping.quantityLinkId = "00000000-0000-4000-8000-000000000211";
+    mapping.source.quantityLinkId = mapping.quantityLinkId;
+  }
+  current.priceBook.id = "00000000-0000-4000-8000-000000000711";
+  current.priceBook.sourceFileId = "00000000-0000-4000-8000-000000000712";
+  current.resources[0].id = "00000000-0000-4000-8000-000000000811";
+  for (const [index, component] of current.components.entries()) {
+    component.id = `00000000-0000-4000-8000-00000000091${index + 1}`;
+    component.lineId = lineIds.get(component.lineId);
+    component.resourceId = current.resources[0].id;
+  }
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(previousInput),
+    approved(current),
+  );
+  assert.equal(comparison.status, "comparable");
+  assert.deepEqual(
+    comparison.rows.map((row) => [row.itemCode, row.rowState, row.causes]),
+    [
+      ["A-002", "unchanged", []],
+      ["가-001", "unchanged", []],
+    ],
+  );
 });
 
 test("1.0 to 1.1 replay exposes the engine switch only as FORMULA", () => {
@@ -824,18 +1026,15 @@ test("comparison fails closed for unavailable engines ambiguous rows and invalid
   const base = approved(mixedInput());
   const unavailable = structuredClone(base);
   unavailable.engineVersion = "VERIFIED-BOQ-9.9";
-  assert.deepEqual(
-    compareVerifiedBoqApprovedStates(unavailable, base),
-    {
-      status: "review",
-      rows: [],
-      amountDeltaKrw: "0",
-      causeAmountDeltaKrw: "0",
-      rowAmountDeltaKrw: "0",
-      amountCloses: false,
-      message: "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
-    },
-  );
+  assert.deepEqual(compareVerifiedBoqApprovedStates(unavailable, base), {
+    status: "review",
+    rows: [],
+    amountDeltaKrw: "0",
+    causeAmountDeltaKrw: "0",
+    rowAmountDeltaKrw: "0",
+    amountCloses: false,
+    message: "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
+  });
 
   const duplicate = structuredClone(base);
   duplicate.input.lines[1].itemCode = duplicate.input.lines[0].itemCode;
@@ -846,7 +1045,10 @@ test("comparison fails closed for unavailable engines ambiguous rows and invalid
 
   const invalid = structuredClone(base);
   invalid.input.lines[0].signedAdjustment = "-999999";
-  assert.equal(compareVerifiedBoqApprovedStates(base, invalid).status, "review");
+  assert.equal(
+    compareVerifiedBoqApprovedStates(base, invalid).status,
+    "review",
+  );
 });
 
 test("comparison rejects non-approved or tampered historical results", () => {
@@ -855,5 +1057,47 @@ test("comparison rejects non-approved or tampered historical results", () => {
   assert.equal(compareVerifiedBoqApprovedStates(prior, draft).status, "review");
   const tampered = structuredClone(prior);
   tampered.result.directCostKrw = "999999";
-  assert.equal(compareVerifiedBoqApprovedStates(tampered, prior).status, "review");
+  assert.equal(
+    compareVerifiedBoqApprovedStates(tampered, prior).status,
+    "review",
+  );
+});
+
+test("stored approved hashes must match the exact historical replay", () => {
+  const input = {
+    engineVersion: "VERIFIED-BOQ-1.1",
+    stored: {
+      inputStateSha256: A,
+      resultSha256: B,
+      manifestSha256: C,
+      directCostKrw: "2357",
+      lineCount: 2,
+    },
+    replayed: {
+      inputStateSha256: A,
+      resultSha256: B,
+      manifestSha256: C,
+      directCostKrw: "2357",
+      lineCount: 2,
+    },
+  };
+  assert.equal(verifiedBoqStoredReplayMatches(input), true);
+  assert.equal(
+    verifiedBoqStoredReplayMatches({
+      ...input,
+      stored: { ...input.stored, directCostKrw: "2357.000000" },
+    }),
+    true,
+  );
+  for (const mutate of [
+    (value) => (value.stored.inputStateSha256 = D),
+    (value) => (value.stored.resultSha256 = D),
+    (value) => (value.stored.manifestSha256 = D),
+    (value) => (value.stored.directCostKrw = "2358"),
+    (value) => (value.stored.lineCount = 3),
+  ]) {
+    const stale = structuredClone(input);
+    mutate(stale);
+    assert.equal(verifiedBoqStoredReplayMatches(stale), false);
+  }
 });

@@ -148,6 +148,9 @@ import {
   drawingIssueLinkReady,
   drawingIfcFocusTarget,
   drawingIfcRemoteHighlightGlobalIds,
+  drawingWorkspaceEvidenceFocusBounds,
+  drawingWorkspaceEvidenceFocusKey,
+  drawingWorkspaceObjectFocusViewport,
   drawingWorkspaceReviewControls,
   drawingWorkspaceSurface,
   loadDrawingClientModule,
@@ -813,6 +816,7 @@ export default function DrawingWorkspaceClient({
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const canvasRef = useRef<DrawingCanvasHandle>(null);
+  const initialEvidenceFocusKeyRef = useRef<string | null>(null);
   const [canvasModule, setCanvasModule] = useState<
     DrawingClientModuleState<CanvasComponent>
   >({ status: "loading" });
@@ -2659,6 +2663,82 @@ export default function DrawingWorkspaceClient({
     drawingState.objects[transient.selectedIds[0]]
       ? transient.selectedIds[0]
       : null;
+  const evidenceFocusKey = drawingWorkspaceEvidenceFocusKey({
+    revisionId: searchParams.get("revision"),
+    objectId: searchParams.get("object"),
+    boqVersionId: searchParams.get("boq"),
+    boqLineId: searchParams.get("line"),
+    evidenceFileId: searchParams.get("evidence"),
+  });
+  const evidenceFocusObjectId = evidenceFocusKey
+    ? searchParams.get("object")
+    : null;
+  useEffect(() => {
+    if (
+      evidenceFocusObjectId &&
+      (selectedIds.length !== 1 || selectedIds[0] !== evidenceFocusObjectId)
+    )
+      setAuthorizedSelection([evidenceFocusObjectId]);
+  }, [evidenceFocusObjectId, selectedIds, setAuthorizedSelection]);
+  useEffect(() => {
+    if (!evidenceFocusKey) {
+      initialEvidenceFocusKeyRef.current = null;
+      return;
+    }
+    if (
+      initialEvidenceFocusKeyRef.current === evidenceFocusKey ||
+      !selectedDrawingObjectId ||
+      selectedDrawingObjectId !== evidenceFocusObjectId ||
+      !canvasRef.current
+    )
+      return;
+    const object = activeDrawingState.objects[selectedDrawingObjectId];
+    const layer = object
+      ? activeDrawingState.layers[object.layerId]
+      : undefined;
+    const canvas = layer?.canvasId
+      ? activeDrawingState.structure?.canvases[layer.canvasId]
+      : undefined;
+    const host = document.getElementById("drawing-split-panel-2d");
+    if (!object || !layer?.canvasId || !canvas || !host) return;
+    const evidenceFileId = searchParams.get("evidence");
+    const evidenceSources = Object.values(drawingSources).filter(
+      (source) =>
+        source.objectId === selectedDrawingObjectId &&
+        source.sourceFileId === evidenceFileId,
+    );
+    if (evidenceSources.length !== 1) return;
+    const evidenceSource = evidenceSources[0];
+    const bounds = drawingWorkspaceEvidenceFocusBounds({
+      evidence: evidenceSource,
+      objectBounds: geometryBounds(object.geometry, activeDrawingState.objects),
+      pdfPageTransform,
+    });
+    if (!bounds) return;
+    const size = host.getBoundingClientRect();
+    const focus = drawingWorkspaceObjectFocusViewport({
+      bounds,
+      canvasId: canvas.id,
+      pageId: canvas.pageId,
+      viewportSize: { width: size.width, height: size.height },
+    });
+    if (
+      focus.activeCanvasId !== activeDrawingState.activeCanvasId ||
+      focus.activePageId !== activeDrawingState.activePageId
+    )
+      return;
+    canvasRef.current.setViewport(focus.viewport);
+    initialEvidenceFocusKeyRef.current = evidenceFocusKey;
+  }, [
+    activeDrawingState,
+    canvasModule.status,
+    drawingSources,
+    evidenceFocusKey,
+    evidenceFocusObjectId,
+    pdfPageTransform,
+    searchParams,
+    selectedDrawingObjectId,
+  ]);
   useEffect(() => {
     if (!selectedDrawingObjectId) return;
     const selected = drawingState.objects[selectedDrawingObjectId];

@@ -647,6 +647,7 @@ export async function listDrawingObjectQuantityLineage(
     objectId: string;
     cursor: string | null;
     limit?: number;
+    boqEvidence?: { boqVersionId: string; boqLineId: string };
   },
 ): Promise<{
   rows: DrawingObjectQuantityLineageRow[];
@@ -657,6 +658,22 @@ export async function listDrawingObjectQuantityLineage(
   const objectId = Uuid.parse(input.objectId);
   const limit = Math.min(200, Math.max(1, input.limit ?? 200));
   const cursor = parseCursor(input.cursor);
+  const exactLink = input.boqEvidence
+    ? BoqLinkSchema.parse(
+        await exactRow(
+          userClient,
+          "lukas_drawing_boq_links",
+          "id,quantity_link_id,boq_version_id,boq_line_id,allocation_factor,version,boq_version:lukas_qto_boq_versions!inner(status),boq_line:lukas_qto_boq_lines!inner(item_code),quantity:lukas_drawing_quantity_links!inner(id)",
+          [
+            ["project_id", projectId],
+            ["boq_version_id", Uuid.parse(input.boqEvidence.boqVersionId)],
+            ["boq_line_id", Uuid.parse(input.boqEvidence.boqLineId)],
+            ["quantity.drawing_revision_id", revisionId],
+            ["quantity.drawing_object_id", objectId],
+          ],
+        ),
+      )
+    : null;
   let query = userClient
     .from("lukas_drawing_quantity_links")
     .select("*")
@@ -671,7 +688,24 @@ export async function listDrawingObjectQuantityLineage(
     );
   const { data, error } = await query.limit(limit + 1);
   if (error) throw new DrawingQuantityLineageServerError("P6A01");
-  const quantities = (data ?? []).slice(0, limit).map(quantityRow);
+  const recent = (data ?? []).map(quantityRow);
+  const exactQuantity =
+    exactLink &&
+    !recent.slice(0, limit).some((row) => row.id === exactLink.quantity_link_id)
+      ? quantityRow(
+          await exactRow(userClient, "lukas_drawing_quantity_links", "*", [
+            ["id", exactLink.quantity_link_id],
+            ["project_id", projectId],
+            ["drawing_revision_id", revisionId],
+            ["drawing_object_id", objectId],
+          ]),
+        )
+      : null;
+  const recentLimit = exactQuantity ? Math.max(0, limit - 1) : limit;
+  const recentPage = recent.slice(0, recentLimit);
+  const quantities = exactQuantity
+    ? [exactQuantity, ...recentPage]
+    : recentPage;
   const quantityIds = quantities.map((row) => row.id);
   let links: z.infer<typeof BoqLinkSchema>[] = [];
   if (quantityIds.length) {
@@ -686,6 +720,8 @@ export async function listDrawingObjectQuantityLineage(
       .limit(200);
     if (linkError) throw new DrawingQuantityLineageServerError("P6A01");
     links = (linkRows ?? []).map((row) => BoqLinkSchema.parse(row));
+    if (exactLink && !links.some((link) => link.id === exactLink.id))
+      links.unshift(exactLink);
   }
   return {
     rows: quantities.map((quantity) => ({
@@ -703,8 +739,8 @@ export async function listDrawingObjectQuantityLineage(
         })),
     })),
     nextCursor:
-      (data?.length ?? 0) > limit && quantities.length
-        ? encodeCursor(quantities.at(-1)!)
+      recent.length > recentLimit && recentPage.length
+        ? encodeCursor(recentPage.at(-1)!)
         : null,
   };
 }
@@ -713,7 +749,7 @@ async function exactRow(
   client: SupabaseClient,
   table: string,
   select: string,
-  filters: Array<[string, string]>,
+  filters: Array<[string, unknown]>,
 ) {
   let query = client.from(table).select(select);
   for (const [column, value] of filters) query = query.eq(column, value);
@@ -730,6 +766,7 @@ export async function resolveDrawingWorkspaceEntry(
     objectId: string;
     boqVersionId: string;
     boqLineId: string;
+    fileId: string;
   },
 ): Promise<string> {
   try {
@@ -739,6 +776,7 @@ export async function resolveDrawingWorkspaceEntry(
       objectId: Uuid.parse(input.objectId),
       boqVersionId: Uuid.parse(input.boqVersionId),
       boqLineId: Uuid.parse(input.boqLineId),
+      fileId: Uuid.parse(input.fileId),
     };
     const revision = await exactRow(
       userClient,
@@ -764,13 +802,41 @@ export async function resolveDrawingWorkspaceEntry(
         ["version_id", parsed.boqVersionId],
         ["project_id", parsed.projectId],
       ]),
+      exactRow(
+        userClient,
+        "lukas_drawing_boq_links",
+        "id,quantity:lukas_drawing_quantity_links!inner(id)",
+        [
+          ["project_id", parsed.projectId],
+          ["boq_version_id", parsed.boqVersionId],
+          ["boq_line_id", parsed.boqLineId],
+          ["quantity.drawing_revision_id", parsed.revisionId],
+          ["quantity.drawing_object_id", parsed.objectId],
+        ],
+      ),
     ]);
+    const documentId = Uuid.parse(revision.document_id);
     const entry = await resolveDrawingDocumentEntry(
       userClient as unknown as DrawingWorkspaceClient,
       parsed.projectId,
-      Uuid.parse(revision.document_id),
+      documentId,
       parsed.objectId,
     );
+    await exactRow(userClient, "lukas_drawing_object_sources", "id", [
+      ["project_id", parsed.projectId],
+      ["revision_id", parsed.revisionId],
+      ["object_id", parsed.objectId],
+      ["source_file_id", parsed.fileId],
+      ["status", "active"],
+    ]);
+    const evidenceFileId = parsed.fileId;
+    const file = await exactRow(userClient, "lukas_qto_files", "id,kind", [
+      ["id", evidenceFileId],
+      ["project_id", parsed.projectId],
+      ["immutable", true],
+    ]);
+    if (file.kind !== "pdf" && file.kind !== "ifc")
+      throw new Error("unsupported evidence file");
     const search = new URLSearchParams({
       document: entry.documentId,
       revision: parsed.revisionId,
@@ -778,6 +844,11 @@ export async function resolveDrawingWorkspaceEntry(
       boq: parsed.boqVersionId,
       line: parsed.boqLineId,
     });
+    search.set("evidence", parsed.fileId);
+    if (file.kind === "ifc") {
+      search.set("view", "split");
+      search.set("ifc", evidenceFileId);
+    } else search.set("view", "2d");
     return `/projects/${parsed.projectId}/drawings/${entry.fileId}/workspace?${search}`;
   } catch {
     throw new Error("연결된 도면 근거를 열 수 없습니다.");
@@ -1427,7 +1498,16 @@ export async function loadVerifiedBoqV1_1Calculation(
 export type VerifiedBoqDrawingSourceRow = {
   quantity: DrawingQuantityLinkRow;
   allocationTotal: string;
-  links: Array<DrawingBoqLinkRow & { workspaceHref: string | null }>;
+  links: Array<
+    DrawingBoqLinkRow & {
+      workspaceHref: string | null;
+      evidenceHrefs: Array<{
+        href: string;
+        sourceFileId: string;
+        sourceKind: "pdf_region" | "ifc_element";
+      }>;
+    }
+  >;
 };
 
 export async function listVerifiedBoqDrawingSources(
@@ -1486,7 +1566,7 @@ export async function listVerifiedBoqDrawingSources(
     ...mappedQuantities,
     ...recentUnmapped.slice(0, remaining),
   ];
-  let links: Array<DrawingBoqLinkRow & { workspaceHref: string | null }> = [];
+  let links: VerifiedBoqDrawingSourceRow["links"] = [];
   if (rawLinks.length) {
     const linkedQuantityIds = new Set(
       rawLinks.map((link) => link.quantityLinkId),
@@ -1528,10 +1608,12 @@ export async function listVerifiedBoqDrawingSources(
         row.source_file_id ? String(row.source_file_id) : null,
       ]),
     );
+    if (documentIds.some((id) => !documents.has(id)))
+      throw new DrawingQuantityLineageServerError("P6A01");
     const { data: sourceData, error: sourceError } = linkedQuantities.length
       ? await userClient
           .from("lukas_drawing_object_sources")
-          .select("revision_id,object_id,source_file_id")
+          .select("revision_id,object_id,source_file_id,source_kind")
           .eq("project_id", projectId)
           .eq("status", "active")
           .in(
@@ -1543,60 +1625,110 @@ export async function listVerifiedBoqDrawingSources(
             linkedQuantities.map((row) => row.drawingObjectId),
           )
           .order("source_file_id", { ascending: true })
-          .limit(201)
+          .limit(401)
       : { data: [], error: null };
-    if (sourceError || (sourceData?.length ?? 0) > 200)
+    if (sourceError || (sourceData?.length ?? 0) > 400)
       throw new DrawingQuantityLineageServerError("P6B04");
-    const sourceFiles = new Map<string, Set<string>>();
+    const sourceFiles = new Map<
+      string,
+      Map<string, "pdf_region" | "ifc_element">
+    >();
     for (const row of sourceData ?? []) {
       const key = `${String(row.revision_id)}:${String(row.object_id)}`;
-      const values = sourceFiles.get(key) ?? new Set<string>();
-      values.add(String(row.source_file_id));
+      const values = sourceFiles.get(key) ?? new Map();
+      const sourceKind = String(row.source_kind);
+      if (sourceKind !== "pdf_region" && sourceKind !== "ifc_element")
+        throw new DrawingQuantityLineageServerError("P6B04");
+      const sourceFileId = String(row.source_file_id);
+      if (values.has(sourceFileId) && values.get(sourceFileId) !== sourceKind)
+        throw new DrawingQuantityLineageServerError("P6B04");
+      values.set(sourceFileId, sourceKind);
       sourceFiles.set(key, values);
     }
-    const fileIdByQuantity = new Map<string, string>();
+    const evidenceByQuantity = new Map<
+      string,
+      Map<string, "pdf_region" | "ifc_element">
+    >();
     for (const quantity of linkedQuantities) {
-      const documentId = revisions.get(quantity.drawingRevisionId);
-      const documentFile = documentId ? documents.get(documentId) : null;
-      const fallback = sourceFiles.get(
+      const evidence = sourceFiles.get(
         `${quantity.drawingRevisionId}:${quantity.drawingObjectId}`,
       );
-      const fileId =
-        documentFile ?? (fallback?.size === 1 ? [...fallback][0] : null);
-      if (fileId) fileIdByQuantity.set(quantity.id, fileId);
+      if (evidence?.size) evidenceByQuantity.set(quantity.id, evidence);
     }
-    const fileIds = [...new Set(fileIdByQuantity.values())];
+    const entryFileByQuantity = new Map<string, string>();
+    for (const quantity of linkedQuantities) {
+      const documentId = revisions.get(quantity.drawingRevisionId);
+      const documentFileId = documentId ? documents.get(documentId) : null;
+      const evidence = evidenceByQuantity.get(quantity.id);
+      const fallback = evidence?.size === 1 ? [...evidence.keys()][0] : null;
+      const entryFileId = documentFileId ?? fallback;
+      if (entryFileId) entryFileByQuantity.set(quantity.id, entryFileId);
+    }
+    const fileIds = [
+      ...new Set([
+        ...entryFileByQuantity.values(),
+        ...[...evidenceByQuantity.values()].flatMap((rows) => [...rows.keys()]),
+      ]),
+    ];
     const { data: fileData, error: fileError } = fileIds.length
       ? await userClient
           .from("lukas_qto_files")
-          .select("id")
+          .select("id,kind")
           .eq("project_id", projectId)
           .eq("immutable", true)
           .in("kind", ["pdf", "ifc"])
           .in("id", fileIds)
-          .limit(200)
+          .limit(601)
       : { data: [], error: null };
     if (fileError) throw new DrawingQuantityLineageServerError("P6A01");
-    const validFileIds = new Set((fileData ?? []).map((row) => String(row.id)));
+    const validFiles = new Map(
+      (fileData ?? []).map((row) => [String(row.id), String(row.kind)]),
+    );
+    if (fileIds.some((fileId) => !validFiles.has(fileId)))
+      throw new DrawingQuantityLineageServerError("P6A01");
     const quantityById = new Map(quantities.map((row) => [row.id, row]));
     links = rawLinks.map((link) => {
       const quantity = quantityById.get(link.quantityLinkId);
-      const fileId = fileIdByQuantity.get(link.quantityLinkId);
       const documentId = quantity
         ? revisions.get(quantity.drawingRevisionId)
         : null;
-      if (!quantity || !fileId || !documentId || !validFileIds.has(fileId))
-        return { ...link, workspaceHref: null };
-      const search = new URLSearchParams({
-        document: documentId,
-        revision: quantity.drawingRevisionId,
-        object: quantity.drawingObjectId,
-        boq: link.boqVersionId,
-        line: link.boqLineId,
+      const evidence = evidenceByQuantity.get(link.quantityLinkId);
+      const entryFileId = entryFileByQuantity.get(link.quantityLinkId);
+      if (
+        !quantity ||
+        !documentId ||
+        !evidence ||
+        !entryFileId ||
+        !validFiles.has(entryFileId)
+      )
+        return { ...link, workspaceHref: null, evidenceHrefs: [] };
+      const evidenceHrefs = [...evidence].map(([fileId, sourceKind]) => {
+        if (
+          validFiles.get(fileId) !==
+          (sourceKind === "ifc_element" ? "ifc" : "pdf")
+        )
+          throw new DrawingQuantityLineageServerError("P6B04");
+        const search = new URLSearchParams({
+          document: documentId,
+          revision: quantity.drawingRevisionId,
+          object: quantity.drawingObjectId,
+          boq: link.boqVersionId,
+          line: link.boqLineId,
+          evidence: fileId,
+          view: sourceKind === "ifc_element" ? "split" : "2d",
+        });
+        if (sourceKind === "ifc_element") search.set("ifc", fileId);
+        return {
+          href: `/projects/${projectId}/drawings/${entryFileId}/workspace?${search}`,
+          sourceFileId: fileId,
+          sourceKind,
+        };
       });
       return {
         ...link,
-        workspaceHref: `/projects/${projectId}/drawings/${fileId}/workspace?${search}`,
+        workspaceHref:
+          evidenceHrefs.length === 1 ? evidenceHrefs[0].href : null,
+        evidenceHrefs,
       };
     });
   }
