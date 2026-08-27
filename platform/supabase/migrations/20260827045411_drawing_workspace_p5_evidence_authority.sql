@@ -392,7 +392,7 @@ create unique index lukas_drawing_issue_anchors_replaces_uidx
   where replaces_anchor_id is not null;
 
 create or replace function private.lukas_drawing_anchor_guard()
-returns trigger language plpgsql security definer set search_path='' as $$
+returns trigger language plpgsql security invoker set search_path='' as $$
 declare
   v_actor uuid:=(select auth.uid());
   v_role text:=private.lukas_qto_project_role(new.project_id);
@@ -405,12 +405,9 @@ begin
     if v_role not in ('owner','staff','reviewer','estimator','site','procurement')
       then raise exception using errcode='42501',
         message='Project role cannot create drawing anchors'; end if;
-    if new.replaces_anchor_id is not null and (
-      current_user in ('authenticated','anon')
-      or pg_catalog.current_setting(
-        'private.lukas_drawing_anchor_relink',true
-      ) is distinct from new.replaces_anchor_id::text
-    ) then raise exception using errcode='42501',
+    if new.replaces_anchor_id is not null
+      and current_user in ('authenticated','anon') then
+      raise exception using errcode='42501',
       message='Replacement anchors require the atomic relink function'; end if;
     if not exists(
       select 1 from public.lukas_qto_files f
@@ -453,10 +450,10 @@ create trigger lukas_drawing_anchors_guard
 before insert or update on public.lukas_drawing_issue_anchors
 for each row execute function private.lukas_drawing_anchor_guard();
 
-create or replace function public.lukas_drawing_relink_issue_anchor(
+create or replace function private.lukas_drawing_relink_issue_anchor(
   p_previous_anchor_id uuid,p_new_anchor_id uuid,p_current_file_id uuid,
   p_anchor jsonb,p_note text
-) returns jsonb language plpgsql security definer set search_path='' as $$
+) returns jsonb language plpgsql security invoker set search_path='' as $$
 declare
   v_actor uuid:=(select auth.uid());
   v_previous public.lukas_drawing_issue_anchors%rowtype;
@@ -534,9 +531,6 @@ begin
     or pg_catalog.char_length(p_anchor->>'label')>240 then
     raise exception using errcode='P1C01',message='Anchor label is invalid';
   end if;
-  perform pg_catalog.set_config(
-    'private.lukas_drawing_anchor_relink',v_previous.id::text,true
-  );
   insert into public.lukas_drawing_issue_anchors(
     id,issue_id,project_id,file_id,anchor_kind,element_id,ifc_global_id,
     camera_json,page_number,x,y,width,height,label,active,created_by,replaces_anchor_id
@@ -558,7 +552,6 @@ begin
   where id=v_previous.id and active;
   if not found then raise exception using errcode='P1C01',
     message='Drawing anchor predecessor became stale'; end if;
-  perform pg_catalog.set_config('private.lukas_drawing_anchor_relink','',true);
   return pg_catalog.jsonb_build_object(
     'previousAnchorId',v_previous.id,'newAnchorId',p_new_anchor_id
   );
@@ -568,6 +561,15 @@ exception
   when unique_violation or foreign_key_violation or check_violation
     or not_null_violation then raise exception using errcode='P1C01',message=sqlerrm;
 end;
+$$;
+
+create or replace function public.lukas_drawing_relink_issue_anchor(
+  p_previous_anchor_id uuid,p_new_anchor_id uuid,p_current_file_id uuid,
+  p_anchor jsonb,p_note text
+) returns jsonb language sql security definer set search_path='' as $$
+  select private.lukas_drawing_relink_issue_anchor(
+    p_previous_anchor_id,p_new_anchor_id,p_current_file_id,p_anchor,p_note
+  )
 $$;
 
 create or replace function private.lukas_drawing_apply_source_actions(
@@ -1283,6 +1285,7 @@ revoke all on function
   private.lukas_drawing_p5_camera_valid(jsonb),
   private.lukas_drawing_object_source_guard(),
   private.lukas_drawing_anchor_guard(),
+  private.lukas_drawing_relink_issue_anchor(uuid,uuid,uuid,jsonb,text),
   private.lukas_drawing_source_json(uuid,uuid,uuid,boolean),
   private.lukas_drawing_structure_entity_json_pre_p5_sources(text,uuid,uuid,uuid),
   private.lukas_drawing_structure_tombstone_pre_p5_sources(uuid,uuid,text),

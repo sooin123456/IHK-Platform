@@ -1332,7 +1332,17 @@ test("P5 private trigger guards and future private functions deny direct executi
       ) source_authenticated,
       has_function_privilege(
         'service_role','private.lukas_drawing_object_source_guard()','execute'
-      ) source_service`,
+      ) source_service,
+      has_function_privilege(
+        'authenticated',
+        'private.lukas_drawing_relink_issue_anchor(uuid,uuid,uuid,jsonb,text)',
+        'execute'
+      ) relink_authenticated,
+      has_function_privilege(
+        'service_role',
+        'private.lukas_drawing_relink_issue_anchor(uuid,uuid,uuid,jsonb,text)',
+        'execute'
+      ) relink_service`,
   );
   assert.deepEqual(guards.rows, [
     {
@@ -1340,6 +1350,8 @@ test("P5 private trigger guards and future private functions deny direct executi
       anchor_service: false,
       source_authenticated: false,
       source_service: false,
+      relink_authenticated: false,
+      relink_service: false,
     },
   ]);
   await db.exec(`
@@ -1806,6 +1818,28 @@ test("P5 relink atomically preserves predecessor lineage across one exact file e
     ),
     /atomic relink function/i,
   );
+  await db.exec("begin");
+  try {
+    await db.query(
+      "select set_config('private.lukas_drawing_anchor_relink',$1,false)",
+      [newAnchorId],
+    );
+    await db.query(
+      "select set_config('private.lukas_drawing_client_state','forged',false)",
+    );
+    await assert.rejects(
+      db.query(
+        `insert into public.lukas_drawing_issue_anchors(
+          id,issue_id,project_id,file_id,anchor_kind,page_number,x,y,width,height,
+          label,created_by,replaces_anchor_id
+        ) values($1,$2,$3,$4,'pdf_region',1,.1,.1,.2,.2,'forged session',$5,$6)`,
+        [randomUUID(), issueId, PROJECT, currentFileId, OWNER, newAnchorId],
+      ),
+      /atomic relink function/i,
+    );
+  } finally {
+    await db.exec("rollback");
+  }
   const rollbackAnchorId = randomUUID();
   const rejectedAnchorId = randomUUID();
   await db.query(
