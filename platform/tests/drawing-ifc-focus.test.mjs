@@ -49,6 +49,7 @@ test("IFC user picks resolve to unique, ambiguous, or no drawing match without g
     matchDrawingObjectsForIfcSelection(index, {
       origin: "user",
       sourceFileId: ids.file1,
+      sourceSha256: sha1,
       ifcGlobalId: globalId,
     }),
     { status: "ambiguous", objectIds: [ids.object1, ids.object2] },
@@ -59,6 +60,7 @@ test("IFC user picks resolve to unique, ambiguous, or no drawing match without g
     matchDrawingObjectsForIfcSelection(unique, {
       origin: "user",
       sourceFileId: ids.file1,
+      sourceSha256: sha1,
       ifcGlobalId: globalId,
     }),
     { status: "unique", objectId: ids.object1 },
@@ -67,6 +69,7 @@ test("IFC user picks resolve to unique, ambiguous, or no drawing match without g
     matchDrawingObjectsForIfcSelection(unique, {
       origin: "user",
       sourceFileId: ids.file2,
+      sourceSha256: sha1,
       ifcGlobalId: globalId,
     }),
     { status: "no_match" },
@@ -75,9 +78,39 @@ test("IFC user picks resolve to unique, ambiguous, or no drawing match without g
     matchDrawingObjectsForIfcSelection(unique, {
       origin: "programmatic",
       sourceFileId: ids.file1,
+      sourceSha256: sha1,
       ifcGlobalId: globalId,
     }),
     { status: "ignored_programmatic" },
+  );
+});
+
+test("IFC reverse focus excludes stale SHA links before unique or ambiguous matching", () => {
+  const index = createDrawingIfcSourceIndex({
+    [ids.source1]: source(),
+    [ids.source2]: source({
+      id: ids.source2,
+      objectId: ids.object2,
+      sourceSha256: sha2,
+    }),
+  });
+  assert.deepEqual(
+    matchDrawingObjectsForIfcSelection(index, {
+      origin: "user",
+      sourceFileId: ids.file1,
+      sourceSha256: sha1,
+      ifcGlobalId: globalId,
+    }),
+    { status: "unique", objectId: ids.object1 },
+  );
+  assert.deepEqual(
+    matchDrawingObjectsForIfcSelection(index, {
+      origin: "user",
+      sourceFileId: ids.file1,
+      sourceSha256: "c".repeat(64),
+      ifcGlobalId: globalId,
+    }),
+    { status: "no_match" },
   );
 });
 

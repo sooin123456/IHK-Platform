@@ -40,7 +40,13 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
       timeout: 60_000,
     },
   );
-  await expect.poll(() => ifcFetches).toBe(1);
+  // Keep this trace exact: a cold Vite optimizer reload invalidates a dev run,
+  // so warm the server and rerun instead of filtering real duplicate fetches.
+  await expect
+    .poll(() => ifcFetches, {
+      message: "the mounted viewer must fetch one IFC source exactly once",
+    })
+    .toBe(1);
   const canvas = page.locator('canvas[aria-label="IFC 3D 모델"]');
   const mountedCanvas = await canvas.evaluate((element) =>
     element.getAttribute("data-ifc-viewer-instance"),
@@ -133,18 +139,22 @@ test("narrow split view uses accessible tabs and two browsers preserve independe
   await expect(
     first.getByRole("tablist", { name: "분할 보기 패널" }),
   ).toBeVisible();
+  const drawingTab = first.getByRole("tab", { name: "2D 도면" });
   const ifcTab = first.getByRole("tab", { name: "IFC 3D" });
   await expect(ifcTab).toHaveAttribute(
     "aria-controls",
     "drawing-split-panel-3d",
   );
-  await ifcTab.focus();
-  await ifcTab.press("ArrowLeft");
-  await expect(first.getByRole("tab", { name: "2D 도면" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await first.getByRole("tab", { name: "2D 도면" }).press("ArrowRight");
+  await drawingTab.focus();
+  await drawingTab.press("ArrowLeft");
+  await expect(ifcTab).toHaveAttribute("aria-selected", "true");
+  await expect(ifcTab).toBeFocused();
+  await ifcTab.press("ArrowRight");
+  await expect(drawingTab).toHaveAttribute("aria-selected", "true");
+  await expect(drawingTab).toBeFocused();
+  await drawingTab.press("End");
+  await expect(ifcTab).toHaveAttribute("aria-selected", "true");
+  await expect(ifcTab).toBeFocused();
   await expect(
     first.getByRole("img", { name: "IFC 3D 모델 화면" }),
   ).toBeVisible({

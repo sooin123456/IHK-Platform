@@ -2545,6 +2545,7 @@ export default function DrawingWorkspaceClient({
       const match = matchDrawingObjectsForIfcSelection(ifcSourceIndex, {
         origin: selection.origin,
         sourceFileId: selectedIfc.id,
+        sourceSha256: selectedIfc.sha256,
         ifcGlobalId: selection.ifcGlobalId,
       });
       if (match.status === "unique") {
@@ -2571,7 +2572,8 @@ export default function DrawingWorkspaceClient({
         (source) =>
           source.sourceKind === "ifc_element" &&
           source.objectId === selectedDrawingObjectId &&
-          source.sourceFileId === selectedIfc.id,
+          source.sourceFileId === selectedIfc.id &&
+          source.sourceSha256 === selectedIfc.sha256,
       )
     : false;
   const canLinkIfcSelection = Boolean(
@@ -3156,11 +3158,16 @@ export default function DrawingWorkspaceClient({
                   onClick={() => setNarrowSplitTab(tab)}
                   onKeyDown={(event) => {
                     const next =
-                      event.key === "ArrowLeft" || event.key === "Home"
+                      event.key === "Home"
                         ? "2d"
-                        : event.key === "ArrowRight" || event.key === "End"
+                        : event.key === "End"
                           ? "3d"
-                          : null;
+                          : event.key === "ArrowLeft" ||
+                              event.key === "ArrowRight"
+                            ? tab === "2d"
+                              ? "3d"
+                              : "2d"
+                            : null;
                     if (!next) return;
                     event.preventDefault();
                     setNarrowSplitTab(next);

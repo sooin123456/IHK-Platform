@@ -135,3 +135,18 @@ test("IFC initialization is generation-fenced and stale loads dispose only owned
     /if \(!isCurrentLoad\(\)\) \{\s*disposeOwnedIfc\(\);\s*return;/s,
   );
 });
+
+test("mounted reverse focus and already-linked checks include the selected IFC SHA", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /matchDrawingObjectsForIfcSelection\(ifcSourceIndex, \{[\s\S]*sourceFileId: selectedIfc\.id,[\s\S]*sourceSha256: selectedIfc\.sha256,[\s\S]*ifcGlobalId: selection\.ifcGlobalId/,
+  );
+  assert.match(
+    source,
+    /source\.sourceFileId === selectedIfc\.id &&\s*source\.sourceSha256 === selectedIfc\.sha256/,
+  );
+});

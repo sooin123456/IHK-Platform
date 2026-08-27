@@ -2420,16 +2420,6 @@ export async function loadDrawingWorkspaceSourceBundle(
   selectedIfcFileId: string | null,
   loadSelectedIfc = true,
 ): Promise<DrawingWorkspaceSourceBundle> {
-  if (!workspace.document)
-    return {
-      primary: drawingWorkspaceSourceCatalogItem(workspace.file),
-      pdf: null,
-      ifc: null,
-      previousPdf: null,
-      revisionEdge: null,
-      catalog: [drawingWorkspaceSourceCatalogItem(workspace.file)],
-    };
-
   const rows = await loadAllDrawingRows<DrawingWorkspaceFile>(client, {
     table: "lukas_qto_files",
     projectId: workspace.file.project_id,
@@ -2467,6 +2457,21 @@ export async function loadDrawingWorkspaceSourceBundle(
     throw new Response("도면 원본 증거가 올바르지 않습니다.", {
       status: 400,
     });
+  const catalog = rows
+    .filter(validFile)
+    .map(drawingWorkspaceSourceCatalogItem)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!catalog.some((file) => file.id === workspace.file.id))
+    catalog.push(drawingWorkspaceSourceCatalogItem(workspace.file));
+  if (!workspace.document)
+    return {
+      primary: drawingWorkspaceSourceCatalogItem(workspace.file),
+      pdf: null,
+      ifc: null,
+      previousPdf: null,
+      revisionEdge: null,
+      catalog,
+    };
 
   const backgroundPage = workspace.document.revision.pages.find(
     (page): page is DrawingPageRow =>
@@ -2523,12 +2528,6 @@ export async function loadDrawingWorkspaceSourceBundle(
       : null;
   const ifc =
     selectedCandidate && loadSelectedIfc ? await sign(selectedCandidate) : null;
-  const catalog = rows
-    .filter(validFile)
-    .map(drawingWorkspaceSourceCatalogItem)
-    .sort((left, right) => left.id.localeCompare(right.id));
-  if (!catalog.some((file) => file.id === workspace.file.id))
-    catalog.push(drawingWorkspaceSourceCatalogItem(workspace.file));
   return {
     primary,
     pdf,

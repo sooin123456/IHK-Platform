@@ -139,8 +139,12 @@ export type DrawingIfcFocusState = {
   focusedExpressId: number | null;
 };
 
-function sourceIndexKey(sourceFileId: string, ifcGlobalId: string) {
-  return `${sourceFileId}\u0000${ifcGlobalId}`;
+function sourceIndexKey(
+  sourceFileId: string,
+  sourceSha256: string,
+  ifcGlobalId: string,
+) {
+  return `${sourceFileId}\u0000${sourceSha256}\u0000${ifcGlobalId}`;
 }
 
 export function createDrawingIfcSourceIndex(
@@ -150,7 +154,11 @@ export function createDrawingIfcSourceIndex(
   for (const sourceInput of Object.values(sources)) {
     const source = DrawingObjectSourceSchema.parse(sourceInput);
     if (source.sourceKind !== "ifc_element") continue;
-    const key = sourceIndexKey(source.sourceFileId, source.ifcGlobalId);
+    const key = sourceIndexKey(
+      source.sourceFileId,
+      source.sourceSha256,
+      source.ifcGlobalId,
+    );
     const objectIds = building.get(key) ?? new Set<string>();
     objectIds.add(source.objectId);
     building.set(key, objectIds);
@@ -168,6 +176,7 @@ export function matchDrawingObjectsForIfcSelection(
   selection: {
     origin: "user" | "programmatic";
     sourceFileId: string;
+    sourceSha256: string;
     ifcGlobalId: string | null;
   },
 ):
@@ -179,7 +188,11 @@ export function matchDrawingObjectsForIfcSelection(
     return { status: "ignored_programmatic" };
   if (!selection.ifcGlobalId) return { status: "no_match" };
   const objectIds = index.get(
-    sourceIndexKey(selection.sourceFileId, selection.ifcGlobalId),
+    sourceIndexKey(
+      selection.sourceFileId,
+      selection.sourceSha256,
+      selection.ifcGlobalId,
+    ),
   );
   if (!objectIds?.length) return { status: "no_match" };
   if (objectIds.length === 1)
