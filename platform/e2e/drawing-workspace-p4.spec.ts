@@ -194,6 +194,10 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
   const semanticList = page.getByRole("list", { name: "건축 객체 목록" });
   const localAwareness = page.getByLabel("로컬 Awareness payload");
   const openingId = "00000000-0000-4000-8000-000000000101";
+  const unlockedOpeningId = "00000000-0000-4000-8000-000000000102";
+  const remoteLockStatus = page.getByRole("status", {
+    name: "객체 잠금 상태",
+  });
   await expect(surface).toHaveAttribute(
     "data-rendered-semantic-object-count",
     "0",
@@ -214,6 +218,7 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     "8",
   );
   await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
+  await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
   await expect(semanticList).toContainText(
     "D-101 · opening · door · 오프셋 230 mm · 너비 90 mm · 높이 2100 mm · 문턱 0 mm",
   );
@@ -229,6 +234,28 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     )
     .toEqual([openingId]);
 
+  await page.getByRole("button", { name: "P4 두 번째 개구부 선택" }).click();
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).selectedIds)
+    .toEqual([unlockedOpeningId]);
+  await page
+    .getByRole("button", { name: "P4 canonical Awareness 잠금" })
+    .click();
+  await expect
+    .poll(async () => {
+      const state = JSON.parse((await localAwareness.textContent()) ?? "null");
+      return {
+        selectedIds: state?.selectedIds,
+        softLockIds: state?.softLocks?.map(
+          (lock: { entityId: string }) => lock.entityId,
+        ),
+      };
+    })
+    .toEqual({
+      selectedIds: [unlockedOpeningId],
+      softLockIds: [unlockedOpeningId],
+    });
+
   await hostLayerVisibility.click();
   await expect(hostLayerVisibility).not.toBeChecked();
   await expect
@@ -240,7 +267,14 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
         JSON.parse((await localAwareness.textContent()) ?? "null")?.selectedIds,
     )
     .toEqual([]);
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await localAwareness.textContent()) ?? "null")?.softLocks,
+    )
+    .toEqual([]);
   await expect(surface).toHaveAttribute("data-remote-selection-count", "0");
+  await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
 
   await hostLayerVisibility.click();
   await expect(hostLayerVisibility).toBeChecked();
@@ -254,6 +288,7 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     )
     .toEqual([]);
   await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
+  await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
 });
 
 test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({

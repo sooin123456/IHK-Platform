@@ -169,6 +169,82 @@ export function createDrawingAwarenessPublisher({
   };
 }
 
+/**
+ * Owns every local Awareness publication above the frame-bounded transport.
+ * Canonical refs are read synchronously for connection and update timing.
+ */
+export function createDrawingAwarenessPublication({
+  getCanonicalSelectedIds,
+  getCanonicalVisibleEntityIds,
+  initialState,
+  requestFrame,
+  cancelFrame,
+}: {
+  getCanonicalSelectedIds: () => readonly string[];
+  getCanonicalVisibleEntityIds: () => ReadonlySet<string>;
+  initialState: DrawingAwarenessLocalInput;
+  requestFrame?: (callback: FrameRequestCallback) => number;
+  cancelFrame?: (handle: number) => void;
+}) {
+  let localState: DrawingAwarenessLocalInput = {
+    ...initialState,
+    selectedIds: [...initialState.selectedIds],
+    softLocks: [...initialState.softLocks],
+  };
+  let publisher: ReturnType<typeof createDrawingAwarenessPublisher> | null =
+    null;
+  const update = (patch: Partial<DrawingAwarenessLocalInput> = {}) => {
+    const candidate = { ...localState, ...patch };
+    const canonicalSelectedIds = new Set(getCanonicalSelectedIds());
+    const visibleEntityIds = getCanonicalVisibleEntityIds();
+    localState = {
+      ...candidate,
+      selectedIds: candidate.selectedIds.filter(
+        (id) => canonicalSelectedIds.has(id) && visibleEntityIds.has(id),
+      ),
+      softLocks: candidate.softLocks.filter((lock) =>
+        visibleEntityIds.has(lock.entityId),
+      ),
+    };
+    publisher?.update(localState);
+  };
+  return {
+    connect({
+      adapter,
+      user,
+    }: {
+      adapter: {
+        setLocalState(state: DrawingAwarenessState | null): void;
+      };
+      user: { id: string; displayName: string };
+    }) {
+      publisher?.dispose();
+      publisher = createDrawingAwarenessPublisher({
+        user,
+        publish: (state) => adapter.setLocalState(state),
+        requestFrame,
+        cancelFrame,
+      });
+      update();
+    },
+    update,
+    clear() {
+      publisher?.clear();
+    },
+    disconnect() {
+      publisher?.dispose();
+      publisher = null;
+    },
+    getLocalState(): DrawingAwarenessLocalInput {
+      return {
+        ...localState,
+        selectedIds: [...localState.selectedIds],
+        softLocks: [...localState.softLocks],
+      };
+    },
+  };
+}
+
 export function parseDrawingAwarenessPeers(
   states: Map<number, unknown>,
   scope: {

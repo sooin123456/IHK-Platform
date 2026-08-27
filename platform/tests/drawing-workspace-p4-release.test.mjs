@@ -209,6 +209,25 @@ test("P4 local release inputs exist in a committed checkout without developer re
   );
 });
 
+test("P4 workspace has one canonical local Awareness publication authority", async () => {
+  const workspace = await read("app/lukas/components/drawing-workspace.tsx");
+  const awareness = await read("app/lukas/lib/drawing-awareness.ts");
+  assert.doesNotMatch(workspace, /awarenessPublisherRef/);
+  assert.doesNotMatch(workspace, /awarenessLocalRef/);
+  assert.doesNotMatch(workspace, /\.setLocalState\(/);
+  assert.match(workspace, /awarenessPublicationRef\.current\?\.connect\(/);
+  assert.match(workspace, /publishAwareness\(\{\}\)/);
+  assert.equal(
+    [...awareness.matchAll(/adapter\.setLocalState\(/g)].length,
+    1,
+    "the canonical publication helper is the only adapter publication call",
+  );
+  assert.match(
+    awareness,
+    /createDrawingAwarenessPublication[\s\S]*publish: \(state\) => adapter\.setLocalState\(state\)/,
+  );
+});
+
 test("P4 functional browser authority ignores inherited targets and rejects mutations", async () => {
   const {
     P4_FUNCTIONAL_BASE_URL,

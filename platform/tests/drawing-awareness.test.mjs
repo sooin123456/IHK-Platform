@@ -162,6 +162,134 @@ test("publisher canonicalizes world state and sends at most once per frame", () 
   assert.equal(published.at(-1), null, "dispose removes local Awareness");
 });
 
+test("one canonical publication authority sanitizes initial connect reconnect reauthorization and restore timing", () => {
+  const { createDrawingAwarenessPublication, drawingAwarenessColor } =
+    requireAwareness();
+  assert.equal(typeof createDrawingAwarenessPublication, "function");
+  const frames = [];
+  const firstAdapterStates = [];
+  const reconnectAdapterStates = [];
+  const remoteLocks = [
+    { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 10_000 },
+  ];
+  let canonicalSelectedIds = [ids.objectB];
+  let visibleEntityIds = new Set([ids.objectB]);
+  const publication = createDrawingAwarenessPublication({
+    getCanonicalSelectedIds: () => canonicalSelectedIds,
+    getCanonicalVisibleEntityIds: () => visibleEntityIds,
+    initialState: {
+      pageId: ids.page,
+      canvasId: ids.canvas,
+      cursorWorld: null,
+      selectedIds: [ids.objectA, ids.objectB],
+      activeTool: "select",
+      softLocks: [
+        { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 10_000 },
+        {
+          entityId: ids.objectB,
+          leaseId: ids.otherCanvas,
+          expiresAt: 10_000,
+        },
+      ],
+    },
+    requestFrame: (callback) => (frames.push(callback), frames.length),
+    cancelFrame() {},
+  });
+  publication.connect({
+    adapter: { setLocalState: (state) => firstAdapterStates.push(state) },
+    user: { id: ids.me, displayName: "나" },
+  });
+  frames.shift()(1);
+  assert.deepEqual(firstAdapterStates.at(-1), {
+    user: {
+      id: ids.me,
+      displayName: "나",
+      color: drawingAwarenessColor(ids.me),
+    },
+    pageId: ids.page,
+    canvasId: ids.canvas,
+    cursorWorld: null,
+    selectedIds: [ids.objectB],
+    activeTool: "select",
+    softLocks: [
+      {
+        entityId: ids.objectB,
+        leaseId: ids.otherCanvas,
+        expiresAt: 10_000,
+      },
+    ],
+  });
+
+  canonicalSelectedIds = [ids.objectA, ids.objectB];
+  visibleEntityIds = new Set([ids.objectA, ids.objectB]);
+  publication.update({
+    selectedIds: [ids.objectA, ids.objectB],
+    softLocks: [
+      { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 10_000 },
+      {
+        entityId: ids.objectB,
+        leaseId: ids.otherCanvas,
+        expiresAt: 10_000,
+      },
+    ],
+  });
+  frames.shift()(2);
+  assert.deepEqual(firstAdapterStates.at(-1).selectedIds, [
+    ids.objectA,
+    ids.objectB,
+  ]);
+
+  canonicalSelectedIds = [ids.objectB];
+  visibleEntityIds = new Set([ids.objectB]);
+  publication.connect({
+    adapter: { setLocalState: (state) => reconnectAdapterStates.push(state) },
+    user: { id: ids.me, displayName: "나" },
+  });
+  frames.shift()(3);
+  assert.equal(firstAdapterStates.at(-1), null);
+  assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, [ids.objectB]);
+  assert.deepEqual(
+    reconnectAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
+    [ids.objectB],
+  );
+
+  canonicalSelectedIds = [ids.objectA, ids.objectB];
+  visibleEntityIds = new Set([ids.objectA, ids.objectB]);
+  publication.update({
+    selectedIds: [ids.objectA, ids.objectB],
+    softLocks: [
+      { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 10_000 },
+      {
+        entityId: ids.objectB,
+        leaseId: ids.otherCanvas,
+        expiresAt: 10_000,
+      },
+    ],
+  });
+  frames.shift()(4);
+  canonicalSelectedIds = [ids.objectB];
+  visibleEntityIds = new Set([ids.objectB]);
+  publication.update();
+  frames.shift()(5);
+  assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, [ids.objectB]);
+  assert.deepEqual(
+    reconnectAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
+    [ids.objectB],
+  );
+
+  visibleEntityIds = new Set([ids.objectA, ids.objectB]);
+  publication.update();
+  frames.shift()(6);
+  assert.deepEqual(publication.getLocalState().selectedIds, [ids.objectB]);
+  assert.deepEqual(
+    publication.getLocalState().softLocks.map(({ entityId }) => entityId),
+    [ids.objectB],
+  );
+  assert.deepEqual(remoteLocks, [
+    { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 10_000 },
+  ]);
+});
+
 test("peer parser excludes only the provider-owned local client and retains a second client for the same verified user", () => {
   const { parseDrawingAwarenessPeers, drawingAwarenessColor } =
     requireAwareness();

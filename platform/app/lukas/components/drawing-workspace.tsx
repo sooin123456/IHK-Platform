@@ -36,6 +36,7 @@ import {
   createDrawingBlockRenderCache,
   deleteDrawingBlockInstancesCommand,
   drawingSelectionEntityKind,
+  drawingVisibleCanvasObjects,
   duplicateDrawingBlockInstancesCommand,
   moveDrawingBlockInstancesCommand,
   pasteDrawingBlockInstancesClipboardCommand,
@@ -143,8 +144,8 @@ import {
   type DrawingWorkspaceRealtimeAdapter,
 } from "~/lukas/lib/drawing-workspace-realtime";
 import {
+  createDrawingAwarenessPublication,
   createDrawingAwarenessPeerStore,
-  createDrawingAwarenessPublisher,
   createDrawingSoftLockLease,
   drawingCommandSoftLockConflict,
   drawingRecordedOperationSoftLockConflict,
@@ -872,22 +873,28 @@ export default function DrawingWorkspaceClient({
   const awarenessLockPeers = useDrawingAwarenessLocks(
     awarenessStoreRef.current,
   );
-  const awarenessPublisherRef = useRef<ReturnType<
-    typeof createDrawingAwarenessPublisher
-  > | null>(null);
   const awarenessLeaseRef = useRef<ReturnType<
     typeof createDrawingSoftLockLease
   > | null>(null);
   const awarenessRenewalRef = useRef<number | null>(null);
   const awarenessCursorRef =
     useRef<DrawingAwarenessLocalInput["cursorWorld"]>(null);
-  const awarenessLocalRef = useRef<DrawingAwarenessLocalInput>({
-    pageId: null,
-    canvasId: null,
-    cursorWorld: null,
-    selectedIds: [],
-    activeTool: "select",
-    softLocks: [],
+  const awarenessSelectionRef = useRef<readonly string[]>([]);
+  const awarenessVisibleEntityIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const awarenessPublicationRef = useRef<ReturnType<
+    typeof createDrawingAwarenessPublication
+  > | null>(null);
+  awarenessPublicationRef.current ??= createDrawingAwarenessPublication({
+    getCanonicalSelectedIds: () => awarenessSelectionRef.current,
+    getCanonicalVisibleEntityIds: () => awarenessVisibleEntityIdsRef.current,
+    initialState: {
+      pageId: null,
+      canvasId: null,
+      cursorWorld: null,
+      selectedIds: [],
+      activeTool: "select",
+      softLocks: [],
+    },
   });
   const [collaborationPhase, setCollaborationPhase] = useState<
     DrawingCollaborationConnection["phase"]
@@ -986,9 +993,19 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
-  const awarenessSelectionRef = useRef(transient.selectedIds);
   awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
+  awarenessVisibleEntityIdsRef.current = new Set([
+    ...drawingVisibleCanvasObjects(
+      Object.values(activeDrawingState.objects),
+      activeDrawingState.layers,
+    ).map((object) => object.id),
+    ...Object.values(
+      activeDrawingState.structure?.blockInstances ?? {},
+    ).flatMap((instance) =>
+      activeDrawingState.layers[instance.layerId]?.visible ? [instance.id] : [],
+    ),
+  ]);
   const selectionLockConflict = useMemo(
     () =>
       drawingSelectionSoftLockConflict(
@@ -1011,15 +1028,8 @@ export default function DrawingWorkspaceClient({
     [drawingState],
   );
   const publishAwareness = useCallback(
-    (patch: Partial<DrawingAwarenessLocalInput>) => {
-      const next = {
-        ...awarenessLocalRef.current,
-        ...patch,
-        selectedIds: patch.selectedIds ?? awarenessSelectionRef.current,
-      };
-      awarenessLocalRef.current = next;
-      awarenessPublisherRef.current?.update(next);
-    },
+    (patch: Partial<DrawingAwarenessLocalInput> = {}) =>
+      awarenessPublicationRef.current?.update(patch),
     [],
   );
   const setAwarenessSoftLock = useCallback(
@@ -1244,8 +1254,7 @@ export default function DrawingWorkspaceClient({
       awarenessRenewalRef.current = null;
       awarenessLeaseRef.current?.release();
       awarenessLeaseRef.current = null;
-      awarenessPublisherRef.current?.dispose();
-      awarenessPublisherRef.current = null;
+      awarenessPublicationRef.current?.disconnect();
       awarenessStoreRef.current.replace([]);
     };
     const actionUrl = window.location.href;
@@ -1324,10 +1333,12 @@ export default function DrawingWorkspaceClient({
               if (awarenessExpiryTimer !== null)
                 window.clearTimeout(awarenessExpiryTimer);
               const now = Date.now();
+              const localState =
+                awarenessPublicationRef.current?.getLocalState();
               const peers = parseDrawingAwarenessPeers(remote.getStates(), {
                 localClientId: remote.clientId,
-                pageId: awarenessLocalRef.current.pageId,
-                canvasId: awarenessLocalRef.current.canvasId,
+                pageId: localState?.pageId ?? null,
+                canvasId: localState?.canvasId ?? null,
                 now,
               });
               awarenessStoreRef.current.replace(peers);
@@ -1339,14 +1350,13 @@ export default function DrawingWorkspaceClient({
                 : null;
             };
             unsubscribeAwareness = remote.subscribe(refreshPeers);
-            awarenessPublisherRef.current = createDrawingAwarenessPublisher({
+            awarenessPublicationRef.current?.connect({
+              adapter: remote,
               user: { id: currentUserId, displayName: "나" },
-              publish: (state) => remote.setLocalState(state),
             });
             awarenessLeaseRef.current ??= createDrawingSoftLockLease({
               onChange: (softLocks) => publishAwareness({ softLocks }),
             });
-            awarenessPublisherRef.current.update(awarenessLocalRef.current);
             refreshPeers();
           }
         }
@@ -1550,16 +1560,17 @@ export default function DrawingWorkspaceClient({
       );
     if (!authorityCanWrite) {
       setAwarenessSoftLock(null);
-      awarenessPublisherRef.current?.clear();
+      awarenessPublicationRef.current?.clear();
       setActiveTool("select");
       setActiveLayerId(null);
       setSelectedIds([]);
-    } else awarenessPublisherRef.current?.update(awarenessLocalRef.current);
+    } else publishAwareness({});
   }, [
     authorityCanWrite,
     collaborationBootstrap,
     effectiveCapability,
     effectiveRevisionStatus,
+    publishAwareness,
     setAwarenessSoftLock,
   ]);
 
@@ -2481,6 +2492,36 @@ export default function DrawingWorkspaceClient({
             type="button"
           >
             P4 첫 개구부 선택
+          </button>
+          <button
+            onClick={() => {
+              const openings = Object.values(
+                drawingStateRef.current.objects,
+              ).filter((object) => object.geometry.type === "opening");
+              if (openings[1]) setAuthorizedSelection([openings[1].id]);
+            }}
+            type="button"
+          >
+            P4 두 번째 개구부 선택
+          </button>
+          <button
+            onClick={() => {
+              const entityId = transient.selectedIds[0];
+              publishAwareness({
+                softLocks: entityId
+                  ? [
+                      {
+                        entityId,
+                        expiresAt: Date.now() + 10_000,
+                        leaseId: crypto.randomUUID(),
+                      },
+                    ]
+                  : [],
+              });
+            }}
+            type="button"
+          >
+            P4 canonical Awareness 잠금
           </button>
           <button onClick={runVerticalDirectMutation} type="button">
             P4 직접 변경 시도
