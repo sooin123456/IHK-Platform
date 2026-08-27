@@ -278,6 +278,31 @@ function create(doc = initializedDoc(), options = {}) {
   });
 }
 
+test("structured projections preserve canonical object and layer map identity", () => {
+  let published = null;
+  const adapter = create(initializedDoc(), {
+    authoritativeState: hostedState(),
+    replaceProjection: (state) => {
+      published = state;
+    },
+  });
+
+  const snapshot = adapter.getSnapshot();
+  assert.equal(snapshot.quarantine, null);
+  assert.equal(snapshot.state.objects, snapshot.state.structure.objects);
+  assert.equal(snapshot.state.layers, snapshot.state.structure.layers);
+
+  const prepared = adapter.prepareLocal({
+    type: "add_objects",
+    actorId: ids.actorA,
+    objects: [object("00000000-0000-4000-8000-000000000522", 40)],
+  });
+  assert.equal(adapter.appendDurableLocal(prepared), true);
+  assert.ok(published);
+  assert.equal(published.objects, published.structure.objects);
+  assert.equal(published.layers, published.structure.layers);
+});
+
 test("client bootstrap keeps base metadata local while an offline operation remains projectable", () => {
   const doc = new Y.Doc();
   const localBaseMeta = initializeDrawingCollaborationDocument({

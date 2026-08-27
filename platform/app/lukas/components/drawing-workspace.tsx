@@ -2110,7 +2110,10 @@ export default function DrawingWorkspaceClient({
             "pageId",
             "type",
           ]) as DrawingDocumentHydration["objects"],
-          sources: normalizeDrawingCanonicalSources(graph.sources, revision.id),
+          sources: normalizeDrawingCanonicalSources(
+            graph.sources ?? [],
+            revision.id,
+          ),
           styles: graph.styles as DrawingDocumentHydration["styles"],
           blocks: graph.blocks as DrawingDocumentHydration["blocks"],
           blockInstances:
@@ -3089,7 +3092,11 @@ export default function DrawingWorkspaceClient({
               <button onClick={runVerticalHostedWallDelete} type="button">
                 P4 선택 벽과 개구부 원자 삭제
               </button>
-              <button onClick={runVerticalHostedWallUndo} type="button">
+              <button
+                disabled={!outboxReady}
+                onClick={runVerticalHostedWallUndo}
+                type="button"
+              >
                 P4 원자 삭제 복원
               </button>
               <button
@@ -3986,6 +3993,15 @@ export default function DrawingWorkspaceClient({
                   {revision.checkpoints.map((checkpoint) => (
                     <button
                       className="min-h-10 w-full rounded-md border border-white/20 px-2 text-left text-xs"
+                      disabled={
+                        !outboxReady ||
+                        !authorityCanWrite ||
+                        !canPersistDrawingMutation(
+                          effectiveCapability,
+                          persistenceState,
+                          effectiveRevisionStatus,
+                        )
+                      }
                       key={checkpoint.id}
                       onClick={() => void restoreCheckpoint(checkpoint)}
                       type="button"
@@ -4177,7 +4193,8 @@ export default function DrawingWorkspaceClient({
 
         <section
           aria-label="도면 캔버스"
-          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2"
+          aria-busy={!outboxReady}
+          className={`relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 ${outboxReady ? "" : "pointer-events-none"}`}
         >
           <div
             className={

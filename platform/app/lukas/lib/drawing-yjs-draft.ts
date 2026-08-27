@@ -122,6 +122,17 @@ function validateState(state: DrawingDocumentState) {
     });
 }
 
+function preserveCanonicalStructureMaps(
+  state: DrawingDocumentState,
+): DrawingDocumentState {
+  if (!state.structure) return state;
+  return {
+    ...state,
+    objects: state.structure.objects,
+    layers: state.structure.layers,
+  };
+}
+
 function envelopeFor(
   operation: DrawingRecordedOperation,
 ): DrawingCollaborationOperation {
@@ -504,6 +515,7 @@ export function createDrawingDraftAdapter(
         provisionalConflictOperationIds.push(item.operationId);
       }
     }
+    state = preserveCanonicalStructureMaps(state);
     validateState(state);
     const idsWith = (wanted: "conflicted" | "rejected") =>
       ledger.operationOrder.filter(

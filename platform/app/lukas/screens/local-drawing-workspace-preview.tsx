@@ -1178,12 +1178,20 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("p5BaselineTest") === "1";
   const p5ReleaseTest =
     new URL(request.url).searchParams.get("p5ReleaseTest") === "1";
+  const legacyPreviewTest = [
+    "realtimeTest",
+    "collaborationRetryTest",
+    "bootstrapReadOnlyTest",
+    "awarenessTest",
+    "verticalTest",
+  ].some((name) => new URL(request.url).searchParams.get(name) === "1");
   const canonicalP5 =
     !performanceTest &&
     !hiddenHostTest &&
     !p5IfcTest &&
     !p5PdfTest &&
-    !p5ReleaseTest;
+    !p5ReleaseTest &&
+    !legacyPreviewTest;
   const viewState = parseDrawingWorkspaceViewState(
     new URL(request.url).searchParams,
   );
