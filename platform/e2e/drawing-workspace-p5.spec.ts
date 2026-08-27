@@ -18,6 +18,32 @@ async function openP5Preview(page: Page) {
   ).toBeVisible();
 }
 
+async function changedPixelRatio(page: Page, screenshot: Buffer) {
+  return page.evaluate(async (encoded) => {
+    const image = await createImageBitmap(
+      await (await fetch(`data:image/png;base64,${encoded}`)).blob(),
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Canvas 2D context is unavailable.");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const background = [pixels[0], pixels[1], pixels[2]];
+    let changed = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const delta =
+        Math.abs(pixels[index] - background[0]) +
+        Math.abs(pixels[index + 1] - background[1]) +
+        Math.abs(pixels[index + 2] - background[2]);
+      if (delta > 24) changed += 1;
+    }
+    image.close();
+    return changed / (canvas.width * canvas.height);
+  }, screenshot.toString("base64"));
+}
+
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 test("manual P5 PDF preview serves current and opt-in predecessor bytes without interception", async ({
@@ -577,6 +603,24 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
   );
   await page.getByRole("combobox", { name: "IFC 원본 선택" }).selectOption("");
   await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(0);
+});
+
+test("cold split paints the fitted IFC model without a manual fit", async ({
+  page,
+}) => {
+  await openP5Preview(page);
+  await page.getByRole("button", { name: "분할 보기" }).click();
+  await expect(page).toHaveURL(/view=split/);
+  const canvas = page.locator('canvas[aria-label="IFC 3D 모델"]');
+  await expect(canvas).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/3D 요소 115개를 표시했습니다/)).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect
+    .poll(() =>
+      canvas.screenshot().then((image) => changedPixelRatio(page, image)),
+    )
+    .toBeGreaterThan(0.18);
 });
 
 test("a source swap during the pending web-ifc import commits only the latest generation", async ({

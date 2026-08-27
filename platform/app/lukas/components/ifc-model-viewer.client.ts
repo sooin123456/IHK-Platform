@@ -111,8 +111,12 @@ function boundsForObjects(objects: THREE.Object3D[]) {
 }
 
 export function createIfcInitialFitOnce(fit: () => void) {
+  let armed = false;
   let fitted = false;
   return {
+    arm() {
+      if (!fitted) armed = true;
+    },
     attempt({
       ready,
       visible,
@@ -124,7 +128,7 @@ export function createIfcInitialFitOnce(fit: () => void) {
       width: number;
       height: number;
     }) {
-      if (fitted || !ready || !visible || width <= 0 || height <= 0)
+      if (!armed || fitted || !ready || !visible || width <= 0 || height <= 0)
         return false;
       fitted = true;
       fit();
@@ -151,6 +155,7 @@ export function createIfcModelViewer({
   let remoteExpressIds = new Set<number>();
   let pointerDown: { x: number; y: number } | null = null;
   let modelReady = false;
+  let initialFitFrame: number | null = null;
 
   const scene = new THREE.Scene();
   const modelRoot = new THREE.Group();
@@ -489,6 +494,12 @@ export function createIfcModelViewer({
 
     modelReady = true;
     resize();
+    initialFitFrame = requestAnimationFrame(() => {
+      initialFitFrame = null;
+      if (disposed) return;
+      fitInitialModel.arm();
+      resize();
+    });
     report({
       phase: "ready",
       message: `3D 요소 ${elementMeshes.size.toLocaleString("ko-KR")}개를 표시했습니다.`,
@@ -514,6 +525,7 @@ export function createIfcModelViewer({
   function dispose(notify = true) {
     if (disposed) return;
     disposed = true;
+    if (initialFitFrame !== null) cancelAnimationFrame(initialFitFrame);
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     resizeObserver.disconnect();
     renderer.domElement.removeEventListener("pointerdown", handlePointerDown);

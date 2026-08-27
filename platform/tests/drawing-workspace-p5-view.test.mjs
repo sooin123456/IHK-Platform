@@ -31,12 +31,22 @@ const ids = {
 };
 const sha = "a".repeat(64);
 
-test("IFC initial fit waits for a ready visible non-zero viewport and runs once", () => {
+test("IFC initial fit waits until armed with a ready visible non-zero viewport and runs once", () => {
   let fits = 0;
   const initialFit = ifcViewer.createIfcInitialFitOnce(() => {
     fits += 1;
   });
 
+  assert.equal(
+    initialFit.attempt({
+      ready: true,
+      visible: true,
+      width: 640,
+      height: 480,
+    }),
+    false,
+  );
+  initialFit.arm();
   assert.equal(
     initialFit.attempt({
       ready: false,
@@ -83,6 +93,7 @@ test("IFC initial fit waits for a ready visible non-zero viewport and runs once"
     fits += 1;
   });
   canceled.cancel();
+  canceled.arm();
   assert.equal(
     canceled.attempt({
       ready: true,
