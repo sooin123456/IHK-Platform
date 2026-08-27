@@ -68,6 +68,46 @@ begin
 end;
 $$;
 
+-- Serialize every legacy BOQ child mutation with the owning version. The
+-- existing seven triggers all resolve this function by OID, so replacing it
+-- hardens VERIFIED-BOQ-1.0 and 1.1 without changing their public surface.
+create or replace function public.lukas_qto_guard_boq_draft_child()
+returns trigger language plpgsql security invoker set search_path='' as $$
+declare
+  v_version_id uuid;
+  v_project_id uuid;
+  v_status text;
+  v_maker uuid;
+begin
+  if tg_op='UPDATE' and (
+    new.version_id is distinct from old.version_id
+    or new.project_id is distinct from old.project_id
+  ) then
+    raise exception using errcode='P6O01',
+      message='BOQ child version identity is immutable';
+  end if;
+  if tg_op='INSERT' then
+    v_version_id:=new.version_id;
+    v_project_id:=new.project_id;
+  else
+    v_version_id:=old.version_id;
+    v_project_id:=old.project_id;
+  end if;
+  select v.status,v.created_by into v_status,v_maker
+  from public.lukas_qto_boq_versions v
+  where v.id=v_version_id and v.project_id=v_project_id
+  for update;
+  if v_status is distinct from 'draft' then
+    raise exception 'Only a draft BOQ version can be edited';
+  end if;
+  if v_maker is distinct from (select auth.uid()) then
+    raise exception 'Only the BOQ maker can edit draft rows';
+  end if;
+  if tg_op='DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
 alter table public.lukas_qto_boq_versions
   add column input_state_sha256 text,
   add column manifest_sha256 text,
@@ -158,6 +198,8 @@ create table public.lukas_drawing_material_links (
   foreign key(material_plan_id,project_id) references public.lukas_qto_material_plans(id,project_id) on delete restrict
 );
 
+create index lukas_drawing_quantity_links_snapshot_idx on public.lukas_drawing_quantity_links(drawing_revision_id,project_id,drawing_revision_version,drawing_snapshot_sha256);
+create index lukas_drawing_quantity_links_object_fk_idx on public.lukas_drawing_quantity_links(drawing_object_id,drawing_revision_id,project_id);
 create index lukas_drawing_quantity_links_object_idx on public.lukas_drawing_quantity_links(project_id,drawing_revision_id,drawing_object_id);
 create index lukas_drawing_quantity_links_lineage_idx on public.lukas_drawing_quantity_links(project_id,drawing_object_lineage_id,created_at desc);
 create index lukas_drawing_boq_links_line_idx on public.lukas_drawing_boq_links(project_id,boq_version_id,boq_line_id);
@@ -860,7 +902,8 @@ begin
   if v.id is null or p_result_sha256 is null or p_manifest_file_id is null
     or p_manifest_file_sha256 is null or v.engine_version<>'VERIFIED-BOQ-1.1'
     or v.status not in ('approved','superseded') or v.result_sha256<>p_result_sha256
-    or v.manifest_sha256<>p_manifest_file_sha256
+    or v.input_state_sha256 is null or v.result_sha256 is null
+    or v.manifest_sha256 is null
     or p_result_sha256 !~ '^[0-9a-f]{64}$'
     or p_manifest_file_sha256 !~ '^[0-9a-f]{64}$'
     or not exists(select 1 from public.lukas_qto_boq_approvals a

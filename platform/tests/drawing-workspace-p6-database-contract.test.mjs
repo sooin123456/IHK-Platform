@@ -5,11 +5,12 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
 import { calculateVerifiedBoq } from "../app/lukas/lib/verified-boq.server.ts";
 import {
-  applyP6CurrentAuthority,
+  applyP6AuthorityFixture,
   p6Ids,
   p6LegacyInput,
   p6MaterialPayload,
   p6OpeningFingerprint,
+  p6OtherWallFingerprint,
   p6SeedBoq11Draft,
   p6SetSession,
   p6SeedPopulatedAuthority,
@@ -30,6 +31,21 @@ const adversarialIds = Object.freeze({
   quantityOwner: "66000000-0000-4000-8000-000000000018",
   quantityStaff: "66000000-0000-4000-8000-000000000019",
   unusedMaterialPlan: "67000000-0000-4000-8000-000000000006",
+  otherQuantity: "66000000-0000-4000-8000-000000000020",
+  foreignRevisionQuantity: "66000000-0000-4000-8000-000000000021",
+  foreignObjectQuantity: "66000000-0000-4000-8000-000000000022",
+  foreignSnapshotQuantity: "66000000-0000-4000-8000-000000000023",
+  foreignLineageQuantity: "66000000-0000-4000-8000-000000000024",
+  foreignQuantityBoqLink: "66000000-0000-4000-8000-000000000025",
+  foreignVersionBoqLink: "66000000-0000-4000-8000-000000000026",
+  foreignLineBoqLink: "66000000-0000-4000-8000-000000000027",
+  directQuantity: "66000000-0000-4000-8000-000000000028",
+  directBoqLink: "66000000-0000-4000-8000-000000000029",
+  directMaterialLink: "66000000-0000-4000-8000-00000000002a",
+  deniedQuantity: "66000000-0000-4000-8000-00000000002b",
+  deniedBoqLink: "66000000-0000-4000-8000-00000000002c",
+  deniedMaterialLink: "66000000-0000-4000-8000-00000000002d",
+  approvedSuccessor: "65000000-0000-4000-8000-000000000020",
 });
 
 async function assertSqlState(promise, code) {
@@ -82,7 +98,7 @@ async function snapshotAuthority(db) {
 async function createAuthority({ optIn = false, populated = false } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
-    await applyP6CurrentAuthority(db, { optIn });
+    await applyP6AuthorityFixture(db, { optIn });
     const legacyResult = calculateVerifiedBoq(p6LegacyInput);
     const seed = populated
       ? await p6SeedPopulatedAuthority(db, legacyResult)
@@ -171,7 +187,7 @@ async function insertMaterialHandoff(db, overrides = {}) {
     versionId: p6Ids.boq11,
     resultSha256: p6Sha.result,
     manifestFileId: p6Ids.manifestFile,
-    manifestSha256: p6Sha.manifest,
+    manifestSha256: p6Sha.handoff,
     plans: payload.plans,
     links: payload.links,
     ...overrides,
@@ -220,7 +236,7 @@ async function approveBoq11(db, seed) {
   return input;
 }
 
-test("P6 applies over both real current-authority default-privilege states", async (t) => {
+test("P6 applies over both historical-authority default-privilege states", async (t) => {
   for (const optIn of [false, true]) {
     await t.test(optIn ? "hardened defaults" : "legacy defaults", async () => {
       const { db } = await createAuthority({ optIn });
@@ -325,6 +341,14 @@ test("quantity authority rejects stale identity and proves exact immutable repla
       unit: "EA",
     });
     assert.equal(staffQuantity.rows[0].created_by, p6Ids.outsider);
+    // Explicit table-owner corruption probe: the production revision trigger
+    // forbids these states, while P6 must still fail closed if authority is
+    // damaged underneath it.
+    await p6SetSession(db, null, p6Ids.maker);
+    await db.exec(
+      `alter table public.lukas_drawing_revisions
+       disable trigger lukas_drawing_revisions_guard`,
+    );
     for (const status of ["draft", "review_requested"]) {
       await p6SetSession(db, null, p6Ids.maker);
       await db.query(
@@ -461,6 +485,10 @@ test("quantity authority rejects stale identity and proves exact immutable repla
       `update public.lukas_drawing_revisions set version=7 where id=$1`,
       [p6Ids.revision],
     );
+    await db.exec(
+      `alter table public.lukas_drawing_revisions
+       enable trigger lukas_drawing_revisions_guard`,
+    );
 
     await p6SetSession(db, "service_role", p6Ids.maker);
     await assertSqlState(
@@ -490,6 +518,289 @@ test("quantity authority rejects stale identity and proves exact immutable repla
       ]),
       "P6Q02",
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test("every cross-project quantity and BOQ identity position fails closed", async () => {
+  const { db, seed } = await createAuthority({ populated: true });
+  try {
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await insertWallQuantity(db, seed);
+    await assertSqlState(
+      insertWallQuantity(db, seed, {
+        id: adversarialIds.foreignRevisionQuantity,
+        revisionId: p6Ids.otherRevision,
+        objectId: p6Ids.otherWall,
+        snapshotSha256: seed.otherSnapshotSha256,
+        lineageId: p6Ids.otherWall,
+        fingerprint: p6OtherWallFingerprint,
+        rawQuantity: "1",
+      }),
+      "P6Q03",
+    );
+    await assertSqlState(
+      insertWallQuantity(db, seed, {
+        id: adversarialIds.foreignObjectQuantity,
+        objectId: p6Ids.otherWall,
+      }),
+      "P6Q03",
+    );
+    await assertSqlState(
+      insertWallQuantity(db, seed, {
+        id: adversarialIds.foreignSnapshotQuantity,
+        snapshotSha256: seed.otherSnapshotSha256,
+      }),
+      "P6Q03",
+    );
+    await assertSqlState(
+      insertWallQuantity(db, seed, {
+        id: adversarialIds.foreignLineageQuantity,
+        lineageId: p6Ids.otherWall,
+      }),
+      "P6Q03",
+    );
+
+    await p6SetSession(db, "service_role", p6Ids.otherMaker);
+    const otherQuantity = await insertWallQuantity(db, seed, {
+      actorId: p6Ids.otherMaker,
+      id: adversarialIds.otherQuantity,
+      revisionId: p6Ids.otherRevision,
+      objectId: p6Ids.otherWall,
+      snapshotSha256: seed.otherSnapshotSha256,
+      lineageId: p6Ids.otherWall,
+      fingerprint: p6OtherWallFingerprint,
+      rawQuantity: "1",
+    });
+    assert.equal(otherQuantity.rows[0].project_id, p6Ids.otherProject);
+
+    await p6SeedBoq11Draft(db);
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    await assertSqlState(
+      putBoqLink(db, {
+        id: adversarialIds.foreignQuantityBoqLink,
+        quantityLinkId: adversarialIds.otherQuantity,
+      }),
+      "P6U01",
+    );
+    await assertSqlState(
+      putBoqLink(db, {
+        id: adversarialIds.foreignVersionBoqLink,
+        versionId: p6Ids.otherBoq,
+      }),
+      "P6A01",
+    );
+    await assertSqlState(
+      putBoqLink(db, {
+        id: adversarialIds.foreignLineBoqLink,
+        lineId: p6Ids.otherBoqLine,
+      }),
+      "P6U01",
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test("direct bridge DML obeys anon, authenticated, service, and owner boundaries", async () => {
+  const { db, seed } = await createAuthority({ populated: true });
+  try {
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await insertWallQuantity(db, seed);
+    await insertWallQuantity(db, seed, {
+      id: adversarialIds.quantityOpening,
+      objectId: p6Ids.opening,
+      kind: "area",
+      lineageId: p6Ids.opening,
+      fingerprint: p6OpeningFingerprint,
+      rawQuantity: "1.89",
+      unit: "m2",
+    });
+    await p6SeedBoq11Draft(db);
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    await putBoqLink(db);
+
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await db.query(
+      `insert into public.lukas_drawing_quantity_links(
+        id,project_id,drawing_revision_id,drawing_revision_version,
+        drawing_snapshot_sha256,drawing_object_id,drawing_object_lineage_id,
+        drawing_object_version,object_fingerprint,measurement_kind,raw_quantity,
+        unit,measurement_rule_version,created_by
+      ) values($1,$2,$3,7,$4,$5,$5,1,$6,'count',1,'EA',
+        'P4_MEASUREMENT_V1',$7)`,
+      [
+        adversarialIds.directQuantity,
+        p6Ids.project,
+        p6Ids.revision,
+        seed.snapshotSha256,
+        p6Ids.space,
+        p6SpaceFingerprint,
+        p6Ids.maker,
+      ],
+    );
+    await db.query(
+      `insert into public.lukas_drawing_boq_links(
+        id,project_id,quantity_link_id,boq_version_id,boq_line_id,
+        allocation_factor,created_by,updated_by
+      ) values($1,$2,$3,$4,$5,.2,$6,$6)`,
+      [
+        adversarialIds.directBoqLink,
+        p6Ids.project,
+        adversarialIds.directQuantity,
+        p6Ids.boq11,
+        p6Ids.boq11Line,
+        p6Ids.maker,
+      ],
+    );
+    await db.query(
+      `insert into public.lukas_drawing_material_links(
+        id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,
+        material_resource_id,boq_result_sha256,material_plan_id,
+        derived_design_quantity,material_rule_version,created_by
+      ) values($1,$2,$3,$4,$5,$6,$7,$8,1,'P6_MATERIAL_HANDOFF_V1',$9)`,
+      [
+        adversarialIds.directMaterialLink,
+        p6Ids.project,
+        p6Ids.boq11,
+        p6Ids.boq11Line,
+        p6Ids.boq11Component,
+        p6Ids.materialResource,
+        p6Sha.result,
+        p6Ids.existingMaterialPlan,
+        p6Ids.maker,
+      ],
+    );
+
+    const deniedInsert = [
+      db.query.bind(
+        db,
+        `insert into public.lukas_drawing_quantity_links(
+          id,project_id,drawing_revision_id,drawing_revision_version,
+          drawing_snapshot_sha256,drawing_object_id,drawing_object_lineage_id,
+          drawing_object_version,object_fingerprint,measurement_kind,raw_quantity,
+          unit,measurement_rule_version,created_by
+        ) values($1,$2,$3,7,$4,$5,$5,1,$6,'count',1,'EA',
+          'P4_MEASUREMENT_V1',$7)`,
+        [
+          adversarialIds.deniedQuantity,
+          p6Ids.project,
+          p6Ids.revision,
+          seed.snapshotSha256,
+          p6Ids.opening,
+          p6OpeningFingerprint,
+          p6Ids.maker,
+        ],
+      ),
+      db.query.bind(
+        db,
+        `insert into public.lukas_drawing_boq_links(
+          id,project_id,quantity_link_id,boq_version_id,boq_line_id,
+          allocation_factor,created_by,updated_by
+        ) values($1,$2,$3,$4,$5,.2,$6,$6)`,
+        [
+          adversarialIds.deniedBoqLink,
+          p6Ids.project,
+          adversarialIds.quantityOpening,
+          p6Ids.boq11,
+          p6Ids.boq11Line,
+          p6Ids.maker,
+        ],
+      ),
+      db.query.bind(
+        db,
+        `insert into public.lukas_drawing_material_links(
+          id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,
+          material_resource_id,boq_result_sha256,material_plan_id,
+          derived_design_quantity,material_rule_version,created_by
+        ) values($1,$2,$3,$4,$5,$6,$7,$8,1,'P6_MATERIAL_HANDOFF_V1',$9)`,
+        [
+          adversarialIds.deniedMaterialLink,
+          p6Ids.project,
+          p6Ids.boq11,
+          p6Ids.boq11Line,
+          p6Ids.boq11Component,
+          p6Ids.materialResource,
+          p6Sha.result,
+          p6Ids.existingMaterialPlan,
+          p6Ids.maker,
+        ],
+      ),
+    ];
+    const deniedChanges = [
+      () =>
+        db.query(
+          `update public.lukas_drawing_quantity_links set raw_quantity=2
+           where id=$1`,
+          [p6Ids.quantityLink],
+        ),
+      () =>
+        db.query(
+          `delete from public.lukas_drawing_quantity_links where id=$1`,
+          [p6Ids.quantityLink],
+        ),
+      () =>
+        db.query(
+          `update public.lukas_drawing_boq_links set allocation_factor=.3
+           where id=$1`,
+          [p6Ids.boqLink],
+        ),
+      () =>
+        db.query(`delete from public.lukas_drawing_boq_links where id=$1`, [
+          p6Ids.boqLink,
+        ]),
+      () =>
+        db.query(
+          `update public.lukas_drawing_material_links
+           set derived_design_quantity=2 where id=$1`,
+          [adversarialIds.directMaterialLink],
+        ),
+      () =>
+        db.query(
+          `delete from public.lukas_drawing_material_links where id=$1`,
+          [adversarialIds.directMaterialLink],
+        ),
+    ];
+    for (const [role, actor, options] of [
+      ["anon", null, {}],
+      ["authenticated", p6Ids.anonymous, { anonymous: true }],
+      ["authenticated", p6Ids.outsider, {}],
+      ["authenticated", p6Ids.viewer, {}],
+      ["authenticated", p6Ids.commenter, {}],
+      ["authenticated", p6Ids.reviewer, {}],
+      ["authenticated", p6Ids.maker, {}],
+    ]) {
+      await p6SetSession(db, role, actor, options);
+      for (const insert of deniedInsert)
+        await assertSqlState(insert(), "42501");
+      for (const change of deniedChanges)
+        await assertSqlState(change(), "42501");
+    }
+
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    for (const change of deniedChanges) await assertSqlState(change(), "42501");
+    await p6SetSession(db, null, p6Ids.maker);
+    await assertSqlState(
+      db.query(
+        `update public.lukas_drawing_quantity_links set raw_quantity=2 where id=$1`,
+        [p6Ids.quantityLink],
+      ),
+      "P6Q02",
+    );
+    await assertSqlState(
+      db.query(`delete from public.lukas_drawing_material_links where id=$1`, [
+        adversarialIds.directMaterialLink,
+      ]),
+      "P6M02",
+    );
+    await db.query(
+      `update public.lukas_drawing_boq_links set allocation_factor=.3 where id=$1`,
+      [adversarialIds.directBoqLink],
+    );
+    await db.query(`delete from public.lukas_drawing_boq_links where id=$1`, [
+      adversarialIds.directBoqLink,
+    ]);
   } finally {
     await db.close();
   }
@@ -565,16 +876,14 @@ test("BOQ 1.1 authority enforces session, OCC, allocation, hash, and review boun
       `update public.lukas_qto_price_resources set resource_name='Gypsum board' where id=$1`,
       [p6Ids.materialResource],
     );
-    await db.query(
-      `update public.lukas_drawing_object_sources set element_id='changed' where id=$1`,
-      [p6Ids.objectSource],
-    );
-    await p6SetSession(db, "authenticated", p6Ids.maker);
-    assert.notEqual((await readBoqInput(db)).inputStateSha256, originalHash);
-    await p6SetSession(db, null, p6Ids.maker);
-    await db.query(
-      `update public.lukas_drawing_object_sources set element_id=null where id=$1`,
-      [p6Ids.objectSource],
+    await p6SetSession(db, null, p6Ids.owner);
+    await assert.rejects(
+      db.query(
+        `update public.lukas_drawing_object_sources
+         set status='deleted',version=2,updated_by=$2 where id=$1`,
+        [p6Ids.objectSource, p6Ids.owner],
+      ),
+      /Approved drawing revision is immutable/,
     );
     await p6SetSession(db, "authenticated", p6Ids.maker);
     assert.equal((await readBoqInput(db)).inputStateSha256, originalHash);
@@ -649,8 +958,9 @@ test("BOQ 1.1 authority enforces session, OCC, allocation, hash, and review boun
     );
     await p6SetSession(db, null, p6Ids.maker);
     await db.query(
-      `update public.lukas_drawing_object_sources set element_id='post-submit' where id=$1`,
-      [p6Ids.objectSource],
+      `update public.lukas_qto_price_resources set resource_name='Post-submit change'
+       where id=$1`,
+      [p6Ids.materialResource],
     );
     await p6SetSession(db, "service_role", p6Ids.maker);
     await assertSqlState(
@@ -669,8 +979,9 @@ test("BOQ 1.1 authority enforces session, OCC, allocation, hash, and review boun
     );
     await p6SetSession(db, null, p6Ids.maker);
     await db.query(
-      `update public.lukas_drawing_object_sources set element_id=null where id=$1`,
-      [p6Ids.objectSource],
+      `update public.lukas_qto_price_resources set resource_name='Gypsum board'
+       where id=$1`,
+      [p6Ids.materialResource],
     );
 
     await p6SetSession(db, "authenticated", p6Ids.maker);
@@ -729,6 +1040,191 @@ test("BOQ 1.1 authority enforces session, OCC, allocation, hash, and review boun
   }
 });
 
+test("BOQ child edits serialize across draft, rejection, review, approval, and supersession", async () => {
+  const { db, seed } = await createAuthority({ populated: true });
+  try {
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await insertWallQuantity(db, seed);
+    await p6SeedBoq11Draft(db);
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    await putBoqLink(db, { factor: "1" });
+    await p6SetSession(db, null, p6Ids.maker);
+    await db.query(
+      `update public.lukas_drawing_boq_links set allocation_factor=.9 where id=$1`,
+      [p6Ids.boqLink],
+    );
+    await db.query(
+      `update public.lukas_drawing_boq_links set allocation_factor=1 where id=$1`,
+      [p6Ids.boqLink],
+    );
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    let input = await readBoqInput(db);
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await db.query(
+      `select private.lukas_qto_finalize_boq_v1_1($1,$2,$3,$4,$5,6250,1)`,
+      [
+        p6Ids.maker,
+        p6Ids.boq11,
+        input.inputStateSha256,
+        p6Sha.result,
+        p6Sha.manifest,
+      ],
+    );
+    await p6SetSession(db, null, p6Ids.maker);
+    await assertSqlState(
+      db.query(
+        `update public.lukas_drawing_boq_links set allocation_factor=.9 where id=$1`,
+        [p6Ids.boqLink],
+      ),
+      "P6O01",
+    );
+    await p6SetSession(db, "authenticated", p6Ids.reviewer);
+    await db.query(
+      `select public.lukas_qto_decide_boq($1,'rejected','revise')`,
+      [p6Ids.boq11],
+    );
+    await p6SetSession(db, null, p6Ids.maker);
+    await db.query(
+      `update public.lukas_drawing_boq_links set allocation_factor=.9 where id=$1`,
+      [p6Ids.boqLink],
+    );
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    input = await readBoqInput(db);
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await assertSqlState(
+      db.query(
+        `select private.lukas_qto_finalize_boq_v1_1($1,$2,$3,$4,$5,6250,1)`,
+        [
+          p6Ids.maker,
+          p6Ids.boq11,
+          input.inputStateSha256,
+          p6Sha.result,
+          p6Sha.manifest,
+        ],
+      ),
+      "P6B04",
+    );
+    await p6SetSession(db, null, p6Ids.maker);
+    await db.query(
+      `update public.lukas_drawing_boq_links set allocation_factor=1 where id=$1`,
+      [p6Ids.boqLink],
+    );
+    await p6SetSession(db, "authenticated", p6Ids.maker);
+    input = await readBoqInput(db);
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    await db.query(
+      `select private.lukas_qto_finalize_boq_v1_1($1,$2,$3,$4,$5,6250,1)`,
+      [
+        p6Ids.maker,
+        p6Ids.boq11,
+        input.inputStateSha256,
+        p6Sha.result,
+        p6Sha.manifest,
+      ],
+    );
+    await p6SetSession(db, "authenticated", p6Ids.reviewer);
+    await db.query(
+      `select public.lukas_qto_decide_boq($1,'approved','checked')`,
+      [p6Ids.boq11],
+    );
+    await p6SetSession(db, null, p6Ids.maker);
+    await assertSqlState(
+      db.query(`delete from public.lukas_drawing_boq_links where id=$1`, [
+        p6Ids.boqLink,
+      ]),
+      "P6O01",
+    );
+    await db.query(
+      `insert into public.lukas_qto_boq_versions(
+        id,project_id,version_no,title,status,calculation_policy,quantity_scale,
+        price_book_id,supersedes_id,engine_version,result_sha256,direct_cost_krw,
+        line_count,created_by,submitted_at,approved_at
+      ) values($1,$2,99,'Approved successor','approved','general_half_away',6,
+        $3,$4,'VERIFIED-BOQ-1.0',$5,0,0,$6,now(),now())`,
+      [
+        adversarialIds.approvedSuccessor,
+        p6Ids.project,
+        p6Ids.priceBook,
+        p6Ids.boq11,
+        p6Sha.other,
+        p6Ids.maker,
+      ],
+    );
+    await db.query(
+      `update public.lukas_qto_boq_versions set status='superseded' where id=$1`,
+      [p6Ids.boq11],
+    );
+    await assertSqlState(
+      db.query(
+        `update public.lukas_drawing_boq_links set allocation_factor=.8 where id=$1`,
+        [p6Ids.boqLink],
+      ),
+      "P6O01",
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test("legacy BOQ children cannot relocate out of a frozen version", async () => {
+  const { db } = await createAuthority({ populated: true });
+  try {
+    await p6SeedBoq11Draft(db);
+    await p6SetSession(db, null, p6Ids.maker);
+    await assertSqlState(
+      db.query(
+        `update public.lukas_qto_boq_quantity_mappings
+         set version_id=$2,line_id=$3 where id=$1`,
+        [p6Ids.mapping, p6Ids.boq11, p6Ids.boq11Line],
+      ),
+      "P6O01",
+    );
+    const mapping = await db.query(
+      `select version_id,line_id from public.lukas_qto_boq_quantity_mappings
+       where id=$1`,
+      [p6Ids.mapping],
+    );
+    assert.deepEqual(mapping.rows[0], {
+      version_id: p6Ids.legacyApprovedBoq,
+      line_id: p6Ids.boqLine,
+    });
+    for (const [table, assignment, id] of [
+      ["lukas_qto_boq_sections", "name=name", p6Ids.section],
+      ["lukas_qto_boq_lines", "item_name=item_name", p6Ids.boqLine],
+      ["lukas_qto_boq_wbs_nodes", "name=name", p6Ids.boqWbs],
+      [
+        "lukas_qto_boq_wbs_allocations",
+        "allocation_percent=allocation_percent",
+        p6Ids.boqAllocation,
+      ],
+      [
+        "lukas_qto_boq_quantity_mappings",
+        "source_quantity=source_quantity",
+        p6Ids.mapping,
+      ],
+      ["lukas_qto_boq_source_exclusions", "reason=reason", p6Ids.boqExclusion],
+      [
+        "lukas_qto_boq_rate_components",
+        "coefficient=coefficient",
+        p6Ids.component,
+      ],
+    ])
+      await assertSqlState(
+        db.query(`update public.${table} set ${assignment} where id=$1`, [id]),
+        "P0001",
+      );
+    await assertSqlState(
+      db.query(
+        `delete from public.lukas_qto_boq_source_exclusions where id=$1`,
+        [p6Ids.boqExclusion],
+      ),
+      "P0001",
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 test("material handoff independently verifies approval, ancestry, totals, and replay", async () => {
   const { db, seed } = await createAuthority({ populated: true });
   try {
@@ -748,11 +1244,21 @@ test("material handoff independently verifies approval, ancestry, totals, and re
       "P6M01",
     );
     await assertSqlState(
-      insertMaterialHandoff(db, { manifestSha256: p6Sha.other }),
+      insertMaterialHandoff(db, { manifestSha256: p6Sha.manifest }),
       "P6M01",
     );
     await assertSqlState(
       insertMaterialHandoff(db, { versionId: p6Ids.legacyApprovedBoq }),
+      "P6M01",
+    );
+    await assertSqlState(
+      insertMaterialHandoff(db, { versionId: p6Ids.otherBoq }),
+      "P6M01",
+    );
+    await assertSqlState(
+      insertMaterialHandoff(db, {
+        manifestFileId: p6Ids.otherManifestFile,
+      }),
       "P6M01",
     );
     await assertSqlState(insertMaterialHandoff(db, { plans: [] }), "P6M01");
@@ -781,6 +1287,40 @@ test("material handoff independently verifies approval, ancestry, totals, and re
       insertMaterialHandoff(db, { links: wrongComponentLinks }),
       "P6M01",
     );
+    const foreignLineLinks = structuredClone(payload.links);
+    foreignLineLinks[0].boqLineId = p6Ids.otherBoqLine;
+    await assertSqlState(
+      insertMaterialHandoff(db, { links: foreignLineLinks }),
+      "P6M01",
+    );
+    const foreignComponentLinks = structuredClone(payload.links);
+    foreignComponentLinks[0].boqRateComponentId = p6Ids.otherBoqComponent;
+    await assertSqlState(
+      insertMaterialHandoff(db, { links: foreignComponentLinks }),
+      "P6M01",
+    );
+    const foreignResourcePlans = structuredClone(payload.plans);
+    const foreignResourceLinks = structuredClone(payload.links);
+    foreignResourcePlans[0].materialResourceId = p6Ids.otherMaterialResource;
+    foreignResourceLinks[0].materialResourceId = p6Ids.otherMaterialResource;
+    await assertSqlState(
+      insertMaterialHandoff(db, {
+        plans: foreignResourcePlans,
+        links: foreignResourceLinks,
+      }),
+      "P6M01",
+    );
+    const foreignPlanRows = structuredClone(payload.plans);
+    const foreignPlanLinks = structuredClone(payload.links);
+    foreignPlanRows[0].id = p6Ids.otherMaterialPlan;
+    foreignPlanLinks[0].materialPlanId = p6Ids.otherMaterialPlan;
+    await assertSqlState(
+      insertMaterialHandoff(db, {
+        plans: foreignPlanRows,
+        links: foreignPlanLinks,
+      }),
+      "P6O01",
+    );
     const wrongTotalLinks = structuredClone(payload.links);
     wrongTotalLinks[0].derivedDesignQuantity = "9";
     await assertSqlState(
@@ -807,7 +1347,7 @@ test("material handoff independently verifies approval, ancestry, totals, and re
     await p6SetSession(db, null, p6Ids.maker);
     await db.query(
       `update public.lukas_qto_files set storage_path=$2 where id=$1`,
-      [p6Ids.manifestFile, `p6/boq-manifests/${p6Sha.manifest}.manifest.json`],
+      [p6Ids.manifestFile, `p6/boq-manifests/${p6Sha.handoff}.manifest.json`],
     );
     await p6SetSession(db, "service_role", p6Ids.maker);
     const inserted = await insertMaterialHandoff(db);
@@ -856,7 +1396,7 @@ test("material handoff independently verifies approval, ancestry, totals, and re
       rule_id: "P6_MATERIAL_HANDOFF_V1",
       required_by: null,
       source_file_id: p6Ids.manifestFile,
-      source_sha256: p6Sha.manifest,
+      source_sha256: p6Sha.handoff,
       baseline_factor_id: null,
       source_artifact_id: null,
       source_group_key: null,
@@ -968,23 +1508,60 @@ test("P6 catalog proves fixed grants, search paths, triggers, and indexes", asyn
     const triggers = await db.query(
       `select tgname from pg_catalog.pg_trigger
        where not tgisinternal and tgname in (
+        'lukas_drawing_object_sources_revision_guard',
         'lukas_drawing_quantity_links_immutable',
         'lukas_drawing_material_links_immutable',
         'lukas_drawing_boq_links_status_guard'
        ) order by tgname`,
     );
-    assert.equal(triggers.rows.length, 3);
+    assert.equal(triggers.rows.length, 4);
+    const legacyChildTables = await db.query(
+      `select c.relname
+       from pg_catalog.pg_trigger t
+       join pg_catalog.pg_class c on c.oid=t.tgrelid
+       where not t.tgisinternal
+         and t.tgfoid='public.lukas_qto_guard_boq_draft_child()'::pg_catalog.regprocedure
+       order by c.relname`,
+    );
+    assert.deepEqual(
+      legacyChildTables.rows.map((row) => row.relname),
+      [
+        "lukas_qto_boq_lines",
+        "lukas_qto_boq_quantity_mappings",
+        "lukas_qto_boq_rate_components",
+        "lukas_qto_boq_sections",
+        "lukas_qto_boq_source_exclusions",
+        "lukas_qto_boq_wbs_allocations",
+        "lukas_qto_boq_wbs_nodes",
+      ],
+    );
     const indexes = await db.query(
       `select indexname,indexdef from pg_catalog.pg_indexes
        where indexname in (
         'lukas_drawing_quantity_links_object_idx',
+        'lukas_drawing_quantity_links_object_fk_idx',
+        'lukas_drawing_quantity_links_snapshot_idx',
         'lukas_drawing_quantity_links_lineage_idx',
         'lukas_drawing_boq_links_source_idx',
         'lukas_drawing_material_links_plan_idx',
         'lukas_drawing_material_links_resource_idx'
        ) order by indexname`,
     );
-    assert.equal(indexes.rows.length, 5);
+    assert.equal(indexes.rows.length, 7);
+    assert.match(
+      indexes.rows.find(
+        (index) =>
+          index.indexname === "lukas_drawing_quantity_links_object_fk_idx",
+      ).indexdef,
+      /\(drawing_object_id, drawing_revision_id, project_id\)$/,
+    );
+    assert.match(
+      indexes.rows.find(
+        (index) =>
+          index.indexname === "lukas_drawing_quantity_links_snapshot_idx",
+      ).indexdef,
+      /\(drawing_revision_id, project_id, drawing_revision_version, drawing_snapshot_sha256\)$/,
+    );
     assert.match(
       indexes.rows.find(
         (index) => index.indexname === "lukas_drawing_boq_links_source_idx",

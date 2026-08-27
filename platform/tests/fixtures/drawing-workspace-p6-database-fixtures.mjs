@@ -29,6 +29,8 @@ export const p6Ids = Object.freeze({
   receiptFile: "62000000-0000-4000-8000-000000000005",
   epdFile: "62000000-0000-4000-8000-000000000006",
   otherFile: "62000000-0000-4000-8000-000000000007",
+  otherDrawingFile: "62000000-0000-4000-8000-000000000008",
+  otherManifestFile: "62000000-0000-4000-8000-000000000009",
   document: "63000000-0000-4000-8000-000000000001",
   revision: "63000000-0000-4000-8000-000000000002",
   page: "63000000-0000-4000-8000-000000000003",
@@ -42,8 +44,18 @@ export const p6Ids = Object.freeze({
   issue: "63000000-0000-4000-8000-00000000000b",
   objectSource: "63000000-0000-4000-8000-00000000000c",
   issueLink: "63000000-0000-4000-8000-00000000000d",
+  otherDocument: "63100000-0000-4000-8000-000000000001",
+  otherRevision: "63100000-0000-4000-8000-000000000002",
+  otherPage: "63100000-0000-4000-8000-000000000003",
+  otherCanvas: "63100000-0000-4000-8000-000000000004",
+  otherLayer: "63100000-0000-4000-8000-000000000005",
+  otherWall: "63100000-0000-4000-8000-000000000006",
+  otherSnapshot: "63100000-0000-4000-8000-000000000007",
+  otherDrawingApproval: "63100000-0000-4000-8000-000000000008",
   priceBook: "64000000-0000-4000-8000-000000000001",
   materialResource: "64000000-0000-4000-8000-000000000002",
+  otherPriceBook: "64100000-0000-4000-8000-000000000001",
+  otherMaterialResource: "64100000-0000-4000-8000-000000000002",
   legacyApprovedBoq: "65000000-0000-4000-8000-000000000001",
   legacyDraftBoq: "65000000-0000-4000-8000-000000000002",
   legacyRejectedBoq: "65000000-0000-4000-8000-000000000003",
@@ -55,6 +67,13 @@ export const p6Ids = Object.freeze({
   boq11Section: "65000000-0000-4000-8000-000000000009",
   boq11Line: "65000000-0000-4000-8000-00000000000a",
   boq11Component: "65000000-0000-4000-8000-00000000000b",
+  boqWbs: "65000000-0000-4000-8000-00000000000c",
+  boqAllocation: "65000000-0000-4000-8000-00000000000d",
+  boqExclusion: "65000000-0000-4000-8000-00000000000e",
+  otherBoq: "65100000-0000-4000-8000-000000000001",
+  otherSection: "65100000-0000-4000-8000-000000000002",
+  otherBoqLine: "65100000-0000-4000-8000-000000000003",
+  otherBoqComponent: "65100000-0000-4000-8000-000000000004",
   quantityLink: "66000000-0000-4000-8000-000000000001",
   boqLink: "66000000-0000-4000-8000-000000000002",
   secondBoqLink: "66000000-0000-4000-8000-000000000003",
@@ -64,6 +83,7 @@ export const p6Ids = Object.freeze({
   order: "67000000-0000-4000-8000-000000000003",
   receipt: "67000000-0000-4000-8000-000000000004",
   carbon: "67000000-0000-4000-8000-000000000005",
+  otherMaterialPlan: "67100000-0000-4000-8000-000000000001",
 });
 
 export const p6Sha = Object.freeze({
@@ -72,9 +92,11 @@ export const p6Sha = Object.freeze({
   legacySource: "c".repeat(64),
   result: "d".repeat(64),
   manifest: "e".repeat(64),
+  handoff: "4".repeat(64),
   receipt: "f".repeat(64),
   epd: "1".repeat(64),
   other: "2".repeat(64),
+  otherDrawing: "5".repeat(64),
 });
 
 const p6HistoricalMigrationNames = Object.freeze({
@@ -86,6 +108,7 @@ const p6HistoricalMigrationNames = Object.freeze({
   p4Semantic: "20260826123529_drawing_workspace_p4_semantic_objects.sql",
   p4Contract:
     "20260826132102_drawing_workspace_p4_semantic_object_contract_fixes.sql",
+  p5Evidence: "20260827045411_drawing_workspace_p5_evidence_authority.sql",
   materialCurrent: [
     "20260815051818_material_site_events.sql",
     "20260815052116_epd_provenance.sql",
@@ -123,6 +146,14 @@ const spaceGeometry = Object.freeze({
   number: "101",
   finishes: { floor: "tile", wall: null, ceiling: "paint" },
 });
+const otherWallGeometry = Object.freeze({
+  type: "wall",
+  semanticVersion: 1,
+  start: { x: 0, y: 0 },
+  end: { x: 1000, y: 0 },
+  thicknessMillimeters: 100,
+  heightMillimeters: 2400,
+});
 
 const snapshotObject = (id, lineageId, name, type, geometry) => ({
   id,
@@ -152,6 +183,27 @@ const p6CanonicalSnapshot = Object.freeze({
       openingGeometry,
     ),
     snapshotObject(p6Ids.space, p6Ids.space, "R-101", "space", spaceGeometry),
+  ],
+});
+
+const p6OtherCanonicalSnapshot = Object.freeze({
+  schemaVersion: 2,
+  revisionId: p6Ids.otherRevision,
+  revisionVersion: 3,
+  operationSequence: 4,
+  objects: [
+    {
+      id: p6Ids.otherWall,
+      lineageId: p6Ids.otherWall,
+      pageId: p6Ids.otherPage,
+      layerId: p6Ids.otherLayer,
+      name: "OW-01",
+      type: "wall",
+      geometry: otherWallGeometry,
+      styleId: null,
+      style,
+      version: 1,
+    },
   ],
 });
 
@@ -203,9 +255,10 @@ export const p6LegacyInput = Object.freeze({
   ],
 });
 
-// Current P0/P4/P5 authority extracted to the columns and composite keys P6
-// consumes. Verified BOQ and the P4 validators are applied from their actual
-// historical migrations by the executable tests.
+// Minimal P0 table DDL needed by this isolated fixture. Exact current P4/P5
+// guards, source constraints/RLS, Verified BOQ, and material migrations are
+// applied from their historical files below; this string is not a claim that
+// the fixture reproduces unrelated current-schema surfaces.
 const p6CurrentAuthoritySql = `
 create role anon nologin;
 create role authenticated nologin;
@@ -399,6 +452,42 @@ const p6AuthorityExtracts = Object.freeze({
     "create function private.lukas_drawing_p4_utf16_string_valid",
     "alter function private.lukas_drawing_apply_operation",
   ],
+  p4Capability: [
+    "create or replace function private.lukas_drawing_workspace_capability",
+    "create or replace function private.lukas_drawing_create_document",
+  ],
+  p4RevisionGuard: [
+    "create or replace function private.lukas_drawing_revision_guard()",
+    "create or replace function private.lukas_drawing_draft_child_guard",
+  ],
+  p4DraftGuard: [
+    "create or replace function private.lukas_drawing_draft_child_guard",
+    "create trigger lukas_drawing_pages_revision_guard",
+  ],
+  p4DraftTriggers: [
+    "create trigger lukas_drawing_pages_revision_guard",
+    "create or replace function private.lukas_drawing_draft_child_insert_guard",
+  ],
+  p4SourceTriggers: [
+    "create trigger lukas_drawing_object_sources_domain_guard",
+    "create or replace function private.lukas_drawing_revision_approval_guard",
+  ],
+  p5Camera: [
+    "create or replace function private.lukas_drawing_p5_camera_valid",
+    "update public.lukas_drawing_object_sources",
+  ],
+  p5SourceConstraints: [
+    "alter table public.lukas_drawing_object_sources\n  add constraint lukas_drawing_object_sources_exact_payload_check",
+    "create or replace function private.lukas_drawing_source_json",
+  ],
+  p5SourceGuard: [
+    "create or replace function private.lukas_drawing_object_source_guard()",
+    "alter table public.lukas_drawing_issue_anchors",
+  ],
+  p5SourceRls: [
+    'drop policy if exists "workspace editors add draft drawing object sources"',
+    "revoke all on function\n  private.lukas_drawing_p5_camera_valid",
+  ],
   materialBase: [
     "create table if not exists public.lukas_qto_carbon_factors",
     "-- Field evidence stays private",
@@ -428,13 +517,19 @@ export async function readP6Migration() {
 export async function readRelevantMigrations() {
   const readSupabase = (name) =>
     readFile(new URL(name, p6MigrationDirectory), "utf8");
-  const [p4CoreSource, p4SemanticSource, p4ContractSource, materialSource] =
-    await Promise.all([
-      readSupabase(p6HistoricalMigrationNames.p4Core),
-      readSupabase(p6HistoricalMigrationNames.p4Semantic),
-      readSupabase(p6HistoricalMigrationNames.p4Contract),
-      readFile(p6MaterialMigration, "utf8"),
-    ]);
+  const [
+    p4CoreSource,
+    p4SemanticSource,
+    p4ContractSource,
+    p5EvidenceSource,
+    materialSource,
+  ] = await Promise.all([
+    readSupabase(p6HistoricalMigrationNames.p4Core),
+    readSupabase(p6HistoricalMigrationNames.p4Semantic),
+    readSupabase(p6HistoricalMigrationNames.p4Contract),
+    readSupabase(p6HistoricalMigrationNames.p5Evidence),
+    readFile(p6MaterialMigration, "utf8"),
+  ]);
   return {
     p4Core: extractSql(p4CoreSource, p6AuthorityExtracts.p4Core, "P4 core"),
     p4Semantic: extractSql(
@@ -447,6 +542,55 @@ export async function readRelevantMigrations() {
       p6AuthorityExtracts.p4Contract,
       "P4 contract",
     ),
+    p4CurrentGuards: [
+      extractSql(
+        p4CoreSource,
+        p6AuthorityExtracts.p4Capability,
+        "P4 workspace capability",
+      ),
+      extractSql(
+        p4CoreSource,
+        p6AuthorityExtracts.p4RevisionGuard,
+        "P4 revision guard",
+      ),
+      extractSql(
+        p4CoreSource,
+        p6AuthorityExtracts.p4DraftGuard,
+        "P4 draft child guard",
+      ),
+      extractSql(
+        p4CoreSource,
+        p6AuthorityExtracts.p4DraftTriggers,
+        "P4 draft child triggers",
+      ),
+    ],
+    p5CurrentSources: [
+      extractSql(
+        p5EvidenceSource,
+        p6AuthorityExtracts.p5Camera,
+        "P5 camera validator",
+      ),
+      extractSql(
+        p5EvidenceSource,
+        p6AuthorityExtracts.p5SourceConstraints,
+        "P5 source constraints",
+      ),
+      extractSql(
+        p5EvidenceSource,
+        p6AuthorityExtracts.p5SourceGuard,
+        "P5 source guard",
+      ),
+      extractSql(
+        p4CoreSource,
+        p6AuthorityExtracts.p4SourceTriggers,
+        "P4 source triggers",
+      ),
+      `alter table public.lukas_drawing_object_sources enable row level security;\n${extractSql(
+        p5EvidenceSource,
+        p6AuthorityExtracts.p5SourceRls,
+        "P5 source RLS",
+      )}`,
+    ],
     materialBase: extractSql(
       materialSource,
       p6AuthorityExtracts.materialBase,
@@ -461,7 +605,7 @@ export async function readRelevantMigrations() {
   };
 }
 
-export async function applyP6CurrentAuthority(
+export async function applyP6AuthorityFixture(
   db,
   { createRoles = true, optIn = false } = {},
 ) {
@@ -477,6 +621,8 @@ export async function applyP6CurrentAuthority(
   await db.exec(migrations.p4Core);
   await db.exec(migrations.p4Semantic);
   await db.exec(migrations.p4Contract);
+  for (const sql of migrations.p4CurrentGuards) await db.exec(sql);
+  for (const sql of migrations.p5CurrentSources) await db.exec(sql);
   await db.exec(migrations.materialBase);
   await db.exec(p6MaterialCurrentColumnsSql);
   for (const sql of migrations.materialCurrent) await db.exec(sql);
@@ -603,6 +749,17 @@ export const p6SpaceFingerprint = createHash("sha256")
   )
   .digest("hex");
 
+export const p6OtherWallFingerprint = createHash("sha256")
+  .update(
+    canonicalJson({
+      geometry: otherWallGeometry,
+      id: p6Ids.otherWall,
+      name: "OW-01",
+      version: 1,
+    }),
+  )
+  .digest("hex");
+
 export async function p6SetSession(
   db,
   role,
@@ -708,9 +865,9 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
       p6Ids.project,
       p6Ids.maker,
       "other",
-      `p6/boq-manifests/${p6Sha.manifest}.manifest.json`,
+      `p6/boq-manifests/${p6Sha.handoff}.manifest.json`,
       "approved.manifest.json",
-      p6Sha.manifest,
+      p6Sha.handoff,
     ],
     [
       p6Ids.receiptFile,
@@ -738,6 +895,24 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
       "other/file.bin",
       "file.bin",
       p6Sha.other,
+    ],
+    [
+      p6Ids.otherDrawingFile,
+      p6Ids.otherProject,
+      p6Ids.otherOwner,
+      "pdf",
+      "other/drawing.pdf",
+      "drawing.pdf",
+      p6Sha.otherDrawing,
+    ],
+    [
+      p6Ids.otherManifestFile,
+      p6Ids.otherProject,
+      p6Ids.otherMaker,
+      "other",
+      `other/boq-manifests/${p6Sha.handoff}.manifest.json`,
+      "approved.manifest.json",
+      p6Sha.handoff,
     ],
   ];
   for (const row of files)
@@ -855,6 +1030,13 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
     `insert into public.lukas_drawing_issues(id,project_id) values($1,$2)`,
     [p6Ids.issue, p6Ids.project],
   );
+  await p6SetSession(db, null, p6Ids.owner);
+  await db.query(
+    `select pg_catalog.set_config(
+      'private.lukas_drawing_source_operation',$1,false
+    )`,
+    [p6Ids.revision],
+  );
   await db.query(
     `insert into public.lukas_drawing_object_sources(
       id,object_id,revision_id,project_id,source_file_id,source_sha256,source_kind,
@@ -871,6 +1053,9 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
       p6Ids.owner,
     ],
   );
+  await db.exec(
+    `select pg_catalog.set_config('private.lukas_drawing_source_operation','',false)`,
+  );
   await db.query(
     `insert into public.lukas_drawing_object_issue_links(
       id,object_id,revision_id,issue_id,project_id,created_by,created_at
@@ -882,6 +1067,118 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
       p6Ids.issue,
       p6Ids.project,
       p6Ids.owner,
+    ],
+  );
+
+  await db.query(
+    `insert into public.lukas_drawing_documents(
+      id,project_id,source_file_id,source_sha256,title,created_by,created_at,updated_at
+    ) values($1,$2,$3,$4,'Other approved drawing',$5,
+      '2026-08-02T00:00:00Z','2026-08-02T00:00:00Z')`,
+    [
+      p6Ids.otherDocument,
+      p6Ids.otherProject,
+      p6Ids.otherDrawingFile,
+      p6Sha.otherDrawing,
+      p6Ids.otherOwner,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_revisions(
+      id,document_id,project_id,sequence,status,version,created_by,
+      review_requested_at,approved_at,created_at,updated_at
+    ) values($1,$2,$3,1,'approved',3,$4,
+      '2026-08-03T00:00:00Z','2026-08-04T00:00:00Z',
+      '2026-08-02T00:00:00Z','2026-08-04T00:00:00Z')`,
+    [
+      p6Ids.otherRevision,
+      p6Ids.otherDocument,
+      p6Ids.otherProject,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_pages(
+      id,revision_id,project_id,name,page_number,width_mm,height_mm,sort_order,version
+    ) values($1,$2,$3,'A-201',1,420,297,0,1)`,
+    [p6Ids.otherPage, p6Ids.otherRevision, p6Ids.otherProject],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_canvases(
+      id,page_id,revision_id,project_id,name,space_kind,width_mm,height_mm,
+      sort_order,version,created_by
+    ) values($1,$2,$3,$4,'Paper','paper',420,297,0,1,$5)`,
+    [
+      p6Ids.otherCanvas,
+      p6Ids.otherPage,
+      p6Ids.otherRevision,
+      p6Ids.otherProject,
+      p6Ids.otherOwner,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_layers(
+      id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,
+      locked,system_kind,version,created_by
+    ) values($1,$2,$3,$4,$5,'Work',1,true,false,'work',1,$6)`,
+    [
+      p6Ids.otherLayer,
+      p6Ids.otherPage,
+      p6Ids.otherCanvas,
+      p6Ids.otherRevision,
+      p6Ids.otherProject,
+      p6Ids.otherOwner,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_objects(
+      id,lineage_id,page_id,layer_id,revision_id,project_id,name,object_type,
+      geometry,style_id,style,status,version,created_by,updated_by,created_at,updated_at
+    ) values($1,$1,$2,$3,$4,$5,'OW-01','wall',$6::jsonb,null,$7::jsonb,
+      'active',1,$8,$8,'2026-08-02T00:00:00Z','2026-08-04T00:00:00Z')`,
+    [
+      p6Ids.otherWall,
+      p6Ids.otherPage,
+      p6Ids.otherLayer,
+      p6Ids.otherRevision,
+      p6Ids.otherProject,
+      JSON.stringify(otherWallGeometry),
+      JSON.stringify(style),
+      p6Ids.otherOwner,
+    ],
+  );
+  const [otherDigest] = (
+    await db.query(
+      `select pg_catalog.encode(extensions.digest(
+        pg_catalog.convert_to($1::jsonb::text,'UTF8'),'sha256'),'hex') sha`,
+      [JSON.stringify(p6OtherCanonicalSnapshot)],
+    )
+  ).rows;
+  await db.query(
+    `insert into public.lukas_drawing_snapshots(
+      id,revision_id,project_id,revision_version,operation_sequence,canonical_json,
+      sha256,created_by,created_at,schema_version
+    ) values($1,$2,$3,3,4,$4::jsonb,$5,$6,'2026-08-04T00:00:00Z',2)`,
+    [
+      p6Ids.otherSnapshot,
+      p6Ids.otherRevision,
+      p6Ids.otherProject,
+      JSON.stringify(p6OtherCanonicalSnapshot),
+      otherDigest.sha,
+      p6Ids.otherOwner,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_drawing_revision_approvals(
+      id,revision_id,project_id,subject_version,snapshot_sha256,decision,
+      note,decided_by,created_at
+    ) values($1,$2,$3,3,$4,'approved','checked',$5,'2026-08-04T00:00:00Z')`,
+    [
+      p6Ids.otherDrawingApproval,
+      p6Ids.otherRevision,
+      p6Ids.otherProject,
+      otherDigest.sha,
+      p6Ids.otherOwner,
     ],
   );
 
@@ -901,6 +1198,81 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
     ) values($1,$2,$3,'M-001','material','Gypsum board','12.5T','m2',1250,$4,'2026-08-05T00:00:00Z')`,
     [p6Ids.materialResource, p6Ids.project, p6Ids.priceBook, p6Ids.maker],
   );
+  await p6SetSession(db, null, p6Ids.otherMaker);
+  await db.query(
+    `insert into public.lukas_qto_price_books(
+      id,project_id,name,version_label,effective_date,currency,rights_basis,
+      license_note,source_file_id,source_sha256,created_by,created_at
+    ) values($1,$2,'Other prices','2026-08','2026-08-01','KRW',
+      'customer_owned','fixture',$3,$4,$5,'2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.otherPriceBook,
+      p6Ids.otherProject,
+      p6Ids.otherFile,
+      p6Sha.other,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_qto_price_resources(
+      id,project_id,price_book_id,resource_code,resource_type,resource_name,
+      specification,unit,unit_price_krw,created_by,created_at
+    ) values($1,$2,$3,'OM-001','material','Other board','9T','m2',900,$4,
+      '2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.otherMaterialResource,
+      p6Ids.otherProject,
+      p6Ids.otherPriceBook,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_versions(
+      id,project_id,version_no,title,status,calculation_policy,quantity_scale,
+      price_book_id,engine_version,created_by,created_at
+    ) values($1,$2,1,'Other draft','draft','general_half_away',6,$3,
+      'VERIFIED-BOQ-1.0',$4,'2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.otherBoq,
+      p6Ids.otherProject,
+      p6Ids.otherPriceBook,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_sections(
+      id,project_id,version_id,parent_id,code,name,sort_order,created_by,created_at
+    ) values($1,$2,$3,null,'OS-01','Other',0,$4,'2026-08-05T00:00:00Z')`,
+    [p6Ids.otherSection, p6Ids.otherProject, p6Ids.otherBoq, p6Ids.otherMaker],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_lines(
+      id,project_id,version_id,section_id,item_code,item_name,specification,unit,
+      signed_adjustment,adjustment_reason,sort_order,created_by,created_at
+    ) values($1,$2,$3,$4,'OI-001','Other wall','9T','m2',0,'',0,$5,
+      '2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.otherBoqLine,
+      p6Ids.otherProject,
+      p6Ids.otherBoq,
+      p6Ids.otherSection,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_rate_components(
+      id,project_id,version_id,line_id,resource_id,coefficient,created_by,created_at
+    ) values($1,$2,$3,$4,$5,1,$6,'2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.otherBoqComponent,
+      p6Ids.otherProject,
+      p6Ids.otherBoq,
+      p6Ids.otherBoqLine,
+      p6Ids.otherMaterialResource,
+      p6Ids.otherMaker,
+    ],
+  );
+  await p6SetSession(db, null, p6Ids.maker);
   await db.query(
     `insert into public.lukas_qto_boq_versions(
       id,project_id,version_no,title,status,calculation_policy,quantity_scale,
@@ -965,6 +1337,41 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
     ],
   );
   await db.query(
+    `insert into public.lukas_qto_boq_wbs_nodes(
+      id,project_id,version_id,parent_id,code,name,sort_order,created_by,created_at
+    ) values($1,$2,$3,null,'W-01','Approved WBS',0,$4,'2026-08-05T00:00:00Z')`,
+    [p6Ids.boqWbs, p6Ids.project, p6Ids.legacyApprovedBoq, p6Ids.maker],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_wbs_allocations(
+      id,project_id,version_id,line_id,wbs_node_id,allocation_percent,
+      created_by,created_at
+    ) values($1,$2,$3,$4,$5,100,$6,'2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.boqAllocation,
+      p6Ids.project,
+      p6Ids.legacyApprovedBoq,
+      p6Ids.boqLine,
+      p6Ids.boqWbs,
+      p6Ids.maker,
+    ],
+  );
+  await db.query(
+    `insert into public.lukas_qto_boq_source_exclusions(
+      id,project_id,version_id,source_file_id,source_sha256,source_subject_key,
+      source_quantity,unit,element_ids,reason,created_by,created_at
+    ) values($1,$2,$3,$4,$5,'excluded-subject',1,'m2',array['2'],
+      'not in scope',$6,'2026-08-05T00:00:00Z')`,
+    [
+      p6Ids.boqExclusion,
+      p6Ids.project,
+      p6Ids.legacyApprovedBoq,
+      p6Ids.legacySourceFile,
+      p6Sha.legacySource,
+      p6Ids.maker,
+    ],
+  );
+  await db.query(
     `update public.lukas_qto_boq_versions set status='in_review',result_sha256=$2,
       direct_cost_krw=$3,line_count=$4 where id=$1`,
     [
@@ -1018,6 +1425,22 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
     ],
   );
   await db.query(
+    `insert into public.lukas_qto_material_plans(
+      id,project_id,material_code,material_name,specification,unit,
+      design_quantity,allowance_rate,required_quantity,rule_id,required_by,
+      source_file_id,source_sha256,baseline_factor_id,created_by,created_at,
+      source_artifact_id,source_group_key
+    ) values($1,$2,'OM-001','Other board','9T','m2',3,0,3,'EXISTING_RULE',
+      null,$3,$4,null,$5,'2026-08-05T00:00:00Z',null,null)`,
+    [
+      p6Ids.otherMaterialPlan,
+      p6Ids.otherProject,
+      p6Ids.otherManifestFile,
+      p6Sha.handoff,
+      p6Ids.otherMaker,
+    ],
+  );
+  await db.query(
     `insert into public.lukas_qto_material_transactions(
       id,project_id,material_plan_id,transaction_type,document_number,supplier_name,
       occurred_on,quantity,related_order_id,carbon_factor_id,evidence_file_id,evidence_sha256,
@@ -1038,5 +1461,9 @@ export async function p6SeedPopulatedAuthority(db, legacyResult) {
     ],
   );
   await p6SetSession(db, null);
-  return { snapshotSha256: digest.sha, legacyResult };
+  return {
+    snapshotSha256: digest.sha,
+    otherSnapshotSha256: otherDigest.sha,
+    legacyResult,
+  };
 }

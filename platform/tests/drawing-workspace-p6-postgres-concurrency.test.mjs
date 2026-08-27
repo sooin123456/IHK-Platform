@@ -5,10 +5,11 @@ import postgres from "postgres";
 
 import { calculateVerifiedBoq } from "../app/lukas/lib/verified-boq.server.ts";
 import {
-  applyP6CurrentAuthority,
+  applyP6AuthorityFixture,
   p6Ids,
   p6LegacyInput,
   p6MaterialPayload,
+  p6OtherWallFingerprint,
   p6SeedBoq11Draft,
   p6SeedPopulatedAuthority,
   p6Sha,
@@ -48,6 +49,20 @@ async function assertSqlState(promise, code) {
     assert.equal(error.code, code, error.message);
     return true;
   });
+}
+
+async function waitForBackendLock(sql, pid) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const [activity] = await sql`
+      select state,wait_event_type,wait_event
+      from pg_catalog.pg_stat_activity where pid=${pid}
+    `;
+    if (activity?.state === "active" && activity.wait_event_type === "Lock")
+      return activity.wait_event;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`backend ${pid} did not reach a row-lock barrier`);
 }
 
 async function session(
@@ -140,7 +155,14 @@ async function finalize(sql, inputSha, resultSha = p6Sha.result) {
   );
 }
 
-async function materialHandoff(sql) {
+async function materialHandoff(
+  sql,
+  {
+    versionId = p6Ids.boq11,
+    manifestFileId = p6Ids.manifestFile,
+    manifestSha = p6Sha.handoff,
+  } = {},
+) {
   const payload = p6MaterialPayload();
   return session(
     sql,
@@ -148,8 +170,8 @@ async function materialHandoff(sql) {
     p6Ids.maker,
     (tx) => tx`
     select private.lukas_drawing_insert_material_handoff(
-      ${p6Ids.maker}::uuid,${p6Ids.boq11}::uuid,${p6Sha.result},
-      ${p6Ids.manifestFile}::uuid,${p6Sha.manifest},
+      ${p6Ids.maker}::uuid,${versionId}::uuid,${p6Sha.result},
+      ${manifestFileId}::uuid,${manifestSha},
       ${tx.json(payload.plans)}::jsonb,${tx.json(payload.links)}::jsonb
     ) value
   `,
@@ -244,7 +266,7 @@ test(
       databaseCreated = true;
       const owner = openClient();
       const ownerAdapter = adapter(owner);
-      await applyP6CurrentAuthority(ownerAdapter, {
+      await applyP6AuthorityFixture(ownerAdapter, {
         createRoles: false,
         optIn: true,
       });
@@ -269,7 +291,38 @@ test(
       const makerA = openClient();
       const makerB = openClient();
       const roleClient = openClient();
+      await assertSqlState(
+        session(
+          makerA,
+          "authenticated",
+          p6Ids.maker,
+          (tx) => tx`
+            update public.lukas_qto_boq_quantity_mappings
+            set version_id=${p6Ids.boq11}::uuid,
+              line_id=${p6Ids.boq11Line}::uuid
+            where id=${p6Ids.mapping}::uuid
+          `,
+        ),
+        "P6O01",
+      );
       await insertQuantity(serviceA, seed.snapshotSha256);
+      await assertSqlState(
+        session(
+          serviceA,
+          "service_role",
+          p6Ids.maker,
+          (tx) => tx`
+            select private.lukas_drawing_insert_quantity_link(
+              ${p6Ids.maker}::uuid,
+              '66000000-0000-4000-8000-000000000021'::uuid,
+              ${p6Ids.otherRevision}::uuid,${p6Ids.otherWall}::uuid,'length',
+              ${seed.otherSnapshotSha256},${p6Ids.otherWall}::uuid,1,
+              ${p6OtherWallFingerprint},1,'m','P4_MEASUREMENT_V1'
+            )
+          `,
+        ),
+        "P6Q03",
+      );
 
       await assertSqlState(boqInput(roleClient, p6Ids.maker, true), "P6A01");
       await assertSqlState(boqInput(roleClient, null), "P6A01");
@@ -281,6 +334,21 @@ test(
         p6Ids.reviewer,
       ])
         await assertSqlState(putBoqLink(roleClient, "0.4", { actor }), "P6A01");
+      await assertSqlState(
+        session(
+          makerA,
+          "authenticated",
+          p6Ids.maker,
+          (tx) => tx`
+            select public.lukas_drawing_put_boq_link(
+              '66000000-0000-4000-8000-000000000027'::uuid,
+              ${p6Ids.quantityLink}::uuid,${p6Ids.boq11}::uuid,
+              ${p6Ids.otherBoqLine}::uuid,.4,null
+            )
+          `,
+        ),
+        "P6U01",
+      );
 
       const exactRace = await Promise.all([
         putBoqLink(makerA, "0.4"),
@@ -336,7 +404,73 @@ test(
         "P6O01",
       );
       await putBoqLink(makerA, "1", { baseVersion: 2 });
-      const [inputRow] = await boqInput(makerA);
+      let [inputRow] = await boqInput(makerA);
+      let releaseEdit;
+      let markEditReady;
+      const editRelease = new Promise((resolve) => {
+        releaseEdit = resolve;
+      });
+      const editReady = new Promise((resolve) => {
+        markEditReady = resolve;
+      });
+      const heldEdit = session(
+        makerA,
+        "authenticated",
+        p6Ids.maker,
+        async (tx) => {
+          await tx`
+            update public.lukas_qto_boq_rate_components set coefficient=2
+            where id=${p6Ids.boq11Component}::uuid
+          `;
+          markEditReady();
+          await editRelease;
+        },
+      );
+      await editReady;
+      const [{ pid: finalizePid }] = await serviceA`
+        select pg_catalog.pg_backend_pid() pid
+      `;
+      const [{ pid: decisionPid }] = await roleClient`
+        select pg_catalog.pg_backend_pid() pid
+      `;
+      const blockedFinalize = finalize(
+        serviceA,
+        inputRow.value.inputStateSha256,
+      );
+      const blockedDecision = session(
+        roleClient,
+        "authenticated",
+        p6Ids.reviewer,
+        (tx) => tx`
+          select public.lukas_qto_decide_boq(
+            ${p6Ids.boq11}::uuid,'approved','blocked behind child edit'
+          )
+        `,
+      );
+      assert.ok(await waitForBackendLock(owner, finalizePid));
+      assert.ok(await waitForBackendLock(owner, decisionPid));
+      releaseEdit();
+      await heldEdit;
+      const blockedOutcomes = await Promise.allSettled([
+        blockedFinalize,
+        blockedDecision,
+      ]);
+      assert.deepEqual(
+        blockedOutcomes.map((outcome) =>
+          outcome.status === "rejected" ? outcome.reason.code : "fulfilled",
+        ),
+        ["P6C01", "P6A01"],
+      );
+      await session(
+        makerA,
+        "authenticated",
+        p6Ids.maker,
+        (tx) => tx`
+          update public.lukas_qto_boq_rate_components set coefficient=1
+          where id=${p6Ids.boq11Component}::uuid
+        `,
+      );
+      [inputRow] = await boqInput(makerA);
       const submissionRace = await Promise.all([
         finalize(serviceA, inputRow.value.inputStateSha256),
         finalize(serviceB, inputRow.value.inputStateSha256),
@@ -385,9 +519,79 @@ test(
           )
         `,
       );
+      await assertSqlState(
+        materialHandoff(serviceA, {
+          manifestFileId: p6Ids.otherManifestFile,
+        }),
+        "P6M01",
+      );
+      await assertSqlState(
+        materialHandoff(serviceA, { manifestSha: p6Sha.manifest }),
+        "P6M01",
+      );
+      await assertSqlState(
+        materialHandoff(serviceA, { versionId: p6Ids.otherBoq }),
+        "P6M01",
+      );
       const firstMaterial = await materialHandoff(serviceA);
       assert.deepEqual(firstMaterial[0].value, { insertedOrReplayed: 1 });
       assert.deepEqual((await materialHandoff(serviceB))[0], firstMaterial[0]);
+
+      const directDml = [
+        `insert into public.lukas_drawing_quantity_links
+          select '66000000-0000-4000-8000-000000000028'::uuid,
+            project_id,drawing_revision_id,drawing_revision_version,
+            drawing_snapshot_sha256,drawing_object_id,drawing_object_lineage_id,
+            drawing_object_version,object_fingerprint,measurement_kind,
+            raw_quantity,unit,measurement_rule_version,created_by,created_at
+          from public.lukas_drawing_quantity_links
+          where id='${p6Ids.quantityLink}'::uuid`,
+        `update public.lukas_drawing_quantity_links set raw_quantity=4
+          where id='${p6Ids.quantityLink}'::uuid`,
+        `delete from public.lukas_drawing_quantity_links
+          where id='${p6Ids.quantityLink}'::uuid`,
+        `insert into public.lukas_drawing_boq_links
+          select '66000000-0000-4000-8000-000000000029'::uuid,
+            project_id,quantity_link_id,boq_version_id,boq_line_id,
+            allocation_factor,version,created_by,updated_by,created_at,updated_at
+          from public.lukas_drawing_boq_links
+          where id='${p6Ids.boqLink}'::uuid`,
+        `update public.lukas_drawing_boq_links set allocation_factor=.9
+          where id='${p6Ids.boqLink}'::uuid`,
+        `delete from public.lukas_drawing_boq_links
+          where id='${p6Ids.boqLink}'::uuid`,
+        `insert into public.lukas_drawing_material_links
+          select '66000000-0000-4000-8000-00000000002a'::uuid,
+            project_id,boq_version_id,boq_line_id,boq_rate_component_id,
+            material_resource_id,boq_result_sha256,material_plan_id,
+            derived_design_quantity,material_rule_version,created_by,created_at
+          from public.lukas_drawing_material_links
+          where id='${p6Ids.materialLink}'::uuid`,
+        `update public.lukas_drawing_material_links
+          set derived_design_quantity=9 where id='${p6Ids.materialLink}'::uuid`,
+        `delete from public.lukas_drawing_material_links
+          where id='${p6Ids.materialLink}'::uuid`,
+      ];
+      for (const [role, actor, options] of [
+        ["anon", null, {}],
+        ["authenticated", p6Ids.anonymous, { anonymous: true }],
+        ["authenticated", p6Ids.outsider, {}],
+        ["authenticated", p6Ids.viewer, {}],
+        ["authenticated", p6Ids.commenter, {}],
+        ["authenticated", p6Ids.reviewer, {}],
+        ["authenticated", p6Ids.maker, {}],
+      ])
+        for (const statement of directDml)
+          await assertSqlState(
+            session(
+              roleClient,
+              role,
+              actor,
+              (tx) => tx.unsafe(statement),
+              options,
+            ),
+            "42501",
+          );
 
       for (const actor of [
         p6Ids.maker,
@@ -484,6 +688,18 @@ test(
           JSON.stringify(explainQuantity),
           /lukas_drawing_quantity_links_object_idx/,
         );
+        const explainSnapshot = await owner`
+          explain (format json,costs off)
+          select * from public.lukas_drawing_quantity_links
+          where drawing_revision_id=${p6Ids.revision}::uuid
+            and project_id=${p6Ids.project}::uuid
+            and drawing_revision_version=7
+            and drawing_snapshot_sha256=${seed.snapshotSha256}
+        `;
+        assert.match(
+          JSON.stringify(explainSnapshot),
+          /lukas_drawing_quantity_links_snapshot_idx/,
+        );
         const explainBoq = await owner`
           explain (format json,costs off)
           select * from public.lukas_drawing_boq_links
@@ -527,6 +743,35 @@ test(
         decision_definer: true,
         decision_config: ['search_path=""'],
       });
+      const indexColumns = await owner`
+        select c.relname,
+          pg_catalog.array_agg(a.attname order by key.ordinality) columns
+        from pg_catalog.pg_class c
+        join pg_catalog.pg_index i on i.indexrelid=c.oid
+        cross join lateral pg_catalog.unnest(i.indkey)
+          with ordinality as key(attnum,ordinality)
+        join pg_catalog.pg_attribute a
+          on a.attrelid=i.indrelid and a.attnum=key.attnum
+        where c.relname in (
+          'lukas_drawing_quantity_links_snapshot_idx',
+          'lukas_drawing_quantity_links_object_fk_idx'
+        ) group by c.relname order by c.relname
+      `;
+      assert.deepEqual(indexColumns, [
+        {
+          relname: "lukas_drawing_quantity_links_object_fk_idx",
+          columns: ["drawing_object_id", "drawing_revision_id", "project_id"],
+        },
+        {
+          relname: "lukas_drawing_quantity_links_snapshot_idx",
+          columns: [
+            "drawing_revision_id",
+            "project_id",
+            "drawing_revision_version",
+            "drawing_snapshot_sha256",
+          ],
+        },
+      ]);
     } finally {
       let cleanupFailure = null;
       const clean = async (operation) => {
