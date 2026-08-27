@@ -152,18 +152,45 @@ returns jsonb language sql stable security definer set search_path='' as $$
       'reason',l.adjustment_reason) order by l.item_code,l.id)
       from public.lukas_qto_boq_lines l where l.version_id=v.id),'[]'::jsonb),
     'drawingLinks',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
-      'id',b.id,'source',b.quantity_link_id,'line',b.boq_line_id,'factor',b.allocation_factor,
-      'version',b.version) order by b.quantity_link_id,b.boq_line_id)
-      from public.lukas_drawing_boq_links b where b.boq_version_id=v.id),'[]'::jsonb),
+      'id',b.id,'line',b.boq_line_id,'factor',b.allocation_factor,'version',b.version,
+      'source',pg_catalog.jsonb_build_object('id',q.id,'revisionId',q.drawing_revision_id,
+        'revisionVersion',q.drawing_revision_version,'snapshotSha256',q.drawing_snapshot_sha256,
+        'objectId',q.drawing_object_id,'lineageId',q.drawing_object_lineage_id,
+        'objectVersion',q.drawing_object_version,'fingerprint',q.object_fingerprint,
+        'kind',q.measurement_kind,'rawQuantity',q.raw_quantity,'unit',q.unit,'rule',q.measurement_rule_version))
+      order by b.quantity_link_id,b.boq_line_id)
+      from public.lukas_drawing_boq_links b join public.lukas_drawing_quantity_links q on q.id=b.quantity_link_id and q.project_id=b.project_id where b.boq_version_id=v.id),'[]'::jsonb),
+    'legacyMappings',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'id',m.id,'line',m.line_id,'fileId',m.source_file_id,'sha256',m.source_sha256,
+      'subject',m.source_subject_key,'quantity',m.source_quantity,'factor',m.factor,
+      'unit',m.unit,'elementIds',m.element_ids) order by m.id)
+      from public.lukas_qto_boq_quantity_mappings m where m.version_id=v.id),'[]'::jsonb),
+    'legacyExclusions',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'id',e.id,'fileId',e.source_file_id,'sha256',e.source_sha256,'subject',e.source_subject_key,
+      'quantity',e.source_quantity,'unit',e.unit,'elementIds',e.element_ids,'reason',e.reason) order by e.id)
+      from public.lukas_qto_boq_source_exclusions e where e.version_id=v.id),'[]'::jsonb),
     'components',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
-      'id',c.id,'line',c.line_id,'resource',c.resource_id,'coefficient',c.coefficient) order by c.id)
-      from public.lukas_qto_boq_rate_components c where c.version_id=v.id),'[]'::jsonb)
+      'id',c.id,'line',c.line_id,'coefficient',c.coefficient,
+      'resource',pg_catalog.jsonb_build_object('id',r.id,'code',r.resource_code,'type',r.resource_type,
+        'name',r.resource_name,'specification',r.specification,'unit',r.unit,'unitPriceKrw',r.unit_price_krw,
+        'priceBookId',r.price_book_id)) order by c.id)
+      from public.lukas_qto_boq_rate_components c join public.lukas_qto_price_resources r on r.id=c.resource_id and r.project_id=c.project_id where c.version_id=v.id),'[]'::jsonb),
+    'priceBook', (select pg_catalog.jsonb_build_object('id',p.id,'fileId',p.source_file_id,'sha256',p.source_sha256,'effectiveDate',p.effective_date,'rightsBasis',p.rights_basis)
+      from public.lukas_qto_price_books p where p.id=v.price_book_id and p.project_id=v.project_id)
   ) from public.lukas_qto_boq_versions v where v.id=p_version_id
 $$;
 
 create function private.lukas_drawing_p6_input_sha256(p_version_id uuid)
 returns text language sql stable security definer set search_path='' as $$
   select pg_catalog.encode(extensions.digest(private.lukas_drawing_p6_input_state(p_version_id)::text,'sha256'),'hex')
+$$;
+
+create function private.lukas_drawing_p6_canonical_json(p_value jsonb)
+returns text language sql immutable security invoker set search_path='' as $$
+  select case pg_catalog.jsonb_typeof(p_value)
+    when 'object' then '{'||coalesce((select pg_catalog.string_agg(pg_catalog.to_json(k.key)::text||':'||private.lukas_drawing_p6_canonical_json(k.value),',' order by k.key) from pg_catalog.jsonb_each(p_value) k),'')||'}'
+    when 'array' then '['||coalesce((select pg_catalog.string_agg(private.lukas_drawing_p6_canonical_json(a.value),',' order by a.ordinality) from pg_catalog.jsonb_array_elements(p_value) with ordinality as a(value,ordinality)),'')||']'
+    else p_value::text end
 $$;
 
 create function private.lukas_drawing_insert_quantity_link(
@@ -175,7 +202,7 @@ language plpgsql security definer set search_path='' as $$
 declare v_snapshot public.lukas_drawing_snapshots%rowtype;
 declare v_object public.lukas_drawing_objects%rowtype;
 declare v_result public.lukas_drawing_quantity_links%rowtype;
-declare v_status text; v_digest text;
+declare v_status text; v_digest text; v_snapshot_object jsonb; v_fingerprint text; v_object_count integer;
 begin
   if pg_catalog.current_setting('role',true)<>'service_role' or p_actor_id is null then
     raise exception using errcode='P6A01',message='Trusted quantity authority required';
@@ -186,16 +213,24 @@ begin
     where r.id=p_revision_id and r.project_id=v_snapshot.project_id for share;
   select * into v_object from public.lukas_drawing_objects o
     where o.id=p_object_id and o.revision_id=p_revision_id and o.project_id=v_snapshot.project_id for share;
-  v_digest:=pg_catalog.encode(extensions.digest(v_snapshot.canonical_json::text,'sha256'),'hex');
+  v_digest:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(v_snapshot.canonical_json::text,'UTF8'),'sha256'),'hex');
+  select count(*) into v_object_count from pg_catalog.jsonb_array_elements(v_snapshot.canonical_json->'objects')
+    where value->>'id'=p_object_id::text;
+  select value into v_snapshot_object from pg_catalog.jsonb_array_elements(v_snapshot.canonical_json->'objects')
+    where value->>'id'=p_object_id::text;
+  v_fingerprint:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(private.lukas_drawing_p6_canonical_json(pg_catalog.jsonb_build_object(
+    'geometry',v_snapshot_object->'geometry','id',v_snapshot_object->'id','name',v_snapshot_object->'name','version',v_snapshot_object->'version')),'UTF8'),'sha256'),'hex');
   if not found or v_status not in ('approved','superseded') or v_snapshot.revision_version is null
-    or v_digest<>v_snapshot.sha256 or p_measurement_rule_version<>'P4_MEASUREMENT_V1'
+    or v_snapshot.schema_version<>2 or v_digest<>v_snapshot.sha256 or p_measurement_rule_version<>'P4_MEASUREMENT_V1'
     or not exists(select 1 from public.lukas_drawing_revision_approvals a where a.revision_id=p_revision_id
       and a.project_id=v_snapshot.project_id and a.subject_version=v_snapshot.revision_version
       and a.snapshot_sha256=v_snapshot.sha256 and a.decision='approved') then
     raise exception using errcode='P6Q03',message='Drawing approval or snapshot is stale';
   end if;
-  if v_object.id is null or v_object.status<>'active' or v_object.lineage_id<>p_object_lineage_id
-    or v_object.version<>p_object_version or p_object_fingerprint !~ '^[0-9a-f]{64}$' then
+  if v_object.id is null or v_object_count<>1 or v_object.status<>'active' or v_object.lineage_id<>p_object_lineage_id
+    or v_object.version<>p_object_version or v_snapshot_object->>'lineageId'<>p_object_lineage_id::text
+    or v_snapshot_object->>'version'<>p_object_version::text or v_snapshot_object->>'status'<>'active'
+    or v_snapshot_object->'geometry' is distinct from v_object.geometry or p_object_fingerprint<>v_fingerprint then
     raise exception using errcode='P6Q03',message='Drawing object identity differs';
   end if;
   if (p_measurement_kind='length' and p_unit<>'m') or (p_measurement_kind='area' and p_unit<>'m2')
@@ -206,6 +241,7 @@ begin
     or pg_catalog.scale(p_raw_quantity)>12 then
     raise exception using errcode='P6Q01',message='Drawing measurement is unavailable';
   end if;
+  if p_measurement_kind='count' and p_raw_quantity<>1 then raise exception using errcode='P6Q01',message='P4 count measurement differs'; end if;
   select * into v_result from public.lukas_drawing_quantity_links where id=p_id for share;
   if found then
     if v_result.project_id=v_snapshot.project_id and v_result.drawing_revision_id=p_revision_id
@@ -232,6 +268,29 @@ language plpgsql security definer set search_path='' as $$
 declare v_actor uuid:=(select auth.uid()); v_version public.lukas_qto_boq_versions%rowtype;
 declare v_result public.lukas_drawing_boq_links%rowtype; v_total numeric;
 begin
+  select * into v_result from public.lukas_drawing_boq_links where id=p_id for update;
+  if found then
+    select * into v_version from public.lukas_qto_boq_versions v where v.id=v_result.boq_version_id for update;
+    if not found or v_actor is null or v_result.project_id<>v_version.project_id
+      or v_result.project_id<>(select q.project_id from public.lukas_drawing_quantity_links q where q.id=v_result.quantity_link_id)
+      or v_result.boq_version_id<>p_boq_version_id or v_result.quantity_link_id<>p_quantity_link_id
+      or v_result.boq_line_id<>p_boq_line_id or v_version.status<>'draft'
+      or v_version.created_by<>v_actor or private.lukas_qto_project_role(v_version.project_id) not in ('owner','staff','estimator') then
+      raise exception using errcode='P6O01',message='BOQ link identity or authority is stale';
+    end if;
+    if v_result.quantity_link_id=p_quantity_link_id and v_result.boq_version_id=p_boq_version_id and v_result.boq_line_id=p_boq_line_id
+      and v_result.allocation_factor=p_allocation_factor then return v_result; end if;
+    if p_base_version is null or v_result.version<>p_base_version then raise exception using errcode='P6O01',message='BOQ link is stale'; end if;
+    select coalesce(sum(b.allocation_factor),0)-v_result.allocation_factor+p_allocation_factor into v_total
+      from public.lukas_drawing_boq_links b where b.boq_version_id=p_boq_version_id and b.quantity_link_id=p_quantity_link_id;
+    if v_total>1 then raise exception using errcode='P6B04',message='Drawing allocation exceeds one'; end if;
+    update public.lukas_drawing_boq_links set allocation_factor=p_allocation_factor,version=version+1,updated_by=v_actor,updated_at=pg_catalog.now()
+      where id=p_id and project_id=v_version.project_id and boq_version_id=p_boq_version_id
+        and quantity_link_id=p_quantity_link_id and boq_line_id=p_boq_line_id and version=p_base_version
+      returning * into v_result;
+    if not found then raise exception using errcode='P6O01',message='BOQ link changed concurrently'; end if;
+    return v_result;
+  end if;
   select * into v_version from public.lukas_qto_boq_versions v where v.id=p_boq_version_id for update;
   if v_actor is null or not found or v_version.status<>'draft' or v_version.created_by<>v_actor
     or private.lukas_qto_project_role(v_version.project_id) not in ('owner','staff','estimator') then
@@ -242,17 +301,6 @@ begin
     or not exists(select 1 from public.lukas_qto_boq_lines l where l.id=p_boq_line_id and l.version_id=p_boq_version_id and l.project_id=v_version.project_id
       and l.unit=(select q.unit from public.lukas_drawing_quantity_links q where q.id=p_quantity_link_id)) then
     raise exception using errcode='P6U01',message='BOQ ancestry or unit differs';
-  end if;
-  select * into v_result from public.lukas_drawing_boq_links where id=p_id for update;
-  if found then
-    if v_result.quantity_link_id=p_quantity_link_id and v_result.boq_version_id=p_boq_version_id and v_result.boq_line_id=p_boq_line_id
-      and v_result.allocation_factor=p_allocation_factor then return v_result; end if;
-    if p_base_version is null or v_result.version<>p_base_version then raise exception using errcode='P6O01',message='BOQ link is stale'; end if;
-    select coalesce(sum(b.allocation_factor),0)-v_result.allocation_factor+p_allocation_factor into v_total
-      from public.lukas_drawing_boq_links b where b.boq_version_id=p_boq_version_id and b.quantity_link_id=p_quantity_link_id;
-    if v_total>1 then raise exception using errcode='P6B04',message='Drawing allocation exceeds one'; end if;
-    update public.lukas_drawing_boq_links set allocation_factor=p_allocation_factor,version=version+1,updated_by=v_actor,updated_at=pg_catalog.now()
-      where id=p_id returning * into v_result; return v_result;
   end if;
   select coalesce(sum(b.allocation_factor),0)+p_allocation_factor into v_total from public.lukas_drawing_boq_links b
     where b.boq_version_id=p_boq_version_id and b.quantity_link_id=p_quantity_link_id;
@@ -323,6 +371,7 @@ create function private.lukas_drawing_insert_material_handoff(
   p_manifest_file_sha256 text,p_material_plan_rows jsonb,p_material_link_rows jsonb
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare v public.lukas_qto_boq_versions%rowtype; v_link jsonb; v_plan jsonb; v_count integer:=0;
+declare v_existing public.lukas_drawing_material_links%rowtype;
 begin
   if pg_catalog.current_setting('role',true)<>'service_role' or p_actor_id is null then raise exception using errcode='P6A01',message='Trusted material authority required'; end if;
   if pg_catalog.jsonb_typeof(p_material_plan_rows)<>'array' or pg_catalog.jsonb_typeof(p_material_link_rows)<>'array'
@@ -331,13 +380,16 @@ begin
   end if;
   select * into v from public.lukas_qto_boq_versions where id=p_boq_version_id for update;
   if not found or v.status not in ('approved','superseded') or v.result_sha256<>p_result_sha256
+    or v.manifest_sha256<>p_manifest_file_sha256
     or not exists(select 1 from public.lukas_qto_boq_approvals a where a.version_id=v.id and a.decision='approved')
     or not exists(select 1 from public.lukas_qto_files f where f.id=p_manifest_file_id and f.project_id=v.project_id and f.sha256=p_manifest_file_sha256) then
     raise exception using errcode='P6M01',message='Approved BOQ manifest is required';
   end if;
   if private.lukas_qto_project_role(v.project_id) not in ('owner','staff','estimator') then raise exception using errcode='P6A01',message='Material maker role required'; end if;
   for v_plan in select value from pg_catalog.jsonb_array_elements(p_material_plan_rows) loop
-    if pg_catalog.jsonb_typeof(v_plan)<>'object' or v_plan - array['id','materialResourceId','materialCode','materialName','specification','unit','designQuantity','allowanceRate','requiredQuantity','ruleId'] <> '{}'::jsonb then
+    if pg_catalog.jsonb_typeof(v_plan)<>'object' or not (v_plan ?& array['id','materialResourceId','materialCode','materialName','specification','unit','designQuantity','allowanceRate','requiredQuantity','ruleId']) or v_plan - array['id','materialResourceId','materialCode','materialName','specification','unit','designQuantity','allowanceRate','requiredQuantity','ruleId'] <> '{}'::jsonb
+      or coalesce(v_plan->>'id','') !~ '^[0-9a-fA-F-]{36}$' or coalesce(v_plan->>'materialResourceId','') !~ '^[0-9a-fA-F-]{36}$'
+      or coalesce(v_plan->>'designQuantity','') !~ '^[0-9]+(\.[0-9]{1,9})?$' or coalesce(v_plan->>'allowanceRate','') !~ '^[0-9]+(\.[0-9]{1,9})?$' or coalesce(v_plan->>'requiredQuantity','') !~ '^[0-9]+(\.[0-9]{1,9})?$' then
       raise exception using errcode='P6M01',message='Material plan keys are invalid';
     end if;
     if (v_plan->>'ruleId')<>'P6_MATERIAL_HANDOFF_V1' or (v_plan->>'allowanceRate')::numeric<>0
@@ -351,7 +403,10 @@ begin
       on conflict(id) do nothing;
   end loop;
   for v_link in select value from pg_catalog.jsonb_array_elements(p_material_link_rows) loop
-    if pg_catalog.jsonb_typeof(v_link)<>'object' or v_link - array['id','boqLineId','boqRateComponentId','materialResourceId','materialPlanId','derivedDesignQuantity'] <> '{}'::jsonb then
+    if pg_catalog.jsonb_typeof(v_link)<>'object' or not (v_link ?& array['id','boqLineId','boqRateComponentId','materialResourceId','materialPlanId','derivedDesignQuantity']) or v_link - array['id','boqLineId','boqRateComponentId','materialResourceId','materialPlanId','derivedDesignQuantity'] <> '{}'::jsonb
+      or coalesce(v_link->>'id','') !~ '^[0-9a-fA-F-]{36}$' or coalesce(v_link->>'boqLineId','') !~ '^[0-9a-fA-F-]{36}$'
+      or coalesce(v_link->>'boqRateComponentId','') !~ '^[0-9a-fA-F-]{36}$' or coalesce(v_link->>'materialResourceId','') !~ '^[0-9a-fA-F-]{36}$'
+      or coalesce(v_link->>'materialPlanId','') !~ '^[0-9a-fA-F-]{36}$' or coalesce(v_link->>'derivedDesignQuantity','') !~ '^[0-9]+(\.[0-9]{1,9})?$' then
       raise exception using errcode='P6M01',message='Material link keys are invalid';
     end if;
     if not exists(select 1 from public.lukas_qto_boq_rate_components c join public.lukas_qto_price_resources r on r.id=c.resource_id and r.project_id=c.project_id
@@ -363,10 +418,25 @@ begin
         and p.source_file_id=p_manifest_file_id and p.source_sha256=p_manifest_file_sha256) then
       raise exception using errcode='P6M01',message='Material component or plan differs';
     end if;
-    insert into public.lukas_drawing_material_links(id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,material_resource_id,boq_result_sha256,material_plan_id,derived_design_quantity,material_rule_version,created_by)
-      values((v_link->>'id')::uuid,v.project_id,v.id,(v_link->>'boqLineId')::uuid,(v_link->>'boqRateComponentId')::uuid,(v_link->>'materialResourceId')::uuid,p_result_sha256,(v_link->>'materialPlanId')::uuid,(v_link->>'derivedDesignQuantity')::numeric,'P6_MATERIAL_HANDOFF_V1',p_actor_id)
-      on conflict(boq_version_id,boq_rate_component_id) do nothing;
+    select * into v_existing from public.lukas_drawing_material_links x
+      where x.boq_version_id=v.id and x.boq_rate_component_id=(v_link->>'boqRateComponentId')::uuid for update;
+    if found then
+      if v_existing.id<>(v_link->>'id')::uuid or v_existing.project_id<>v.project_id
+        or v_existing.boq_line_id<>(v_link->>'boqLineId')::uuid or v_existing.material_resource_id<>(v_link->>'materialResourceId')::uuid
+        or v_existing.boq_result_sha256<>p_result_sha256 or v_existing.material_plan_id<>(v_link->>'materialPlanId')::uuid
+        or v_existing.derived_design_quantity<>(v_link->>'derivedDesignQuantity')::numeric then
+        raise exception using errcode='P6O01',message='Material replay differs';
+      end if;
+    else
+      insert into public.lukas_drawing_material_links(id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,material_resource_id,boq_result_sha256,material_plan_id,derived_design_quantity,material_rule_version,created_by)
+        values((v_link->>'id')::uuid,v.project_id,v.id,(v_link->>'boqLineId')::uuid,(v_link->>'boqRateComponentId')::uuid,(v_link->>'materialResourceId')::uuid,p_result_sha256,(v_link->>'materialPlanId')::uuid,(v_link->>'derivedDesignQuantity')::numeric,'P6_MATERIAL_HANDOFF_V1',p_actor_id);
+    end if;
     v_count:=v_count+1;
+  end loop;
+  for v_plan in select value from pg_catalog.jsonb_array_elements(p_material_plan_rows) loop
+    if (v_plan->>'designQuantity')::numeric<>(select coalesce(sum(x.derived_design_quantity),0) from public.lukas_drawing_material_links x where x.project_id=v.project_id and x.material_plan_id=(v_plan->>'id')::uuid) then
+      raise exception using errcode='P6M01',message='Material plan total differs';
+    end if;
   end loop;
   return pg_catalog.jsonb_build_object('insertedOrReplayed',v_count);
 end;
@@ -410,10 +480,15 @@ end;
 $$;
 
 create or replace function public.lukas_qto_decide_boq(p_version_id uuid,p_decision text,p_note text default '')
-returns void language plpgsql security definer set search_path='' as $$
+returns void language plpgsql security invoker set search_path='' as $$
 declare v public.lukas_qto_boq_versions%rowtype;
 begin
   select * into v from public.lukas_qto_boq_versions where id=p_version_id for update;
+  if (select auth.uid()) is null or not found or not private.lukas_qto_verified_session()
+    or v.status<>'in_review' or v.created_by=(select auth.uid())
+    or private.lukas_qto_project_role(v.project_id) not in ('owner','staff','reviewer') then
+    raise exception using errcode='P6A01',message='Independent verified reviewer required';
+  end if;
   if v.engine_version='VERIFIED-BOQ-1.1' and p_decision='approved'
     and (v.input_state_sha256 is null or v.result_sha256 is null or v.manifest_sha256 is null
       or v.input_state_sha256<>private.lukas_drawing_p6_input_sha256(p_version_id)) then
