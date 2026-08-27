@@ -273,6 +273,30 @@ function p2State() {
   });
 }
 
+function compactedAddUndoRedoFixture() {
+  const initial = p2State();
+  delete initial.objects[ids.object];
+  delete initial.structure.objects[ids.object];
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.ownerA, objects: [rectangle()] },
+    { createId: () => ids.operation1, now: () => "2026-08-27T02:00:00.000Z" },
+  );
+  const undone = undoDrawingCommand(added.state, ids.ownerA, {
+    createId: () => ids.operation2,
+    now: () => "2026-08-27T02:01:00.000Z",
+  });
+  assert.ok(undone && !("kind" in undone));
+  const redone = redoDrawingCommand(undone.state, ids.ownerA, {
+    createId: () => ids.operation3,
+    now: () => "2026-08-27T02:02:00.000Z",
+  });
+  assert.ok(redone && !("kind" in redone));
+  const authoritative = structuredClone(initial);
+  authoritative.operations = [added.operation, undone.operation];
+  return { added, authoritative, initial, redone, undone };
+}
+
 function structureOperation(snapshot, clientOperationId, actions) {
   return applyDrawingCommand(snapshot, {
     type: "mutate_structure",
@@ -1223,6 +1247,78 @@ test("acknowledged reference delete is consumed before its pending undo on offli
     })),
     [{ id: restored.operation.clientOperationId, status: "pending" }],
   );
+});
+
+test("compacted acknowledged add and undo authorize the exact pending redo across reload realms", async () => {
+  const { added, authoritative, redone, undone } =
+    compactedAddUndoRedoFixture();
+  const outbox = scopedOutbox(memoryAdapter());
+  for (const candidate of [added.operation, undone.operation, redone.operation])
+    await outbox.enqueue(candidate);
+
+  const reopened = await restoreDrawingWorkspaceState({
+    online: true,
+    outbox,
+    send: async (operation) => {
+      if (operation.clientOperationId === redone.operation.clientOperationId)
+        throw new Error("crashed after acknowledged prefix");
+      return { clientOperationId: operation.clientOperationId, status: "acked" };
+    },
+    serverState: authoritative,
+  });
+
+  assert.deepEqual(reopened.conflictedOperationIds, []);
+  assert.deepEqual(reopened.ambiguousOperationIds, []);
+  assert.equal(reopened.state.objects[ids.object].version, 3);
+  assert.deepEqual(
+    (await outbox.entries()).map((entry) => entry.operation.clientOperationId),
+    [redone.operation.clientOperationId],
+  );
+
+  const secondRealm = recoverPendingDrawingState(authoritative, [
+    redone.operation,
+  ]);
+  assert.deepEqual(secondRealm.conflictedOperationIds, []);
+  assert.deepEqual(secondRealm.ambiguousOperationIds, []);
+  assert.equal(secondRealm.state.objects[ids.object].version, 3);
+});
+
+test("compacted object redo rejects missing lineage, changed payload, and an active UUID owner", () => {
+  const { authoritative, redone } = compactedAddUndoRedoFixture();
+  const cases = [
+    {
+      name: "missing lineage",
+      state: authoritative,
+      mutate(operation) {
+        operation.originalOperationId = ids.operation3;
+      },
+    },
+    {
+      name: "changed payload",
+      state: authoritative,
+      mutate(operation) {
+        operation.forward.objects[0].name = "forged restore";
+      },
+    },
+    {
+      name: "active UUID owner",
+      state: (() => {
+        const claimed = structuredClone(authoritative);
+        claimed.objects[ids.object] = rectangle({ name: "server owner", version: 5 });
+        claimed.structure.objects[ids.object] = claimed.objects[ids.object];
+        return claimed;
+      })(),
+      mutate() {},
+    },
+  ];
+
+  for (const candidate of cases) {
+    const operation = structuredClone(redone.operation);
+    candidate.mutate(operation);
+    const recovered = recoverPendingDrawingState(candidate.state, [operation]);
+    assert.equal(recovered.state.objects[ids.object]?.version, candidate.name === "active UUID owner" ? 5 : undefined, candidate.name);
+    assert.deepEqual(recovered.ambiguousOperationIds, [ids.operation3], candidate.name);
+  }
 });
 
 test("pending reference restore quarantines mismatched object and structure result versions", async () => {

@@ -235,6 +235,26 @@ function recorded(
   };
 }
 
+function envelopeFromOperation(operation) {
+  return {
+    clientOperationId: operation.clientOperationId,
+    revisionId: operation.revisionId,
+    actorId: operation.actorId,
+    schemaVersion: 1,
+    type: operation.type,
+    baseVersions: operation.baseVersions,
+    forward: operation.forward,
+    inverse: operation.inverse,
+    createdAt: operation.createdAt,
+    ...(operation.originalOperationId
+      ? {
+          originalOperationId: operation.originalOperationId,
+          historyAction: operation.historyAction,
+        }
+      : {}),
+  };
+}
+
 function append(doc, envelope) {
   doc.transact(() => {
     doc.getArray("operations").push([envelope]);
@@ -701,6 +721,96 @@ test("persisted history reconstructs redo after reload and same-actor cross-tab 
     [],
   );
   assert.equal(publications, 2, "each received transaction projects only once");
+});
+
+test("compacted acknowledged add and undo authorize a pending redo over a fresh snapshot", () => {
+  const initial = baseState([]);
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actorA, objects: [object(ids.objectA)] },
+    { createId: () => ids.operationA, now: () => "2026-08-27T03:00:00.000Z" },
+  );
+  const undone = undoDrawingCommand(added.state, ids.actorA, {
+    createId: () => ids.operationB,
+    now: () => "2026-08-27T03:01:00.000Z",
+  });
+  assert.ok(undone && !("kind" in undone));
+  const redone = redoDrawingCommand(undone.state, ids.actorA, {
+    createId: () => ids.operationC,
+    now: () => "2026-08-27T03:02:00.000Z",
+  });
+  assert.ok(redone && !("kind" in redone));
+  const doc = initializedDoc();
+  doc.getMap("serverMeta").set("baseOperationSequence", 2);
+  for (const candidate of [added.operation, undone.operation, redone.operation])
+    append(doc, envelopeFromOperation(candidate));
+  status(doc, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 1,
+    resultVersions: added.operation.realizedVersions,
+  });
+  status(doc, ids.operationB, {
+    operationId: ids.operationB,
+    status: "acked",
+    authoritativeSequence: 2,
+    resultVersions: undone.operation.realizedVersions,
+  });
+
+  const adapter = create(doc, {
+    authoritativeState: initial,
+    baseOperationSequence: 2,
+  });
+  const snapshot = adapter.getSnapshot();
+
+  assert.equal(snapshot.quarantine, null);
+  assert.deepEqual(snapshot.provisionalConflictOperationIds, []);
+  assert.equal(snapshot.state.objects[ids.objectA].version, 3);
+  assert.deepEqual(snapshot.state.undoStackByActor[ids.actorA], [ids.operationA]);
+});
+
+test("compacted redo stays provisional when its acknowledged result lineage is wrong", () => {
+  const initial = baseState([]);
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actorA, objects: [object(ids.objectA)] },
+    { createId: () => ids.operationA, now: () => "2026-08-27T03:10:00.000Z" },
+  );
+  const undone = undoDrawingCommand(added.state, ids.actorA, {
+    createId: () => ids.operationB,
+    now: () => "2026-08-27T03:11:00.000Z",
+  });
+  assert.ok(undone && !("kind" in undone));
+  const redone = redoDrawingCommand(undone.state, ids.actorA, {
+    createId: () => ids.operationC,
+    now: () => "2026-08-27T03:12:00.000Z",
+  });
+  assert.ok(redone && !("kind" in redone));
+  const doc = initializedDoc();
+  doc.getMap("serverMeta").set("baseOperationSequence", 2);
+  for (const candidate of [added.operation, undone.operation, redone.operation])
+    append(doc, envelopeFromOperation(candidate));
+  status(doc, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 1,
+    resultVersions: added.operation.realizedVersions,
+  });
+  status(doc, ids.operationB, {
+    operationId: ids.operationB,
+    status: "acked",
+    authoritativeSequence: 2,
+    resultVersions: { [ids.objectA]: 3 },
+  });
+
+  const snapshot = create(doc, {
+    authoritativeState: initial,
+    baseOperationSequence: 2,
+  }).getSnapshot();
+
+  assert.equal(snapshot.quarantine, null);
+  assert.deepEqual(snapshot.provisionalConflictOperationIds, [ids.operationC]);
+  assert.equal(snapshot.state.objects[ids.objectA], undefined);
 });
 
 test("durable enqueue race appends a provisional conflict and boot repair terminates with the remote winner", async () => {

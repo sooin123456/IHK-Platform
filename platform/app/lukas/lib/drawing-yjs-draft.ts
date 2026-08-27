@@ -302,6 +302,97 @@ function hasVersionConflict(
   });
 }
 
+type CollaborationStatusEvidence = {
+  status: "pending" | "acked" | "conflicted" | "rejected";
+  authoritativeSequence: number | null;
+  resultVersions: Record<string, number>;
+};
+
+function restoreCompactedObjectHistory(
+  state: DrawingDocumentState,
+  pending: DrawingCollaborationOperation,
+  operationOrder: string[],
+  operations: Record<string, DrawingCollaborationOperation>,
+  statuses: Map<string, CollaborationStatusEvidence>,
+  baseOperationSequence: number,
+) {
+  if (
+    pending.type !== "add_objects" ||
+    pending.historyAction !== "redo" ||
+    !pending.originalOperationId
+  )
+    return null;
+  const original = operations[pending.originalOperationId];
+  const originalStatus = statuses.get(pending.originalOperationId);
+  if (
+    !original ||
+    !originalStatus ||
+    originalStatus.status !== "acked" ||
+    originalStatus.authoritativeSequence === null ||
+    originalStatus.authoritativeSequence > baseOperationSequence ||
+    original.type !== "add_objects" ||
+    original.historyAction ||
+    original.actorId !== pending.actorId
+  )
+    return null;
+  const lineage = operationOrder
+    .map((operationId) => ({
+      operation: operations[operationId],
+      status: statuses.get(operationId),
+    }))
+    .filter(
+      (
+        item,
+      ): item is {
+        operation: DrawingCollaborationOperation;
+        status: CollaborationStatusEvidence & {
+          status: "acked";
+          authoritativeSequence: number;
+        };
+      } =>
+        item.operation?.originalOperationId === pending.originalOperationId &&
+        item.status?.status === "acked" &&
+        item.status.authoritativeSequence !== null &&
+        item.status.authoritativeSequence <= baseOperationSequence,
+    )
+    .sort(
+      (left, right) =>
+        left.status.authoritativeSequence - right.status.authoritativeSequence,
+    );
+  const undo = lineage.at(-1);
+  if (
+    !undo ||
+    originalStatus.authoritativeSequence >=
+      undo.status.authoritativeSequence ||
+    undo.operation.type !== "delete_objects" ||
+    undo.operation.historyAction !== "undo" ||
+    undo.operation.actorId !== pending.actorId ||
+    !same(original.inverse, undo.operation.forward) ||
+    !same(undo.operation.forward, pending.inverse) ||
+    !same(undo.operation.inverse, pending.forward)
+  )
+    return null;
+  try {
+    let proof = replay(state, original, originalStatus.resultVersions);
+    proof = replay(proof, undo.operation, undo.status.resultVersions);
+    const restored = (pending.forward as { objects?: Array<{ id?: string }> })
+      .objects;
+    if (
+      !Array.isArray(restored) ||
+      restored.some((object) => !object.id || proof.objects[object.id])
+    )
+      return null;
+    return {
+      ...state,
+      operations: proof.operations,
+      undoStackByActor: proof.undoStackByActor,
+      redoStackByActor: proof.redoStackByActor,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createDrawingDraftAdapter(
   options: DrawingDraftAdapterOptions,
 ): DrawingDraftAdapter {
@@ -390,12 +481,24 @@ export function createDrawingDraftAdapter(
       state = replay(state, item.operation, item.status.resultVersions);
     const provisionalConflictOperationIds: string[] = [];
     for (const item of pending) {
+      let replayBase = state;
       if (hasVersionConflict(state, item.operation)) {
-        provisionalConflictOperationIds.push(item.operationId);
-        continue;
+        const restoredHistory = restoreCompactedObjectHistory(
+          state,
+          item.operation,
+          ledger.operationOrder,
+          ledger.operations,
+          statuses,
+          projectionBaseOperationSequence,
+        );
+        if (!restoredHistory) {
+          provisionalConflictOperationIds.push(item.operationId);
+          continue;
+        }
+        replayBase = restoredHistory;
       }
       try {
-        state = replay(state, item.operation);
+        state = replay(replayBase, item.operation);
       } catch (error) {
         if (error instanceof DrawingDraftIntegrityError) throw error;
         provisionalConflictOperationIds.push(item.operationId);

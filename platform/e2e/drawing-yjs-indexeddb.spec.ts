@@ -972,6 +972,197 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
   });
 });
 
+test("compacted add undo lineage restores a pending redo after a real IndexedDB realm crash", async ({
+  page,
+}) => {
+  const revision = "00000000-0000-4000-8000-000000000651";
+  const objectId = "00000000-0000-4000-8000-000000000652";
+  const operationIds = [
+    "00000000-0000-4000-8000-000000000653",
+    "00000000-0000-4000-8000-000000000654",
+    "00000000-0000-4000-8000-000000000655",
+  ];
+  const initialUpdate = authoritativeFixture(revision, "active");
+  await openPreview(page);
+
+  const written = await page.evaluate(
+    async ({ fixtureIds, initialUpdate, objectId, operationIds, revision }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const commands = await import(commandsPath);
+      const baseState = commands.createDrawingDocumentState({
+        revisionId: revision,
+        layers: [
+          {
+            id: fixtureIds.layer,
+            name: "Work",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            version: 1,
+          },
+        ],
+        objects: [],
+      });
+      let operationIndex = 0;
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const handle = await persistence.openDrawingYjsPersistence({
+        revisionId: revision,
+        document,
+      });
+      if (!handle) throw new Error("Browser persistence did not open.");
+      await handle.whenSynced();
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+        createId: () => operationIds[operationIndex++],
+        now: () =>
+          new Date(Date.UTC(2026, 7, 27, 4, operationIndex)).toISOString(),
+      });
+      const preparedAdd = adapter.prepareLocal({
+        type: "add_objects",
+        actorId: fixtureIds.actor,
+        objects: [
+          {
+            id: objectId,
+            name: "Compacted restore",
+            layerId: fixtureIds.layer,
+            geometry: {
+              type: "rectangle",
+              origin: { x: 0, y: 0 },
+              width: 10,
+              height: 10,
+              rotation: 0,
+            },
+            style: { stroke: "#111111", strokeWidth: 1, fill: null },
+            version: 1,
+          },
+        ],
+      });
+      const added = preparedAdd.state.operations.at(-1);
+      if (!added) throw new Error("Added operation was not recorded.");
+      adapter.appendDurableLocal(preparedAdd);
+      const undone = commands.undoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T04:01:00.000Z",
+        },
+      );
+      if (!undone || "kind" in undone) throw new Error("Undo conflicted.");
+      adapter.appendDurableLocal(adapter.prepareRecordedLocal(undone.operation));
+      const redone = commands.redoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T04:02:00.000Z",
+        },
+      );
+      if (!redone || "kind" in redone) throw new Error("Redo conflicted.");
+      adapter.appendDurableLocal(adapter.prepareRecordedLocal(redone.operation));
+      document.transact(() => {
+        document.getMap("serverMeta").set("baseOperationSequence", 2);
+        document.getMap("operationStatus").set(operationIds[0], {
+          operationId: operationIds[0],
+          status: "acked",
+          authoritativeSequence: 1,
+          resultVersions: added.realizedVersions,
+        });
+        document.getMap("operationStatus").set(operationIds[1], {
+          operationId: operationIds[1],
+          status: "acked",
+          authoritativeSequence: 2,
+          resultVersions: undone.operation.realizedVersions,
+        });
+      });
+      await handle.flush();
+      return {
+        operationIds: adapter.operations().map(
+          (operation: { clientOperationId: string }) =>
+            operation.clientOperationId,
+        ),
+        version: adapter.getSnapshot().state.objects[objectId]?.version,
+      };
+      // Deliberately leave the first realm open; reload below is the crash.
+    },
+    { fixtureIds: ids, initialUpdate, objectId, operationIds, revision },
+  );
+  expect(written).toEqual({ operationIds, version: 3 });
+
+  await page.reload();
+  const reopened = await page.evaluate(
+    async ({ fixtureIds, initialUpdate, objectId, revision }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const commands = await import(commandsPath);
+      const baseState = commands.createDrawingDocumentState({
+        revisionId: revision,
+        layers: [
+          {
+            id: fixtureIds.layer,
+            name: "Work",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            version: 1,
+          },
+        ],
+        objects: [],
+      });
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const handle = await persistence.openDrawingYjsPersistence({
+        revisionId: revision,
+        document,
+      });
+      if (!handle) throw new Error("Browser persistence did not reopen.");
+      await handle.whenSynced();
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+        baseOperationSequence: 2,
+      });
+      const snapshot = adapter.getSnapshot();
+      const result = {
+        quarantine: snapshot.quarantine,
+        provisional: snapshot.provisionalConflictOperationIds,
+        pending: snapshot.pendingOperationIds,
+        version: snapshot.state.objects[objectId]?.version,
+      };
+      adapter.dispose();
+      await handle.dispose();
+      document.destroy();
+      return result;
+    },
+    { fixtureIds: ids, initialUpdate, objectId, revision },
+  );
+  expect(reopened).toEqual({
+    quarantine: null,
+    provisional: [],
+    pending: [operationIds[2]],
+    version: 3,
+  });
+});
+
 test("valid frozen adapter recovery survives version-change close", async ({
   page,
 }) => {

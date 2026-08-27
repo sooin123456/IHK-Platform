@@ -13,6 +13,7 @@ import type {
 import {
   applyDrawingStructureActions,
   resolveDrawingStyle,
+  sameDrawingCanonicalValue,
   validateDrawingReferenceAwareObjectMutation,
   validateDrawingSemanticReferences as validateStructureSemanticReferences,
   validateDrawingStructureState,
@@ -956,7 +957,7 @@ function reduceCommand(
           };
           if (
             tombstone &&
-            JSON.stringify(tombstone) !== JSON.stringify(expectedTombstone)
+            !sameDrawingCanonicalValue(tombstone, expectedTombstone)
           )
             throw new DrawingCommandError(
               `Drawing object ${added.id} restore tombstone is stale.`,
@@ -1316,7 +1317,7 @@ function reduceCommand(
           };
           if (
             tombstone &&
-            JSON.stringify(tombstone) !== JSON.stringify(expectedTombstone)
+            !sameDrawingCanonicalValue(tombstone, expectedTombstone)
           )
             throw new DrawingCommandError(
               `Drawing object ${object.id} restore tombstone is stale.`,
@@ -1572,7 +1573,7 @@ function sameObjectDeletionTombstone(
   return (
     ownerEntity.success &&
     expectedEntity.success &&
-    JSON.stringify(ownerEntity.data) === JSON.stringify(expectedEntity.data)
+    sameDrawingCanonicalValue(ownerEntity.data, expectedEntity.data)
   );
 }
 

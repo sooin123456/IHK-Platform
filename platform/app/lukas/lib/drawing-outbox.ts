@@ -1,6 +1,10 @@
-import type { DrawingDocumentState } from "./drawing-commands.ts";
+import type {
+  DrawingDocumentState,
+  DrawingRecordedOperation,
+} from "./drawing-commands.ts";
 import {
   applyDrawingStructureActions,
+  sameDrawingCanonicalValue,
   validateDrawingReferenceAwareObjectMutation,
   validateDrawingStructureState,
 } from "./drawing-structure.ts";
@@ -547,8 +551,10 @@ function baseVersionsMatch(
 }
 
 function recoveryBaseVersionsMatch(
+  state: DrawingDocumentState,
   versions: Map<string, number>,
   operation: DrawingOperationInput,
+  historyEvidence: ObjectHistoryEvidence[],
 ) {
   // P2 validates every action against its captured operation-start state in
   // applyDrawingStructureActions. New entities intentionally have no version
@@ -560,7 +566,10 @@ function recoveryBaseVersionsMatch(
   )
     return true;
   if (operation.type !== "add_layer")
-    return baseVersionsMatch(versions, operation.baseVersions);
+    return (
+      baseVersionsMatch(versions, operation.baseVersions) ||
+      exactCompactedObjectRedo(state, operation, historyEvidence)
+    );
   const layer = (
     operation.forward as { layer?: { id?: unknown; version?: unknown } }
   ).layer;
@@ -654,6 +663,138 @@ function restoreMissingStructureTombstones(
 
 function valuesMatch(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+type ObjectHistoryEvidence = DrawingOperationInput &
+  Partial<
+    Pick<
+      DrawingRecordedOperation,
+      "actorId" | "resultVersions" | "realizedVersions"
+    >
+  >;
+
+function exactRecordedVersions(
+  evidence: ObjectHistoryEvidence,
+  resultVersions: Record<string, number | null>,
+  realizedVersions: Record<string, number>,
+) {
+  return (
+    (evidence.resultVersions === undefined ||
+      sameDrawingCanonicalValue(evidence.resultVersions, resultVersions)) &&
+    (evidence.realizedVersions === undefined ||
+      sameDrawingCanonicalValue(evidence.realizedVersions, realizedVersions))
+  );
+}
+
+function hasActiveUuidOwner(state: DrawingDocumentState, id: string) {
+  if (state.objects[id] || state.layers[id]) return true;
+  if (!state.structure) return false;
+  for (const [collection, entities] of Object.entries(state.structure)) {
+    if (collection === "tombstones" || !entities || typeof entities !== "object")
+      continue;
+    if (Object.hasOwn(entities, id)) return true;
+  }
+  return false;
+}
+
+function exactCompactedObjectRedo(
+  state: DrawingDocumentState,
+  operation: DrawingOperationInput,
+  evidence: ObjectHistoryEvidence[],
+) {
+  if (
+    operation.type !== "add_objects" ||
+    operation.historyAction !== "redo" ||
+    !operation.originalOperationId
+  )
+    return false;
+  const byId = new Map<string, ObjectHistoryEvidence>();
+  for (const candidate of evidence) {
+    const previous = byId.get(candidate.clientOperationId);
+    if (
+      previous &&
+      !sameDrawingCanonicalValue(
+        DrawingOperationInputSchema.parse(previous),
+        DrawingOperationInputSchema.parse(candidate),
+      )
+    )
+      return false;
+    if (!previous || candidate.resultVersions !== undefined)
+      byId.set(candidate.clientOperationId, candidate);
+  }
+  const original = byId.get(operation.originalOperationId);
+  if (
+    !original ||
+    original.type !== "add_objects" ||
+    original.historyAction ||
+    original.originalOperationId
+  )
+    return false;
+  const orderedEvidence = [...byId.values()];
+  const lineage = orderedEvidence.filter(
+    (candidate) => candidate.originalOperationId === operation.originalOperationId,
+  );
+  const undo = lineage.at(-1);
+  if (
+    !undo ||
+    orderedEvidence.indexOf(original) >= orderedEvidence.indexOf(undo) ||
+    undo.type !== "delete_objects" ||
+    undo.historyAction !== "undo" ||
+    (original.actorId !== undefined &&
+      undo.actorId !== undefined &&
+      original.actorId !== undo.actorId)
+  )
+    return false;
+  const originalObjects = (original.forward as { objects?: unknown }).objects;
+  const restoredObjects = (undo.inverse as { objects?: unknown }).objects;
+  const pendingObjects = (operation.forward as { objects?: unknown }).objects;
+  if (
+    !Array.isArray(originalObjects) ||
+    !Array.isArray(restoredObjects) ||
+    !Array.isArray(pendingObjects) ||
+    !sameDrawingCanonicalValue(undo.forward, original.inverse) ||
+    !sameDrawingCanonicalValue(operation.inverse, undo.forward) ||
+    !sameDrawingCanonicalValue(operation.forward, undo.inverse) ||
+    originalObjects.length !== restoredObjects.length
+  )
+    return false;
+  const expectedOriginalResult: Record<string, number> = {};
+  const expectedUndoResult: Record<string, null> = {};
+  const expectedUndoRealized: Record<string, number> = {};
+  const expectedUndoBases: Record<string, number> = {};
+  const expectedRedoBases: Record<string, number> = {};
+  try {
+    for (const [index, input] of originalObjects.entries()) {
+      const initial = DrawingObjectSchema.parse(input);
+      const restored = DrawingObjectSchema.parse(restoredObjects[index]);
+      if (
+        initial.version !== 1 ||
+        restored.id !== initial.id ||
+        restored.version !== 3 ||
+        !sameDrawingCanonicalValue(restored, { ...initial, version: 3 }) ||
+        hasActiveUuidOwner(state, initial.id)
+      )
+        return false;
+      expectedOriginalResult[initial.id] = 1;
+      expectedUndoResult[initial.id] = null;
+      expectedUndoRealized[initial.id] = 2;
+      expectedUndoBases[initial.id] = 1;
+      expectedRedoBases[initial.id] = 2;
+    }
+  } catch {
+    return false;
+  }
+  return (
+    sameDrawingCanonicalValue(original.baseVersions, {}) &&
+    sameDrawingCanonicalValue(undo.baseVersions, expectedUndoBases) &&
+    sameDrawingCanonicalValue(operation.baseVersions, expectedRedoBases) &&
+    exactRecordedVersions(
+      original,
+      expectedOriginalResult,
+      expectedOriginalResult,
+    ) &&
+    exactRecordedVersions(undo, expectedUndoResult, expectedUndoRealized)
+  );
 }
 
 type AcknowledgedFinalEffect = {
@@ -885,8 +1026,12 @@ function acknowledgedFinalEffects(
       inverse.objects.length !== forward.objectIds.length ||
       !forward.objectIds.every((id, index) => {
         const restored = inverse.objects[index];
+        const expectedVersion =
+          operation.historyAction === "undo"
+            ? operation.baseVersions[id] + 2
+            : operation.baseVersions[id];
         return (
-          restored?.id === id && restored.version === operation.baseVersions[id]
+          restored?.id === id && restored.version === expectedVersion
         );
       })
     )
@@ -996,6 +1141,7 @@ function acknowledgedPrefixIsRepresented(
 export function recoverPendingDrawingState(
   serverState: DrawingDocumentState,
   inputs: unknown[],
+  acknowledgedHistory: unknown[] = [],
 ): {
   state: DrawingDocumentState;
   conflictedOperationIds: string[];
@@ -1016,6 +1162,25 @@ export function recoverPendingDrawingState(
   const conflictedOperationIds: string[] = [];
   const ambiguousOperationIds: string[] = [];
   let blocked = false;
+  const historyEvidence: ObjectHistoryEvidence[] = [
+    ...serverState.operations,
+    ...acknowledgedHistory,
+  ].map((input) => {
+    const operation = DrawingOperationInputSchema.parse(input);
+    const recorded = input as Partial<DrawingRecordedOperation>;
+    return {
+      ...operation,
+      ...(typeof recorded.actorId === "string"
+        ? { actorId: recorded.actorId }
+        : {}),
+      ...(recorded.resultVersions
+        ? { resultVersions: recorded.resultVersions }
+        : {}),
+      ...(recorded.realizedVersions
+        ? { realizedVersions: recorded.realizedVersions }
+        : {}),
+    };
+  });
   const queued = inputs.map((input, index) => {
     if (
       input &&
@@ -1062,7 +1227,10 @@ export function recoverPendingDrawingState(
         continue;
       }
     }
-    if (blocked || !recoveryBaseVersionsMatch(versions, operation)) {
+    if (
+      blocked ||
+      !recoveryBaseVersionsMatch(state, versions, operation, historyEvidence)
+    ) {
       ambiguousOperationIds.push(operation.clientOperationId);
       blocked = true;
       continue;
@@ -1091,7 +1259,7 @@ export function recoverPendingDrawingState(
               entity: { ...structuredClone(object), version: base - 1 },
               version: base,
             };
-            if (!valuesMatch(tombstone, expectedTombstone))
+            if (!sameDrawingCanonicalValue(tombstone, expectedTombstone))
               throw new Error("Object add tombstone is stale.");
           }
           delete candidate.structure?.tombstones?.[object.id];
@@ -1403,6 +1571,7 @@ export async function restoreDrawingWorkspaceState({
     // A conflicting acknowledged prefix is causally before every remaining
     // pending entry. Keep that work durable, but never project it locally.
     conflictedOperationIds.length > 0 ? [] : entriesForRecovery,
+    acknowledged.map((entry) => entry.operation),
   );
   const malformedPendingIds = new Set(recovered.conflictedOperationIds);
   for (const entry of entriesForRecovery) {

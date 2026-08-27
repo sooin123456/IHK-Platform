@@ -415,6 +415,84 @@ test("structured semantic add undo reserves its UUID through recovery and redo",
   );
 });
 
+test("structured add redo accepts an exact tombstone with reordered object keys", () => {
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: { ...state().structure, objects: {}, sources: {} },
+  });
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actor, objects: [object()] },
+    environment(ids.addOperation),
+  );
+  const undone = undoDrawingCommand(
+    added.state,
+    ids.actor,
+    environment(ids.undoOperation),
+  );
+  assert.ok(undone && !("kind" in undone));
+  const current = undone.state.structure.tombstones[ids.object];
+  const reordered = Object.fromEntries(Object.entries(current.entity).reverse());
+  const reorderedState = {
+    ...undone.state,
+    structure: {
+      ...undone.state.structure,
+      tombstones: {
+        ...undone.state.structure.tombstones,
+        [ids.object]: { ...current, entity: reordered },
+      },
+    },
+  };
+
+  const redone = redoDrawingCommand(
+    reorderedState,
+    ids.actor,
+    environment(ids.redoOperation),
+  );
+
+  assert.ok(redone && !("kind" in redone));
+  assert.equal(redone.state.objects[ids.object].version, 3);
+  assert.equal(redone.state.structure.tombstones[ids.object], undefined);
+});
+
+test("structured add redo rejects every nonexact tombstone field", () => {
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: { ...state().structure, objects: {}, sources: {} },
+  });
+  const added = applyDrawingCommand(
+    initial,
+    { type: "add_objects", actorId: ids.actor, objects: [object()] },
+    environment(ids.addOperation),
+  );
+  const undone = undoDrawingCommand(
+    added.state,
+    ids.actor,
+    environment(ids.undoOperation),
+  );
+  assert.ok(undone && !("kind" in undone));
+  const cases = [
+    ["payload", (owner) => (owner.entity.name = "changed")],
+    ["version", (owner) => (owner.version += 1)],
+    ["type", (owner) => (owner.collection = "sources")],
+    ["extra", (owner) => (owner.entity.unexpected = true)],
+  ];
+
+  for (const [name, mutate] of cases) {
+    const changed = structuredClone(undone.state);
+    mutate(changed.structure.tombstones[ids.object]);
+    assert.deepEqual(
+      redoDrawingCommand(
+        changed,
+        ids.actor,
+        environment(ids.redoOperation),
+      ),
+      { kind: "conflict", objectIds: [ids.object] },
+      name,
+    );
+  }
+});
+
 test("structured add redo returns a deterministic conflict after a legitimate restore", () => {
   const other = { ...object(), id: ids.otherObject, name: "Other target" };
   const initial = createDrawingDocumentState({
