@@ -65,6 +65,15 @@ test("P6 migration applies on a fresh executable PGlite authority and creates it
       `select indexname from pg_indexes where indexname='lukas_drawing_boq_links_source_idx'`,
     );
     assert.equal(indexes.rows.length, 1);
+    const measures = await db.query(`select
+      private.lukas_drawing_p6_measure('{"type":"wall","start":{"x":0,"y":0},"end":{"x":3000,"y":4000}}','length') as wall,
+      private.lukas_drawing_p6_measure('{"type":"opening","widthMillimeters":1200,"heightMillimeters":2100}','area') as opening,
+      private.lukas_drawing_p6_measure('{"type":"space","boundary":[{"x":0,"y":0},{"x":4000,"y":0},{"x":4000,"y":3000},{"x":0,"y":3000}]}','area') as space`);
+    assert.deepEqual(measures.rows[0], {
+      wall: "5.000000000000",
+      opening: "2.520000000000",
+      space: "12.000000000000",
+    });
     await db.exec(`
       insert into auth.users values ('60000000-0000-4000-8000-000000000099');
       insert into public.lukas_qto_projects values ('60000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000099');

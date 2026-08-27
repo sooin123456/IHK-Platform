@@ -193,6 +193,50 @@ returns text language sql immutable security invoker set search_path='' as $$
     else p_value::text end
 $$;
 
+-- Mirrors the fixed P4 measurement conversion boundary for server-approved
+-- semantic primitives. Values are converted from millimetres before storage.
+create function private.lukas_drawing_p6_measure(p_geometry jsonb,p_kind text)
+returns numeric language plpgsql immutable security invoker set search_path='' as $$
+declare v_type text:=p_geometry->>'type'; v_width numeric; v_height numeric;
+declare v_dx numeric; v_dy numeric; v_radius numeric; v_sweep numeric;
+begin
+  if p_kind='count' then return 1; end if;
+  if v_type in ('wall','grid') then
+    v_dx:=(p_geometry#>>'{end,x}')::numeric-(p_geometry#>>'{start,x}')::numeric;
+    v_dy:=(p_geometry#>>'{end,y}')::numeric-(p_geometry#>>'{start,y}')::numeric;
+    if p_kind='length' then return pg_catalog.round(pg_catalog.sqrt(v_dx*v_dx+v_dy*v_dy)/1000,12); end if;
+  elsif v_type='opening' then
+    v_width:=(p_geometry->>'widthMillimeters')::numeric; v_height:=(p_geometry->>'heightMillimeters')::numeric;
+    if p_kind='length' then return pg_catalog.round(v_width/1000,12); end if;
+    if p_kind='area' then return pg_catalog.round(v_width*v_height/1000000,12); end if;
+  elsif v_type='arc' and p_kind='length' then
+    v_radius:=(p_geometry->>'radius')::numeric; v_sweep:=pg_catalog.abs((p_geometry->>'sweepAngleDegrees')::numeric);
+    return pg_catalog.round(v_radius*v_sweep*355/(180*113*1000),12);
+  elsif v_type in ('space','area') then
+    if p_kind='length' then
+      select pg_catalog.round(sum(pg_catalog.sqrt((x-coalesce(nx,fx))^2+(y-coalesce(ny,fy))^2))/1000,12) into v_width from (
+        select (value->>'x')::numeric x,(value->>'y')::numeric y,
+          lead((value->>'x')::numeric) over(order by ordinality) nx,lead((value->>'y')::numeric) over(order by ordinality) ny,
+          first_value((value->>'x')::numeric) over(order by ordinality) fx,first_value((value->>'y')::numeric) over(order by ordinality) fy
+        from pg_catalog.jsonb_array_elements(p_geometry->'boundary') with ordinality p(value,ordinality)
+      ) points;
+      if v_width is not null then return v_width; end if;
+    elsif p_kind='area' then
+      select pg_catalog.round(abs(sum(x*coalesce(ny,fy)-coalesce(nx,fx)*y))/2000000,12) into v_width from (
+        select (value->>'x')::numeric x,(value->>'y')::numeric y,
+          lead((value->>'x')::numeric) over(order by ordinality) nx,lead((value->>'y')::numeric) over(order by ordinality) ny,
+          first_value((value->>'x')::numeric) over(order by ordinality) fx,first_value((value->>'y')::numeric) over(order by ordinality) fy
+        from pg_catalog.jsonb_array_elements(p_geometry->'boundary') with ordinality p(value,ordinality)
+      ) points;
+      if v_width is not null then return v_width; end if;
+    end if;
+  end if;
+  raise exception using errcode='P6Q01',message='P4 measurement is unavailable';
+exception when invalid_text_representation then
+  raise exception using errcode='P6Q01',message='P4 geometry is invalid';
+end;
+$$;
+
 create function private.lukas_drawing_insert_quantity_link(
   p_actor_id uuid,p_id uuid,p_revision_id uuid,p_object_id uuid,p_measurement_kind text,
   p_snapshot_sha256 text,p_object_lineage_id uuid,p_object_version bigint,
@@ -241,7 +285,9 @@ begin
     or pg_catalog.scale(p_raw_quantity)>12 then
     raise exception using errcode='P6Q01',message='Drawing measurement is unavailable';
   end if;
-  if p_measurement_kind='count' and p_raw_quantity<>1 then raise exception using errcode='P6Q01',message='P4 count measurement differs'; end if;
+  if p_raw_quantity<>private.lukas_drawing_p6_measure(v_snapshot_object->'geometry',p_measurement_kind) then
+    raise exception using errcode='P6Q01',message='P4 measurement differs';
+  end if;
   select * into v_result from public.lukas_drawing_quantity_links where id=p_id for share;
   if found then
     if v_result.project_id=v_snapshot.project_id and v_result.drawing_revision_id=p_revision_id
