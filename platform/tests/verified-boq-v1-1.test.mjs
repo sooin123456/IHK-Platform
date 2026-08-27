@@ -661,6 +661,54 @@ test("approved XLSX strips invalid XML controls and chunks manifest cells below 
   assert.match(manifestSheet, /정규 manifest JSON 3/);
 });
 
+test("approved XLSX chunks large legacy element-ID evidence into ordered rows", () => {
+  const result = calculateVerifiedBoqV1_1(mixedInput());
+  const elementIds = Array.from(
+    { length: 10_000 },
+    (_, index) => `ELEMENT-${String(index).padStart(5, "0")}`,
+  );
+  const archive = unzipSync(
+    buildVerifiedBoqXlsx({
+      result,
+      resources: [],
+      mappings: [
+        {
+          itemCode: "001-A",
+          sourceFilename: "근거.csv",
+          sourceSha256: A,
+          subjectKey: "WALL",
+          sourceQuantity: "1",
+          factor: "1",
+          unit: "m2",
+          elementIds,
+        },
+      ],
+      structures: [],
+      review: {
+        projectName: "현장",
+        versionLabel: "V1",
+        status: "approved",
+        makerId: ids.project,
+        approvals: [],
+      },
+    }),
+  );
+  const evidenceSheet = strFromU8(archive["xl/worksheets/sheet3.xml"]);
+  const values = [...evidenceSheet.matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(
+    (match) => match[1],
+  );
+  assert.equal(
+    values.every((value) => value.length <= 32_767),
+    true,
+  );
+  assert.match(evidenceSheet, /요소 ID 1\/5/);
+  assert.match(evidenceSheet, /요소 ID 5\/5/);
+  assert.equal(
+    values.filter((value) => value.includes("ELEMENT-")).join(""),
+    elementIds.join("|"),
+  );
+});
+
 test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas", async () => {
   const input = mixedInput();
   input.lines[0].itemName = "=악성";

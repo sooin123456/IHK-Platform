@@ -130,6 +130,39 @@ function sheet(rows: string[][]) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
 }
 
+function buildEvidenceRows(
+  rows: VerifiedBoqWorkbookInput["mappings"],
+  decision: "포함",
+): string[][];
+function buildEvidenceRows(
+  rows: NonNullable<VerifiedBoqWorkbookInput["exclusions"]>,
+  decision: "제외",
+): string[][];
+function buildEvidenceRows(
+  rows:
+    | VerifiedBoqWorkbookInput["mappings"]
+    | NonNullable<VerifiedBoqWorkbookInput["exclusions"]>,
+  decision: "포함" | "제외",
+) {
+  return rows.flatMap((row) => {
+    const chunks = excelTextChunks(row.elementIds.join("|"));
+    return chunks.map((chunk, index) => [
+      "itemCode" in row ? row.itemCode : "",
+      row.sourceFilename,
+      row.sourceSha256,
+      row.subjectKey,
+      row.sourceQuantity,
+      "factor" in row ? row.factor : "",
+      row.unit,
+      chunk,
+      chunks.length === 1
+        ? decision
+        : `${decision} (요소 ID ${index + 1}/${chunks.length})`,
+      "reason" in row ? row.reason : "",
+    ]);
+  });
+}
+
 export function buildVerifiedBoqXlsx(input: VerifiedBoqWorkbookInput) {
   const boqRows = [
     [
@@ -208,30 +241,8 @@ export function buildVerifiedBoqXlsx(input: VerifiedBoqWorkbookInput) {
       "결정",
       "사유",
     ],
-    ...input.mappings.map((row) => [
-      row.itemCode,
-      row.sourceFilename,
-      row.sourceSha256,
-      row.subjectKey,
-      row.sourceQuantity,
-      row.factor,
-      row.unit,
-      row.elementIds.join("|"),
-      "포함",
-      "",
-    ]),
-    ...(input.exclusions ?? []).map((row) => [
-      "",
-      row.sourceFilename,
-      row.sourceSha256,
-      row.subjectKey,
-      row.sourceQuantity,
-      "",
-      row.unit,
-      row.elementIds.join("|"),
-      "제외",
-      row.reason,
-    ]),
+    ...buildEvidenceRows(input.mappings, "포함"),
+    ...buildEvidenceRows(input.exclusions ?? [], "제외"),
   ];
   const reviewRows = [
     ["항목", "값"],

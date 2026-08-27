@@ -1162,7 +1162,50 @@ test("approved export pages every WBS row instead of accepting a PostgREST-cappe
     [
       ["lukas_qto_boq_wbs_nodes", 0, 999],
       ["lukas_qto_boq_wbs_nodes", 1000, 1999],
+      ["lukas_qto_boq_wbs_nodes", 1001, 2000],
     ],
+  );
+});
+
+test("approved export continues WBS pagination below the requested page size", async () => {
+  const payload = boqInputRpcPayload();
+  const submitted = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async () => ({ data: payload, error: null })),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority(),
+  );
+  const wbsNodes = Array.from({ length: 1001 }, (_, index) => ({
+    id: `wbs-${index}`,
+    code: `W-${String(index).padStart(4, "0")}`,
+    name: `작업 ${index}`,
+  }));
+  const allocations = wbsNodes.map((node, index) => ({
+    id: `allocation-${index}`,
+    line_id: p6Ids.line,
+    wbs_node_id: node.id,
+    allocation_percent: "0.1",
+  }));
+  const exported = await loadApprovedVerifiedBoqExport(
+    approvedExportClient({
+      status: "approved",
+      decision: "approved",
+      input_state_sha256: P6_SHA_A,
+      result_sha256: submitted.resultSha256,
+      manifest_sha256: submitted.manifestSha256,
+      direct_cost_krw: "950",
+      line_count: 1,
+      wbsNodes,
+      allocations,
+      dataApiCap: 400,
+    }),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority({ payload }),
+  );
+  assert.match(
+    strFromU8(unzipSync(exported.xlsx)["xl/worksheets/sheet5.xml"]),
+    /W-1000/,
   );
 });
 
@@ -1476,6 +1519,7 @@ function approvedExportClient({
   wbsNodes = [],
   allocations = [],
   files: suppliedFiles,
+  dataApiCap = 1000,
   observed = {},
   ...stored
 }) {
@@ -1556,7 +1600,7 @@ function approvedExportClient({
         query.range = (from, to) => {
           observed.ranges.push([table, from, to]);
           return Promise.resolve({
-            data: rows[table].slice(from, to + 1),
+            data: rows[table].slice(from, Math.min(to + 1, from + dataApiCap)),
             error: null,
           });
         };

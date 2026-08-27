@@ -410,7 +410,8 @@ async function loadAllVersionRows(
   versionId: string,
 ) {
   const rows: Record<string, unknown>[] = [];
-  for (let from = 0; ; from += POSTGREST_PAGE_SIZE) {
+  let from = 0;
+  for (;;) {
     const result = await userClient
       .from(table)
       .select(columns)
@@ -419,10 +420,11 @@ async function loadAllVersionRows(
       .range(from, from + POSTGREST_PAGE_SIZE - 1);
     if (result.error) throw new DrawingQuantityLineageServerError("P6A01");
     const page = (result.data ?? []) as unknown as Record<string, unknown>[];
+    if (!page.length) return rows;
     rows.push(...page);
     if (rows.length > 10_000)
       throw new DrawingQuantityLineageServerError("P6C01");
-    if (page.length < POSTGREST_PAGE_SIZE) return rows;
+    from += page.length;
   }
 }
 
