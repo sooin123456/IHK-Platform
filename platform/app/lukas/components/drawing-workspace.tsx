@@ -27,7 +27,13 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { Form, Link, useBlocker, useNavigation } from "react-router";
+import {
+  Form,
+  Link,
+  useBlocker,
+  useNavigation,
+  useSearchParams,
+} from "react-router";
 import * as Y from "yjs";
 
 import { Button } from "~/core/components/ui/button";
@@ -110,6 +116,7 @@ import type {
   DrawingWorkspace,
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
+  DrawingWorkspaceSourceBundle,
 } from "~/lukas/lib/drawing-workspace.server";
 import type {
   DrawingMeasurementEvidenceError,
@@ -135,11 +142,20 @@ import type {
 import {
   drawingRevisionDecisionFields,
   drawingIssueLinkReady,
+  drawingIfcFocusTarget,
+  drawingIfcRemoteHighlightGlobalIds,
   drawingWorkspaceReviewControls,
   drawingWorkspaceSurface,
   loadDrawingClientModule,
   type DrawingClientModuleState,
+  type DrawingWorkspaceViewMode,
 } from "~/lukas/lib/drawing-workspace-view";
+import {
+  canMutateDrawingObjectSources,
+  createDrawingIfcSourceIndex,
+  linkDrawingIfcSourceCommand,
+  matchDrawingObjectsForIfcSelection,
+} from "~/lukas/lib/drawing-source-links";
 import {
   useDrawingWorkspaceRealtime,
   type DrawingWorkspaceRealtimeAdapter,
@@ -172,7 +188,12 @@ import {
   DrawingCollaborationLockStatus,
   DrawingCollaborationParticipants,
   useDrawingAwarenessLocks,
+  useDrawingAwarenessPeers,
 } from "./drawing-collaboration-presence";
+import type {
+  IfcElementSelection,
+  IfcFocusRequest,
+} from "./ifc-property-browser.client";
 
 const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
@@ -699,6 +720,7 @@ type Props = {
       selectedIds: string[];
       undoIds: string[];
     }) => void;
+    p5IfcTest?: boolean;
     verticalTest?: boolean;
   };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
@@ -707,7 +729,10 @@ type Props = {
   measurementEvidence?: DrawingServerMeasurementEvidence | null;
   measurementEvidenceError?: DrawingMeasurementEvidenceError | null;
   roomUrl: string;
-  sourceUrl: string | null;
+  sourceUrl?: string | null;
+  sourceBundle?: DrawingWorkspaceSourceBundle;
+  selectedIfcFileId?: string | null;
+  viewMode?: DrawingWorkspaceViewMode;
   workspace: DrawingWorkspace & {
     document: NonNullable<DrawingWorkspace["document"]>;
   };
@@ -730,9 +755,13 @@ export default function DrawingWorkspaceClient({
   measurementEvidence,
   measurementEvidenceError,
   roomUrl,
-  sourceUrl,
+  sourceUrl = null,
+  sourceBundle,
+  selectedIfcFileId = sourceBundle?.ifc?.id ?? null,
+  viewMode = "2d",
   workspace,
 }: Props) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [canvasModule, setCanvasModule] = useState<
     DrawingClientModuleState<CanvasComponent>
@@ -740,6 +769,20 @@ export default function DrawingWorkspaceClient({
   const [ifcModule, setIfcModule] = useState<
     DrawingClientModuleState<IfcComponent>
   >({ status: "loading" });
+  const [ifcActivated, setIfcActivated] = useState(false);
+  const [narrowSplitTab, setNarrowSplitTab] = useState<"2d" | "3d">("2d");
+  const [narrowLayout, setNarrowLayout] = useState(false);
+  const [ifcSelection, setIfcSelection] = useState<IfcElementSelection | null>(
+    null,
+  );
+  const [ifcMatch, setIfcMatch] = useState<
+    | { status: "idle" | "no_match" }
+    | { status: "ambiguous"; objectIds: readonly string[] }
+  >({ status: "idle" });
+  const [ifcFocusRequest, setIfcFocusRequest] =
+    useState<IfcFocusRequest | null>(null);
+  const ifcFocusSequenceRef = useRef(0);
+  const pendingIfcSelectionRef = useRef<string | null>(null);
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [semanticMenuOpen, setSemanticMenuOpen] = useState(false);
@@ -876,6 +919,7 @@ export default function DrawingWorkspaceClient({
   const awarenessLockPeers = useDrawingAwarenessLocks(
     awarenessStoreRef.current,
   );
+  const awarenessPeers = useDrawingAwarenessPeers(awarenessStoreRef.current);
   const awarenessLeaseRef = useRef<ReturnType<
     typeof createDrawingSoftLockLease
   > | null>(null);
@@ -1207,6 +1251,39 @@ export default function DrawingWorkspaceClient({
     revisionVersion: revision.version,
     status: effectiveRevisionStatus,
   });
+  const loadedIfc = sourceBundle?.ifc ?? null;
+  const selectedIfcChoice =
+    sourceBundle?.catalog.find(
+      (item) => item.kind === "ifc" && item.id === selectedIfcFileId,
+    ) ?? null;
+  const [retainedIfc, setRetainedIfc] = useState(loadedIfc);
+  useEffect(() => {
+    setRetainedIfc(
+      (current) =>
+        loadedIfc ??
+        (current &&
+        selectedIfcChoice &&
+        current.id === selectedIfcChoice.id &&
+        current.sha256 === selectedIfcChoice.sha256
+          ? current
+          : null),
+    );
+  }, [loadedIfc, selectedIfcChoice?.id, selectedIfcChoice?.sha256]);
+  const selectedIfc =
+    loadedIfc ??
+    (retainedIfc &&
+    selectedIfcChoice &&
+    retainedIfc.id === selectedIfcChoice.id &&
+    retainedIfc.sha256 === selectedIfcChoice.sha256
+      ? retainedIfc
+      : null);
+  const primarySourceUrl =
+    sourceBundle?.pdf?.signedUrl ??
+    (workspace.file.kind === "ifc" ? selectedIfc?.signedUrl : null) ??
+    sourceUrl;
+  const activeView: DrawingWorkspaceViewMode = selectedIfcChoice
+    ? viewMode
+    : "2d";
   const surface = drawingWorkspaceSurface({
     file: {
       id: file.id,
@@ -1222,7 +1299,7 @@ export default function DrawingWorkspaceClient({
           backgroundPdfPage: page.background_pdf_page,
         }
       : null,
-    sourceUrl,
+    sourceUrl: primarySourceUrl,
   });
   const Canvas = canvasModule.status === "ready" ? canvasModule.value : null;
   const canvasLoadError =
@@ -1242,7 +1319,19 @@ export default function DrawingWorkspaceClient({
   }, []);
 
   useEffect(() => {
-    if (surface.layout !== "ifc_split") return;
+    if (selectedIfcChoice && viewMode !== "2d") setIfcActivated(true);
+  }, [selectedIfcChoice, viewMode]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setNarrowLayout(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!ifcActivated) return;
     return loadDrawingClientModule({
       load: () =>
         import("./ifc-property-browser.client").then(
@@ -1251,7 +1340,7 @@ export default function DrawingWorkspaceClient({
       errorMessage: "IFC 원본 화면을 불러오지 못했습니다.",
       onState: setIfcModule,
     });
-  }, [surface.layout]);
+  }, [ifcActivated]);
 
   useEffect(() => {
     let active = true;
@@ -2378,14 +2467,178 @@ export default function DrawingWorkspaceClient({
       undo,
     ],
   );
+  const drawingSources = useMemo(
+    () => drawingState.structure?.sources ?? {},
+    [drawingState.structure?.sources],
+  );
+  const ifcSourceIndex = useMemo(
+    () => createDrawingIfcSourceIndex(drawingSources),
+    [drawingSources],
+  );
+  const ifcFocusTarget = useMemo(
+    () =>
+      selectedIfc
+        ? drawingIfcFocusTarget({
+            selectedIds: transient.selectedIds,
+            sources: drawingSources,
+            sourceFileId: selectedIfc.id,
+            sourceSha256: selectedIfc.sha256,
+          })
+        : null,
+    [drawingSources, selectedIfc, transient.selectedIds],
+  );
+  useEffect(() => {
+    if (!ifcFocusTarget) {
+      setIfcFocusRequest(null);
+      return;
+    }
+    setIfcFocusRequest({
+      ...ifcFocusTarget,
+      requestId: `drawing-ifc-focus-${++ifcFocusSequenceRef.current}`,
+    });
+  }, [ifcFocusTarget]);
+  const remoteIfcGlobalIds = useMemo(
+    () =>
+      selectedIfc
+        ? drawingIfcRemoteHighlightGlobalIds({
+            peers: awarenessPeers,
+            sources: drawingSources,
+            sourceFileId: selectedIfc.id,
+            sourceSha256: selectedIfc.sha256,
+          })
+        : [],
+    [awarenessPeers, drawingSources, selectedIfc],
+  );
+  const selectIfcLinkedObject = useCallback(
+    (objectId: string) => {
+      const state = drawingStateRef.current;
+      const object = state.objects[objectId];
+      const canvasId = object ? state.layers[object.layerId]?.canvasId : null;
+      if (!object || !canvasId) return;
+      pendingIfcSelectionRef.current = objectId;
+      if (canvasId !== drawingState.activeCanvasId)
+        documentStore.selectCanvas(canvasId);
+      else {
+        pendingIfcSelectionRef.current = null;
+        setAuthorizedSelection([objectId]);
+      }
+    },
+    [documentStore, drawingState.activeCanvasId, setAuthorizedSelection],
+  );
+  useEffect(() => {
+    const objectId = pendingIfcSelectionRef.current;
+    if (!objectId) return;
+    const object = drawingState.objects[objectId];
+    if (
+      object &&
+      drawingState.layers[object.layerId]?.canvasId ===
+        drawingState.activeCanvasId
+    ) {
+      pendingIfcSelectionRef.current = null;
+      setAuthorizedSelection([objectId]);
+    }
+  }, [drawingState, setAuthorizedSelection]);
+  const handleIfcElementSelection = useCallback(
+    (selection: IfcElementSelection) => {
+      setIfcSelection(selection);
+      if (!selectedIfc) return;
+      const match = matchDrawingObjectsForIfcSelection(ifcSourceIndex, {
+        origin: selection.origin,
+        sourceFileId: selectedIfc.id,
+        ifcGlobalId: selection.ifcGlobalId,
+      });
+      if (match.status === "unique") {
+        setIfcMatch({ status: "idle" });
+        selectIfcLinkedObject(match.objectId);
+      } else if (match.status === "ambiguous")
+        setIfcMatch({ status: "ambiguous", objectIds: match.objectIds });
+      else if (match.status === "no_match") setIfcMatch({ status: "no_match" });
+      else setIfcMatch({ status: "idle" });
+    },
+    [ifcSourceIndex, selectIfcLinkedObject, selectedIfc],
+  );
+  useEffect(() => {
+    setIfcSelection(null);
+    setIfcMatch({ status: "idle" });
+  }, [selectedIfc?.id, selectedIfc?.sha256]);
+  const selectedDrawingObjectId =
+    transient.selectedIds.length === 1 &&
+    drawingState.objects[transient.selectedIds[0]]
+      ? transient.selectedIds[0]
+      : null;
+  const selectedObjectAlreadyLinked = selectedIfc
+    ? Object.values(drawingSources).some(
+        (source) =>
+          source.sourceKind === "ifc_element" &&
+          source.objectId === selectedDrawingObjectId &&
+          source.sourceFileId === selectedIfc.id,
+      )
+    : false;
+  const canLinkIfcSelection = Boolean(
+    baseCanEdit &&
+    selectedIfc &&
+    ifcSelection?.origin === "user" &&
+    ifcSelection.ifcGlobalId &&
+    ifcMatch.status === "no_match" &&
+    selectedDrawingObjectId &&
+    !selectedObjectAlreadyLinked &&
+    canMutateDrawingObjectSources({
+      capability: effectiveCapability,
+      revisionStatus: effectiveRevisionStatus,
+      frozen: reviewPreparing,
+    }),
+  );
+  const linkIfcSelection = useCallback(() => {
+    if (
+      !canLinkIfcSelection ||
+      !selectedIfc ||
+      !ifcSelection?.ifcGlobalId ||
+      !selectedDrawingObjectId
+    )
+      return;
+    const applied = applyCommand(
+      linkDrawingIfcSourceCommand(
+        drawingStateRef.current,
+        currentUserId,
+        selectedDrawingObjectId,
+        {
+          id: crypto.randomUUID(),
+          sourceFileId: selectedIfc.id,
+          sourceSha256: selectedIfc.sha256,
+          ifcGlobalId: ifcSelection.ifcGlobalId,
+          elementId: String(ifcSelection.expressId),
+          camera: ifcSelection.camera,
+        },
+      ),
+    );
+    if (applied) setIfcMatch({ status: "idle" });
+  }, [
+    applyCommand,
+    canLinkIfcSelection,
+    currentUserId,
+    ifcSelection,
+    selectedDrawingObjectId,
+    selectedIfc,
+  ]);
+  const updateWorkspaceView = useCallback(
+    (view: DrawingWorkspaceViewMode) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("view", view);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+  const ifcVisible =
+    activeView === "3d" ||
+    (activeView === "split" && (!narrowLayout || narrowSplitTab === "3d"));
   const background: DrawingCanvasBackground = activeCanvas
-    ? activeCanvas.background && sourceUrl
+    ? activeCanvas.background && primarySourceUrl
       ? {
           kind: "pdf",
           width: activeCanvas.widthMillimeters,
           height: activeCanvas.heightMillimeters,
           pageNumber: activeCanvas.background.pdfPageNumber ?? 1,
-          signedUrl: sourceUrl,
+          signedUrl: primarySourceUrl,
         }
       : {
           kind: "blank",
@@ -2495,71 +2748,100 @@ export default function DrawingWorkspaceClient({
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      {previewHarness?.verticalTest ? (
+      {previewHarness?.verticalTest || previewHarness?.p5IfcTest ? (
         <aside
-          aria-label="P4 mounted command controls"
+          aria-label={
+            previewHarness.p5IfcTest
+              ? "P5 mounted command controls"
+              : "P4 mounted command controls"
+          }
           className="fixed bottom-14 right-3 z-[60] flex gap-2 rounded-md bg-slate-950 p-2 text-xs"
         >
-          <button onClick={() => void runVerticalInvalidShrink()} type="button">
-            P4 선택 벽 잘못 축소 시도
-          </button>
-          <button onClick={runVerticalHostedWallDelete} type="button">
-            P4 선택 벽과 개구부 원자 삭제
-          </button>
-          <button onClick={runVerticalHostedWallUndo} type="button">
-            P4 원자 삭제 복원
-          </button>
-          <button
-            onClick={() => {
-              const opening = Object.values(
-                drawingStateRef.current.objects,
-              ).find((object) => object.geometry.type === "opening");
-              if (opening) setAuthorizedSelection([opening.id]);
-            }}
-            type="button"
-          >
-            P4 첫 개구부 선택
-          </button>
-          <button
-            onClick={() => {
-              const openings = Object.values(
-                drawingStateRef.current.objects,
-              ).filter((object) => object.geometry.type === "opening");
-              if (openings[1]) setAuthorizedSelection([openings[1].id]);
-            }}
-            type="button"
-          >
-            P4 두 번째 개구부 선택
-          </button>
-          <button
-            onClick={() =>
-              setAwarenessSoftLock(transient.selectedIds[0] ?? null)
-            }
-            type="button"
-          >
-            P4 실제 Awareness lease 잠금
-          </button>
-          <button onClick={runVerticalDirectMutation} type="button">
-            P4 직접 변경 시도
-          </button>
-          <button
-            onClick={() => void runVerticalLocalDraftFlush()}
-            type="button"
-          >
-            P4 로컬 저장 동기화
-          </button>
-          <button
-            onClick={() => runVerticalRemoteWallProjection("name")}
-            type="button"
-          >
-            P4 원격 벽 이름 변경
-          </button>
-          <button
-            onClick={() => runVerticalRemoteWallProjection("thickness")}
-            type="button"
-          >
-            P4 원격 벽 두께 변경
-          </button>
+          {previewHarness.p5IfcTest ? (
+            <>
+              <button
+                onClick={() => {
+                  const source = Object.values(
+                    drawingStateRef.current.structure?.sources ?? {},
+                  ).find((candidate) => candidate.sourceKind === "ifc_element");
+                  if (source) setAuthorizedSelection([source.objectId]);
+                }}
+                type="button"
+              >
+                P5 연결 객체 선택
+              </button>
+              <button onClick={() => setAuthorizedSelection([])} type="button">
+                P5 도면 선택 해제
+              </button>
+            </>
+          ) : null}
+          {previewHarness.verticalTest ? (
+            <>
+              <button
+                onClick={() => void runVerticalInvalidShrink()}
+                type="button"
+              >
+                P4 선택 벽 잘못 축소 시도
+              </button>
+              <button onClick={runVerticalHostedWallDelete} type="button">
+                P4 선택 벽과 개구부 원자 삭제
+              </button>
+              <button onClick={runVerticalHostedWallUndo} type="button">
+                P4 원자 삭제 복원
+              </button>
+              <button
+                onClick={() => {
+                  const opening = Object.values(
+                    drawingStateRef.current.objects,
+                  ).find((object) => object.geometry.type === "opening");
+                  if (opening) setAuthorizedSelection([opening.id]);
+                }}
+                type="button"
+              >
+                P4 첫 개구부 선택
+              </button>
+              <button
+                onClick={() => {
+                  const openings = Object.values(
+                    drawingStateRef.current.objects,
+                  ).filter((object) => object.geometry.type === "opening");
+                  if (openings[1]) setAuthorizedSelection([openings[1].id]);
+                }}
+                type="button"
+              >
+                P4 두 번째 개구부 선택
+              </button>
+              <button
+                onClick={() =>
+                  setAwarenessSoftLock(transient.selectedIds[0] ?? null)
+                }
+                type="button"
+              >
+                P4 실제 Awareness lease 잠금
+              </button>
+              <button onClick={runVerticalDirectMutation} type="button">
+                P4 직접 변경 시도
+              </button>
+              <button
+                onClick={() => void runVerticalLocalDraftFlush()}
+                type="button"
+              >
+                P4 로컬 저장 동기화
+              </button>
+              <button
+                onClick={() => runVerticalRemoteWallProjection("name")}
+                type="button"
+              >
+                P4 원격 벽 이름 변경
+              </button>
+              <button
+                onClick={() => runVerticalRemoteWallProjection("thickness")}
+                type="button"
+              >
+                P4 원격 벽 두께 변경
+              </button>
+            </>
+          ) : null}
           <output aria-label="P4 mounted command result">
             {verticalTestStatus}
           </output>
@@ -2606,7 +2888,7 @@ export default function DrawingWorkspaceClient({
           <DrawingExportDialog
             createdAt={drawingDocument.created_at}
             documentState={drawingState}
-            sourceUrl={sourceUrl}
+            sourceUrl={primarySourceUrl}
             title={drawingDocument.title}
           />
           {editing.canEdit ? (
@@ -2792,6 +3074,108 @@ export default function DrawingWorkspaceClient({
             >
               이전 작업 복구
             </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {sourceBundle ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-2">
+          <div
+            aria-label="도면 작업실 보기"
+            className="flex rounded-lg border border-white/15 p-1"
+            role="group"
+          >
+            {(
+              [
+                ["2d", "2D 도면"],
+                ["3d", "IFC 3D"],
+                ["split", "분할 보기"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                aria-pressed={activeView === mode}
+                className={`min-h-10 rounded-md px-3 text-xs font-semibold ${activeView === mode ? "bg-indigo-500 text-white" : "text-slate-300 hover:bg-white/10"}`}
+                disabled={mode !== "2d" && !selectedIfcChoice}
+                key={mode}
+                onClick={() => updateWorkspaceView(mode)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="flex min-h-10 items-center gap-2 text-xs font-semibold text-slate-300">
+            IFC 원본 선택
+            <select
+              aria-label="IFC 원본 선택"
+              className="min-h-10 max-w-64 rounded-md border border-white/15 bg-slate-950 px-2 text-sm text-white"
+              onChange={(event) => {
+                const next = new URLSearchParams(searchParams);
+                if (event.target.value) next.set("ifc", event.target.value);
+                else {
+                  next.delete("ifc");
+                  next.set("view", "2d");
+                }
+                setSearchParams(next, { replace: true });
+              }}
+              value={selectedIfcChoice?.id ?? ""}
+            >
+              <option value="">IFC 선택 안 함</option>
+              {sourceBundle.catalog
+                .filter((item) => item.kind === "ifc")
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.originalFilename}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {!selectedIfcChoice ? (
+            <p className="text-xs text-amber-200" role="status">
+              IFC 파일을 선택하면 3D와 분할 보기를 사용할 수 있습니다.
+            </p>
+          ) : null}
+          {activeView === "split" ? (
+            <div
+              aria-label="분할 보기 패널"
+              className="ml-auto flex rounded-md border border-white/15 p-1 lg:hidden"
+              role="tablist"
+            >
+              {(
+                [
+                  ["2d", "2D 도면"],
+                  ["3d", "IFC 3D"],
+                ] as const
+              ).map(([tab, label]) => (
+                <button
+                  aria-controls={`drawing-split-panel-${tab}`}
+                  aria-selected={narrowSplitTab === tab}
+                  className={`min-h-10 rounded px-3 text-xs font-semibold ${narrowSplitTab === tab ? "bg-indigo-500 text-white" : "text-slate-300"}`}
+                  id={`drawing-split-tab-${tab}`}
+                  key={tab}
+                  onClick={() => setNarrowSplitTab(tab)}
+                  onKeyDown={(event) => {
+                    const next =
+                      event.key === "ArrowLeft" || event.key === "Home"
+                        ? "2d"
+                        : event.key === "ArrowRight" || event.key === "End"
+                          ? "3d"
+                          : null;
+                    if (!next) return;
+                    event.preventDefault();
+                    setNarrowSplitTab(next);
+                    document
+                      .getElementById(`drawing-split-tab-${next}`)
+                      ?.focus();
+                  }}
+                  role="tab"
+                  tabIndex={narrowSplitTab === tab ? 0 : -1}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -3413,12 +3797,28 @@ export default function DrawingWorkspaceClient({
         >
           <div
             className={
-              surface.layout === "ifc_split"
-                ? "grid h-full min-h-[34rem] xl:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]"
+              activeView === "split"
+                ? "grid h-full min-h-[34rem] lg:grid-cols-[minmax(20rem,1fr)_minmax(20rem,1fr)]"
                 : "h-full min-h-[34rem]"
             }
           >
-            <div className="min-h-0 min-w-0">
+            <div
+              aria-labelledby={
+                activeView === "split" && narrowLayout
+                  ? "drawing-split-tab-2d"
+                  : undefined
+              }
+              className={`min-h-0 min-w-0 ${activeView === "3d" ? "hidden" : activeView === "split" && narrowSplitTab === "3d" ? "hidden lg:block" : "block"}`}
+              hidden={
+                activeView === "split" &&
+                narrowLayout &&
+                narrowSplitTab !== "2d"
+              }
+              id="drawing-split-panel-2d"
+              role={
+                activeView === "split" && narrowLayout ? "tabpanel" : undefined
+              }
+            >
               {resolvedObjects.styleError ? (
                 <p
                   className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
@@ -3435,7 +3835,7 @@ export default function DrawingWorkspaceClient({
                   {resolvedBlockInstances.error}
                 </p>
               ) : null}
-              {surface.layout === "canvas" && surface.sourceError ? (
+              {surface.sourceError ? (
                 <p
                   className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100"
                   role="alert"
@@ -3603,26 +4003,83 @@ export default function DrawingWorkspaceClient({
                 </div>
               )}
             </div>
-            {surface.layout === "ifc_split" ? (
+            {selectedIfc && ifcActivated ? (
               <aside
                 aria-label="IFC 3D 원본"
-                className="max-h-[calc(100vh-4rem)] overflow-auto border-t border-white/10 bg-background p-4 text-foreground xl:border-l xl:border-t-0"
+                aria-labelledby={
+                  activeView === "split" && narrowLayout
+                    ? "drawing-split-tab-3d"
+                    : undefined
+                }
+                className={`max-h-[calc(100vh-4rem)] min-w-0 overflow-auto border-t border-white/10 bg-background p-4 text-foreground lg:border-l lg:border-t-0 ${activeView === "2d" ? "hidden" : activeView === "split" && narrowSplitTab === "2d" ? "hidden lg:block" : "block"}`}
+                hidden={
+                  activeView === "split" &&
+                  narrowLayout &&
+                  narrowSplitTab !== "3d"
+                }
+                id="drawing-split-panel-3d"
+                role={
+                  activeView === "split" && narrowLayout
+                    ? "tabpanel"
+                    : undefined
+                }
               >
                 <h2 className="text-sm font-bold">IFC 원본 보기</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  2D 오버레이는 빈 도면에서 시작합니다. 2D와 3D 화면 동기화는
-                  이후 단계에서 제공합니다.
+                  GlobalId 연결을 기준으로 2D 객체와 IFC 요소를 함께 찾습니다.
                 </p>
-                {surface.sourceError || ifcLoadError ? (
+                {ifcMatch.status === "ambiguous" ? (
+                  <div className="mt-3 rounded-md border p-3 text-sm">
+                    <p className="font-semibold">
+                      연결된 도면 객체가 여러 개입니다. 이동할 객체를
+                      선택하세요.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {ifcMatch.objectIds.map((objectId) => (
+                        <button
+                          className="min-h-10 rounded-md border px-3 text-xs"
+                          key={objectId}
+                          onClick={() => selectIfcLinkedObject(objectId)}
+                          type="button"
+                        >
+                          {drawingState.objects[objectId]?.name ?? objectId}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {ifcMatch.status === "no_match" ? (
+                  <div className="mt-3 rounded-md border border-amber-400/30 bg-amber-50 p-3 text-sm text-slate-900">
+                    <p>선택한 IFC 요소와 연결된 도면 객체가 없습니다.</p>
+                    <button
+                      className="mt-2 min-h-10 rounded-md bg-indigo-600 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!canLinkIfcSelection}
+                      onClick={linkIfcSelection}
+                      type="button"
+                    >
+                      선택 도면 객체에 연결
+                    </button>
+                  </div>
+                ) : null}
+                {ifcLoadError ? (
                   <p
                     className="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
                     role="alert"
                   >
-                    {surface.sourceError ?? ifcLoadError}
+                    {ifcLoadError}
                   </p>
-                ) : IfcViewer && surface.ifcViewer ? (
+                ) : IfcViewer ? (
                   <div className="mt-4">
-                    <IfcViewer {...surface.ifcViewer} />
+                    <IfcViewer
+                      byteSize={selectedIfc.byteSize}
+                      fileName={selectedIfc.originalFilename}
+                      focusRequest={ifcFocusRequest}
+                      onElementSelection={handleIfcElementSelection}
+                      remoteGlobalIds={remoteIfcGlobalIds}
+                      signedUrl={selectedIfc.signedUrl}
+                      sourceKey={`${selectedIfc.id}:${selectedIfc.sha256}`}
+                      visible={ifcVisible}
+                    />
                   </div>
                 ) : (
                   <p
@@ -3638,7 +4095,7 @@ export default function DrawingWorkspaceClient({
 
           <nav
             aria-label="캔버스 도구"
-            className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur"
+            className={`absolute bottom-4 left-1/2 max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
           >
             <Button
               aria-label="선택 도구"

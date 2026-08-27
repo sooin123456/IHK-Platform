@@ -73,6 +73,35 @@ export type DrawingWorkspaceFile = {
   created_at: string;
 };
 
+export type DrawingWorkspaceSourceDescriptor = {
+  id: string;
+  kind: "pdf" | "ifc";
+  originalFilename: string;
+  byteSize: number;
+  sha256: string;
+  signedUrl: string;
+};
+
+export type DrawingWorkspaceSourceCatalogItem = Omit<
+  DrawingWorkspaceSourceDescriptor,
+  "signedUrl"
+>;
+
+export type DrawingWorkspaceSourceBundle = {
+  primary: DrawingWorkspaceSourceDescriptor | DrawingWorkspaceSourceCatalogItem;
+  pdf: DrawingWorkspaceSourceDescriptor | null;
+  ifc: DrawingWorkspaceSourceDescriptor | null;
+  previousPdf: DrawingWorkspaceSourceDescriptor | null;
+  revisionEdge: {
+    id: string;
+    previousFileId: string;
+    previousSha256: string;
+    currentFileId: string;
+    currentSha256: string;
+  } | null;
+  catalog: DrawingWorkspaceSourceCatalogItem[];
+};
+
 type DrawingDocumentRow = {
   id: string;
   project_id: string;
@@ -298,6 +327,7 @@ const drawingObjectPageSize = 1_000;
 const drawingRowsMaxPageSize = 1_000;
 
 type DrawingRowsTable =
+  | "lukas_qto_files"
   | "lukas_drawing_pages"
   | "lukas_drawing_canvases"
   | "lukas_drawing_layers"
@@ -2370,6 +2400,143 @@ export async function loadDrawingWorkspaceSourceUrl(
   if (error || !signed?.signedUrl)
     throw new Response("도면 원본을 열지 못했습니다.", { status: 500 });
   return signed.signedUrl;
+}
+
+function drawingWorkspaceSourceCatalogItem(
+  file: DrawingWorkspaceFile,
+): DrawingWorkspaceSourceCatalogItem {
+  return {
+    id: file.id,
+    kind: file.kind,
+    originalFilename: file.original_filename,
+    byteSize: file.byte_size,
+    sha256: file.sha256,
+  };
+}
+
+export async function loadDrawingWorkspaceSourceBundle(
+  client: DrawingWorkspaceClient,
+  workspace: DrawingWorkspace,
+  selectedIfcFileId: string | null,
+  loadSelectedIfc = true,
+): Promise<DrawingWorkspaceSourceBundle> {
+  if (!workspace.document)
+    return {
+      primary: drawingWorkspaceSourceCatalogItem(workspace.file),
+      pdf: null,
+      ifc: null,
+      previousPdf: null,
+      revisionEdge: null,
+      catalog: [drawingWorkspaceSourceCatalogItem(workspace.file)],
+    };
+
+  const rows = await loadAllDrawingRows<DrawingWorkspaceFile>(client, {
+    table: "lukas_qto_files",
+    projectId: workspace.file.project_id,
+    filters: [["immutable", true]],
+    order: [{ column: "id", direction: "asc" }],
+    select:
+      "id,project_id,kind,original_filename,storage_path,content_type,byte_size,sha256,immutable,created_at",
+  });
+  const validFile = (file: DrawingWorkspaceFile) =>
+    file.project_id === workspace.file.project_id &&
+    file.immutable === true &&
+    (file.kind === "pdf" || file.kind === "ifc") &&
+    Uuid.safeParse(file.id).success &&
+    Sha256.safeParse(file.sha256).success &&
+    typeof file.original_filename === "string" &&
+    typeof file.storage_path === "string" &&
+    Number.isSafeInteger(file.byte_size) &&
+    file.byte_size >= 0;
+  const selectedId =
+    selectedIfcFileId ??
+    (workspace.file.kind === "ifc" ? workspace.file.id : null);
+  const selectedCandidate = selectedId
+    ? rows.find((file) => file.id === selectedId)
+    : null;
+  if (
+    selectedId &&
+    (!selectedCandidate ||
+      !validFile(selectedCandidate) ||
+      selectedCandidate.kind !== "ifc")
+  )
+    throw new Response("선택한 IFC 원본을 찾을 수 없습니다.", {
+      status: 404,
+    });
+  if (!validFile(workspace.file))
+    throw new Response("도면 원본 증거가 올바르지 않습니다.", {
+      status: 400,
+    });
+
+  const backgroundPage = workspace.document.revision.pages.find(
+    (page): page is DrawingPageRow =>
+      "background_pdf_page" in page &&
+      typeof page.background_pdf_page === "number",
+  );
+  const p2Background =
+    workspace.document.revision.pages
+      .filter((page): page is DrawingWorkspaceP2Page => "canvases" in page)
+      .flatMap((page) => page.canvases)
+      .map((canvas) => canvas.background)
+      .find(
+        (background) =>
+          background !== null && background.pdfPageNumber !== null,
+      ) ?? null;
+  if (
+    (backgroundPage &&
+      (backgroundPage.background_source_file_id !== workspace.file.id ||
+        backgroundPage.background_source_sha256 !== workspace.file.sha256)) ||
+    (p2Background &&
+      (p2Background.sourceFileId !== workspace.file.id ||
+        p2Background.sourceSha256 !== workspace.file.sha256))
+  )
+    throw new Response("도면 배경 원본 증거가 일치하지 않습니다.", {
+      status: 409,
+    });
+
+  const signed = new Map<string, DrawingWorkspaceSourceDescriptor>();
+  const sign = async (file: DrawingWorkspaceFile) => {
+    const existing = signed.get(file.id);
+    if (existing) return existing;
+    const { data, error } = await client.storage
+      .from("lukas-qto")
+      .createSignedUrl(file.storage_path, 300);
+    if (error || !data?.signedUrl)
+      throw new Response("도면 원본을 열지 못했습니다.", { status: 500 });
+    const descriptor = {
+      ...drawingWorkspaceSourceCatalogItem(file),
+      signedUrl: data.signedUrl,
+    };
+    signed.set(file.id, descriptor);
+    return descriptor;
+  };
+  const primaryLoaded =
+    workspace.file.kind === "ifc"
+      ? loadSelectedIfc
+      : Boolean(backgroundPage || p2Background);
+  const primary = primaryLoaded
+    ? await sign(workspace.file)
+    : drawingWorkspaceSourceCatalogItem(workspace.file);
+  const pdf =
+    workspace.file.kind === "pdf" && primaryLoaded
+      ? (primary as DrawingWorkspaceSourceDescriptor)
+      : null;
+  const ifc =
+    selectedCandidate && loadSelectedIfc ? await sign(selectedCandidate) : null;
+  const catalog = rows
+    .filter(validFile)
+    .map(drawingWorkspaceSourceCatalogItem)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!catalog.some((file) => file.id === workspace.file.id))
+    catalog.push(drawingWorkspaceSourceCatalogItem(workspace.file));
+  return {
+    primary,
+    pdf,
+    ifc,
+    previousPdf: null,
+    revisionEdge: null,
+    catalog,
+  };
 }
 
 const capabilityByRole: Record<string, DrawingWorkspaceCapability> = {

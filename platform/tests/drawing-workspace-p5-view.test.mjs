@@ -1,0 +1,137 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+import * as workspaceView from "../app/lukas/lib/drawing-workspace-view.ts";
+
+const ids = {
+  object1: "20000000-0000-4000-8000-000000000001",
+  object2: "20000000-0000-4000-8000-000000000002",
+  source1: "20000000-0000-4000-8000-000000000003",
+  source2: "20000000-0000-4000-8000-000000000004",
+  revision: "20000000-0000-4000-8000-000000000005",
+  file: "20000000-0000-4000-8000-000000000006",
+  otherFile: "20000000-0000-4000-8000-000000000007",
+};
+const sha = "a".repeat(64);
+
+function source(overrides = {}) {
+  return {
+    id: ids.source1,
+    objectId: ids.object1,
+    revisionId: ids.revision,
+    sourceFileId: ids.file,
+    sourceSha256: sha,
+    sourceKind: "ifc_element",
+    ifcGlobalId: "3ABCdefghijklmnopqrstu",
+    elementId: "42",
+    camera: {
+      position: [1, 2, 3],
+      target: [4, 5, 6],
+    },
+    version: 1,
+    ...overrides,
+  };
+}
+
+test("single drawing selection creates an exact-file IFC focus target without transient URL state", () => {
+  const target = workspaceView.drawingIfcFocusTarget({
+    selectedIds: [ids.object1],
+    sources: { [ids.source1]: source() },
+    sourceFileId: ids.file,
+    sourceSha256: sha,
+  });
+  assert.deepEqual(target, {
+    ifcGlobalId: "3ABCdefghijklmnopqrstu",
+    elementId: "42",
+    camera: {
+      position: [1, 2, 3],
+      target: [4, 5, 6],
+    },
+  });
+  assert.equal(JSON.stringify(target).includes("url"), false);
+  for (const changes of [
+    { selectedIds: [] },
+    { selectedIds: [ids.object1, ids.object2] },
+    { sourceFileId: ids.otherFile },
+    { sourceSha256: "b".repeat(64) },
+  ])
+    assert.equal(
+      workspaceView.drawingIfcFocusTarget({
+        selectedIds: [ids.object1],
+        sources: { [ids.source1]: source() },
+        sourceFileId: ids.file,
+        sourceSha256: sha,
+        ...changes,
+      }),
+      null,
+    );
+});
+
+test("remote Awareness drawing selections resolve to same-SHA IFC highlights without schema changes", () => {
+  const sources = {
+    [ids.source1]: source(),
+    [ids.source2]: source({
+      id: ids.source2,
+      objectId: ids.object2,
+      ifcGlobalId: "2ABCdefghijklmnopqrstu",
+      elementId: null,
+      camera: null,
+    }),
+  };
+  assert.deepEqual(
+    workspaceView.drawingIfcRemoteHighlightGlobalIds({
+      peers: [
+        { selectedIds: [ids.object2, ids.object1] },
+        { selectedIds: [ids.object1] },
+      ],
+      sources,
+      sourceFileId: ids.file,
+      sourceSha256: sha,
+    }),
+    ["2ABCdefghijklmnopqrstu", "3ABCdefghijklmnopqrstu"],
+  );
+  assert.deepEqual(
+    workspaceView.drawingIfcRemoteHighlightGlobalIds({
+      peers: [{ selectedIds: [ids.object1] }],
+      sources,
+      sourceFileId: ids.file,
+      sourceSha256: "b".repeat(64),
+    }),
+    [],
+  );
+});
+
+test("controlled IFC focus frames the element before restoring its canonical camera", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /viewerRef\.current\?\.focusElement\(element\.expressId\);\s*if \(focusRequest\.camera\)\s*viewerRef\.current\?\.restoreViewState\(focusRequest\.camera\)/s,
+  );
+});
+
+test("IFC initialization is generation-fenced and stale loads dispose only owned resources", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /const isCurrentLoad = \(\) =>/);
+  assert.match(
+    source,
+    /const webIfc = await import\("web-ifc"\);\s*if \(!isCurrentLoad\(\)\) return;/s,
+  );
+  assert.match(source, /function disposeOwnedIfc\(\)/);
+  assert.match(
+    source,
+    /if \(!isCurrentLoad\(\)\) \{\s*disposeOwnedIfc\(\);\s*return;/s,
+  );
+});

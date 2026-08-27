@@ -26,6 +26,7 @@ export type CreateIfcModelViewerOptions = {
   modelId: number;
   onSelect?: (expressId: number) => void;
   onStatus?: (message: string, status: IfcModelViewerStatus) => void;
+  onContextLost?: () => void;
 };
 
 export type IfcModelViewer = {
@@ -34,6 +35,8 @@ export type IfcModelViewer = {
   selectElement(expressId: number | null): void;
   getViewState(): IfcCameraState;
   restoreViewState(state: IfcCameraState): void;
+  setRemoteElements(expressIds: readonly number[]): void;
+  setVisible(visible: boolean): void;
   dispose(): void;
   readonly renderedElementCount: number;
 };
@@ -41,6 +44,8 @@ export type IfcModelViewer = {
 type RenderedIfcMesh = THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
 
 const HIGHLIGHT_COLOR = 0x6d5dfc;
+const REMOTE_HIGHLIGHT_COLOR = 0x22d3ee;
+let viewerInstanceSequence = 0;
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -104,9 +109,12 @@ export function createIfcModelViewer({
   modelId,
   onSelect,
   onStatus,
+  onContextLost,
 }: CreateIfcModelViewerOptions): IfcModelViewer {
   let disposed = false;
+  let visible = true;
   let selectedExpressId: number | null = null;
+  let remoteExpressIds = new Set<number>();
   let pointerDown: { x: number; y: number } | null = null;
 
   const scene = new THREE.Scene();
@@ -126,6 +134,9 @@ export function createIfcModelViewer({
   renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.domElement.setAttribute("aria-label", "IFC 3D 모델");
+  renderer.domElement.dataset.ifcViewerInstance = String(
+    ++viewerInstanceSequence,
+  );
   renderer.domElement.style.display = "block";
   renderer.domElement.style.height = "100%";
   renderer.domElement.style.touchAction = "none";
@@ -162,13 +173,24 @@ export function createIfcModelViewer({
     transparent: true,
     depthWrite: false,
   });
+  const remoteHighlightMaterial = new THREE.MeshStandardMaterial({
+    color: REMOTE_HIGHLIGHT_COLOR,
+    emissive: REMOTE_HIGHLIGHT_COLOR,
+    emissiveIntensity: 0.12,
+    metalness: 0,
+    opacity: 0.82,
+    roughness: 0.72,
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+  });
 
   function report(status: IfcModelViewerStatus) {
     if (!disposed) onStatus?.(status.message, status);
   }
 
   const renderGate = createVisibilityRenderGate({
-    isHidden: () => document.visibilityState === "hidden",
+    isHidden: () => !visible || document.visibilityState === "hidden",
     render: () => {
       if (!disposed) {
         renderer.render(scene, camera);
@@ -232,20 +254,44 @@ export function createIfcModelViewer({
 
   function selectElement(expressId: number | null) {
     if (disposed || selectedExpressId === expressId) return;
-
-    if (selectedExpressId !== null) {
-      for (const mesh of elementMeshes.get(selectedExpressId) ?? []) {
-        mesh.material = mesh.userData.originalMaterial;
-      }
-    }
-
+    const previous = selectedExpressId;
     selectedExpressId = elementMeshes.has(expressId ?? -1) ? expressId : null;
-    if (selectedExpressId !== null) {
-      for (const mesh of elementMeshes.get(selectedExpressId) ?? []) {
-        mesh.material = highlightMaterial;
-      }
+    for (const id of [previous, selectedExpressId]) {
+      if (id === null) continue;
+      for (const mesh of elementMeshes.get(id) ?? [])
+        mesh.material =
+          id === selectedExpressId
+            ? highlightMaterial
+            : remoteExpressIds.has(id)
+              ? remoteHighlightMaterial
+              : mesh.userData.originalMaterial;
     }
     render();
+  }
+
+  function setRemoteElements(expressIds: readonly number[]) {
+    if (disposed) return;
+    const previous = remoteExpressIds;
+    remoteExpressIds = new Set(
+      expressIds.filter((expressId) => elementMeshes.has(expressId)),
+    );
+    renderer.domElement.dataset.remoteIfcElementIds = [...remoteExpressIds]
+      .sort((left, right) => left - right)
+      .join(" ");
+    for (const id of new Set([...previous, ...remoteExpressIds])) {
+      if (id === selectedExpressId) continue;
+      for (const mesh of elementMeshes.get(id) ?? [])
+        mesh.material = remoteExpressIds.has(id)
+          ? remoteHighlightMaterial
+          : mesh.userData.originalMaterial;
+    }
+    render();
+  }
+
+  function setVisible(nextVisible: boolean) {
+    if (disposed || visible === nextVisible) return;
+    visible = nextVisible;
+    renderGate.visibilityChanged();
   }
 
   function focusElement(expressId: number) {
@@ -347,6 +393,19 @@ export function createIfcModelViewer({
   renderer.domElement.addEventListener("pointerdown", handlePointerDown);
   renderer.domElement.addEventListener("pointerup", handlePointerUp);
   renderer.domElement.addEventListener("pointercancel", clearPointerDown);
+  const handleContextLost = (event: Event) => {
+    event.preventDefault();
+    if (disposed) return;
+    report({
+      phase: "error",
+      message: "WebGL 연결이 끊어졌습니다. 3D 화면을 다시 시도해 주세요.",
+      loaded: elementMeshes.size,
+      total: elementMeshes.size,
+      progress: 0,
+    });
+    onContextLost?.();
+  };
+  renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
   controls.addEventListener("change", render);
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(container);
@@ -413,13 +472,19 @@ export function createIfcModelViewer({
     renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
     renderer.domElement.removeEventListener("pointerup", handlePointerUp);
     renderer.domElement.removeEventListener("pointercancel", clearPointerDown);
+    renderer.domElement.removeEventListener(
+      "webglcontextlost",
+      handleContextLost,
+    );
     controls.removeEventListener("change", render);
     controls.dispose();
     for (const geometry of geometryCache.values()) geometry.dispose();
     for (const material of materialCache.values()) material.dispose();
     highlightMaterial.dispose();
+    remoteHighlightMaterial.dispose();
     renderer.renderLists.dispose();
     renderer.dispose();
+    renderer.forceContextLoss();
     renderer.domElement.remove();
     elementMeshes.clear();
     geometryCache.clear();
@@ -440,6 +505,8 @@ export function createIfcModelViewer({
     getViewState,
     restoreViewState,
     selectElement,
+    setRemoteElements,
+    setVisible,
     dispose,
     get renderedElementCount() {
       return elementMeshes.size;

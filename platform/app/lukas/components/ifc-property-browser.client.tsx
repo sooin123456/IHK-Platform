@@ -25,6 +25,20 @@ type IfcElement = {
   globalId: string;
 };
 
+export type IfcFocusRequest = {
+  requestId: string;
+  ifcGlobalId: string;
+  elementId?: string | null;
+  camera?: IfcCameraState | null;
+};
+
+export type IfcElementSelection = {
+  origin: "user" | "programmatic";
+  expressId: number;
+  ifcGlobalId: string | null;
+  camera: IfcCameraState | null;
+};
+
 type DisplayProperty = { key: string; value: string };
 type IfcRuntime = {
   api: IfcAPI;
@@ -37,6 +51,10 @@ type Props = {
   sourceKey: string;
   initialGlobalId?: string | null;
   signedUrl: string;
+  visible?: boolean;
+  focusRequest?: IfcFocusRequest | null;
+  remoteGlobalIds?: readonly string[];
+  onElementSelection?: (selection: IfcElementSelection) => void;
   activeAnchor?: {
     elementId: string;
     camera: IfcCameraState;
@@ -51,6 +69,56 @@ type Props = {
 type ViewerPhase = "loading" | "ready" | "skipped" | "empty" | "error";
 
 const maxBrowserGeometryBytes = 75 * 1024 * 1024;
+
+type IfcFetchEntry = {
+  consumers: number;
+  controller: AbortController;
+  promise: Promise<Uint8Array>;
+  abortTimer: number | null;
+};
+
+const ifcFetches = new Map<string, IfcFetchEntry>();
+
+function acquireIfcBytes(sourceKey: string, signedUrl: string) {
+  let entry = ifcFetches.get(sourceKey);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = fetch(signedUrl, { signal: controller.signal }).then(
+      async (response) => {
+        if (!response.ok)
+          throw new Error(
+            "원본 IFC 파일을 가져오지 못했습니다. 프로젝트 화면에서 다시 열어 주세요.",
+          );
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    );
+    entry = { consumers: 0, controller, promise, abortTimer: null };
+    ifcFetches.set(sourceKey, entry);
+    void promise.catch(() => {
+      if (ifcFetches.get(sourceKey) === entry) ifcFetches.delete(sourceKey);
+    });
+  }
+  entry.consumers += 1;
+  if (entry.abortTimer !== null) {
+    window.clearTimeout(entry.abortTimer);
+    entry.abortTimer = null;
+  }
+  let released = false;
+  return {
+    promise: entry.promise,
+    release() {
+      if (released) return;
+      released = true;
+      entry!.consumers -= 1;
+      if (entry!.consumers > 0) return;
+      entry!.abortTimer = window.setTimeout(() => {
+        if (entry!.consumers > 0) return;
+        entry!.controller.abort();
+        if (ifcFetches.get(sourceKey) === entry) ifcFetches.delete(sourceKey);
+      });
+    },
+  };
+}
 
 function ifcValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
@@ -114,6 +182,10 @@ export default function IfcPropertyBrowser({
   signedUrl,
   activeAnchor = null,
   onAnchorSelected,
+  visible = true,
+  focusRequest = null,
+  remoteGlobalIds = [],
+  onElementSelection,
 }: Props) {
   const [elements, setElements] = useState<IfcElement[]>([]);
   const [selected, setSelected] = useState<IfcElement | null>(null);
@@ -125,6 +197,7 @@ export default function IfcPropertyBrowser({
   const [viewerPhase, setViewerPhase] = useState<ViewerPhase>("loading");
   const [viewerStatus, setViewerStatus] =
     useState("3D 화면을 준비하고 있습니다.");
+  const [contextLost, setContextLost] = useState(false);
   const apiRef = useRef<IfcRuntime | null>(null);
   const modelRef = useRef<number | null>(null);
   const viewerRef = useRef<IfcModelViewer | null>(null);
@@ -132,11 +205,42 @@ export default function IfcPropertyBrowser({
   const detailRef = useRef<HTMLElement>(null);
   const selectionRequestRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
+  const loadGenerationRef = useRef(0);
+  const handledFocusRequestRef = useRef<string | null>(null);
+  const loadedViewerInputRef = useRef<{
+    api: IfcAPI;
+    modelId: number;
+    elements: IfcElement[];
+    generation: number;
+  } | null>(null);
+  const onElementSelectionRef = useRef(onElementSelection);
+  onElementSelectionRef.current = onElementSelection;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const signedUrlRef = useRef(signedUrl);
   signedUrlRef.current = signedUrl;
 
   useEffect(() => {
+    const generation = ++loadGenerationRef.current;
+    const sourceFetch = acquireIfcBytes(sourceKey, signedUrlRef.current);
     let disposed = false;
+    let ownedApi: IfcAPI | null = null;
+    let ownedModelId: number | null = null;
+    let apiInitialized = false;
+    let disposalRequested = false;
+    let ownedDisposed = false;
+    const isCurrentLoad = () =>
+      !disposed && loadGenerationRef.current === generation;
+    function disposeOwnedIfc() {
+      disposalRequested = true;
+      if (!apiInitialized || !ownedApi || ownedDisposed) return;
+      ownedDisposed = true;
+      if (ownedModelId !== null && ownedModelId >= 0)
+        ownedApi.CloseModel(ownedModelId);
+      ownedApi.Dispose();
+      if (apiRef.current?.api === ownedApi) apiRef.current = null;
+      if (modelRef.current === ownedModelId) modelRef.current = null;
+    }
     apiRef.current = null;
     modelRef.current = null;
     viewerRef.current?.dispose();
@@ -144,6 +248,7 @@ export default function IfcPropertyBrowser({
     selectionRequestRef.current += 1;
     selectedIdRef.current = null;
     setViewerReady(false);
+    setContextLost(false);
     setViewerPhase("loading");
     setViewerStatus("3D 화면을 준비하고 있습니다.");
 
@@ -151,33 +256,43 @@ export default function IfcPropertyBrowser({
       try {
         setError(null);
         setStatus("IFC 원본을 브라우저에서 읽는 중입니다.");
-        const response = await fetch(signedUrlRef.current);
-        if (!response.ok)
-          throw new Error(
-            "원본 IFC 파일을 가져오지 못했습니다. 프로젝트 화면에서 다시 열어 주세요.",
-          );
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (disposed) return;
+        const bytes = await sourceFetch.promise;
+        if (!isCurrentLoad()) return;
 
         const webIfc = await import("web-ifc");
-        const ifcApi = new webIfc.IfcAPI();
-        apiRef.current = {
-          api: ifcApi,
-          properties: new webIfc.Properties(ifcApi),
-        };
-        await ifcApi.Init(
-          (path) => (path.endsWith(".wasm") ? wasmUrl : path),
-          true,
-        );
-        if (disposed) return;
+        if (!isCurrentLoad()) return;
+        ownedApi = new webIfc.IfcAPI();
+        try {
+          await ownedApi.Init(
+            (path) => (path.endsWith(".wasm") ? wasmUrl : path),
+            true,
+          );
+        } finally {
+          apiInitialized = true;
+          if (disposalRequested) disposeOwnedIfc();
+        }
+        if (!isCurrentLoad()) {
+          disposeOwnedIfc();
+          return;
+        }
+        const ifcApi = ownedApi;
         const modelId = ifcApi.OpenModel(bytes, {
           COORDINATE_TO_ORIGIN: true,
         });
-        modelRef.current = modelId;
+        ownedModelId = modelId;
         if (modelId < 0)
           throw new Error(
             "이 IFC 파일을 열 수 없습니다. IFC2X3 또는 IFC4 형식인지 확인해 주세요.",
           );
+        if (!isCurrentLoad()) {
+          disposeOwnedIfc();
+          return;
+        }
+        apiRef.current = {
+          api: ifcApi,
+          properties: new webIfc.Properties(ifcApi),
+        };
+        modelRef.current = modelId;
 
         const found: IfcElement[] = [];
         for (const type of ifcApi.GetAllTypesOfModel(modelId)) {
@@ -203,72 +318,34 @@ export default function IfcPropertyBrowser({
             a.typeName.localeCompare(b.typeName) ||
             a.name.localeCompare(b.name),
         );
-        if (disposed) return;
+        if (!isCurrentLoad()) return;
         setElements(found);
         setStatus(
           `요소 ${found.length.toLocaleString("ko-KR")}개를 찾았습니다.`,
         );
         if (found[0]) await choose(found[0], "initial");
+        if (!isCurrentLoad()) return;
+        loadedViewerInputRef.current = {
+          api: ifcApi,
+          modelId,
+          elements: found,
+          generation,
+        };
 
         if (byteSize > maxBrowserGeometryBytes) {
           setViewerPhase("skipped");
           setViewerStatus(
             "대형 IFC는 브라우저 메모리를 보호하기 위해 속성만 표시합니다.",
           );
-        } else if (viewerContainerRef.current) {
-          try {
-            setViewerStatus("IFC 3D 형상을 만드는 중입니다.");
-            await new Promise<void>((resolve) =>
-              requestAnimationFrame(() => resolve()),
-            );
-            if (disposed || !viewerContainerRef.current) return;
-            const { createIfcModelViewer } = await import(
-              "./ifc-model-viewer.client"
-            );
-            if (disposed || !viewerContainerRef.current) return;
-            const byId = new Map(
-              found.map((element) => [element.expressId, element]),
-            );
-            const viewer = createIfcModelViewer({
-              api: ifcApi,
-              container: viewerContainerRef.current,
-              modelId,
-              onSelect: (expressId) => {
-                const element = byId.get(expressId);
-                if (element) void choose(element, "viewer");
-              },
-              onStatus: (message) => {
-                if (!disposed) setViewerStatus(message);
-              },
-            });
-            if (disposed) {
-              viewer.dispose();
-              return;
-            }
-            viewerRef.current = viewer;
-            if (viewer.renderedElementCount > 0) {
-              setViewerReady(true);
-              setViewerPhase("ready");
-              viewer.selectElement(selectedIdRef.current);
-            } else {
-              setViewerPhase("empty");
-              setViewerStatus(
-                "이 IFC에는 브라우저에 표시할 3D 형상이 없습니다. 요소와 속성만 확인할 수 있습니다.",
-              );
-            }
-          } catch (viewerLoadError) {
-            if (!disposed) {
-              setViewerPhase("error");
-              setViewerStatus(
-                viewerLoadError instanceof Error
-                  ? viewerLoadError.message
-                  : "3D 화면을 만들지 못했습니다.",
-              );
-            }
-          }
-        }
+        } else if (viewerContainerRef.current) await mountViewer(generation);
       } catch (loadError) {
-        if (!disposed) {
+        disposeOwnedIfc();
+        if (isCurrentLoad()) {
+          if (
+            loadError instanceof DOMException &&
+            loadError.name === "AbortError"
+          )
+            return;
           setViewerPhase("error");
           setViewerStatus(
             loadError instanceof Error
@@ -288,16 +365,100 @@ export default function IfcPropertyBrowser({
 
     return () => {
       disposed = true;
+      sourceFetch.release();
+      if (loadGenerationRef.current === generation)
+        loadedViewerInputRef.current = null;
       selectionRequestRef.current += 1;
       viewerRef.current?.dispose();
       viewerRef.current = null;
-      if (modelRef.current !== null)
-        apiRef.current?.api.CloseModel(modelRef.current);
-      apiRef.current?.api.Dispose();
-      apiRef.current = null;
-      modelRef.current = null;
+      disposeOwnedIfc();
     };
   }, [byteSize, sourceKey]);
+
+  async function mountViewer(generation = loadGenerationRef.current) {
+    const input = loadedViewerInputRef.current;
+    if (
+      !input ||
+      input.generation !== generation ||
+      generation !== loadGenerationRef.current ||
+      !viewerContainerRef.current
+    )
+      return;
+    try {
+      viewerRef.current?.dispose();
+      viewerRef.current = null;
+      setContextLost(false);
+      setViewerReady(false);
+      setViewerPhase("loading");
+      setViewerStatus("IFC 3D 형상을 만드는 중입니다.");
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      if (
+        generation !== loadGenerationRef.current ||
+        !viewerContainerRef.current
+      )
+        return;
+      const { createIfcModelViewer } =
+        await import("./ifc-model-viewer.client");
+      if (
+        generation !== loadGenerationRef.current ||
+        !viewerContainerRef.current
+      )
+        return;
+      const byId = new Map(
+        input.elements.map((element) => [element.expressId, element]),
+      );
+      let viewer: IfcModelViewer;
+      viewer = createIfcModelViewer({
+        api: input.api,
+        container: viewerContainerRef.current,
+        modelId: input.modelId,
+        onSelect: (expressId) => {
+          const element = byId.get(expressId);
+          if (element) void choose(element, "viewer");
+        },
+        onStatus: (message) => {
+          if (generation === loadGenerationRef.current)
+            setViewerStatus(message);
+        },
+        onContextLost: () => {
+          if (generation !== loadGenerationRef.current) return;
+          viewer.dispose();
+          if (viewerRef.current === viewer) viewerRef.current = null;
+          setViewerReady(false);
+          setViewerPhase("error");
+          setContextLost(true);
+        },
+      });
+      if (generation !== loadGenerationRef.current) {
+        viewer.dispose();
+        return;
+      }
+      viewerRef.current = viewer;
+      viewer.setVisible(visibleRef.current);
+      if (viewer.renderedElementCount > 0) {
+        setViewerReady(true);
+        setViewerPhase("ready");
+        viewer.selectElement(selectedIdRef.current);
+      } else {
+        setViewerPhase("empty");
+        setViewerStatus(
+          "이 IFC에는 브라우저에 표시할 3D 형상이 없습니다. 요소와 속성만 확인할 수 있습니다.",
+        );
+      }
+    } catch (viewerLoadError) {
+      if (generation !== loadGenerationRef.current) return;
+      setViewerPhase("error");
+      setViewerStatus(
+        viewerLoadError instanceof Error
+          ? viewerLoadError.message
+          : "3D 화면을 만들지 못했습니다.",
+      );
+    }
+  }
+
+  useEffect(() => viewerRef.current?.setVisible(visible), [visible]);
 
   useEffect(() => {
     if (!initialGlobalId || elements.length === 0) return;
@@ -328,6 +489,43 @@ export default function IfcPropertyBrowser({
     void choose(element, "anchor");
   }, [activeAnchor, elements, viewerReady]);
 
+  useEffect(() => {
+    if (
+      !focusRequest ||
+      handledFocusRequestRef.current === focusRequest.requestId ||
+      elements.length === 0 ||
+      !viewerReady
+    )
+      return;
+    handledFocusRequestRef.current = focusRequest.requestId;
+    const byGlobalId = elements.find(
+      (element) => element.globalId === focusRequest.ifcGlobalId,
+    );
+    const expressId = Number(focusRequest.elementId);
+    const element =
+      byGlobalId ??
+      (Number.isSafeInteger(expressId)
+        ? elements.find((candidate) => candidate.expressId === expressId)
+        : undefined);
+    if (!element) {
+      setViewerStatus("연결된 IFC 요소를 이 파일에서 찾지 못했습니다.");
+      return;
+    }
+    viewerRef.current?.focusElement(element.expressId);
+    if (focusRequest.camera)
+      viewerRef.current?.restoreViewState(focusRequest.camera);
+    void choose(element, "focus-request");
+  }, [elements, focusRequest, viewerReady]);
+
+  useEffect(() => {
+    const wanted = new Set(remoteGlobalIds);
+    viewerRef.current?.setRemoteElements(
+      elements.flatMap((element) =>
+        wanted.has(element.globalId) ? [element.expressId] : [],
+      ),
+    );
+  }, [elements, remoteGlobalIds, viewerReady]);
+
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
     if (!normalized) return elements;
@@ -340,7 +538,13 @@ export default function IfcPropertyBrowser({
 
   async function choose(
     element: IfcElement,
-    source: "initial" | "list" | "viewer" | "deep-link" | "anchor" = "list",
+    source:
+      | "initial"
+      | "list"
+      | "viewer"
+      | "deep-link"
+      | "anchor"
+      | "focus-request" = "list",
   ) {
     const requestId = ++selectionRequestRef.current;
     selectedIdRef.current = element.expressId;
@@ -367,6 +571,15 @@ export default function IfcPropertyBrowser({
       return;
     setProperties([...propertiesFor(line), ...propertySetsFor(propertySets)]);
     setStatus(`선택한 요소: #${element.expressId} ${element.typeName}`);
+    onElementSelectionRef.current?.({
+      origin:
+        source === "list" || source === "viewer" ? "user" : "programmatic",
+      expressId: element.expressId,
+      ifcGlobalId: /^[0-9A-Za-z_$]{22}$/.test(element.globalId)
+        ? element.globalId
+        : null,
+      camera: viewerRef.current?.getViewState() ?? null,
+    });
     if (
       (source === "list" || source === "viewer") &&
       window.matchMedia("(max-width: 1023px)").matches
@@ -427,6 +640,16 @@ export default function IfcPropertyBrowser({
                   <Cuboid className="mx-auto size-7 text-primary" />
                 )}
                 <p className="mt-3 text-sm font-medium">{viewerStatus}</p>
+                {contextLost ? (
+                  <button
+                    aria-label="3D 화면 다시 시도"
+                    className="pointer-events-auto mt-4 min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"
+                    onClick={() => void mountViewer()}
+                    type="button"
+                  >
+                    3D 화면 다시 시도
+                  </button>
+                ) : null}
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
                   {byteSize > maxBrowserGeometryBytes
                     ? "75MB 이하 IFC에서 3D 화면을 지원합니다. 아래 요소·속성 탐색은 계속 사용할 수 있습니다."

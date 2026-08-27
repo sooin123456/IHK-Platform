@@ -14,13 +14,16 @@ import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
   parseWorkspaceMutation,
   type DrawingWorkspace,
+  type DrawingWorkspaceSourceBundle,
 } from "~/lukas/lib/drawing-workspace.server";
+import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
 import type {
   DrawingBlock,
   DrawingBlockInstance,
   DrawingCanvas,
   DrawingLayer,
   DrawingObject,
+  DrawingObjectSource,
   DrawingPage,
   DrawingPropertySchema,
   DrawingPropertyValue,
@@ -35,6 +38,7 @@ import {
   DrawingBlockSchema,
   DrawingCanvasSchema,
   DrawingObjectSchema,
+  DrawingObjectSourceSchema,
   DrawingPageSchema,
   DrawingPropertySchemaSchema,
   DrawingPropertyValueSchema,
@@ -82,9 +86,16 @@ const sourceSha256 = "a".repeat(64);
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
+const previewIfcFileId = "00000000-0000-4000-8000-0000000000a1";
+const previewAlternateIfcFileId = "00000000-0000-4000-8000-0000000000a2";
+const previewIfcSha256 =
+  "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
+const previewIfcUrl =
+  "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
 function previewCollaborationConnectionFactory(
   testPeers = false,
   onLocalState?: (state: unknown) => void,
+  p5IfcTest = false,
 ) {
   return async ({
     onPhase,
@@ -123,7 +134,7 @@ function previewCollaborationConnectionFactory(
                 peerOne,
                 "김도윤",
                 { x: 450, y: 310 },
-                [objects[1].id, ids.semanticDoor],
+                p5IfcTest ? [objects[0].id] : [objects[1].id, ids.semanticDoor],
                 [
                   {
                     entityId: objects[1].id,
@@ -758,11 +769,17 @@ type PreviewFixture = {
   currentUserId: string;
   roomUrl: string;
   sourceUrl: null;
+  sourceBundle?: DrawingWorkspaceSourceBundle;
+  selectedIfcFileId?: string | null;
+  viewMode?: "2d" | "3d" | "split";
 };
 
 /** Canonical P2 data kept entirely in process for development-only visual review. */
 export function localDrawingWorkspacePreviewFixture(options?: {
   hiddenHostTest?: boolean;
+  p5IfcTest?: boolean;
+  selectedIfcFileId?: string | null;
+  viewMode?: "2d" | "3d" | "split";
   performanceObjects?: DrawingObject[];
 }): PreviewFixture {
   const fixtureObjects = options?.performanceObjects
@@ -782,6 +799,22 @@ export function localDrawingWorkspacePreviewFixture(options?: {
   const performance = Boolean(options?.performanceObjects);
   const fixturePropertyValues = performance ? [] : propertyValues;
   const fixtureTables = performance ? [] : tables;
+  const fixtureSources: DrawingObjectSource[] = options?.p5IfcTest
+    ? [
+        {
+          id: "00000000-0000-4000-8000-0000000000a0",
+          objectId: objects[0].id,
+          revisionId: ids.revision,
+          sourceFileId: previewIfcFileId,
+          sourceSha256: previewIfcSha256,
+          sourceKind: "ifc_element",
+          ifcGlobalId: "0VNYAWfXv8JvIRVfOzYH1j",
+          elementId: "2863",
+          camera: null,
+          version: 1,
+        },
+      ]
+    : [];
   const revision = {
     id: ids.revision,
     document_id: ids.document,
@@ -807,6 +840,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     propertySchemas,
     propertyValues: fixturePropertyValues,
     tables: fixtureTables,
+    sources: fixtureSources,
     issues: [
       {
         id: ids.issue,
@@ -858,11 +892,46 @@ export function localDrawingWorkspacePreviewFixture(options?: {
           },
         ],
   };
+  const primary = {
+    id: ids.file,
+    kind: "pdf" as const,
+    originalFilename: "근린생활시설_A-101.pdf",
+    byteSize: 1_048_576,
+    sha256: sourceSha256,
+  };
+  const ifcCatalog = [previewIfcFileId, previewAlternateIfcFileId].map(
+    (id, index) => ({
+      id,
+      kind: "ifc" as const,
+      originalFilename: index === 0 ? "example.ifc" : "example-copy.ifc",
+      byteSize: 413_681,
+      sha256: previewIfcSha256,
+    }),
+  );
+  const selectedIfc = ifcCatalog.find(
+    (item) => item.id === (options?.selectedIfcFileId ?? previewIfcFileId),
+  );
   return {
     capability: "editor",
     currentUserId: ids.user,
     roomUrl: "/workspace-preview",
     sourceUrl: null,
+    sourceBundle:
+      options?.p5IfcTest && selectedIfc
+        ? {
+            primary,
+            pdf: null,
+            ifc:
+              options.viewMode === "2d"
+                ? null
+                : { ...selectedIfc, signedUrl: previewIfcUrl },
+            previousPdf: null,
+            revisionEdge: null,
+            catalog: [primary, ...ifcCatalog],
+          }
+        : undefined,
+    selectedIfcFileId: selectedIfc?.id ?? null,
+    viewMode: options?.viewMode,
     workspace: {
       file: {
         id: ids.file,
@@ -951,6 +1020,9 @@ export function validateLocalDrawingWorkspacePreviewFixture(
     tables: validatedRecord(revision.tables ?? [], (value) =>
       DrawingTableSchema.parse(value),
     ),
+    sources: validatedRecord(revision.sources ?? [], (value) =>
+      DrawingObjectSourceSchema.parse(value),
+    ),
   });
 }
 
@@ -972,8 +1044,15 @@ export function loader({ request }: Route.LoaderArgs) {
     : null;
   const hiddenHostTest =
     new URL(request.url).searchParams.get("hiddenHostTest") === "1";
+  const p5IfcTest = new URL(request.url).searchParams.get("p5IfcTest") === "1";
+  const viewState = parseDrawingWorkspaceViewState(
+    new URL(request.url).searchParams,
+  );
   const fixture = localDrawingWorkspacePreviewFixture({
     hiddenHostTest,
+    p5IfcTest,
+    selectedIfcFileId: viewState.ifcFileId,
+    viewMode: viewState.view,
     performanceObjects: performanceFixture?.objects,
   });
   validateLocalDrawingWorkspacePreviewFixture(fixture);
@@ -1088,6 +1167,7 @@ export function loader({ request }: Route.LoaderArgs) {
     realtimeTest,
     verticalTest,
     performanceTest,
+    p5IfcTest,
   };
 }
 
@@ -1175,6 +1255,10 @@ export default function LocalDrawingWorkspacePreview({
   );
   const verticalPreviewHarness = useMemo(
     () => ({ onStateChange: setVerticalSnapshot, verticalTest: true }),
+    [],
+  );
+  const p5PreviewHarness = useMemo(
+    () => ({ onStateChange: setVerticalSnapshot, p5IfcTest: true }),
     [],
   );
   useEffect(() => setHydrated(true), []);
@@ -1271,6 +1355,7 @@ export default function LocalDrawingWorkspacePreview({
             : previewCollaborationConnectionFactory(
                 loaderData.awarenessTest,
                 setLocalAwarenessPayload,
+                loaderData.p5IfcTest,
               )
         }
         collaborationPersistenceFactory={
@@ -1284,11 +1369,13 @@ export default function LocalDrawingWorkspacePreview({
         previewHarness={
           loaderData.verticalTest
             ? verticalPreviewHarness
-            : loaderData.realtimeTest
-              ? previewHarness
-              : loaderData.awarenessTest
-                ? awarenessPreviewHarness
-                : undefined
+            : loaderData.p5IfcTest
+              ? p5PreviewHarness
+              : loaderData.realtimeTest
+                ? previewHarness
+                : loaderData.awarenessTest
+                  ? awarenessPreviewHarness
+                  : undefined
         }
       />
       <aside
@@ -1302,6 +1389,14 @@ export default function LocalDrawingWorkspacePreview({
         {loaderData.verticalTest ? (
           <output
             aria-label="P4 mounted workspace snapshot"
+            className="sr-only"
+          >
+            {JSON.stringify(verticalSnapshot)}
+          </output>
+        ) : null}
+        {loaderData.p5IfcTest ? (
+          <output
+            aria-label="P5 mounted workspace snapshot"
             className="sr-only"
           >
             {JSON.stringify(verticalSnapshot)}

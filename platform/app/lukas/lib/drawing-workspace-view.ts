@@ -1,7 +1,79 @@
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
 import { containPdfSource } from "./drawing-geometry.ts";
+import {
+  DrawingObjectSourceSchema,
+  type DrawingObjectSource,
+} from "./drawing-workspace.types.ts";
 
 type RevisionStatus = "draft" | "review_requested" | "approved" | "superseded";
+
+export type DrawingWorkspaceViewMode = "2d" | "3d" | "split";
+
+export function parseDrawingWorkspaceViewState(search: URLSearchParams): {
+  view: DrawingWorkspaceViewMode;
+  ifcFileId: string | null;
+} {
+  const views = search.getAll("view");
+  const ifcFiles = search.getAll("ifc");
+  const view = views.length === 0 ? "2d" : views[0];
+  if (views.length > 1 || (view !== "2d" && view !== "3d" && view !== "split"))
+    throw new Error("작업실 보기 값이 올바르지 않습니다.");
+  if (
+    ifcFiles.length > 1 ||
+    (ifcFiles[0] !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        ifcFiles[0],
+      ))
+  )
+    throw new Error("IFC 파일 선택 값이 올바르지 않습니다.");
+  return { view, ifcFileId: ifcFiles[0] ?? null };
+}
+
+export function drawingIfcFocusTarget(input: {
+  selectedIds: readonly string[];
+  sources: Readonly<Record<string, DrawingObjectSource>>;
+  sourceFileId: string;
+  sourceSha256: string;
+}) {
+  if (input.selectedIds.length !== 1) return null;
+  const source = Object.values(input.sources).find((candidate) => {
+    const parsed = DrawingObjectSourceSchema.parse(candidate);
+    return (
+      parsed.sourceKind === "ifc_element" &&
+      parsed.objectId === input.selectedIds[0] &&
+      parsed.sourceFileId === input.sourceFileId &&
+      parsed.sourceSha256 === input.sourceSha256
+    );
+  });
+  if (!source || source.sourceKind !== "ifc_element") return null;
+  return {
+    ifcGlobalId: source.ifcGlobalId,
+    elementId: source.elementId,
+    camera: source.camera,
+  };
+}
+
+export function drawingIfcRemoteHighlightGlobalIds(input: {
+  peers: readonly { selectedIds: readonly string[] }[];
+  sources: Readonly<Record<string, DrawingObjectSource>>;
+  sourceFileId: string;
+  sourceSha256: string;
+}) {
+  const selected = new Set(input.peers.flatMap((peer) => peer.selectedIds));
+  return [
+    ...new Set(
+      Object.values(input.sources).flatMap((candidate) => {
+        const source = DrawingObjectSourceSchema.parse(candidate);
+        return source.sourceKind === "ifc_element" &&
+          selected.has(source.objectId) &&
+          source.sourceFileId === input.sourceFileId &&
+          source.sourceSha256 === input.sourceSha256
+          ? [source.ifcGlobalId]
+          : [];
+      }),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+}
 
 export type DrawingReviewEvidence = {
   subjectVersion: number;

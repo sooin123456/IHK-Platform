@@ -69,6 +69,12 @@ test("template follow-up actions preserve the clone document scope", async () =>
     new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
-  const scope = /new URL\(request\.url\)\.searchParams\.get\("document"\) \?\? undefined/g;
-  assert.equal([...screen.matchAll(scope)].length, 2);
+  assert.match(
+    screen,
+    /const searchParams = new URL\(request\.url\)\.searchParams;[\s\S]*searchParams\.get\("document"\) \?\? undefined/,
+  );
+  assert.match(
+    screen,
+    /new URL\(request\.url\)\.searchParams\.get\("document"\) \?\? undefined/,
+  );
 });

@@ -485,7 +485,7 @@ test("PDF image placement view model contains rendered pixels in page world boun
   );
 });
 
-test("workspace route wires evidence forms, embedded IFC, import failures, and contained PDF placement", async () => {
+test("workspace route wires the verified source bundle and controlled IFC surface", async () => {
   const [screen, shell, canvas] = await Promise.all([
     readFile(
       new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
@@ -503,7 +503,18 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
       "utf8",
     ),
   ]);
-  assert.match(screen, /loadDrawingWorkspaceSourceUrl\(client, workspace\)/);
+  assert.match(
+    screen,
+    /parseDrawingWorkspaceViewState\(\s*new URL\(request\.url\)\.searchParams/s,
+  );
+  assert.match(
+    screen,
+    /loadDrawingWorkspaceSourceBundle\(\s*client,\s*workspace,\s*selectedIfcFileId,\s*viewState\.view !== "2d"/s,
+  );
+  assert.match(screen, /sourceBundle=\{loaderData\.sourceBundle\}/);
+  assert.match(screen, /selectedIfcFileId=\{loaderData\.selectedIfcFileId\}/);
+  assert.match(screen, /viewMode=\{loaderData\.viewState\.view\}/);
+  assert.doesNotMatch(screen, /loadDrawingWorkspaceSourceUrl/);
   assert.match(shell, /drawingWorkspaceReviewControls\(/);
   assert.match(shell, /drawingRevisionDecisionFields\(/);
   assert.match(shell, /name="decision"/);
@@ -511,9 +522,11 @@ test("workspace route wires evidence forms, embedded IFC, import failures, and c
   assert.match(shell, /value="approved"/);
   assert.match(shell, /value="rejected"/);
   assert.equal(shell.match(/loadDrawingClientModule\(/g)?.length, 2);
-  assert.match(shell, /surface\.layout === "ifc_split"/);
-  assert.doesNotMatch(shell, /file\.kind === "ifc"/);
-  assert.match(shell, /<IfcViewer \{\.\.\.surface\.ifcViewer\} \/>/);
+  assert.match(shell, /2D 도면/);
+  assert.match(shell, /IFC 3D/);
+  assert.match(shell, /분할 보기/);
+  assert.match(shell, /IFC 원본 선택/);
+  assert.match(shell, /<IfcViewer/);
   assert.doesNotMatch(shell, /target="_blank"/);
   assert.equal(canvas.match(/drawingPanGestureTransition\(/g)?.length, 4);
   assert.match(canvas, /drawingPdfImagePlacement\(rendered\.canvasSize/);

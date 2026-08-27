@@ -22,8 +22,9 @@ import {
   loadDrawingWorkspace,
   loadDrawingWorkspaceMeasurementState,
   loadDrawingWorkspaceCapability,
-  loadDrawingWorkspaceSourceUrl,
+  loadDrawingWorkspaceSourceBundle,
 } from "~/lukas/lib/drawing-workspace.server";
+import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
 import type {
   DrawingWorkspaceCapability,
   DrawingWorkspaceClient as DrawingWorkspaceDatabaseClient,
@@ -61,13 +62,32 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
+  const searchParams = new URL(request.url).searchParams;
+  let viewState;
+  try {
+    viewState = parseDrawingWorkspaceViewState(
+      new URL(request.url).searchParams,
+    );
+  } catch {
+    throw new Response("도면 작업실 URL 상태가 올바르지 않습니다.", {
+      status: 400,
+    });
+  }
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
     params.fileId!,
-    new URL(request.url).searchParams.get("document") ?? undefined,
+    searchParams.get("document") ?? undefined,
   );
-  const sourceUrl = await loadDrawingWorkspaceSourceUrl(client, workspace);
+  const selectedIfcFileId =
+    viewState.ifcFileId ??
+    (workspace.file.kind === "ifc" ? workspace.file.id : null);
+  const sourceBundle = await loadDrawingWorkspaceSourceBundle(
+    client,
+    workspace,
+    selectedIfcFileId,
+    viewState.view !== "2d",
+  );
   const measurementState = workspace.document
     ? await loadDrawingWorkspaceMeasurementState(client, {
         documentId: workspace.document.id,
@@ -82,7 +102,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
         project.id,
         workspace.document.revision.id,
-        { cursor: new URL(request.url).searchParams.get("historyCursor") },
+        { cursor: searchParams.get("historyCursor") },
       )
     : null;
   const collaborationClient = client as unknown as DrawingClient;
@@ -103,7 +123,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       collaborationRoom,
       assignees,
       workspace,
-      sourceUrl,
+      sourceBundle,
+      selectedIfcFileId,
+      viewState,
     },
     { headers },
   );
@@ -209,7 +231,9 @@ export default function DrawingWorkspaceScreen({
         measurementEvidenceError={loaderData.measurementEvidenceError}
         projectId={project.id}
         roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
-        sourceUrl={loaderData.sourceUrl}
+        sourceBundle={loaderData.sourceBundle}
+        selectedIfcFileId={loaderData.selectedIfcFileId}
+        viewMode={loaderData.viewState.view}
         workspace={{ ...workspace, document: workspace.document }}
       />
     );

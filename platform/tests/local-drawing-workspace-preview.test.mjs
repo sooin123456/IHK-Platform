@@ -99,6 +99,50 @@ test("P2 local drawing preview loader allows only development loopback", async (
   process.env.NODE_ENV = "development";
 });
 
+test("P5 preview exposes a controlled IFC pair without putting its URL in drawing state", async () => {
+  const ifcFileId = "00000000-0000-4000-8000-0000000000a1";
+  const loaded = await preview.loader({
+    request: request(
+      `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=split&ifc=${ifcFileId}`,
+    ),
+    params: {},
+  });
+  assert.equal(loaded.viewMode, "split");
+  assert.equal(loaded.sourceBundle.ifc.id, ifcFileId);
+  assert.equal(loaded.sourceBundle.ifc.signedUrl.includes("example.ifc"), true);
+  assert.equal(
+    JSON.stringify(loaded.sourceBundle.catalog).includes("http"),
+    false,
+  );
+  assert.deepEqual(
+    loaded.workspace.document.revision.sources.map((source) => ({
+      objectId: source.objectId,
+      sourceFileId: source.sourceFileId,
+      sourceSha256: source.sourceSha256,
+      ifcGlobalId: source.ifcGlobalId,
+    })),
+    [
+      {
+        objectId: "00000000-0000-4000-8000-000000000070",
+        sourceFileId: ifcFileId,
+        sourceSha256:
+          "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
+        ifcGlobalId: "0VNYAWfXv8JvIRVfOzYH1j",
+      },
+    ],
+  );
+  assert.equal(JSON.stringify(loaded.workspace).includes("example.ifc"), false);
+
+  const twoDimensional = await preview.loader({
+    request: request(
+      `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=2d&ifc=${ifcFileId}`,
+    ),
+    params: {},
+  });
+  assert.equal(twoDimensional.selectedIfcFileId, ifcFileId);
+  assert.equal(twoDimensional.sourceBundle.ifc, null);
+});
+
 test("P4 vertical preview exposes only mounted-workspace test instrumentation", async () => {
   const loaded = await preview.loader({
     request: request(
