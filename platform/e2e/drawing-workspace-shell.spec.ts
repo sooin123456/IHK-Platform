@@ -509,10 +509,17 @@ test("architectural object tools remain accessible without toolbar overflow on d
         document:
           document.documentElement.scrollWidth -
           document.documentElement.clientWidth,
+        documentY:
+          document.documentElement.scrollHeight -
+          document.documentElement.clientHeight,
         toolbar: toolbar ? toolbar.scrollWidth - toolbar.clientWidth : 1,
       };
     });
     expect(overflow.document).toBeLessThanOrEqual(0);
     expect(overflow.toolbar).toBeLessThanOrEqual(0);
+    if (viewport.width === 1440) {
+      expect(overflow.documentY).toBeLessThanOrEqual(0);
+      await expect(page.locator(".konvajs-content > canvas")).toHaveCount(3);
+    }
   }
 });

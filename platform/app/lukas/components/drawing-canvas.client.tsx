@@ -3331,133 +3331,102 @@ export const DrawingCanvas = forwardRef<
         >
           <Layer
             listening={false}
-            name="immutable-source"
+            name="drawing-background"
             scaleX={viewport.zoom}
             scaleY={viewport.zoom}
             x={viewport.x}
             y={viewport.y}
           >
-            <Rect
-              fill="#ffffff"
-              height={background.height}
-              listening={false}
-              shadowBlur={12 / viewport.zoom}
-              shadowColor="#000000"
-              shadowOpacity={0.35}
-              stroke="#cbd5e1"
-              strokeWidth={1 / viewport.zoom}
-              width={background.width}
-            />
-            {background.kind === "pdf" &&
-            pdfSource &&
-            pdfCompare?.mode !== "previous" ? (
-              <KonvaImage
-                height={pdfSource.bounds.height}
-                image={pdfSource.canvas}
-                listening={false}
-                width={pdfSource.bounds.width}
-                x={pdfSource.bounds.x}
-                y={pdfSource.bounds.y}
-              />
-            ) : null}
-            {background.kind === "pdf" &&
-            previousPdfSource &&
-            pdfCompare?.mode !== "current" ? (
-              <KonvaImage
-                height={previousPdfSource.bounds.height}
-                image={previousPdfSource.canvas}
-                listening={false}
-                opacity={
-                  pdfCompare?.mode === "overlay" ? pdfCompare.opacity : 1
-                }
-                width={previousPdfSource.bounds.width}
-                x={previousPdfSource.bounds.x}
-                y={previousPdfSource.bounds.y}
-              />
-            ) : null}
-          </Layer>
-          <Layer
-            listening={false}
-            name="pdf-diff-preview"
-            scaleX={viewport.zoom}
-            scaleY={viewport.zoom}
-            x={viewport.x}
-            y={viewport.y}
-          >
-            {pdfCompare?.mode !== "current" && pdfSource
-              ? pdfDiffMarkers.map((marker, index) => (
-                  <Rect
-                    dash={[8 / viewport.zoom, 4 / viewport.zoom]}
-                    fill="rgba(245,158,11,0.16)"
-                    height={marker.height * pdfSource.bounds.height}
-                    key={`${marker.x}:${marker.y}:${index}`}
-                    listening={false}
-                    stroke="#f59e0b"
-                    strokeWidth={2 / viewport.zoom}
-                    width={marker.width * pdfSource.bounds.width}
-                    x={pdfSource.bounds.x + marker.x * pdfSource.bounds.width}
-                    y={pdfSource.bounds.y + marker.y * pdfSource.bounds.height}
-                  />
-                ))
-              : null}
-          </Layer>
-          <Layer
-            listening={false}
-            name="drawing-collaboration-selection"
-            scaleX={viewport.zoom}
-            scaleY={viewport.zoom}
-            x={viewport.x}
-            y={viewport.y}
-          >
-            {remoteSelections.map(({ bounds, id, peer }) => (
+            <Group listening={false} name="immutable-source">
               <Rect
-                dash={[7 / viewport.zoom, 5 / viewport.zoom]}
-                height={bounds.height}
-                key={`${peer.clientId}:${id}`}
+                fill="#ffffff"
+                height={background.height}
                 listening={false}
-                stroke={peer.user.color}
-                strokeWidth={2 / viewport.zoom}
-                width={bounds.width}
-                x={bounds.x}
-                y={bounds.y}
-              />
-            ))}
-          </Layer>
-          <Layer
-            listening={false}
-            scaleX={viewport.zoom}
-            scaleY={viewport.zoom}
-            x={viewport.x}
-            y={viewport.y}
-          >
-            {grid.vertical.map((x) => (
-              <Line
-                key={`x-${x}`}
-                opacity={0.18}
-                points={[
-                  x,
-                  screenToWorld({ x: 0, y: 0 }, viewport).y,
-                  x,
-                  screenToWorld({ x: 0, y: size.height }, viewport).y,
-                ]}
-                stroke="#64748b"
+                shadowBlur={12 / viewport.zoom}
+                shadowColor="#000000"
+                shadowOpacity={0.35}
+                stroke="#cbd5e1"
                 strokeWidth={1 / viewport.zoom}
+                width={background.width}
               />
-            ))}
-            {grid.horizontal.map((y) => (
-              <Line
-                key={`y-${y}`}
-                opacity={0.18}
-                points={[
-                  screenToWorld({ x: 0, y: 0 }, viewport).x,
-                  y,
-                  screenToWorld({ x: size.width, y: 0 }, viewport).x,
-                  y,
-                ]}
-                stroke="#64748b"
-                strokeWidth={1 / viewport.zoom}
-              />
-            ))}
+              {background.kind === "pdf" &&
+              pdfSource &&
+              pdfCompare?.mode !== "previous" ? (
+                <KonvaImage
+                  height={pdfSource.bounds.height}
+                  image={pdfSource.canvas}
+                  listening={false}
+                  width={pdfSource.bounds.width}
+                  x={pdfSource.bounds.x}
+                  y={pdfSource.bounds.y}
+                />
+              ) : null}
+              {background.kind === "pdf" &&
+              previousPdfSource &&
+              pdfCompare?.mode !== "current" ? (
+                <KonvaImage
+                  height={previousPdfSource.bounds.height}
+                  image={previousPdfSource.canvas}
+                  listening={false}
+                  opacity={
+                    pdfCompare?.mode === "overlay" ? pdfCompare.opacity : 1
+                  }
+                  width={previousPdfSource.bounds.width}
+                  x={previousPdfSource.bounds.x}
+                  y={previousPdfSource.bounds.y}
+                />
+              ) : null}
+            </Group>
+            <Group listening={false} name="pdf-diff-preview">
+              {pdfCompare?.mode !== "current" && pdfSource
+                ? pdfDiffMarkers.map((marker, index) => (
+                    <Rect
+                      dash={[8 / viewport.zoom, 4 / viewport.zoom]}
+                      fill="rgba(245,158,11,0.16)"
+                      height={marker.height * pdfSource.bounds.height}
+                      key={`${marker.x}:${marker.y}:${index}`}
+                      listening={false}
+                      stroke="#f59e0b"
+                      strokeWidth={2 / viewport.zoom}
+                      width={marker.width * pdfSource.bounds.width}
+                      x={pdfSource.bounds.x + marker.x * pdfSource.bounds.width}
+                      y={
+                        pdfSource.bounds.y + marker.y * pdfSource.bounds.height
+                      }
+                    />
+                  ))
+                : null}
+            </Group>
+            <Group listening={false} name="drawing-grid">
+              {grid.vertical.map((x) => (
+                <Line
+                  key={`x-${x}`}
+                  opacity={0.18}
+                  points={[
+                    x,
+                    screenToWorld({ x: 0, y: 0 }, viewport).y,
+                    x,
+                    screenToWorld({ x: 0, y: size.height }, viewport).y,
+                  ]}
+                  stroke="#64748b"
+                  strokeWidth={1 / viewport.zoom}
+                />
+              ))}
+              {grid.horizontal.map((y) => (
+                <Line
+                  key={`y-${y}`}
+                  opacity={0.18}
+                  points={[
+                    screenToWorld({ x: 0, y: 0 }, viewport).x,
+                    y,
+                    screenToWorld({ x: size.width, y: 0 }, viewport).x,
+                    y,
+                  ]}
+                  stroke="#64748b"
+                  strokeWidth={1 / viewport.zoom}
+                />
+              ))}
+            </Group>
           </Layer>
           <CommittedDrawingLayer
             calibration={calibration}
@@ -3469,128 +3438,141 @@ export const DrawingCanvas = forwardRef<
           />
           <Layer
             listening={activeTool === "select"}
-            name="drawing-selection"
+            name="drawing-overlay"
             scaleX={viewport.zoom}
             scaleY={viewport.zoom}
             x={viewport.x}
             y={viewport.y}
           >
-            {activeTool === "select"
-              ? selectionCandidates.map((candidate) => {
-                  const { bounds } = candidate;
-                  return (
+            <Group listening={false} name="drawing-collaboration-selection">
+              {remoteSelections.map(({ bounds, id, peer }) => (
+                <Rect
+                  dash={[7 / viewport.zoom, 5 / viewport.zoom]}
+                  height={bounds.height}
+                  key={`${peer.clientId}:${id}`}
+                  listening={false}
+                  stroke={peer.user.color}
+                  strokeWidth={2 / viewport.zoom}
+                  width={bounds.width}
+                  x={bounds.x}
+                  y={bounds.y}
+                />
+              ))}
+            </Group>
+            <Group name="drawing-selection">
+              {activeTool === "select"
+                ? selectionCandidates.map((candidate) => {
+                    const { bounds } = candidate;
+                    return (
+                      <Rect
+                        drawingSelectionId={candidate.id}
+                        fill="rgba(0,0,0,0.001)"
+                        height={bounds.height}
+                        key={`hit-${candidate.id}`}
+                        width={bounds.width}
+                        x={bounds.x}
+                        y={bounds.y}
+                      />
+                    );
+                  })
+                : null}
+              {selectionState.previewDelta.x !== 0 ||
+              selectionState.previewDelta.y !== 0
+                ? selectionPreview.objectIds.map((objectId) => {
+                    const object = previewObjectsById[objectId];
+                    return (
+                      <Group key={`preview-${object.id}`} listening={false}>
+                        {geometryShape(
+                          previewObjectsById[object.id].geometry,
+                          previewStyle,
+                          true,
+                          calibration,
+                          previewObjectsById,
+                          object.name,
+                        )}
+                      </Group>
+                    );
+                  })
+                : null}
+              {selectedObjects.map((object) => {
+                const geometry =
+                  selectionState.previewDelta.x !== 0 ||
+                  selectionState.previewDelta.y !== 0
+                    ? previewObjectsById[object.id].geometry
+                    : object.geometry;
+                const bounds = geometryBounds(geometry, previewObjectsById);
+                const corners = [
+                  { x: bounds.x, y: bounds.y },
+                  { x: bounds.x + bounds.width, y: bounds.y },
+                  {
+                    x: bounds.x + bounds.width,
+                    y: bounds.y + bounds.height,
+                  },
+                  { x: bounds.x, y: bounds.y + bounds.height },
+                ];
+                return (
+                  <Group key={`selection-${object.id}`} listening={false}>
                     <Rect
-                      drawingSelectionId={candidate.id}
-                      fill="rgba(0,0,0,0.001)"
+                      dash={[6 / viewport.zoom, 4 / viewport.zoom]}
                       height={bounds.height}
-                      key={`hit-${candidate.id}`}
+                      stroke="#2563eb"
+                      strokeWidth={1.5 / viewport.zoom}
                       width={bounds.width}
                       x={bounds.x}
                       y={bounds.y}
                     />
-                  );
-                })
-              : null}
-            {selectionState.previewDelta.x !== 0 ||
-            selectionState.previewDelta.y !== 0
-              ? selectionPreview.objectIds.map((objectId) => {
-                  const object = previewObjectsById[objectId];
-                  return (
-                    <Group key={`preview-${object.id}`} listening={false}>
-                      {geometryShape(
-                        previewObjectsById[object.id].geometry,
-                        previewStyle,
-                        true,
-                        calibration,
-                        previewObjectsById,
-                        object.name,
-                      )}
-                    </Group>
-                  );
-                })
-              : null}
-            {selectedObjects.map((object) => {
-              const geometry =
-                selectionState.previewDelta.x !== 0 ||
-                selectionState.previewDelta.y !== 0
-                  ? previewObjectsById[object.id].geometry
-                  : object.geometry;
-              const bounds = geometryBounds(geometry, previewObjectsById);
-              const corners = [
-                { x: bounds.x, y: bounds.y },
-                { x: bounds.x + bounds.width, y: bounds.y },
-                { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-                { x: bounds.x, y: bounds.y + bounds.height },
-              ];
-              return (
-                <Group key={`selection-${object.id}`} listening={false}>
-                  <Rect
-                    dash={[6 / viewport.zoom, 4 / viewport.zoom]}
-                    height={bounds.height}
-                    stroke="#2563eb"
-                    strokeWidth={1.5 / viewport.zoom}
-                    width={bounds.width}
-                    x={bounds.x}
-                    y={bounds.y}
-                  />
-                  {corners.map((corner, index) => (
-                    <Rect
-                      fill="#ffffff"
-                      height={handleSize}
-                      key={index}
-                      stroke="#2563eb"
-                      strokeWidth={1 / viewport.zoom}
-                      width={handleSize}
-                      x={corner.x - handleSize / 2}
-                      y={corner.y - handleSize / 2}
-                    />
-                  ))}
-                </Group>
-              );
-            })}
-            {selectedBlockInstances.map((model) => (
-              <Rect
-                dash={[6 / viewport.zoom, 4 / viewport.zoom]}
-                height={model.bounds.height}
-                key={`block-selection-${model.instance.id}`}
-                listening={false}
-                stroke="#2563eb"
-                strokeWidth={1.5 / viewport.zoom}
-                width={model.bounds.width}
-                x={model.bounds.x}
-                y={model.bounds.y}
-              />
-            ))}
-            {marqueeBounds ? (
-              <Rect
-                fill="rgba(37,99,235,0.12)"
-                height={marqueeBounds.height}
-                listening={false}
-                stroke="#60a5fa"
-                strokeWidth={1 / viewport.zoom}
-                width={marqueeBounds.width}
-                x={marqueeBounds.x}
-                y={marqueeBounds.y}
-              />
-            ) : null}
-          </Layer>
-          <Layer
-            listening={false}
-            name="drawing-preview"
-            scaleX={viewport.zoom}
-            scaleY={viewport.zoom}
-            x={viewport.x}
-            y={viewport.y}
-          >
-            {preview
-              ? geometryShape(
-                  preview,
-                  previewStyle,
-                  true,
-                  calibration,
-                  objectsById,
-                )
-              : null}
+                    {corners.map((corner, index) => (
+                      <Rect
+                        fill="#ffffff"
+                        height={handleSize}
+                        key={index}
+                        stroke="#2563eb"
+                        strokeWidth={1 / viewport.zoom}
+                        width={handleSize}
+                        x={corner.x - handleSize / 2}
+                        y={corner.y - handleSize / 2}
+                      />
+                    ))}
+                  </Group>
+                );
+              })}
+              {selectedBlockInstances.map((model) => (
+                <Rect
+                  dash={[6 / viewport.zoom, 4 / viewport.zoom]}
+                  height={model.bounds.height}
+                  key={`block-selection-${model.instance.id}`}
+                  listening={false}
+                  stroke="#2563eb"
+                  strokeWidth={1.5 / viewport.zoom}
+                  width={model.bounds.width}
+                  x={model.bounds.x}
+                  y={model.bounds.y}
+                />
+              ))}
+              {marqueeBounds ? (
+                <Rect
+                  fill="rgba(37,99,235,0.12)"
+                  height={marqueeBounds.height}
+                  listening={false}
+                  stroke="#60a5fa"
+                  strokeWidth={1 / viewport.zoom}
+                  width={marqueeBounds.width}
+                  x={marqueeBounds.x}
+                  y={marqueeBounds.y}
+                />
+              ) : null}
+            </Group>
+            <Group listening={false} name="drawing-preview">
+              {preview
+                ? geometryShape(
+                    preview,
+                    previewStyle,
+                    true,
+                    calibration,
+                    objectsById,
+                  )
+                : null}
+            </Group>
           </Layer>
         </Stage>
       ) : null}

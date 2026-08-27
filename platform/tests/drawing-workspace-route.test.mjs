@@ -580,6 +580,13 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.match(canvas, /geometrySnapPoints\(/);
   assert.match(canvas, /memo\(function CommittedDrawingLayer/);
   assert.match(canvas, /<CommittedDrawingLayer/);
+  assert.equal(canvas.match(/<Layer(?:\s|>)/g)?.length, 3);
+  for (const name of [
+    "drawing-background",
+    "drawing-objects",
+    "drawing-overlay",
+  ])
+    assert.match(canvas, new RegExp(`name="${name}"`));
   assert.match(menu, /<dialog/);
   assert.match(menu, /aria-labelledby="drawing-command-menu-title"/);
   assert.match(menu, /aria-label="도면 명령 검색"/);

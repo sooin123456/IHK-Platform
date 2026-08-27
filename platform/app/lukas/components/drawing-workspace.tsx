@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type FormEvent,
 } from "react";
 
@@ -243,6 +244,13 @@ const drawingWorkspacePanels: Array<{
   { id: "collaboration", label: "댓글·이슈" },
   { id: "history", label: "변경 이력" },
 ];
+
+function DrawingWorkspaceTabPanel({
+  active,
+  ...props
+}: ComponentProps<"div"> & { active: boolean }) {
+  return active ? <div {...props} /> : null;
+}
 
 /** Resolves the standard keyboard navigation owned by the workspace tablist. */
 export function resolveDrawingWorkspacePanelKey(
@@ -3051,7 +3059,7 @@ export default function DrawingWorkspaceClient({
   );
 
   return (
-    <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
+    <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100 xl:h-dvh xl:min-h-0 xl:overflow-hidden xl:[contain:strict]">
       {previewHarness?.verticalTest ||
       previewHarness?.p5IfcTest ||
       previewHarness?.p5PdfTest ? (
@@ -3578,7 +3586,7 @@ export default function DrawingWorkspaceClient({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 xl:max-h-[calc(100vh-3.5rem)] xl:grid-cols-[15rem_minmax(0,1fr)_18rem]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[15rem_minmax(0,1fr)_18rem] xl:overflow-hidden">
         <aside
           aria-label="도면 도구 패널"
           className="order-2 flex min-h-0 max-h-[32rem] flex-col overflow-hidden border-b border-white/10 bg-slate-900 xl:order-1 xl:max-h-[calc(100vh-3.5rem)] xl:border-b-0 xl:border-r"
@@ -3622,11 +3630,11 @@ export default function DrawingWorkspaceClient({
               );
             })}
           </div>
-          <div
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "collaboration"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-collaboration"
             className="min-h-0 flex-1 overflow-y-auto p-3"
-            hidden={activePanel !== "collaboration"}
             id="drawing-panel-collaboration"
           >
             <section
@@ -3927,12 +3935,12 @@ export default function DrawingWorkspaceClient({
                 프로젝트 멤버 및 역할 관리
               </Link>
             </section>
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "history"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-history"
             className="min-h-0 flex-1 overflow-y-auto p-3"
-            hidden={activePanel !== "history"}
             id="drawing-panel-history"
           >
             <section
@@ -4098,12 +4106,12 @@ export default function DrawingWorkspaceClient({
                 </Link>
               ) : null}
             </section>
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "structure"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-structure"
             className="min-h-0 flex-1 overflow-y-auto p-3"
-            hidden={activePanel !== "structure"}
             id="drawing-panel-structure"
           >
             <DrawingPagesPanel
@@ -4127,12 +4135,12 @@ export default function DrawingWorkspaceClient({
                 state={drawingState}
               />
             </div>
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "styles"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-styles"
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
-            hidden={activePanel !== "styles"}
             id="drawing-panel-styles"
           >
             <DrawingStylesPanel
@@ -4141,12 +4149,12 @@ export default function DrawingWorkspaceClient({
               onCommand={applyCommand}
               state={drawingState}
             />
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "properties"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-properties"
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
-            hidden={activePanel !== "properties"}
             id="drawing-panel-properties"
           >
             <DrawingPropertiesPanel
@@ -4155,12 +4163,12 @@ export default function DrawingWorkspaceClient({
               onCommand={applyCommand}
               state={drawingState}
             />
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "schedules"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-schedules"
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
-            hidden={activePanel !== "schedules"}
             id="drawing-panel-schedules"
           >
             <DrawingTablesPanel
@@ -4174,12 +4182,12 @@ export default function DrawingWorkspaceClient({
               selectedIds={transient.selectedIds}
               state={drawingState}
             />
-          </div>
-          <div
+          </DrawingWorkspaceTabPanel>
+          <DrawingWorkspaceTabPanel
+            active={activePanel === "blocks"}
             role="tabpanel"
             aria-labelledby="drawing-panel-tab-blocks"
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
-            hidden={activePanel !== "blocks"}
             id="drawing-panel-blocks"
           >
             <DrawingBlocksPanel
@@ -4195,19 +4203,19 @@ export default function DrawingWorkspaceClient({
               )}
               state={drawingState}
             />
-          </div>
+          </DrawingWorkspaceTabPanel>
         </aside>
 
         <section
           aria-label="도면 캔버스"
-          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2"
+          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 xl:min-h-0 xl:overflow-hidden"
           aria-busy={!outboxReady}
         >
           <div
             className={
               activeView === "split"
-                ? "grid h-full min-h-[34rem] lg:grid-cols-[minmax(20rem,1fr)_minmax(20rem,1fr)]"
-                : "h-full min-h-[34rem]"
+                ? "grid h-full min-h-[34rem] lg:grid-cols-[minmax(20rem,1fr)_minmax(20rem,1fr)] xl:min-h-0"
+                : "h-full min-h-[34rem] xl:min-h-0"
             }
           >
             <div
@@ -4705,7 +4713,7 @@ export default function DrawingWorkspaceClient({
 
         <aside
           aria-label="속성 검사기"
-          className="order-3 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
+          className="order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
         >
           {collaborationEditNotice ? (
             <p

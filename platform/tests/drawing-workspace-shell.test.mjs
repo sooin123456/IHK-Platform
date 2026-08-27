@@ -107,9 +107,11 @@ test("review submit stays disabled for pending, conflicted, or volatile work", (
 
 test("workspace SSR shell keeps the canvas first below xl and restores three columns at xl", () => {
   const html = renderWorkspace();
+  assert.match(html, /<main class="[^"]*xl:h-dvh[^"]*xl:overflow-hidden/);
+  assert.match(html, /xl:\[contain:strict\]/);
   assert.match(
     html,
-    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)_18rem\]/,
+    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)_18rem\][^"]*xl:overflow-hidden/,
   );
   assert.match(
     html,
@@ -134,10 +136,11 @@ test("workspace SSR shell exposes one selected panel from seven accessible tabs"
     /role="tablist" aria-label="도면 도구" data-drawing-shortcuts="ignore"/,
   );
   assert.equal(html.match(/role="tab"/g)?.length, 7);
-  assert.equal(html.match(/role="tabpanel"/g)?.length, 7);
+  assert.equal(html.match(/role="tabpanel"/g)?.length, 1);
   assert.equal(html.match(/role="tab"[^>]*aria-selected="true"/g)?.length, 1);
   assert.equal(html.match(/role="tab"[^>]*aria-selected="false"/g)?.length, 6);
-  assert.equal(html.match(/role="tabpanel"[^>]*hidden=""/g)?.length, 6);
+  assert.match(html, /role="tabpanel"[^>]*id="drawing-panel-structure"/);
+  assert.doesNotMatch(html, /role="tabpanel"[^>]*hidden=""/);
   for (const label of [
     "페이지·레이어",
     "스타일",

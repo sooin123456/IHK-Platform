@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createServer } from "vite";
 
 import * as workspaceView from "../app/lukas/lib/drawing-workspace-view.ts";
+
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
+const ifcViewer = await vite.ssrLoadModule(
+  "/app/lukas/components/ifc-model-viewer.client.ts",
+);
+test.after(() => vite.close());
 
 const ids = {
   object1: "20000000-0000-4000-8000-000000000001",
@@ -14,6 +30,70 @@ const ids = {
   otherFile: "20000000-0000-4000-8000-000000000007",
 };
 const sha = "a".repeat(64);
+
+test("IFC initial fit waits for a ready visible non-zero viewport and runs once", () => {
+  let fits = 0;
+  const initialFit = ifcViewer.createIfcInitialFitOnce(() => {
+    fits += 1;
+  });
+
+  assert.equal(
+    initialFit.attempt({
+      ready: false,
+      visible: true,
+      width: 640,
+      height: 480,
+    }),
+    false,
+  );
+  assert.equal(
+    initialFit.attempt({
+      ready: true,
+      visible: false,
+      width: 640,
+      height: 480,
+    }),
+    false,
+  );
+  assert.equal(
+    initialFit.attempt({ ready: true, visible: true, width: 0, height: 0 }),
+    false,
+  );
+  assert.equal(
+    initialFit.attempt({
+      ready: true,
+      visible: true,
+      width: 640,
+      height: 480,
+    }),
+    true,
+  );
+  assert.equal(
+    initialFit.attempt({
+      ready: true,
+      visible: true,
+      width: 800,
+      height: 600,
+    }),
+    false,
+  );
+  assert.equal(fits, 1);
+
+  const canceled = ifcViewer.createIfcInitialFitOnce(() => {
+    fits += 1;
+  });
+  canceled.cancel();
+  assert.equal(
+    canceled.attempt({
+      ready: true,
+      visible: true,
+      width: 640,
+      height: 480,
+    }),
+    false,
+  );
+  assert.equal(fits, 1);
+});
 
 function source(overrides = {}) {
   return {

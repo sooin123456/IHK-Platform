@@ -110,6 +110,32 @@ function boundsForObjects(objects: THREE.Object3D[]) {
   return bounds;
 }
 
+export function createIfcInitialFitOnce(fit: () => void) {
+  let fitted = false;
+  return {
+    attempt({
+      ready,
+      visible,
+      width,
+      height,
+    }: {
+      ready: boolean;
+      visible: boolean;
+      width: number;
+      height: number;
+    }) {
+      if (fitted || !ready || !visible || width <= 0 || height <= 0)
+        return false;
+      fitted = true;
+      fit();
+      return true;
+    },
+    cancel() {
+      fitted = true;
+    },
+  };
+}
+
 export function createIfcModelViewer({
   container,
   api,
@@ -124,6 +150,7 @@ export function createIfcModelViewer({
   let selectedExpressId: number | null = null;
   let remoteExpressIds = new Set<number>();
   let pointerDown: { x: number; y: number } | null = null;
+  let modelReady = false;
 
   const scene = new THREE.Scene();
   const modelRoot = new THREE.Group();
@@ -215,12 +242,15 @@ export function createIfcModelViewer({
 
   function resize() {
     if (disposed) return;
-    const width = Math.max(1, container.clientWidth);
-    const height = Math.max(1, container.clientHeight);
-    camera.aspect = width / height;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const renderWidth = Math.max(1, width);
+    const renderHeight = Math.max(1, height);
+    camera.aspect = renderWidth / renderHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height, false);
-    render();
+    renderer.setSize(renderWidth, renderHeight, false);
+    if (!fitInitialModel.attempt({ ready: modelReady, visible, width, height }))
+      render();
   }
 
   function frameObjects(objects: THREE.Object3D[], padding = 1.35) {
@@ -257,8 +287,13 @@ export function createIfcModelViewer({
   }
 
   function fitModel() {
+    fitInitialModel.cancel();
     frameObjects([modelRoot]);
   }
+
+  const fitInitialModel = createIfcInitialFitOnce(() =>
+    frameObjects([modelRoot]),
+  );
 
   function selectElement(expressId: number | null) {
     if (disposed || selectedExpressId === expressId) return;
@@ -299,6 +334,7 @@ export function createIfcModelViewer({
   function setVisible(nextVisible: boolean) {
     if (disposed || visible === nextVisible) return;
     visible = nextVisible;
+    if (visible) resize();
     renderGate.visibilityChanged();
   }
 
@@ -306,6 +342,7 @@ export function createIfcModelViewer({
     if (disposed) return;
     const meshes = elementMeshes.get(expressId);
     if (!meshes?.length) return;
+    fitInitialModel.cancel();
     selectElement(expressId);
     frameObjects(meshes, 1.8);
   }
@@ -319,6 +356,7 @@ export function createIfcModelViewer({
 
   function restoreViewState(state: IfcCameraState) {
     if (disposed) return;
+    fitInitialModel.cancel();
     const canonical = canonicalIfcCameraState(state);
     camera.position.fromArray(canonical.position);
     controls.target.fromArray(canonical.target);
@@ -449,7 +487,8 @@ export function createIfcModelViewer({
       }
     });
 
-    fitModel();
+    modelReady = true;
+    resize();
     report({
       phase: "ready",
       message: `3D 요소 ${elementMeshes.size.toLocaleString("ko-KR")}개를 표시했습니다.`,
