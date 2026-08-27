@@ -10,6 +10,7 @@ const browserModules = [
   "/app/lukas/lib/drawing-yjs-draft.ts",
   "/app/lukas/lib/drawing-outbox.ts",
   "/app/lukas/lib/drawing-collaboration-client.ts",
+  "/app/lukas/lib/drawing-source-links.ts",
 ];
 const ids = {
   project: "00000000-0000-4000-8000-000000000601",
@@ -505,6 +506,356 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
   expect(actionAcknowledged.objectIds).toEqual(written.expectedObjectIds);
   expect(actionAcknowledged.statusIds).toEqual([]);
   expect(applyRequests).toHaveLength(100);
+});
+
+test("source link unlink and undo survive a real IndexedDB crash and reopen without clipboard evidence", async ({
+  page,
+}) => {
+  const revision = "00000000-0000-4000-8000-000000000630";
+  const sourceId = "00000000-0000-4000-8000-000000000631";
+  const fileId = "00000000-0000-4000-8000-000000000632";
+  const objectId = "00000000-0000-4000-8000-000000000633";
+  const pageId = "00000000-0000-4000-8000-000000000634";
+  const canvasId = "00000000-0000-4000-8000-000000000635";
+  const operationIds = [
+    "00000000-0000-4000-8000-000000000636",
+    "00000000-0000-4000-8000-000000000637",
+    "00000000-0000-4000-8000-000000000638",
+  ];
+  const initialUpdate = authoritativeFixture(revision, "active");
+  await openPreview(page);
+
+  const written = await page.evaluate(
+    async ({
+      canvasId,
+      fileId,
+      fixtureIds,
+      initialUpdate,
+      objectId,
+      operationIds,
+      pageId,
+      revision,
+      sourceId,
+    }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const collaborationPath =
+        "/app/lukas/lib/drawing-collaboration-client.ts";
+      const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const sourceLinksPath = "/app/lukas/lib/drawing-source-links.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const outboxModule = await import(outboxPath);
+      const collaboration = await import(collaborationPath);
+      const commands = await import(commandsPath);
+      const sourceLinks = await import(sourceLinksPath);
+      const object = {
+        id: objectId,
+        name: "Linked object",
+        layerId: fixtureIds.layer,
+        geometry: {
+          type: "rectangle",
+          origin: { x: 0, y: 0 },
+          width: 10,
+          height: 10,
+          rotation: 0,
+        },
+        style: { stroke: "#111111", strokeWidth: 1, fill: null },
+        version: 1,
+      };
+      const baseState = commands.createDrawingDocumentState({
+        revisionId: revision,
+        structure: {
+          pages: {
+            [pageId]: {
+              id: pageId,
+              revisionId: revision,
+              name: "A1",
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          canvases: {
+            [canvasId]: {
+              id: canvasId,
+              pageId,
+              name: "Paper",
+              spaceKind: "paper",
+              widthMillimeters: 210,
+              heightMillimeters: 297,
+              background: null,
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          layers: {
+            [fixtureIds.layer]: {
+              id: fixtureIds.layer,
+              name: "Work",
+              visible: true,
+              locked: false,
+              systemKind: "work",
+              canvasId,
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          objects: { [objectId]: object },
+          sources: {},
+          styles: {},
+          blocks: {},
+          blockInstances: {},
+          propertySchemas: {},
+          propertyValues: {},
+          tables: {},
+        },
+      });
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const handle = await persistence.openDrawingYjsPersistence({
+        revisionId: revision,
+        document,
+      });
+      if (!handle) throw new Error("Browser persistence did not open.");
+      await handle.whenSynced();
+      let operationIndex = 0;
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+        createId: () => operationIds[operationIndex++],
+        now: () => "2026-08-27T00:00:00.000Z",
+      });
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      const bridge = collaboration.createDrawingCollaborationCommandBridge({
+        adapter,
+        outbox,
+      });
+      await bridge.applyCommand(
+        sourceLinks.linkDrawingPdfRegionSourceCommand(
+          adapter.getSnapshot().state,
+          fixtureIds.actor,
+          objectId,
+          {
+            id: sourceId,
+            sourceFileId: fileId,
+            sourceSha256: "e".repeat(64),
+            pdfPageNumber: 1,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.4,
+          },
+        ),
+      );
+      await bridge.applyCommand(
+        sourceLinks.unlinkDrawingObjectSourceCommand(
+          adapter.getSnapshot().state,
+          fixtureIds.actor,
+          sourceId,
+        ),
+      );
+      const undo = commands.undoDrawingCommand(
+        adapter.getSnapshot().state,
+        fixtureIds.actor,
+        {
+          createId: () => operationIds[operationIndex++],
+          now: () => "2026-08-27T00:00:01.000Z",
+        },
+      );
+      if (!undo || "kind" in undo) throw new Error("Source undo conflicted.");
+      await bridge.applyRecorded(undo);
+      await handle.flush();
+      const snapshot = adapter.getSnapshot();
+      const clipboard = commands.copyDrawingSelection(snapshot.state, [
+        objectId,
+      ]);
+      return {
+        outboxIds: (await outbox.entries()).map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+        operationIds: adapter
+          .operations()
+          .map((operation: any) => operation.clientOperationId),
+        sourceVersion: snapshot.state.structure.sources[sourceId]?.version,
+        clipboardJson: JSON.stringify(clipboard),
+      };
+      // Deliberately do not dispose: navigation below simulates a renderer crash.
+    },
+    {
+      canvasId,
+      fileId,
+      fixtureIds: ids,
+      initialUpdate,
+      objectId,
+      operationIds,
+      pageId,
+      revision,
+      sourceId,
+    },
+  );
+  expect(written.outboxIds).toEqual(operationIds);
+  expect(written.operationIds).toEqual(operationIds);
+  expect(written.sourceVersion).toBe(3);
+  expect(written.clipboardJson).not.toContain(sourceId);
+
+  await page.reload();
+  const reopened = await page.evaluate(
+    async ({
+      canvasId,
+      fixtureIds,
+      initialUpdate,
+      objectId,
+      pageId,
+      revision,
+      sourceId,
+    }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const outboxModule = await import(outboxPath);
+      const commands = await import(commandsPath);
+      const baseState = commands.createDrawingDocumentState({
+        revisionId: revision,
+        structure: {
+          pages: {
+            [pageId]: {
+              id: pageId,
+              revisionId: revision,
+              name: "A1",
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          canvases: {
+            [canvasId]: {
+              id: canvasId,
+              pageId,
+              name: "Paper",
+              spaceKind: "paper",
+              widthMillimeters: 210,
+              heightMillimeters: 297,
+              background: null,
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          layers: {
+            [fixtureIds.layer]: {
+              id: fixtureIds.layer,
+              name: "Work",
+              visible: true,
+              locked: false,
+              systemKind: "work",
+              canvasId,
+              sortOrder: 0,
+              version: 1,
+            },
+          },
+          objects: {
+            [objectId]: {
+              id: objectId,
+              name: "Linked object",
+              layerId: fixtureIds.layer,
+              geometry: {
+                type: "rectangle",
+                origin: { x: 0, y: 0 },
+                width: 10,
+                height: 10,
+                rotation: 0,
+              },
+              style: { stroke: "#111111", strokeWidth: 1, fill: null },
+              version: 1,
+            },
+          },
+          sources: {},
+          styles: {},
+          blocks: {},
+          blockInstances: {},
+          propertySchemas: {},
+          propertyValues: {},
+          tables: {},
+        },
+      });
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const handle = await persistence.openDrawingYjsPersistence({
+        revisionId: revision,
+        document,
+      });
+      if (!handle) throw new Error("Browser persistence did not reopen.");
+      await handle.whenSynced();
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: baseState,
+        actorId: fixtureIds.actor,
+        authorization: "editor",
+        frozen: false,
+      });
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      const entries = await outbox.entries();
+      const recovered = outboxModule.recoverPendingDrawingState(
+        baseState,
+        entries,
+      );
+      const snapshot = adapter.getSnapshot();
+      const result = {
+        quarantine: snapshot.quarantine,
+        outboxIds: entries.map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+        operationIds: adapter
+          .operations()
+          .map((operation: any) => operation.clientOperationId),
+        sourceVersion: snapshot.state.structure.sources[sourceId]?.version,
+        recoveredSourceVersion:
+          recovered.state.structure.sources[sourceId]?.version,
+        conflicts: recovered.conflictedOperationIds,
+        ambiguous: recovered.ambiguousOperationIds,
+      };
+      outbox.dispose();
+      adapter.dispose();
+      await handle.dispose();
+      document.destroy();
+      return result;
+    },
+    {
+      canvasId,
+      fixtureIds: ids,
+      initialUpdate,
+      objectId,
+      pageId,
+      revision,
+      sourceId,
+    },
+  );
+  expect(reopened).toEqual({
+    quarantine: null,
+    outboxIds: operationIds,
+    operationIds,
+    sourceVersion: 3,
+    recoveredSourceVersion: 3,
+    conflicts: [],
+    ambiguous: [],
+  });
 });
 
 test("valid frozen adapter recovery survives version-change close", async ({

@@ -653,6 +653,72 @@ test("workspace collaboration bootstrap is one authenticated transactional RPC",
   assert.equal(bootstrap.canonicalJson.revision.id, ids.revision);
 });
 
+test("snapshot bootstrap sources are strict canonical evidence before client hydration", async () => {
+  const canonicalSource = {
+    id: "00000000-0000-4000-8000-000000000620",
+    objectId: "00000000-0000-4000-8000-000000000621",
+    revisionId: ids.revision,
+    sourceFileId: "00000000-0000-4000-8000-000000000622",
+    sourceSha256: "b".repeat(64),
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    version: 1,
+  };
+  const payload = (source) => ({
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.other,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources: [source],
+      pages: [],
+      canvases: [],
+      layers: [],
+      objects: [],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [],
+      operationSequence: 0,
+    },
+    operationSequence: 0,
+    schemaVersion: 2,
+    sha256: "a".repeat(64),
+    revisionStatus: "approved",
+    capability: "viewer",
+    canWrite: false,
+    recentOutcomes: [],
+  });
+  const client = (source) => ({
+    async rpc() {
+      return { data: payload(source), error: null };
+    },
+  });
+
+  const loaded = await loadDrawingWorkspaceCollaborationBootstrap(
+    client(canonicalSource),
+    ids.revision,
+  );
+  assert.deepEqual(loaded.canonicalJson.sources, [canonicalSource]);
+  await assert.rejects(
+    loadDrawingWorkspaceCollaborationBootstrap(
+      client({ ...canonicalSource, signedUrl: "https://example.invalid/file" }),
+      ids.revision,
+    ),
+  );
+});
+
 test("lost-receipt bootstrap reconstructs exact persisted undo lineage", async () => {
   let repaired;
   await reconcileDrawingCollaborationDraft({

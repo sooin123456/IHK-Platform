@@ -15,6 +15,7 @@ import {
   DrawingLayerInputSchema,
   DrawingLayerSchema,
   DrawingObjectNameSchema,
+  DrawingObjectSourceSchema,
   DrawingObjectSchema,
   DrawingOperationInputSchema,
   DrawingPageSchema,
@@ -39,6 +40,7 @@ import type {
   DrawingCanvas,
   DrawingLayer,
   DrawingObject,
+  DrawingObjectSource,
   DrawingOperationInput,
   DrawingPage,
   DrawingPropertySchema,
@@ -743,6 +745,7 @@ export type DrawingWorkspace = {
           pages: Array<DrawingPageRow | DrawingWorkspaceP2Page>;
           layers: Array<DrawingLayerRow | DrawingLayer>;
           objects: Array<DrawingObjectRow | DrawingObject>;
+          sources?: DrawingObjectSource[];
           activePageId?: string;
           activeCanvasId?: string;
           canvases?: DrawingCanvas[];
@@ -780,7 +783,7 @@ const CollaborationCanonicalJsonSchema = z
         version: z.number().int().positive(),
       })
       .strict(),
-    sources: z.array(z.unknown()),
+    sources: z.array(DrawingObjectSourceSchema),
     pages: z.array(z.unknown()),
     canvases: z.array(z.unknown()),
     layers: z.array(z.unknown()),

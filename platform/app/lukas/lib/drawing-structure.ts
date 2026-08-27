@@ -69,6 +69,7 @@ export class DrawingStructureError extends Error {
 
 type StructureCollection =
   | "objects"
+  | "sources"
   | "pages"
   | "canvases"
   | "layers"
@@ -81,6 +82,7 @@ type StructureCollection =
 
 type StructureEntity =
   | DrawingObject
+  | DrawingObjectSource
   | DrawingPage
   | DrawingCanvas
   | DrawingStructureLayer
@@ -97,6 +99,8 @@ const collectionForKind: Record<
 > = {
   put_object: "objects",
   delete_object: "objects",
+  put_source: "sources",
+  delete_source: "sources",
   put_page: "pages",
   delete_page: "pages",
   put_canvas: "canvases",
@@ -384,6 +388,8 @@ function recordFor(
   state: DrawingStructureState,
   collection: StructureCollection,
 ): Record<string, StructureEntity> {
+  if (collection === "sources")
+    return (state.sources ?? {}) as Record<string, StructureEntity>;
   return state[collection] as Record<string, StructureEntity>;
 }
 
@@ -433,6 +439,7 @@ function validateActionBases(
     const occupiedElsewhere = (
       [
         "objects",
+        "sources",
         "pages",
         "canvases",
         "layers",
@@ -907,6 +914,7 @@ function validateObjectCompound(
           action.kind !== "delete_object" &&
           action.kind !== "put_block" &&
           action.kind !== "put_block_instance" &&
+          action.kind !== "delete_source" &&
           action.kind !== "delete_property_value" &&
           action.kind !== "put_table",
       )
@@ -919,6 +927,14 @@ function validateObjectCompound(
     const instance = entityFor(instances[0]) as DrawingBlockInstance;
     const targetIds = new Set(objectActions.map(idFor));
     const expectedCleanup: DrawingStructureAction[] = [
+      ...Object.values(state.sources ?? {})
+        .filter((source) => targetIds.has(source.objectId))
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((source) => ({
+          kind: "delete_source" as const,
+          id: source.id,
+          baseVersion: source.version,
+        })),
       ...Object.values(state.propertyValues)
         .filter(
           (value) =>
@@ -953,7 +969,9 @@ function validateObjectCompound(
     ];
     const cleanup = actions.filter(
       (action) =>
-        action.kind === "delete_property_value" || action.kind === "put_table",
+        action.kind === "delete_source" ||
+        action.kind === "delete_property_value" ||
+        action.kind === "put_table",
     );
     if (!sameJson(cleanup, expectedCleanup)) {
       throw new DrawingStructureError(
@@ -1017,6 +1035,7 @@ function validateObjectCompound(
           action.kind !== "put_object" &&
           action.kind !== "delete_block" &&
           action.kind !== "delete_block_instance" &&
+          action.kind !== "put_source" &&
           action.kind !== "put_property_value" &&
           action.kind !== "put_table",
       )

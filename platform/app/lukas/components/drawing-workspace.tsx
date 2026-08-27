@@ -570,6 +570,7 @@ function drawingStateFromRevision(
         sortOrder: layer.sortOrder!,
       })),
       objects: p2Objects,
+      sources: revision.sources ?? [],
       styles: revision.styles,
       blocks: revision.blocks,
       blockInstances: revision.blockInstances,
@@ -633,6 +634,7 @@ function drawingStateFromBootstrap(
       "pageId",
       "type",
     ]) as DrawingDocumentHydration["objects"],
+    sources: graph.sources as DrawingDocumentHydration["sources"],
     styles: graph.styles as DrawingDocumentHydration["styles"],
     blocks: graph.blocks as DrawingDocumentHydration["blocks"],
     blockInstances:
@@ -1958,6 +1960,7 @@ export default function DrawingWorkspaceClient({
             "pageId",
             "type",
           ]) as DrawingDocumentHydration["objects"],
+          sources: graph.sources as DrawingDocumentHydration["sources"],
           styles: graph.styles as DrawingDocumentHydration["styles"],
           blocks: graph.blocks as DrawingDocumentHydration["blocks"],
           blockInstances:

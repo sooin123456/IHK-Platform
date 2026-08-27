@@ -302,6 +302,16 @@ export function drawingTargetReferenceCleanupActions(
 ): DrawingStructureAction[] {
   const state = canonicalState(inputState);
   const targets = new Set(targetIds);
+  const sourceActions: DrawingStructureAction[] = Object.values(
+    state.structure.sources ?? {},
+  )
+    .filter((source) => targets.has(source.objectId))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((source) => ({
+      kind: "delete_source" as const,
+      id: source.id,
+      baseVersion: source.version,
+    }));
   const valueActions: DrawingStructureAction[] = Object.values(
     state.structure.propertyValues,
   )
@@ -336,7 +346,7 @@ export function drawingTargetReferenceCleanupActions(
             },
           ];
     });
-  return [...valueActions, ...tableActions];
+  return [...sourceActions, ...valueActions, ...tableActions];
 }
 
 /** Records target-reference cleanup as one independently undoable command. */

@@ -815,6 +815,8 @@ const DrawingStructureDeleteActionSchema = (kind: string) =>
 export const DrawingStructureActionSchema = z.discriminatedUnion("kind", [
   DrawingStructurePutActionSchema("put_object", DrawingObjectSchema),
   DrawingStructureDeleteActionSchema("delete_object"),
+  DrawingStructurePutActionSchema("put_source", DrawingObjectSourceSchema),
+  DrawingStructureDeleteActionSchema("delete_source"),
   DrawingStructurePutActionSchema("put_page", DrawingPageSchema),
   DrawingStructureDeleteActionSchema("delete_page"),
   DrawingStructurePutActionSchema("put_canvas", DrawingCanvasSchema),
@@ -1011,6 +1013,7 @@ type DrawingStructureObject = Omit<DrawingObject, "style"> & {
 type PutStructureAction<T> = {
   kind:
     | "put_object"
+    | "put_source"
     | "put_page"
     | "put_canvas"
     | "put_layer"
@@ -1026,6 +1029,7 @@ type PutStructureAction<T> = {
 type DeleteStructureAction = {
   kind:
     | "delete_object"
+    | "delete_source"
     | "delete_page"
     | "delete_canvas"
     | "delete_layer"
@@ -1040,6 +1044,7 @@ type DeleteStructureAction = {
 };
 export type DrawingStructureAction =
   | (PutStructureAction<DrawingStructureObject> & { kind: "put_object" })
+  | (PutStructureAction<DrawingObjectSource> & { kind: "put_source" })
   | (PutStructureAction<DrawingPage> & { kind: "put_page" })
   | (PutStructureAction<DrawingCanvas> & { kind: "put_canvas" })
   | (PutStructureAction<DrawingStructureLayer> & { kind: "put_layer" })
@@ -1052,6 +1057,7 @@ export type DrawingStructureAction =
   | (PutStructureAction<DrawingPropertyValue> & { kind: "put_property_value" })
   | (PutStructureAction<DrawingTable> & { kind: "put_table" })
   | (DeleteStructureAction & { kind: "delete_object" })
+  | (DeleteStructureAction & { kind: "delete_source" })
   | (DeleteStructureAction & { kind: "delete_page" })
   | (DeleteStructureAction & { kind: "delete_canvas" })
   | (DeleteStructureAction & { kind: "delete_layer" })

@@ -575,6 +575,7 @@ function recoveryBaseVersionsMatch(
 }
 
 function structureCollectionForRecovery(kind: DrawingStructureAction["kind"]) {
+  if (kind.includes("source")) return "sources" as const;
   if (kind.includes("object")) return "objects" as const;
   if (kind.includes("page")) return "pages" as const;
   if (kind.includes("canvas")) return "canvases" as const;
@@ -633,7 +634,7 @@ function restoreMissingStructureTombstones(
     if (!("id" in paired) || paired.id !== id || paired.baseVersion < 1)
       throw new Error("Structure acknowledgement inverse is not exact.");
     const collection = structureCollectionForRecovery(action.kind);
-    if (state[collection][id]) continue;
+    if (state[collection]?.[id]) continue;
     // A creation acknowledgement uses version 1. A higher inverse delete base
     // proves this is a tombstone restore; recreate only that exact tombstone.
     if (paired.baseVersion === 1) continue;
@@ -741,13 +742,13 @@ function acknowledgedFinalEffects(
           return {
             target: `${collection}:${id}`,
             matches: (state) =>
-              valuesMatch(state.structure?.[collection][id], expected),
+              valuesMatch(state.structure?.[collection]?.[id], expected),
           };
         }
         return {
           target: `${collection}:${id}`,
           matches: (state) => {
-            if (state.structure?.[collection][id]) return false;
+            if (state.structure?.[collection]?.[id]) return false;
             const tombstone = state.structure?.tombstones?.[id];
             return !tombstone || tombstone.version === action.baseVersion + 1;
           },
@@ -798,7 +799,7 @@ function acknowledgedFinalEffects(
           return {
             target: `${collection}:${id}`,
             matches: (state) =>
-              valuesMatch(state.structure?.[collection][id], expected),
+              valuesMatch(state.structure?.[collection]?.[id], expected),
           };
         }
         if (
@@ -808,7 +809,7 @@ function acknowledgedFinalEffects(
           throw new Error("Structure deletion inverse version is not exact.");
         return {
           target: `${collection}:${id}`,
-          matches: (state) => !state.structure?.[collection][id],
+          matches: (state) => !state.structure?.[collection]?.[id],
         };
       },
     );
@@ -1152,7 +1153,7 @@ export function recoverPendingDrawingState(
           const id = structureActionId(action);
           if ("entity" in action) {
             const current =
-              applied.state[structureCollectionForRecovery(action.kind)][id];
+              applied.state[structureCollectionForRecovery(action.kind)]?.[id];
             if (!current || current.version !== expected.baseVersion)
               throw new Error("Structure result version is not exact.");
           } else if (expected.baseVersion !== null) {

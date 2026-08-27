@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateDrawingStructureState } from "../app/lukas/lib/drawing-structure.ts";
+import {
+  applyDrawingStructureActions,
+  validateDrawingStructureState,
+} from "../app/lukas/lib/drawing-structure.ts";
 import {
   DrawingObjectSourceSchema,
+  DrawingStructureActionSchema,
   IfcCameraStateSchema,
 } from "../app/lukas/lib/drawing-workspace.types.ts";
 
@@ -246,6 +250,45 @@ test("source-map validation checks final object/revision identity and active uni
         [ids.object]: pdfSource({ id: ids.object }),
       }),
     ),
+  );
+});
+
+test("source structure actions use exact bases, versions, inverses, and final graphs", () => {
+  const source = pdfSource();
+  const put = { kind: "put_source", entity: source, baseVersion: null };
+  assert.deepEqual(DrawingStructureActionSchema.parse(put), put);
+
+  const linked = applyDrawingStructureActions(structure({}), [put]);
+  assert.deepEqual(linked.state.sources, { [ids.source]: source });
+  assert.deepEqual(linked.baseVersions, {});
+  assert.deepEqual(linked.resultVersions, { [ids.source]: 1 });
+  assert.deepEqual(linked.inverse, [
+    { kind: "delete_source", id: ids.source, baseVersion: 1 },
+  ]);
+
+  const unlinked = applyDrawingStructureActions(linked.state, [
+    { kind: "delete_source", id: ids.source, baseVersion: 1 },
+  ]);
+  assert.deepEqual(unlinked.state.sources, {});
+  assert.deepEqual(unlinked.baseVersions, { [ids.source]: 1 });
+  assert.deepEqual(unlinked.resultVersions, { [ids.source]: null });
+  assert.deepEqual(unlinked.inverse, [
+    { kind: "put_source", entity: source, baseVersion: null },
+  ]);
+
+  assert.throws(() =>
+    applyDrawingStructureActions(linked.state, [
+      { kind: "delete_source", id: ids.source, baseVersion: 2 },
+    ]),
+  );
+  assert.throws(() =>
+    applyDrawingStructureActions(linked.state, [
+      {
+        kind: "put_source",
+        entity: { ...source, objectId: ids.source2 },
+        baseVersion: 1,
+      },
+    ]),
   );
 });
 

@@ -1471,6 +1471,7 @@ function conflictFor(
 function structureCollectionFor(
   kind: DrawingStructureAction["kind"],
 ): keyof Omit<DrawingStructureState, "revisionId" | "tombstones"> {
+  if (kind.includes("source")) return "sources";
   if (kind.includes("object")) return "objects";
   if (kind.includes("page")) return "pages";
   if (kind.includes("canvas")) return "canvases";
@@ -1709,6 +1710,7 @@ export function createDrawingDocumentState({
           ...clone(structure),
           objects: canonicalObjects,
           layers: canonicalLayers,
+          sources: clone(structure.sources ?? {}),
         }
       : undefined,
   };
@@ -1879,6 +1881,7 @@ const checkpointCollections = [
   ["styles", "style"],
   ["blocks", "block"],
   ["objects", "object"],
+  ["sources", "source"],
   ["blockInstances", "block_instance"],
   ["propertySchemas", "property_schema"],
   ["propertyValues", "property_value"],

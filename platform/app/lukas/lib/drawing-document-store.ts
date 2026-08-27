@@ -14,6 +14,7 @@ import type {
   DrawingCanvas,
   DrawingLayer,
   DrawingObject,
+  DrawingObjectSource,
   DrawingPage,
   DrawingPropertySchema,
   DrawingPropertyValue,
@@ -26,6 +27,7 @@ import {
   DrawingBlockSchema,
   DrawingCanvasSchema,
   DrawingObjectSchema,
+  DrawingObjectSourceSchema,
   DrawingPageSchema,
   DrawingPropertySchemaSchema,
   DrawingPropertyValueSchema,
@@ -46,6 +48,7 @@ export type DrawingDocumentHydration = {
   canvases: DrawingCanvas[];
   layers: DrawingStructureLayer[];
   objects: DrawingObject[];
+  sources?: DrawingObjectSource[];
   styles: DrawingStyleDefinition[];
   blocks: DrawingBlock[];
   blockInstances: DrawingBlockInstance[];
@@ -100,6 +103,11 @@ export function hydrateDrawingDocumentState(
     ),
     objects: byId(
       hydration.objects.map((value) => DrawingObjectSchema.parse(value)),
+    ),
+    sources: byId(
+      (hydration.sources ?? []).map((value) =>
+        DrawingObjectSourceSchema.parse(value),
+      ),
     ),
     styles: byId(
       hydration.styles.map((value) =>

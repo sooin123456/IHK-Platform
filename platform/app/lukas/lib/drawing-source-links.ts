@@ -2,6 +2,117 @@ import {
   DrawingObjectSourceSchema,
   type DrawingObjectSource,
 } from "./drawing-workspace.types.ts";
+import {
+  DrawingCommandError,
+  type DrawingCommand,
+  type DrawingDocumentState,
+} from "./drawing-commands.ts";
+import { applyDrawingStructureActions } from "./drawing-structure.ts";
+
+type DrawingSourceCommand = Extract<
+  DrawingCommand,
+  { type: "mutate_structure" }
+>;
+
+type DrawingPdfSourceSelection = Omit<
+  Extract<DrawingObjectSource, { sourceKind: "pdf_region" }>,
+  "objectId" | "revisionId" | "sourceKind" | "version"
+>;
+
+type DrawingIfcSourceSelection = Omit<
+  Extract<DrawingObjectSource, { sourceKind: "ifc_element" }>,
+  "objectId" | "revisionId" | "sourceKind" | "version"
+>;
+
+function sourceCommandState(state: DrawingDocumentState) {
+  if (!state.structure)
+    throw new DrawingCommandError(
+      "Drawing structure state is required for source links.",
+    );
+  return { revisionId: state.revisionId, ...state.structure };
+}
+
+function linkDrawingSourceCommand(
+  state: DrawingDocumentState,
+  actorId: string,
+  source: DrawingObjectSource,
+): DrawingSourceCommand {
+  const action = {
+    kind: "put_source" as const,
+    entity: DrawingObjectSourceSchema.parse(source),
+    baseVersion: null,
+  };
+  try {
+    applyDrawingStructureActions(sourceCommandState(state), [action]);
+  } catch (error) {
+    if (error instanceof Error) throw new DrawingCommandError(error.message);
+    throw error;
+  }
+  return { type: "mutate_structure", actorId, actions: [action] };
+}
+
+/** Builds one fresh canonical PDF-region evidence link. */
+export function linkDrawingPdfRegionSourceCommand(
+  state: DrawingDocumentState,
+  actorId: string,
+  objectId: string,
+  selection: DrawingPdfSourceSelection,
+): DrawingSourceCommand {
+  return linkDrawingSourceCommand(state, actorId, {
+    ...selection,
+    objectId,
+    revisionId: state.revisionId,
+    sourceKind: "pdf_region",
+    version: 1,
+  });
+}
+
+/** Builds one fresh canonical IFC GlobalId evidence link. */
+export function linkDrawingIfcSourceCommand(
+  state: DrawingDocumentState,
+  actorId: string,
+  objectId: string,
+  selection: DrawingIfcSourceSelection,
+): DrawingSourceCommand {
+  return linkDrawingSourceCommand(state, actorId, {
+    ...selection,
+    objectId,
+    revisionId: state.revisionId,
+    sourceKind: "ifc_element",
+    version: 1,
+  });
+}
+
+/** Deletes exactly the current source version so its recorded inverse can restore it. */
+export function unlinkDrawingObjectSourceCommand(
+  state: DrawingDocumentState,
+  actorId: string,
+  sourceId: string,
+): DrawingSourceCommand {
+  const source = sourceCommandState(state).sources?.[sourceId];
+  if (!source)
+    throw new DrawingCommandError(`Drawing source ${sourceId} does not exist.`);
+  return {
+    type: "mutate_structure",
+    actorId,
+    actions: [
+      { kind: "delete_source", id: source.id, baseVersion: source.version },
+    ],
+  };
+}
+
+/** UI/adapter eligibility only; Task 3 adds the database authority. */
+export function canMutateDrawingObjectSources(input: {
+  capability: string;
+  revisionStatus: string;
+  frozen: boolean;
+}) {
+  return (
+    input.revisionStatus === "draft" &&
+    !input.frozen &&
+    (input.capability === "admin" || input.capability === "editor")
+  );
+}
 
 type DrawingIfcSourceIndex = ReadonlyMap<string, readonly string[]>;
 

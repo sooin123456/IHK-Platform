@@ -30,7 +30,26 @@ const ids = {
   hostWall: "00000000-0000-4000-8000-000000000122",
   opening: "00000000-0000-4000-8000-000000000123",
   unrelated: "00000000-0000-4000-8000-000000000124",
+  source: "00000000-0000-4000-8000-000000000125",
+  file: "00000000-0000-4000-8000-000000000126",
 };
+
+function source() {
+  return {
+    id: ids.source,
+    objectId: ids.object,
+    revisionId: ids.revision,
+    sourceFileId: ids.file,
+    sourceSha256: "a".repeat(64),
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+    version: 1,
+  };
+}
 
 function structure() {
   return {
@@ -68,6 +87,7 @@ function structure() {
 test("hydrates every P2 collection into one canonical document state", () => {
   const state = hydrateDrawingDocumentState({
     revisionId: ids.revision,
+    sources: [source()],
     ...Object.fromEntries(Object.entries(structure()).map(([key, value]) => [key, Object.values(value)])),
   });
 
@@ -78,6 +98,7 @@ test("hydrates every P2 collection into one canonical document state", () => {
   assert.equal(state.structure.blocks[ids.block].name, "Symbol");
   assert.equal(state.structure.propertySchemas[ids.schema].name, "Code");
   assert.equal(state.structure.tables[ids.table].name, "Schedule");
+  assert.deepEqual(state.structure.sources, { [ids.source]: source() });
   assert.strictEqual(state.objects, state.structure.objects);
   assert.strictEqual(state.layers, state.structure.layers);
 });
