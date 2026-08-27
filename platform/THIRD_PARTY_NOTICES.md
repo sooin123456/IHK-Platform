@@ -12,6 +12,7 @@ packages has been modified or copied into this repository.
 | pdfjs-dist           | 6.2.108 | https://github.com/mozilla/pdf.js          | Apache-2.0 | No       | npm         | Immutable PDF background rendering           |
 | three                | 0.185.1 | https://github.com/mrdoob/three.js         | MIT        | No       | npm         | IFC WebGL scene rendering                    |
 | web-ifc              | 0.0.77  | https://github.com/ThatOpen/engine_web-ifc | MPL-2.0    | No       | npm         | IFC parsing at the package/runtime boundary  |
+| fflate               | 0.8.3   | https://github.com/101arrowz/fflate         | MIT        | No       | npm         | Formula-free Verified BOQ XLSX ZIP generation |
 | yjs                  | 13.6.32 | https://github.com/yjs/yjs                 | MIT        | No       | npm         | CRDT document and updates                    |
 | y-indexeddb          | 9.0.12  | https://github.com/yjs/y-indexeddb         | MIT        | No       | npm         | Offline Yjs update persistence               |
 | @hocuspocus/provider | 4.6.0   | https://github.com/ueberdosis/hocuspocus   | MIT        | No       | npm         | Browser collaboration provider and Awareness |
