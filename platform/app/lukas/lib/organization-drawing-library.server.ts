@@ -240,13 +240,16 @@ export async function runOrganizationDrawingLibraryMutation(
         })
       : mutation.intent === "publish"
         ? client.rpc("lukas_drawing_publish_library_version", {
+            p_organization_id: Uuid.parse(organizationId),
             p_version_id: mutation.versionId,
           })
         : mutation.intent === "deprecate"
           ? client.rpc("lukas_drawing_deprecate_library_version", {
+              p_organization_id: Uuid.parse(organizationId),
               p_version_id: mutation.versionId,
             })
           : client.rpc("lukas_drawing_import_library_version", {
+              p_organization_id: Uuid.parse(organizationId),
               p_version_id: mutation.versionId,
               p_project_id: mutation.projectId,
               p_revision_id: mutation.revisionId,

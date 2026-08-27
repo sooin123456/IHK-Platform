@@ -26,6 +26,7 @@ const REVIEWER = "00000000-0000-4000-8000-000000000002";
 const OUTSIDER = "00000000-0000-4000-8000-000000000003";
 const EDITOR = "00000000-0000-4000-8000-000000000004";
 const PROJECT = "10000000-0000-4000-8000-000000000001";
+const ORGANIZATION = "10000000-0000-4000-8000-000000000010";
 const PDF = "20000000-0000-4000-8000-000000000001";
 const PDF_SHA = "a".repeat(64);
 const STYLE = { stroke: "#112233", strokeWidth: 1, fill: null };
@@ -344,6 +345,14 @@ const p5RevisionRelinkAuthorityMigration = async () => {
   assert.equal(names.length, 1);
   return readFile(new URL(names[0], directory), "utf8");
 };
+const p7OrganizationLibraryMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260827231130_organization_drawing_libraries.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 async function applyP0ThroughP3Migrations(targetDb) {
   for (const readMigration of [
@@ -453,9 +462,32 @@ const foundationSql = `
     grant execute on function auth.uid() to authenticated, service_role;
     grant usage on schema private to authenticated, service_role;
 
+    create table public.lukas_qto_organizations(
+      id uuid primary key,
+      name text not null,
+      owner_id uuid not null references auth.users(id),
+      is_personal boolean not null default false,
+      created_at timestamptz not null default now()
+    );
+    create table public.lukas_qto_organization_members(
+      organization_id uuid not null references public.lukas_qto_organizations(id),
+      user_id uuid not null references auth.users(id),
+      role text not null,
+      created_at timestamptz not null default now(),
+      primary key(organization_id,user_id)
+    );
+    create function private.lukas_qto_organization_role(p_organization_id uuid)
+    returns text language sql stable security definer set search_path='' as $$
+      select case when o.owner_id=(select auth.uid()) then 'owner'
+        else (select m.role from public.lukas_qto_organization_members m
+          where m.organization_id=o.id and m.user_id=(select auth.uid())) end
+      from public.lukas_qto_organizations o where o.id=p_organization_id
+    $$;
+
     create table public.lukas_qto_projects(
       id uuid primary key,
-      owner_id uuid not null references auth.users(id)
+      owner_id uuid not null references auth.users(id),
+      organization_id uuid references public.lukas_qto_organizations(id)
     );
     create table public.lukas_qto_project_members(
       project_id uuid not null references public.lukas_qto_projects(id),
@@ -790,6 +822,7 @@ before(async () => {
   await db.exec(await p4FinalNameAuthorityMigration());
   await db.exec(await p5EvidenceAuthorityMigration());
   await db.exec(await p5RevisionRelinkAuthorityMigration());
+  await db.exec(await p7OrganizationLibraryMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -797,8 +830,19 @@ before(async () => {
     EDITOR,
   ]);
   await db.query(
-    "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
-    [PROJECT, OWNER],
+    `insert into public.lukas_qto_organizations(id,name,owner_id)
+     values($1,'1HK',$2)`,
+    [ORGANIZATION, OWNER],
+  );
+  await db.query(
+    `insert into public.lukas_qto_organization_members(organization_id,user_id,role)
+     values($1,$2,'owner')`,
+    [ORGANIZATION, OWNER],
+  );
+  await db.query(
+    `insert into public.lukas_qto_projects(id,owner_id,organization_id)
+     values($1,$2,$3)`,
+    [PROJECT, OWNER, ORGANIZATION],
   );
   await db.query(
     `insert into public.lukas_qto_project_members(project_id,user_id,role)
@@ -3289,6 +3333,290 @@ test("P4 approved template clone remaps hosted IDs without changing source bytes
     [PDF],
   );
   assert.deepEqual(sourceAfter.rows, sourceBefore.rows);
+});
+
+test("P7 organization template import remaps all references and restores locked layers", async () => {
+  const ids = await createDocument("P7 organization template");
+  const layerId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "add_layer",
+    { [layerId]: 1 },
+    {
+      type: "add_layer",
+      layer: {
+        id: layerId,
+        name: "Locked standard",
+        canvasId: ids.canvasId,
+        sortOrder: 9,
+        visible: true,
+        locked: false,
+        version: 1,
+      },
+    },
+    {},
+  );
+  const styleId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    {
+      type: "mutate_structure",
+      actions: [
+        {
+          kind: "put_style",
+          entity: {
+            id: styleId,
+            revisionId: ids.revisionId,
+            name: "P7 standard",
+            value: STYLE,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [{ kind: "delete_style", id: styleId, baseVersion: 1 }],
+    },
+  );
+  const wall = {
+    ...p4Object(randomUUID(), layerId, validP4Geometries[0], "W-P7"),
+    styleId,
+    style: {},
+  };
+  const opening = {
+    ...p4Object(
+      randomUUID(),
+      layerId,
+      { ...validP4Geometries[1], hostWallId: wall.id },
+      "D-P7",
+    ),
+    styleId,
+    style: {},
+  };
+  await applyOperation(
+    ids.revisionId,
+    "add_objects",
+    {},
+    {
+      type: "add_objects",
+      objects: [wall, opening].sort((a, b) => a.id.localeCompare(b.id)),
+    },
+    { type: "delete_objects", objectIds: [wall.id, opening.id].sort() },
+  );
+  const blockId = randomUUID();
+  const instanceId = randomUUID();
+  const schemaId = randomUUID();
+  const valueId = randomUUID();
+  const tableId = randomUUID();
+  const columnId = randomUUID();
+  await applyOperation(
+    ids.revisionId,
+    "mutate_structure",
+    {},
+    {
+      type: "mutate_structure",
+      actions: [
+        {
+          kind: "put_block",
+          entity: {
+            id: blockId,
+            revisionId: ids.revisionId,
+            name: "P7 block",
+            primitives: [
+              {
+                localId: "edge",
+                name: "Edge",
+                geometry: {
+                  type: "line",
+                  start: { x: 0, y: 0 },
+                  end: { x: 10, y: 0 },
+                },
+                styleId,
+                style: {},
+              },
+            ],
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_block_instance",
+          entity: {
+            id: instanceId,
+            lineageId: instanceId,
+            blockId,
+            layerId,
+            name: "P7 placement",
+            origin: { x: 5, y: 5 },
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_property_schema",
+          entity: {
+            id: schemaId,
+            revisionId: ids.revisionId,
+            name: "P7 mark",
+            valueType: "text",
+            enumOptions: [],
+            appliesTo: ["wall"],
+            required: false,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_property_value",
+          entity: {
+            id: valueId,
+            schemaId,
+            objectId: wall.id,
+            blockInstanceId: null,
+            value: "W-01",
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_table",
+          entity: {
+            id: tableId,
+            revisionId: ids.revisionId,
+            name: "P7 schedule",
+            columns: [
+              {
+                id: columnId,
+                name: "Mark",
+                kind: "property",
+                propertySchemaId: schemaId,
+              },
+            ],
+            rows: [
+              {
+                id: randomUUID(),
+                objectId: wall.id,
+                blockInstanceId: null,
+                cells: {},
+              },
+            ],
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    },
+    {
+      type: "mutate_structure",
+      actions: [
+        { kind: "delete_table", id: tableId, baseVersion: 1 },
+        { kind: "delete_property_value", id: valueId, baseVersion: 1 },
+        { kind: "delete_property_schema", id: schemaId, baseVersion: 1 },
+        { kind: "delete_block_instance", id: instanceId, baseVersion: 1 },
+        { kind: "delete_block", id: blockId, baseVersion: 1 },
+      ],
+    },
+  );
+  await applyOperation(
+    ids.revisionId,
+    "update_layer",
+    { [layerId]: 1 },
+    { type: "update_layer", layerId, patch: { locked: true } },
+    { type: "update_layer", layerId, patch: { locked: false } },
+  );
+  const review = await db.query(
+    "select public.lukas_drawing_request_review($1) result",
+    [ids.revisionId],
+  );
+  await asActor(REVIEWER);
+  await db.query(
+    "select public.lukas_drawing_record_revision_decision($1,$2,$3,'approved','p7 library')",
+    [
+      ids.revisionId,
+      review.rows[0].result.subjectVersion,
+      review.rows[0].result.snapshotSha256,
+    ],
+  );
+  const targetProject = randomUUID();
+  await db.exec("reset role");
+  await db.query(
+    `insert into public.lukas_qto_projects(id,owner_id,organization_id)
+     values($1,$2,$3)`,
+    [targetProject, OWNER, ORGANIZATION],
+  );
+  await db.query(
+    `insert into public.lukas_qto_project_members(project_id,user_id,role)
+     values($1,$2,'owner')`,
+    [targetProject, OWNER],
+  );
+  await asActor(OWNER);
+  const draft = await db.query(
+    `select public.lukas_drawing_create_library_draft(
+      $1,'workspace_template','P7 complete template',$2,null,null
+    ) result`,
+    [ORGANIZATION, ids.revisionId],
+  );
+  const versionId = draft.rows[0].result.versionId;
+  await db.query("select public.lukas_drawing_publish_library_version($1,$2)", [
+    ORGANIZATION,
+    versionId,
+  ]);
+  const imported = await db.query(
+    `select public.lukas_drawing_import_library_version(
+      $1,$2,$3,null,$4
+    ) result`,
+    [ORGANIZATION, versionId, targetProject, randomUUID()],
+  );
+  await db.exec("reset role");
+  const targetRevision = imported.rows[0].result.revisionId;
+  const copiedObjects = await db.query(
+    `select id,lineage_id,object_type,geometry,host_object_id,style_id
+     from public.lukas_drawing_objects where revision_id=$1 order by object_type`,
+    [targetRevision],
+  );
+  assert.equal(copiedObjects.rows.length, 2);
+  const copiedOpening = copiedObjects.rows.find(
+    (object) => object.object_type === "opening",
+  );
+  const copiedWall = copiedObjects.rows.find(
+    (object) => object.object_type === "wall",
+  );
+  assert.equal(copiedWall.lineage_id, copiedWall.id);
+  assert.equal(copiedOpening.lineage_id, copiedOpening.id);
+  assert.notEqual(copiedWall.lineage_id, wall.id);
+  assert.notEqual(copiedOpening.lineage_id, opening.id);
+  assert.equal(copiedOpening.geometry.hostWallId, copiedWall.id);
+  assert.equal(copiedOpening.host_object_id, copiedWall.id);
+  assert.equal(copiedOpening.style_id, copiedWall.style_id);
+  const copiedStructure = await db.query(
+    `select
+      (select locked from public.lukas_drawing_layers where revision_id=$1 and name='Locked standard') locked,
+      (select version from public.lukas_drawing_layers where revision_id=$1 and name='Locked standard') layer_version,
+      (select count(*)::int from public.lukas_drawing_block_instances where revision_id=$1 and lineage_id=id) fresh_instances,
+      (select count(*)::int from public.lukas_drawing_property_values v
+        join public.lukas_drawing_property_schemas s on s.id=v.schema_id and s.revision_id=v.revision_id
+        where v.revision_id=$1 and v.object_id=$2) property_refs,
+      (select count(*)::int from public.lukas_drawing_tables t,
+        jsonb_array_elements(t.rows_json) row
+        where t.revision_id=$1 and row->>'objectId'=$2::text) table_refs,
+      private.lukas_drawing_p4_semantic_graph_valid($1) semantic_valid`,
+    [targetRevision, copiedWall.id],
+  );
+  assert.deepEqual(copiedStructure.rows[0], {
+    locked: true,
+    layer_version: 2,
+    fresh_instances: 1,
+    property_refs: 1,
+    table_refs: 1,
+    semantic_valid: true,
+  });
 });
 
 test("P3 collaboration bootstrap is one canonical capability-scoped payload", async () => {

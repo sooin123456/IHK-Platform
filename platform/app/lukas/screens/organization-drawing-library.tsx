@@ -5,7 +5,6 @@ import { Form, Link, data, redirect } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
-import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
 import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
@@ -96,8 +95,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.organizationId!,
   );
-  const [{ data: projects, error: projectError }, versions] = await Promise.all(
-    [
+  const [{ data: projects, error: projectError }, versions, allVersions] =
+    await Promise.all([
       client
         .from("lukas_qto_projects")
         .select("id,name,organization_id")
@@ -106,8 +105,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .order("id")
         .limit(ORGANIZATION_LIBRARY_LIST_LIMIT),
       listOrganizationDrawingLibrary(client, organization.id, filters),
-    ],
-  );
+      listOrganizationDrawingLibrary(client, organization.id, {}),
+    ]);
   if (projectError)
     throw new Response("회사 프로젝트를 불러오지 못했습니다.", { status: 500 });
   const projectIds = (projects ?? []).map(
@@ -169,6 +168,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         sourceResults.map((result) => [result.kind, result.data ?? []]),
       ),
       versions,
+      allVersions,
     },
     { headers },
   );
@@ -228,6 +228,13 @@ export default function OrganizationDrawingLibrary({
       project.name,
     ]),
   );
+  const predecessorOptions = (kind: string, name?: string) =>
+    loaderData.allVersions.filter(
+      (version) =>
+        version.entry.kind === kind &&
+        version.status !== "draft" &&
+        (!name || version.entry.name === name),
+    );
   return (
     <main className="mx-auto w-full max-w-7xl px-5 pb-24 pt-8 sm:px-8">
       <Link className="text-sm underline underline-offset-4" to="/workspace">
@@ -292,72 +299,126 @@ export default function OrganizationDrawingLibrary({
           <h2 className="font-bold" id="library-publish-title">
             승인 도면에서 새 버전 준비
           </h2>
-          <Form className="mt-4 grid gap-3 lg:grid-cols-5" method="post">
-            <input name="intent" type="hidden" value="create_draft" />
-            <label className="grid gap-1 text-sm">
-              <span>종류</span>
-              <select
-                className="min-h-11 rounded-lg border bg-background px-3"
-                name="kind"
-                required
-              >
-                {Object.entries(kindLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>라이브러리 이름</span>
-              <Input maxLength={255} name="name" required />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>승인 리비전</span>
-              <select
-                className="min-h-11 rounded-lg border bg-background px-3"
-                name="source_revision_id"
-                required
-              >
-                {approvedRevisions.map((revision: RevisionOption) => (
-                  <option key={revision.id} value={revision.id}>
-                    {projectName.get(revision.project_id)} · v{revision.version}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>원본 객체 UUID (템플릿은 비움)</span>
-              <Input
-                name="source_entity_id"
-                placeholder="스타일·블록·속성 UUID"
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>직전 버전 UUID (첫 버전은 비움)</span>
-              <Input name="predecessor_version_id" />
-            </label>
-            <Button
-              className="lg:col-span-5"
-              disabled={approvedRevisions.length === 0}
-              type="submit"
-            >
-              <Copy className="size-4" /> 초안 버전 만들기
-            </Button>
-          </Form>
-          <details className="mt-3 text-xs text-muted-foreground">
-            <summary>선택 가능한 표준 객체</summary>
-            <ul className="mt-2 grid gap-1">
-              {Object.entries(loaderData.sources).flatMap(([kind, sources]) =>
-                (sources as SourceOption[]).map((source) => (
-                  <li key={source.id}>
-                    {kindLabels[kind as keyof typeof kindLabels]} ·{" "}
-                    {source.name} · <code>{source.id}</code>
-                  </li>
-                )),
-              )}
-            </ul>
-          </details>
+          <p className="mt-1 text-sm text-muted-foreground">
+            승인 리비전과 표준 객체를 직접 선택합니다. 기존 이름과 일치하면 최신
+            발행 버전이 직전 버전으로 자동 선택됩니다.
+          </p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {Object.entries(loaderData.sources).flatMap(([kind, sources]) =>
+              (sources as SourceOption[]).map((source) => {
+                const predecessors = predecessorOptions(kind, source.name);
+                return (
+                  <Form
+                    className="grid gap-3 rounded-xl border p-4"
+                    key={`${kind}:${source.id}`}
+                    method="post"
+                  >
+                    <input name="intent" type="hidden" value="create_draft" />
+                    <input name="kind" type="hidden" value={kind} />
+                    <input
+                      name="source_revision_id"
+                      type="hidden"
+                      value={source.revision_id}
+                    />
+                    <input
+                      name="source_entity_id"
+                      type="hidden"
+                      value={source.id}
+                    />
+                    <p className="text-xs font-semibold text-primary">
+                      {kindLabels[kind as keyof typeof kindLabels]} ·{" "}
+                      {projectName.get(
+                        approvedRevisions.find(
+                          (revision: RevisionOption) =>
+                            revision.id === source.revision_id,
+                        )?.project_id ?? "",
+                      )}
+                    </p>
+                    <label className="grid gap-1 text-sm">
+                      <span>라이브러리 이름</span>
+                      <Input
+                        defaultValue={source.name}
+                        maxLength={255}
+                        name="name"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span>직전 버전</span>
+                      <select
+                        className="min-h-11 rounded-lg border bg-background px-3"
+                        defaultValue={predecessors[0]?.id ?? ""}
+                        name="predecessor_version_id"
+                      >
+                        <option value="">새 표준으로 시작</option>
+                        {predecessors.map((version) => (
+                          <option key={version.id} value={version.id}>
+                            {version.entry.name} · v{version.version_no}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <Button type="submit">
+                      <Copy className="size-4" /> 이 객체로 초안 만들기
+                    </Button>
+                  </Form>
+                );
+              }),
+            )}
+            {approvedRevisions.map((revision: RevisionOption) => {
+              const templateName = `${projectName.get(revision.project_id)} 템플릿`;
+              const predecessors = predecessorOptions(
+                "workspace_template",
+                templateName,
+              );
+              return (
+                <Form
+                  className="grid gap-3 rounded-xl border p-4"
+                  key={`template:${revision.id}`}
+                  method="post"
+                >
+                  <input name="intent" type="hidden" value="create_draft" />
+                  <input name="kind" type="hidden" value="workspace_template" />
+                  <input
+                    name="source_revision_id"
+                    type="hidden"
+                    value={revision.id}
+                  />
+                  <p className="text-xs font-semibold text-primary">
+                    작업실 템플릿 · {projectName.get(revision.project_id)} · v
+                    {revision.version}
+                  </p>
+                  <label className="grid gap-1 text-sm">
+                    <span>라이브러리 이름</span>
+                    <Input
+                      defaultValue={templateName}
+                      maxLength={255}
+                      name="name"
+                      required
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    <span>직전 버전</span>
+                    <select
+                      className="min-h-11 rounded-lg border bg-background px-3"
+                      defaultValue={predecessors[0]?.id ?? ""}
+                      name="predecessor_version_id"
+                    >
+                      <option value="">새 템플릿으로 시작</option>
+                      {predecessors.map((version) => (
+                        <option key={version.id} value={version.id}>
+                          {version.entry.name} · v{version.version_no}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="submit">
+                    <Copy className="size-4" /> 이 리비전으로 초안 만들기
+                  </Button>
+                </Form>
+              );
+            })}
+          </div>
         </section>
       ) : null}
 

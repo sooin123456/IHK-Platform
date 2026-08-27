@@ -6,6 +6,7 @@ import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
   parseOrganizationDrawingLibraryForm,
   parseOrganizationDrawingLibrarySearch,
+  runOrganizationDrawingLibraryMutation,
 } from "../app/lukas/lib/organization-drawing-library.server.ts";
 
 const ids = Object.freeze({
@@ -163,6 +164,35 @@ test("organization library search is bounded and cursor identity is exact", () =
   );
 });
 
+test("every mutation binds the route organization into database authority", async () => {
+  const calls = [];
+  const client = {
+    rpc(name, args) {
+      calls.push({ name, args });
+      return Promise.resolve({ data: {}, error: null });
+    },
+  };
+  for (const mutation of [
+    { intent: "publish", versionId: ids.version },
+    { intent: "deprecate", versionId: ids.version },
+    {
+      intent: "import",
+      versionId: ids.version,
+      projectId: ids.project,
+      revisionId: ids.revision,
+      clientRequestId: ids.request,
+    },
+  ])
+    await runOrganizationDrawingLibraryMutation(
+      client,
+      ids.organization,
+      mutation,
+    );
+  assert.equal(calls.length, 3);
+  for (const call of calls)
+    assert.equal(call.args.p_organization_id, ids.organization, call.name);
+});
+
 test("organization library route is mounted in authenticated navigation", () => {
   const routes = readFileSync(
     new URL("../app/routes.ts", import.meta.url),
@@ -185,5 +215,7 @@ test("organization library route is mounted in authenticated navigation", () => 
   assert.match(screen, /publish/);
   assert.match(screen, /deprecate/);
   assert.match(screen, /client_request_id/);
+  assert.doesNotMatch(screen, /원본 객체 UUID|직전 버전 UUID/);
+  assert.match(screen, /predecessorOptions/);
   assert.match(dashboard, /drawing-library/);
 });

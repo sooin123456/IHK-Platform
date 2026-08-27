@@ -62,7 +62,7 @@ test("published bytes are hash-bound, immutable, and imported through an exact r
   assert.match(sql, /published library versions are immutable/i);
   assert.match(
     sql,
-    /before update or delete on public\.lukas_drawing_library_versions/i,
+    /before insert or update or delete on public\.lukas_drawing_library_versions/i,
   );
   assert.match(
     sql,
@@ -71,6 +71,10 @@ test("published bytes are hash-bound, immutable, and imported through an exact r
   assert.match(sql, /current_user=pg_catalog\.pg_get_userbyid/i);
   assert.doesNotMatch(sql, /set_config\([^)]*drawing_library/i);
   assert.doesNotMatch(sql, /disable trigger/i);
+  assert.doesNotMatch(
+    sql,
+    /grant all on table public\.lukas_drawing_library_\w+ to service_role/i,
+  );
   assert.match(sql, /pg_advisory_xact_lock/i);
   assert.match(sql, /client_request_id uuid not null/i);
   assert.match(sql, /request_sha256 text not null/i);
@@ -166,6 +170,18 @@ test("workspace template copy remaps every canonical internal edge and drops pro
   ])
     assert.equal(clone.includes(mapping), true, mapping);
   assert.match(clone, /private\.lukas_drawing_p4_assert_semantic_graph/i);
+  assert.match(
+    clone,
+    /case when v_row\.system_kind='source' then true else false end/i,
+  );
+  assert.ok(
+    clone.indexOf("insert into public.lukas_drawing_objects") <
+      clone.indexOf(
+        "update public.lukas_drawing_layers target set locked=true",
+      ),
+  );
+  assert.equal((clone.match(/values\(v_new_id,v_new_id/g) ?? []).length, 2);
+  assert.doesNotMatch(clone, /values\(v_new_id,v_row\.lineage_id/i);
   assert.doesNotMatch(
     clone,
     /insert into public\.lukas_drawing_object_sources/i,
@@ -229,11 +245,12 @@ async function runtimeDatabase() {
     );
     await db.query(
       `insert into public.lukas_qto_organization_members(organization_id,user_id,role)
-       values($1,$2,'owner'),($1,$3,'member'),($4,$5,'owner')`,
+       values($1,$2,'owner'),($1,$3,'member'),($1,$4,'member'),($5,$6,'owner')`,
       [
         runtimeIds.organization,
         p6Ids.owner,
         p6Ids.viewer,
+        p6Ids.maker,
         runtimeIds.otherOrganization,
         p6Ids.otherOwner,
       ],
@@ -252,8 +269,8 @@ async function runtimeDatabase() {
     );
     await db.query(
       `insert into public.lukas_qto_project_members(project_id,user_id,role)
-       values($1,$2,'owner')`,
-      [runtimeIds.targetProject, p6Ids.owner],
+       values($1,$2,'owner'),($1,$3,'estimator')`,
+      [runtimeIds.targetProject, p6Ids.owner, p6Ids.maker],
     );
     await db.query(
       `insert into public.lukas_drawing_documents(id,project_id,title,created_by)
@@ -302,12 +319,35 @@ test("PGlite executes publish, immutable copy import, exact retry, and cross-org
     );
     const versionId = draft.rows[0].value.versionId;
     const contentSha256 = draft.rows[0].value.contentSha256;
-    await db.query(`select public.lukas_drawing_publish_library_version($1)`, [
-      versionId,
-    ]);
+    await sqlState(
+      db.query(`select public.lukas_drawing_publish_library_version($1,$2)`, [
+        runtimeIds.otherOrganization,
+        versionId,
+      ]),
+      "P1R01",
+    );
+    await db.query(
+      `select public.lukas_drawing_publish_library_version($1,$2)`,
+      [runtimeIds.organization, versionId],
+    );
+    await sqlState(
+      db.query(
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
+        [
+          runtimeIds.otherOrganization,
+          versionId,
+          runtimeIds.targetProject,
+          runtimeIds.targetRevision,
+          crypto.randomUUID(),
+        ],
+      ),
+      "P1R01",
+    );
+    await p6SetSession(db, "authenticated", p6Ids.maker);
     const first = await db.query(
-      `select public.lukas_drawing_import_library_version($1,$2,$3,$4) value`,
+      `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5) value`,
       [
+        runtimeIds.organization,
         versionId,
         runtimeIds.targetProject,
         runtimeIds.targetRevision,
@@ -315,8 +355,9 @@ test("PGlite executes publish, immutable copy import, exact retry, and cross-org
       ],
     );
     const retry = await db.query(
-      `select public.lukas_drawing_import_library_version($1,$2,$3,$4) value`,
+      `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5) value`,
       [
+        runtimeIds.organization,
         versionId,
         runtimeIds.targetProject,
         runtimeIds.targetRevision,
@@ -338,11 +379,52 @@ test("PGlite executes publish, immutable copy import, exact retry, and cross-org
         version: 1,
       },
     ]);
-    await p6SetSession(db, "authenticated", p6Ids.owner);
+    await db.query(
+      `delete from public.lukas_qto_project_members
+       where project_id=$1 and user_id=$2`,
+      [runtimeIds.targetProject, p6Ids.maker],
+    );
+    await p6SetSession(db, "authenticated", p6Ids.maker);
     await sqlState(
       db.query(
-        `select public.lukas_drawing_import_library_version($1,$2,$3,$4)`,
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
         [
+          runtimeIds.organization,
+          versionId,
+          runtimeIds.targetProject,
+          runtimeIds.targetRevision,
+          runtimeIds.request,
+        ],
+      ),
+      "P1R01",
+    );
+    await p6SetSession(db, "authenticated", p6Ids.viewer);
+    await sqlState(
+      db.query(
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
+        [
+          runtimeIds.organization,
+          versionId,
+          runtimeIds.targetProject,
+          runtimeIds.targetRevision,
+          crypto.randomUUID(),
+        ],
+      ),
+      "P1R01",
+    );
+    await p6SetSession(db, "authenticated", p6Ids.owner);
+    await sqlState(
+      db.query(`select public.lukas_drawing_deprecate_library_version($1,$2)`, [
+        runtimeIds.otherOrganization,
+        versionId,
+      ]),
+      "P1R01",
+    );
+    await sqlState(
+      db.query(
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
+        [
+          runtimeIds.organization,
           versionId,
           p6Ids.otherProject,
           p6Ids.otherRevision,
@@ -352,13 +434,14 @@ test("PGlite executes publish, immutable copy import, exact retry, and cross-org
       "P1R01",
     );
     await db.query(
-      `select public.lukas_drawing_deprecate_library_version($1)`,
-      [versionId],
+      `select public.lukas_drawing_deprecate_library_version($1,$2)`,
+      [runtimeIds.organization, versionId],
     );
     await sqlState(
       db.query(
-        `select public.lukas_drawing_import_library_version($1,$2,$3,$4)`,
+        `select public.lukas_drawing_import_library_version($1,$2,$3,$4,$5)`,
         [
+          runtimeIds.organization,
           versionId,
           runtimeIds.targetProject,
           runtimeIds.targetRevision,
@@ -400,18 +483,37 @@ test("PGlite denies direct lifecycle/content mutation and preserves published SH
     await p6SetSession(db, "service_role", p6Ids.owner);
     await sqlState(
       db.query(
+        `insert into public.lukas_drawing_library_imports(
+          organization_id,registry_id,version_id,project_id,revision_id,
+          target_entity_id,target_revision_id,source_content_sha256,imported_by,
+          client_request_id,request_sha256
+        ) select organization_id,registry_id,id,$2,$3,$4,$3,content_sha256,$5,$6,
+          repeat('a',64) from public.lukas_drawing_library_versions where id=$1`,
+        [
+          versionId,
+          runtimeIds.targetProject,
+          runtimeIds.targetRevision,
+          crypto.randomUUID(),
+          p6Ids.owner,
+          crypto.randomUUID(),
+        ],
+      ),
+      "42501",
+    );
+    await sqlState(
+      db.query(
         `insert into public.lukas_drawing_library_versions(
           registry_id,organization_id,version_no,status,canonical_payload,
           content_sha256,predecessor_version_id,predecessor_registry_id,
           predecessor_organization_id,source_project_id,source_revision_id,
-          source_entity_id,created_by
-        ) select registry_id,organization_id,2,'draft',canonical_payload,
-          repeat('0',64),id,registry_id,organization_id,source_project_id,
-          source_revision_id,source_entity_id,created_by
+          source_entity_id,created_by,published_by,published_at
+        ) select registry_id,organization_id,2,'published',canonical_payload,
+          content_sha256,id,registry_id,organization_id,source_project_id,
+          source_revision_id,source_entity_id,created_by,created_by,now()
         from public.lukas_drawing_library_versions where id=$1`,
         [versionId],
       ),
-      "23514",
+      "42501",
     );
     await sqlState(
       db.query(
@@ -419,7 +521,7 @@ test("PGlite denies direct lifecycle/content mutation and preserves published SH
          set status='deprecated',deprecated_at=now() where id=$1`,
         [versionId],
       ),
-      "P1C01",
+      "42501",
     );
     await sqlState(
       db.query(
@@ -427,12 +529,13 @@ test("PGlite denies direct lifecycle/content mutation and preserves published SH
          published_by=$2,published_at=now() where id=$1`,
         [versionId, p6Ids.owner],
       ),
-      "P1C01",
+      "42501",
     );
     await p6SetSession(db, "authenticated", p6Ids.owner);
-    await db.query(`select public.lukas_drawing_publish_library_version($1)`, [
-      versionId,
-    ]);
+    await db.query(
+      `select public.lukas_drawing_publish_library_version($1,$2)`,
+      [runtimeIds.organization, versionId],
+    );
     await p6SetSession(db, "service_role", p6Ids.owner);
     await sqlState(
       db.query(
@@ -440,14 +543,14 @@ test("PGlite denies direct lifecycle/content mutation and preserves published SH
          set canonical_payload='{}'::jsonb where id=$1`,
         [versionId],
       ),
-      "P1C01",
+      "42501",
     );
     await sqlState(
       db.query(
         `delete from public.lukas_drawing_library_versions where id=$1`,
         [versionId],
       ),
-      "P1C01",
+      "42501",
     );
     await p6SetSession(db, null);
     const stored = await db.query(

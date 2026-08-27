@@ -133,6 +133,15 @@ create index lukas_drawing_library_imports_project_revision_idx
 create or replace function private.lukas_drawing_library_version_guard()
 returns trigger language plpgsql security invoker set search_path='' as $$
 begin
+  if tg_op='INSERT' then
+    if current_user<>pg_catalog.pg_get_userbyid(
+        (select c.relowner from pg_catalog.pg_class c where c.oid=tg_relid)
+      ) or new.status<>'draft' then
+      raise exception using errcode='P1C01',
+        message='Library versions must start as an authorized draft';
+    end if;
+    return new;
+  end if;
   if tg_op='DELETE' then
     raise exception using errcode='P1C01',
       message='Published library versions are immutable';
@@ -174,17 +183,22 @@ begin
 end;
 $$;
 create trigger lukas_drawing_library_version_guard
-before update or delete on public.lukas_drawing_library_versions
+before insert or update or delete on public.lukas_drawing_library_versions
 for each row execute function private.lukas_drawing_library_version_guard();
 
 create or replace function private.lukas_drawing_library_append_guard()
-returns trigger language plpgsql security definer set search_path='' as $$
+returns trigger language plpgsql security invoker set search_path='' as $$
 begin
+  if tg_op='INSERT' and current_user=pg_catalog.pg_get_userbyid(
+      (select c.relowner from pg_catalog.pg_class c where c.oid=tg_relid)
+    ) then
+    return new;
+  end if;
   raise exception using errcode='P1C01',message='Drawing library provenance is append-only';
 end;
 $$;
 create trigger lukas_drawing_library_import_guard
-before update or delete on public.lukas_drawing_library_imports
+before insert or update or delete on public.lukas_drawing_library_imports
 for each row execute function private.lukas_drawing_library_append_guard();
 
 create or replace function private.lukas_drawing_library_manager(p_organization_id uuid)
@@ -322,13 +336,15 @@ begin
 end;
 $$;
 
-create or replace function public.lukas_drawing_publish_library_version(p_version_id uuid)
+create or replace function public.lukas_drawing_publish_library_version(
+  p_organization_id uuid,p_version_id uuid
+)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare v_actor uuid:=(select auth.uid()); v_version public.lukas_drawing_library_versions%rowtype;
   v_payload jsonb; v_sha text;
 begin
   select * into v_version from public.lukas_drawing_library_versions v
-  where v.id=p_version_id for update;
+  where v.id=p_version_id and v.organization_id=p_organization_id for update;
   if not found or v_actor is null
     or not private.lukas_drawing_library_manager(v_version.organization_id)
     or v_version.status<>'draft' then
@@ -352,12 +368,14 @@ begin
 end;
 $$;
 
-create or replace function public.lukas_drawing_deprecate_library_version(p_version_id uuid)
+create or replace function public.lukas_drawing_deprecate_library_version(
+  p_organization_id uuid,p_version_id uuid
+)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare v_actor uuid:=(select auth.uid()); v_version public.lukas_drawing_library_versions%rowtype;
 begin
   select * into v_version from public.lukas_drawing_library_versions v
-  where v.id=p_version_id for update;
+  where v.id=p_version_id and v.organization_id=p_organization_id for update;
   if not found or v_actor is null
     or not private.lukas_drawing_library_manager(v_version.organization_id)
     or v_version.status<>'published' then
@@ -399,7 +417,9 @@ begin
   for v_row in select * from public.lukas_drawing_layers where revision_id=p_source_revision_id order by sort_order,id loop
     v_new_id:=extensions.gen_random_uuid(); v_layer_map:=v_layer_map||pg_catalog.jsonb_build_object(v_row.id::text,v_new_id);
     insert into public.lukas_drawing_layers(id,page_id,canvas_id,revision_id,project_id,name,sort_order,visible,locked,system_kind,version,created_by)
-    values(v_new_id,(v_page_map->>v_row.page_id::text)::uuid,(v_canvas_map->>v_row.canvas_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.sort_order,v_row.visible,v_row.locked,v_row.system_kind,1,p_actor);
+    values(v_new_id,(v_page_map->>v_row.page_id::text)::uuid,(v_canvas_map->>v_row.canvas_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.sort_order,v_row.visible,
+      case when v_row.system_kind='source' then true else false end,
+      v_row.system_kind,1,p_actor);
   end loop;
   for v_row in select * from public.lukas_drawing_styles where revision_id=p_source_revision_id order by id loop
     v_new_id:=extensions.gen_random_uuid(); v_style_map:=v_style_map||pg_catalog.jsonb_build_object(v_row.id::text,v_new_id);
@@ -422,7 +442,7 @@ begin
   for v_row in select * from public.lukas_drawing_objects where revision_id=p_source_revision_id and status='active' order by id loop
     v_new_id:=(v_object_map->>v_row.id::text)::uuid;
     insert into public.lukas_drawing_objects(id,lineage_id,page_id,layer_id,revision_id,project_id,name,object_type,geometry,style_id,style,status,version,created_by,updated_by)
-    values(v_new_id,v_row.lineage_id,(v_page_map->>v_row.page_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.object_type,
+    values(v_new_id,v_new_id,(v_page_map->>v_row.page_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.object_type,
       case when v_row.object_type='opening' then pg_catalog.jsonb_set(
         v_row.geometry,'{hostWallId}',pg_catalog.to_jsonb(
           (v_object_map->>(v_row.geometry->>'hostWallId'))::uuid
@@ -433,7 +453,7 @@ begin
   for v_row in select * from public.lukas_drawing_block_instances where revision_id=p_source_revision_id order by id loop
     v_new_id:=extensions.gen_random_uuid(); v_instance_map:=v_instance_map||pg_catalog.jsonb_build_object(v_row.id::text,v_new_id);
     insert into public.lukas_drawing_block_instances(id,lineage_id,block_id,layer_id,revision_id,project_id,name,origin,rotation,scale_x,scale_y,version,created_by)
-    values(v_new_id,v_row.lineage_id,(v_block_map->>v_row.block_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.origin,v_row.rotation,v_row.scale_x,v_row.scale_y,1,p_actor);
+    values(v_new_id,v_new_id,(v_block_map->>v_row.block_id::text)::uuid,(v_layer_map->>v_row.layer_id::text)::uuid,v_revision_id,p_target_project_id,v_row.name,v_row.origin,v_row.rotation,v_row.scale_x,v_row.scale_y,1,p_actor);
   end loop;
   for v_row in select * from public.lukas_drawing_property_schemas where revision_id=p_source_revision_id order by id loop
     v_new_id:=extensions.gen_random_uuid(); v_schema_map:=v_schema_map||pg_catalog.jsonb_build_object(v_row.id::text,v_new_id);
@@ -456,7 +476,7 @@ begin
       v_columns:=v_columns||pg_catalog.jsonb_build_array(v_item);
     end loop;
     for v_item in select value from pg_catalog.jsonb_array_elements(v_row.rows_json) loop
-      select pg_catalog.coalesce(pg_catalog.jsonb_object_agg(v_column_map->>cell.key,cell.value),'{}'::jsonb) into v_cells from pg_catalog.jsonb_each(v_item->'cells') cell;
+      select coalesce(pg_catalog.jsonb_object_agg(v_column_map->>cell.key,cell.value),'{}'::jsonb) into v_cells from pg_catalog.jsonb_each(v_item->'cells') cell;
       v_item:=pg_catalog.jsonb_set(v_item,'{id}',pg_catalog.to_jsonb(extensions.gen_random_uuid()));
       v_item:=pg_catalog.jsonb_set(v_item,'{cells}',v_cells);
       if v_item->>'objectId' is not null then v_item:=pg_catalog.jsonb_set(v_item,'{objectId}',pg_catalog.to_jsonb((v_object_map->>(v_item->>'objectId'))::uuid)); end if;
@@ -466,13 +486,19 @@ begin
     insert into public.lukas_drawing_tables(id,revision_id,project_id,name,columns_json,rows_json,version,created_by)
     values(extensions.gen_random_uuid(),v_revision_id,p_target_project_id,v_row.name,v_columns,v_rows,1,p_actor);
   end loop;
+  update public.lukas_drawing_layers target set locked=true,version=target.version+1
+  from public.lukas_drawing_layers source
+  where source.revision_id=p_source_revision_id and source.system_kind<>'source'
+    and source.locked and target.id=(v_layer_map->>source.id::text)::uuid
+    and target.revision_id=v_revision_id and target.project_id=p_target_project_id;
   perform private.lukas_drawing_p4_assert_semantic_graph(v_revision_id);
   return pg_catalog.jsonb_build_object('documentId',v_document_id,'revisionId',v_revision_id);
 end;
 $$;
 
 create or replace function public.lukas_drawing_import_library_version(
-  p_version_id uuid,p_project_id uuid,p_revision_id uuid,p_client_request_id uuid
+  p_organization_id uuid,p_version_id uuid,p_project_id uuid,p_revision_id uuid,
+  p_client_request_id uuid
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare v_actor uuid:=(select auth.uid()); v_version public.lukas_drawing_library_versions%rowtype;
   v_entry public.lukas_drawing_library_entries%rowtype; v_project public.lukas_qto_projects%rowtype;
@@ -483,13 +509,21 @@ begin
   if v_actor is null or p_client_request_id is null then raise exception using errcode='P1R01',message='Drawing library import is unavailable'; end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_actor::text||':'||p_client_request_id::text,0));
   v_request_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_object(
-    'versionId',p_version_id,'projectId',p_project_id,'revisionId',p_revision_id
+    'organizationId',p_organization_id,'versionId',p_version_id,
+    'projectId',p_project_id,'revisionId',p_revision_id
   )::text,'UTF8'),'sha256'),'hex');
   select * into v_existing from public.lukas_drawing_library_imports i
   where i.imported_by=v_actor and i.client_request_id=p_client_request_id for update;
   if found then
     if v_existing.request_sha256 is distinct from v_request_sha then
       raise exception using errcode='P1C01',message='Request ID does not match the stored library import';
+    end if;
+    if v_existing.organization_id<>p_organization_id
+      or private.lukas_qto_organization_role(v_existing.organization_id) is null
+      or coalesce(
+        private.lukas_drawing_workspace_capability(v_existing.project_id),''
+      ) not in ('admin','editor') then
+      raise exception using errcode='P1R01',message='Drawing library import is unavailable';
     end if;
     if v_existing.target_entity_id is not null then
       return pg_catalog.jsonb_build_object('importId',v_existing.id,
@@ -502,13 +536,16 @@ begin
       'revisionId',v_existing.target_revision_id,
       'contentSha256',v_existing.source_content_sha256);
   end if;
-  select * into v_version from public.lukas_drawing_library_versions v where v.id=p_version_id for key share;
+  select * into v_version from public.lukas_drawing_library_versions v
+  where v.id=p_version_id and v.organization_id=p_organization_id for key share;
   if not found or v_version.status<>'published' then raise exception using errcode='P1R01',message='Drawing library version is unavailable'; end if;
   select * into v_entry from public.lukas_drawing_library_entries e
   where e.id=v_version.registry_id and e.organization_id=v_version.organization_id;
   select * into v_project from public.lukas_qto_projects p
   where p.id=p_project_id and p.organization_id=v_version.organization_id for key share;
-  if not found or private.lukas_drawing_workspace_capability(p_project_id) not in ('admin','editor') then
+  if not found or coalesce(
+      private.lukas_drawing_workspace_capability(p_project_id),''
+    ) not in ('admin','editor') then
     raise exception using errcode='P1R01',message='Drawing library target is unavailable';
   end if;
   v_live:=private.lukas_drawing_library_payload(v_entry.kind,v_version.source_revision_id,v_version.source_entity_id);
@@ -582,15 +619,15 @@ $$;
 alter table public.lukas_drawing_library_entries enable row level security;
 alter table public.lukas_drawing_library_versions enable row level security;
 alter table public.lukas_drawing_library_imports enable row level security;
-revoke all on table public.lukas_drawing_library_entries from anon,authenticated;
-revoke all on table public.lukas_drawing_library_versions from anon,authenticated;
-revoke all on table public.lukas_drawing_library_imports from anon,authenticated;
+revoke all on table public.lukas_drawing_library_entries from anon,authenticated,service_role;
+revoke all on table public.lukas_drawing_library_versions from anon,authenticated,service_role;
+revoke all on table public.lukas_drawing_library_imports from anon,authenticated,service_role;
 grant select on table public.lukas_drawing_library_entries to authenticated;
 grant select on table public.lukas_drawing_library_versions to authenticated;
 grant select on table public.lukas_drawing_library_imports to authenticated;
-grant all on table public.lukas_drawing_library_entries to service_role;
-grant all on table public.lukas_drawing_library_versions to service_role;
-grant all on table public.lukas_drawing_library_imports to service_role;
+grant select on table public.lukas_drawing_library_entries to service_role;
+grant select on table public.lukas_drawing_library_versions to service_role;
+grant select on table public.lukas_drawing_library_imports to service_role;
 
 create policy "organization members read drawing library entries"
 on public.lukas_drawing_library_entries for select to authenticated
@@ -610,14 +647,14 @@ revoke all on function
   private.lukas_drawing_clone_library_template(uuid,uuid,uuid,text)
 from public,anon,authenticated,service_role;
 revoke all on function public.lukas_drawing_create_library_draft(uuid,text,text,uuid,uuid,uuid),
-  public.lukas_drawing_publish_library_version(uuid),
-  public.lukas_drawing_deprecate_library_version(uuid),
-  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid)
+  public.lukas_drawing_publish_library_version(uuid,uuid),
+  public.lukas_drawing_deprecate_library_version(uuid,uuid),
+  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid,uuid)
 from public,anon;
 grant execute on function public.lukas_drawing_create_library_draft(uuid,text,text,uuid,uuid,uuid),
-  public.lukas_drawing_publish_library_version(uuid),
-  public.lukas_drawing_deprecate_library_version(uuid),
-  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid)
+  public.lukas_drawing_publish_library_version(uuid,uuid),
+  public.lukas_drawing_deprecate_library_version(uuid,uuid),
+  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid,uuid)
 to authenticated,service_role;
 
 commit;
