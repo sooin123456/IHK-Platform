@@ -1365,7 +1365,7 @@ function approvedExportClient({ status, decision, ...stored }) {
         immutable: true,
       },
     ],
-    lukas_qto_wbs_nodes: [],
+    lukas_qto_boq_wbs_nodes: [],
     lukas_qto_boq_wbs_allocations: [],
   };
   return {
@@ -1385,7 +1385,17 @@ function approvedExportClient({ status, decision, ...stored }) {
     },
     from(table) {
       assert.ok(table in rows, table);
-      return chain({ data: rows[table], error: null });
+      const result = { data: rows[table], error: null };
+      const query = chain(result);
+      if (table === "lukas_qto_boq_approvals")
+        query.order = () => Promise.resolve(result);
+      if (table === "lukas_qto_files") query.in = () => Promise.resolve(result);
+      if (
+        table === "lukas_qto_boq_wbs_nodes" ||
+        table === "lukas_qto_boq_wbs_allocations"
+      )
+        query.eq = () => Promise.resolve(result);
+      return query;
     },
   };
 }

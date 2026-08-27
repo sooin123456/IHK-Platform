@@ -1135,6 +1135,7 @@ export function parseVerifiedBoqV1_1RpcInput(value: unknown): {
   projectId: string;
   inputStateSha256: string;
   input: VerifiedBoqV1_1Input;
+  databaseInput: z.infer<typeof VerifiedBoqV1_1DatabaseInputSchema>;
 } {
   try {
     const parsed = VerifiedBoqV1_1RpcSchema.parse(value);
@@ -1156,6 +1157,7 @@ export function parseVerifiedBoqV1_1RpcInput(value: unknown): {
     return {
       projectId: parsed.input.projectId,
       inputStateSha256: parsed.inputStateSha256,
+      databaseInput: parsed.input,
       input: {
         engineVersion: "VERIFIED-BOQ-1.1",
         versionId: parsed.input.versionId,

@@ -1,9 +1,11 @@
 import { strToU8, zipSync } from "fflate";
 
 import type { VerifiedBoqResult } from "./verified-boq.server.ts";
+import type { VerifiedBoqV1_1Result } from "./verified-boq-v1-1.server.ts";
+import type { VerifiedBoqWorkbookDrawingEvidence } from "./verified-boq-approved-export.server.ts";
 
 export type VerifiedBoqWorkbookInput = {
-  result: VerifiedBoqResult;
+  result: VerifiedBoqResult | VerifiedBoqV1_1Result;
   resources: Array<{
     code: string;
     type: string;
@@ -50,6 +52,17 @@ export type VerifiedBoqWorkbookInput = {
       decidedBy: string;
       createdAt: string;
     }>;
+  };
+  drawingEvidence?: VerifiedBoqWorkbookDrawingEvidence[];
+  approvedManifest?: {
+    resultSha256: string;
+    manifestSha256: string;
+    handoffSha256: string;
+    versionId: string;
+    decidedBy: string;
+    decidedAt: string;
+    note: string;
+    canonicalJson: string;
   };
 };
 
@@ -242,5 +255,92 @@ export function buildVerifiedBoqXlsx(input: VerifiedBoqWorkbookInput) {
     "xl/worksheets/sheet4.xml": strToU8(sheet(reviewRows)),
     "xl/worksheets/sheet5.xml": strToU8(sheet(structureRows)),
   };
+  const drawingEvidence = input.drawingEvidence;
+  const approvedManifest = input.approvedManifest;
+  if (drawingEvidence && approvedManifest) {
+    const drawingRows = [
+      [
+        "품목코드",
+        "수량 연결 ID",
+        "도면 개정 ID",
+        "개정 버전",
+        "스냅샷 확인번호",
+        "객체 ID",
+        "계보 ID",
+        "객체 버전",
+        "객체 지문",
+        "측정 종류",
+        "단위",
+        "원수량",
+        "배분 계수",
+        "측정 규칙",
+        "원본 anchor ID",
+        "원본 파일 확인번호",
+        "이슈 ID",
+        "결과 확인번호",
+        "계산 manifest 확인번호",
+        "인계 확인번호",
+      ],
+      ...drawingEvidence.map((row) => [
+        row.itemCode,
+        row.quantityLinkId,
+        row.revisionId,
+        String(row.revisionVersion),
+        row.snapshotSha256,
+        row.objectId,
+        row.lineageId,
+        String(row.objectVersion),
+        row.objectFingerprint,
+        row.measurementKind,
+        row.unit,
+        row.rawQuantity,
+        row.allocationFactor,
+        row.measurementRuleVersion,
+        row.sourceAnchorIds.join("|"),
+        row.sourceFileSha256.join("|"),
+        row.issueIds.join("|"),
+        approvedManifest.resultSha256,
+        approvedManifest.manifestSha256,
+        approvedManifest.handoffSha256,
+      ]),
+    ];
+    const manifestRows = [
+      ["항목", "값"],
+      ["내역 버전 ID", approvedManifest.versionId],
+      ["결과 확인번호", approvedManifest.resultSha256],
+      ["계산 manifest 확인번호", approvedManifest.manifestSha256],
+      ["인계 확인번호", approvedManifest.handoffSha256],
+      ["승인자 ID", approvedManifest.decidedBy],
+      ["승인시각", approvedManifest.decidedAt],
+      ["승인 메모", approvedManifest.note],
+      ["정규 manifest JSON", approvedManifest.canonicalJson],
+    ];
+    files["[Content_Types].xml"] = strToU8(
+      new TextDecoder()
+        .decode(files["[Content_Types].xml"])
+        .replace(
+          "</Types>",
+          '<Override PartName="/xl/worksheets/sheet6.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet7.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+        ),
+    );
+    files["xl/workbook.xml"] = strToU8(
+      new TextDecoder()
+        .decode(files["xl/workbook.xml"])
+        .replace(
+          "</sheets>",
+          '<sheet name="도면근거" sheetId="6" r:id="rId6"/><sheet name="승인·매니페스트" sheetId="7" r:id="rId7"/></sheets>',
+        ),
+    );
+    files["xl/_rels/workbook.xml.rels"] = strToU8(
+      new TextDecoder()
+        .decode(files["xl/_rels/workbook.xml.rels"])
+        .replace(
+          "</Relationships>",
+          '<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet6.xml"/><Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet7.xml"/></Relationships>',
+        ),
+    );
+    files["xl/worksheets/sheet6.xml"] = strToU8(sheet(drawingRows));
+    files["xl/worksheets/sheet7.xml"] = strToU8(sheet(manifestRows));
+  }
   return zipSync(files, { level: 6 });
 }

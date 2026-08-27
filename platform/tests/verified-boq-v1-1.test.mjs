@@ -18,7 +18,10 @@ import {
   compareVerifiedBoqApprovedStates,
   verifiedBoqStoredReplayMatches,
 } from "../app/lukas/lib/verified-boq-comparison-v1-1.server.ts";
-import { buildApprovedVerifiedBoqExport } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
+import {
+  approvedVerifiedBoqDownloadResponse,
+  buildApprovedVerifiedBoqExport,
+} from "../app/lukas/lib/verified-boq-approved-export.server.ts";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -600,7 +603,7 @@ test("manifest builders reject stale result and approval hashes", () => {
   );
 });
 
-test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas", () => {
+test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas", async () => {
   const input = mixedInput();
   input.lines[0].itemName = "=악성";
   input.lines[0].specification = "+사양";
@@ -618,7 +621,7 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
     decidedAt: "2026-08-28T00:00:00.000Z",
     note: "승인",
   };
-  const exported = buildApprovedVerifiedBoqExport({
+  const exportInput = {
     result,
     calculationManifest: calculation.manifest,
     approvalEnvelope,
@@ -664,6 +667,25 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
         sourceFileSha256: [D, E],
         issueIds: [ids.issueA, ids.issueB],
       },
+      {
+        itemCode: "002-B",
+        quantityLinkId: ids.quantity,
+        revisionId: ids.revision,
+        revisionVersion: 2,
+        snapshotSha256: B,
+        objectId: ids.object,
+        lineageId: ids.lineage,
+        objectVersion: 3,
+        objectFingerprint: C,
+        measurementKind: "area",
+        unit: "m2",
+        rawQuantity: "4.7500",
+        allocationFactor: "0.750",
+        measurementRuleVersion: "P4_MEASUREMENT_V1",
+        sourceAnchorIds: [ids.ifcAnchor, ids.pdfAnchor],
+        sourceFileSha256: [D, E],
+        issueIds: [ids.issueA, ids.issueB],
+      },
     ],
     structures: [
       {
@@ -689,7 +711,14 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
         },
       ],
     },
-  });
+  };
+  const exported = buildApprovedVerifiedBoqExport(exportInput);
+  const staleEvidence = structuredClone(exportInput);
+  staleEvidence.drawingEvidence[0].objectFingerprint = A;
+  assert.throws(
+    () => buildApprovedVerifiedBoqExport(staleEvidence),
+    (error) => error.code === "P6C01",
+  );
 
   assert.equal(exported.resultSha256, result.canonicalSha256);
   assert.equal(exported.manifestSha256, calculation.manifestSha256);
@@ -709,7 +738,7 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
   ]);
 
   const csv = new TextDecoder().decode(exported.csv);
-  assert.ok(csv.startsWith("\uFEFF"));
+  assert.deepEqual([...exported.csv.slice(0, 3)], [0xef, 0xbb, 0xbf]);
   assert.match(csv, /한글 프로젝트|악성/);
   assert.match(csv, /'001-A/);
   for (const protectedCell of ["'=악성", "'+사양", "'-원수량.csv", "'@WALL"])
@@ -746,6 +775,25 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
     exported.handoffSha256,
   ])
     assert.match(workbookXml, new RegExp(hash));
+
+  for (const [format, contentType, bytes] of [
+    ["csv", "text/csv; charset=utf-8", exported.csv],
+    [
+      "xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      exported.xlsx,
+    ],
+    ["manifest", "application/json; charset=utf-8", exported.manifestJson],
+  ]) {
+    const response = approvedVerifiedBoqDownloadResponse(exported, format, 1);
+    assert.equal(response.headers.get("Content-Type"), contentType);
+    assert.equal(
+      response.headers.get("Content-Disposition"),
+      `attachment; filename="verified-boq-v1.${format === "manifest" ? "manifest.json" : format}"`,
+    );
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
+  }
 });
 
 test("1.1 result and manifests are independent of order, locale, time, and random", () => {

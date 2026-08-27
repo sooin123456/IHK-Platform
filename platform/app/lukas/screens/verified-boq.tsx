@@ -42,6 +42,10 @@ import {
   type VerifiedBoqInput,
   type VerifiedBoqResult,
 } from "~/lukas/lib/verified-boq.server";
+import {
+  approvedVerifiedBoqDownloadResponse,
+  loadApprovedVerifiedBoqExport,
+} from "~/lukas/lib/verified-boq-approved-export.server";
 import { buildVerifiedBoqXlsx } from "~/lukas/lib/verified-boq-xlsx.server";
 import {
   compareVerifiedBoqApprovedStates,
@@ -538,6 +542,28 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const requested = url.searchParams.get("version");
   const version =
     versions.find((item) => item.id === requested) ?? versions[0] ?? null;
+  const download = url.searchParams.get("download");
+  if (download && version?.engine_version === "VERIFIED-BOQ-1.1") {
+    if (!(["csv", "xlsx", "manifest"] as string[]).includes(download))
+      throw new Response("지원하지 않는 내보내기 형식입니다.", { status: 400 });
+    try {
+      return approvedVerifiedBoqDownloadResponse(
+        await loadApprovedVerifiedBoqExport(
+          context.client,
+          context.user.id,
+          version.id,
+        ),
+        download as "csv" | "xlsx" | "manifest",
+        version.version_no,
+      );
+    } catch (error) {
+      const failure = drawingQuantityLineageErrorResponse(error);
+      throw new Response(failure.body.error, {
+        status: failure.status,
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+  }
   let resources: Resource[] = [];
   let versionRows: Awaited<ReturnType<typeof loadVersionData>> | null = null;
   let result: VerifiedBoqResult | VerifiedBoqV1_1Result | null = null;
@@ -764,12 +790,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (error) throw new Response(error.message, { status: 500 });
     resources = (rows ?? []) as Resource[];
   }
-  const download = url.searchParams.get("download");
-  if (download && version && result && snapshotValid) {
-    if (result.engineVersion !== "VERIFIED-BOQ-1.0")
-      throw new Response("승인된 1.1 인계 내보내기는 전용 경로를 사용합니다.", {
-        status: 409,
-      });
+  if (
+    download &&
+    version &&
+    result?.engineVersion === "VERIFIED-BOQ-1.0" &&
+    snapshotValid
+  ) {
     if (download === "xlsx" && versionRows) {
       const fileById = new Map(files.map((file) => [file.id, file]));
       const lineById = new Map(
@@ -1663,6 +1689,25 @@ export default function VerifiedBoq({
             </Button>
             <Button asChild className="min-h-11" variant="outline">
               <a href={`?version=${version.id}&download=csv`}>CSV</a>
+            </Button>
+          </div>
+        ) : null}
+        {version &&
+        result &&
+        loaderData.snapshotValid &&
+        version.engine_version === "VERIFIED-BOQ-1.1" &&
+        ["approved", "superseded"].includes(version.status) ? (
+          <div className="flex gap-2">
+            <Button asChild className="min-h-11" variant="outline">
+              <a href={`?version=${version.id}&download=xlsx`}>
+                <Download className="size-4" /> Excel
+              </a>
+            </Button>
+            <Button asChild className="min-h-11" variant="outline">
+              <a href={`?version=${version.id}&download=csv`}>CSV</a>
+            </Button>
+            <Button asChild className="min-h-11" variant="outline">
+              <a href={`?version=${version.id}&download=manifest`}>Manifest</a>
             </Button>
           </div>
         ) : null}
