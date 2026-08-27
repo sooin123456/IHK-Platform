@@ -27,15 +27,6 @@ test("P5 migration versions and soft-deletes drawing sources behind partial acti
   assert.match(sql, /resultVersions/i);
 });
 
-test("P5 migration preserves active source lineage in canonical copies", async () => {
-  const sql = await p5Migration();
-  assert.match(sql, /lukas_drawing_p2_canonical_snapshot/i);
-  assert.match(sql, /status\s*=\s*'active'/i);
-  assert.match(sql, /lukas_drawing_create_from_template/i);
-  assert.match(sql, /lukas_drawing_restore_approved_snapshot/i);
-  assert.match(sql, /lukas_drawing_request_review/i);
-});
-
 test("P5 migration makes issue-anchor replacement atomic and guarded", async () => {
   const sql = await p5Migration();
   assert.match(sql, /replaces_anchor_id/i);

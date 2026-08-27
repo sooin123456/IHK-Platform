@@ -1002,6 +1002,375 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
   }
 });
 
+test("P5 upgrade preserves every legal P0-P4 source shape without inventing IFC identity", async () => {
+  const upgradeDb = new PGlite({ extensions: { pgcrypto } });
+  const ifcFile = randomUUID();
+  const ifcSha = "7".repeat(64);
+  const globalId = "0Q2gXl1Hn3fQ9A2W4k6M8P";
+  const camera = { position: [1, 2, 3], target: [4, 5, 6] };
+  const shapes = [
+    { elementId: "42", globalId: null },
+    { elementId: "legacy-element", globalId: null },
+    { elementId: null, globalId },
+    { elementId: "42", globalId },
+    { elementId: "legacy-element", globalId },
+  ].flatMap((identity) =>
+    [null, camera, { legacy: true }].map((cameraShape) => ({
+      ...identity,
+      camera: cameraShape,
+      expected:
+        identity.globalId &&
+        (identity.elementId === null || identity.elementId === "42") &&
+        (cameraShape === null || cameraShape === camera)
+          ? "active"
+          : "deleted",
+    })),
+  );
+  try {
+    await upgradeDb.exec(foundationSql);
+    await applyP0ThroughP3Migrations(upgradeDb);
+    await upgradeDb.exec(await p4SemanticObjectsMigration());
+    await upgradeDb.exec(await p4SemanticContractFixesMigration());
+    await upgradeDb.exec(await p4FinalContractFixesMigration());
+    await upgradeDb.exec(await p4FinalNameAuthorityMigration());
+    await upgradeDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await upgradeDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await upgradeDb.query(
+      `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+       values($1,$2,$3,'pdf',$4),($5,$2,$3,'ifc',$6)`,
+      [PDF, PROJECT, OWNER, PDF_SHA, ifcFile, ifcSha],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = (
+      await upgradeDb.query(
+        "select public.lukas_drawing_create_document($1,null,'Legacy source matrix',true) result",
+        [PROJECT],
+      )
+    ).rows[0].result;
+    const objects = Array.from({ length: shapes.length + 1 }, (_, index) =>
+      circleObject(randomUUID(), created.workLayerId, {
+        name: `Legacy source ${index}`,
+      }),
+    );
+    await upgradeDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'add_objects','{}'::jsonb,$3,$4
+      )`,
+      [
+        created.revisionId,
+        randomUUID(),
+        { type: "add_objects", objects },
+        { type: "delete_objects", objectIds: objects.map(({ id }) => id) },
+      ],
+    );
+    await upgradeDb.exec("reset role");
+    const pdfSourceId = randomUUID();
+    await upgradeDb.query(
+      `insert into public.lukas_drawing_object_sources(
+        id,object_id,revision_id,project_id,source_file_id,source_sha256,
+        source_kind,pdf_page_number,x,y,width,height,created_by
+      ) values($1,$2,$3,$4,$5,$6,'pdf_region',1,.1,.2,.3,.4,$7)`,
+      [
+        pdfSourceId,
+        objects[0].id,
+        created.revisionId,
+        PROJECT,
+        PDF,
+        PDF_SHA,
+        OWNER,
+      ],
+    );
+    const sourceIds = [];
+    for (const [index, shape] of shapes.entries()) {
+      const sourceId = randomUUID();
+      sourceIds.push(sourceId);
+      await upgradeDb.query(
+        `insert into public.lukas_drawing_object_sources(
+          id,object_id,revision_id,project_id,source_file_id,source_sha256,
+          source_kind,element_id,ifc_global_id,camera_json,created_by
+        ) values($1,$2,$3,$4,$5,$6,'ifc_element',$7,$8,$9,$10)`,
+        [
+          sourceId,
+          objects[index + 1].id,
+          created.revisionId,
+          PROJECT,
+          ifcFile,
+          ifcSha,
+          shape.elementId,
+          shape.globalId,
+          shape.camera,
+          OWNER,
+        ],
+      );
+    }
+
+    await upgradeDb.exec(await p5EvidenceAuthorityMigration());
+
+    const rows = await upgradeDb.query(
+      `select id,status,version,element_id "elementId",
+        ifc_global_id "globalId",camera_json camera
+       from public.lukas_drawing_object_sources order by id`,
+    );
+    const byId = new Map(rows.rows.map((row) => [row.id, row]));
+    assert.deepEqual(byId.get(pdfSourceId), {
+      id: pdfSourceId,
+      status: "active",
+      version: 1,
+      elementId: null,
+      globalId: null,
+      camera: null,
+    });
+    for (const [index, shape] of shapes.entries())
+      assert.deepEqual(byId.get(sourceIds[index]), {
+        id: sourceIds[index],
+        status: shape.expected,
+        version: shape.expected === "active" ? 1 : 2,
+        elementId: shape.elementId,
+        globalId: shape.globalId,
+        camera: shape.camera,
+      });
+  } finally {
+    await upgradeDb.close();
+  }
+});
+
+test("P5 restores an immutable pre-P5 PDF checkpoint without rewriting its snapshot", async () => {
+  const upgradeDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await upgradeDb.exec(foundationSql);
+    await applyP0ThroughP3Migrations(upgradeDb);
+    await upgradeDb.query("insert into auth.users(id) values ($1),($2)", [
+      OWNER,
+      REVIEWER,
+    ]);
+    await upgradeDb.query(
+      "insert into public.lukas_qto_projects(id,owner_id) values ($1,$2)",
+      [PROJECT, OWNER],
+    );
+    await upgradeDb.query(
+      `insert into public.lukas_qto_project_members(project_id,user_id,role)
+       values($1,$2,'reviewer')`,
+      [PROJECT, REVIEWER],
+    );
+    await upgradeDb.query(
+      `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,sha256)
+       values($1,$2,$3,'pdf',$4)`,
+      [PDF, PROJECT, OWNER, PDF_SHA],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = (
+      await upgradeDb.query(
+        "select public.lukas_drawing_create_document($1,null,'Legacy checkpoint',true) result",
+        [PROJECT],
+      )
+    ).rows[0].result;
+    const object = circleObject(randomUUID(), created.workLayerId);
+    await upgradeDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'add_objects','{}'::jsonb,$3,$4
+      )`,
+      [
+        created.revisionId,
+        randomUUID(),
+        { type: "add_objects", objects: [object] },
+        { type: "delete_objects", objectIds: [object.id] },
+      ],
+    );
+    await upgradeDb.exec("reset role");
+    const sourceId = randomUUID();
+    await upgradeDb.query(
+      `insert into public.lukas_drawing_object_sources(
+        id,object_id,revision_id,project_id,source_file_id,source_sha256,
+        source_kind,pdf_page_number,x,y,width,height,created_by
+      ) values($1,$2,$3,$4,$5,$6,'pdf_region',1,.1,.2,.3,.4,$7)`,
+      [sourceId, object.id, created.revisionId, PROJECT, PDF, PDF_SHA, OWNER],
+    );
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const review = await upgradeDb.query(
+      "select public.lukas_drawing_request_review($1) result",
+      [created.revisionId],
+    );
+    const immutableBefore = await upgradeDb.query(
+      "select canonical_json,sha256 from public.lukas_drawing_snapshots where id=$1",
+      [review.rows[0].result.snapshotId],
+    );
+    assert.equal(
+      immutableBefore.rows[0].canonical_json.sources[0].revisionId,
+      undefined,
+    );
+    assert.equal(
+      immutableBefore.rows[0].canonical_json.sources[0].version,
+      undefined,
+    );
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [REVIEWER],
+    );
+    await upgradeDb.query(
+      `select public.lukas_drawing_record_revision_decision(
+        $1,$2,$3,'rejected','legacy checkpoint fixture'
+      )`,
+      [
+        created.revisionId,
+        review.rows[0].result.subjectVersion,
+        review.rows[0].result.snapshotSha256,
+      ],
+    );
+    await upgradeDb.exec("reset role");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub','',false)",
+    );
+    await upgradeDb.exec(await p4SemanticObjectsMigration());
+    await upgradeDb.exec(await p4SemanticContractFixesMigration());
+    await upgradeDb.exec(await p4FinalContractFixesMigration());
+    await upgradeDb.exec(await p4FinalNameAuthorityMigration());
+    await upgradeDb.exec(await p5EvidenceAuthorityMigration());
+    await upgradeDb.exec("set role authenticated");
+    await upgradeDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const source = {
+      id: sourceId,
+      objectId: object.id,
+      revisionId: created.revisionId,
+      sourceFileId: PDF,
+      sourceSha256: PDF_SHA,
+      sourceKind: "pdf_region",
+      pdfPageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      version: 1,
+    };
+    await upgradeDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'mutate_structure',$3,$4,$5
+      )`,
+      [
+        created.revisionId,
+        randomUUID(),
+        { [sourceId]: 1 },
+        {
+          type: "mutate_structure",
+          actions: [{ kind: "delete_source", id: sourceId, baseVersion: 1 }],
+        },
+        {
+          type: "mutate_structure",
+          actions: [{ kind: "put_source", entity: source, baseVersion: null }],
+        },
+      ],
+    );
+    const restored = await upgradeDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'restore_checkpoint','{}'::jsonb,$3,$4
+      ) result`,
+      [
+        created.revisionId,
+        randomUUID(),
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "put_source", entity: source, baseVersion: null }],
+        },
+        {
+          type: "restore_checkpoint",
+          checkpointId: review.rows[0].result.snapshotId,
+          actions: [{ kind: "delete_source", id: sourceId, baseVersion: 3 }],
+        },
+      ],
+    );
+    assert.equal(restored.rows[0].result.resultVersions[sourceId], 3);
+    await upgradeDb.exec("reset role");
+    const after = await upgradeDb.query(
+      `select s.status,s.version,x.canonical_json,x.sha256
+       from public.lukas_drawing_object_sources s
+       cross join public.lukas_drawing_snapshots x
+       where s.id=$1 and x.id=$2`,
+      [sourceId, review.rows[0].result.snapshotId],
+    );
+    assert.equal(after.rows[0].status, "active");
+    assert.equal(after.rows[0].version, 3);
+    assert.deepEqual(
+      after.rows[0].canonical_json,
+      immutableBefore.rows[0].canonical_json,
+    );
+    assert.equal(after.rows[0].sha256, immutableBefore.rows[0].sha256);
+  } finally {
+    await upgradeDb.close();
+  }
+});
+
+test("P5 private trigger guards and future private functions deny direct execution", async () => {
+  await db.exec("reset role");
+  const guards = await db.query(
+    `select
+      has_function_privilege(
+        'authenticated','private.lukas_drawing_anchor_guard()','execute'
+      ) anchor_authenticated,
+      has_function_privilege(
+        'service_role','private.lukas_drawing_anchor_guard()','execute'
+      ) anchor_service,
+      has_function_privilege(
+        'authenticated','private.lukas_drawing_object_source_guard()','execute'
+      ) source_authenticated,
+      has_function_privilege(
+        'service_role','private.lukas_drawing_object_source_guard()','execute'
+      ) source_service`,
+  );
+  assert.deepEqual(guards.rows, [
+    {
+      anchor_authenticated: false,
+      anchor_service: false,
+      source_authenticated: false,
+      source_service: false,
+    },
+  ]);
+  await db.exec(`
+    create function private.lukas_drawing_p5_default_acl_probe()
+    returns integer language sql set search_path='' as $$ select 1 $$;
+  `);
+  try {
+    const defaults = await db.query(
+      `select
+        has_function_privilege(
+          'anon','private.lukas_drawing_p5_default_acl_probe()','execute'
+        ) anon_execute,
+        has_function_privilege(
+          'authenticated','private.lukas_drawing_p5_default_acl_probe()','execute'
+        ) authenticated_execute,
+        has_function_privilege(
+          'service_role','private.lukas_drawing_p5_default_acl_probe()','execute'
+        ) service_execute`,
+    );
+    assert.deepEqual(defaults.rows, [
+      {
+        anon_execute: false,
+        authenticated_execute: false,
+        service_execute: false,
+      },
+    ]);
+  } finally {
+    await db.exec("drop function private.lukas_drawing_p5_default_acl_probe()");
+  }
+});
+
 test("P5 source authority persists exact OCC, idempotent retry, soft delete and restore versions", async () => {
   const created = await createDocument("P5 source authority");
   const objectId = randomUUID();

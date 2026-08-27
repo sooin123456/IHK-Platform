@@ -6,6 +6,9 @@ alter table public.lukas_drawing_object_sources
   add column updated_by uuid,
   add column updated_at timestamptz not null default pg_catalog.now();
 
+alter table public.lukas_drawing_object_sources
+  disable trigger lukas_drawing_object_sources_revision_guard;
+
 update public.lukas_drawing_object_sources
 set updated_by=created_by where updated_by is null;
 
@@ -61,22 +64,54 @@ returns boolean language sql immutable security invoker set search_path='' as $$
     ),false)
 $$;
 
+update public.lukas_drawing_object_sources
+set status='deleted',version=2,updated_at=pg_catalog.clock_timestamp()
+where source_kind='ifc_element' and not (
+  ifc_global_id is not null
+  and ifc_global_id ~ '^[0-9A-Za-z_$]{22}$'
+  and (element_id is null or element_id ~ '^[1-9][0-9]*$')
+  and private.lukas_drawing_p5_camera_valid(camera_json)
+);
+
+alter table public.lukas_drawing_object_sources
+  enable trigger lukas_drawing_object_sources_revision_guard;
+
 alter table public.lukas_drawing_object_sources
   add constraint lukas_drawing_object_sources_exact_payload_check check(
-    (source_kind='pdf_region'
-      and pdf_page_number is not null and x is not null and y is not null
-      and width is not null and height is not null and pdf_page_number>0
-      and x>=0 and y>=0 and width>0 and height>0
-      and x+width<=1 and y+height<=1
-      and element_id is null and ifc_global_id is null and camera_json is null)
-    or
-    (source_kind='ifc_element'
-      and pdf_page_number is null and x is null and y is null
-      and width is null and height is null
-      and ifc_global_id is not null
-      and ifc_global_id ~ '^[0-9A-Za-z_$]{22}$'
-      and (element_id is null or element_id ~ '^[1-9][0-9]*$')
-      and private.lukas_drawing_p5_camera_valid(camera_json))
+    status='active' and (
+      (source_kind='pdf_region'
+        and pdf_page_number is not null and x is not null and y is not null
+        and width is not null and height is not null and pdf_page_number>0
+        and x>=0 and y>=0 and width>0 and height>0
+        and x+width<=1 and y+height<=1
+        and element_id is null and ifc_global_id is null and camera_json is null)
+      or
+      (source_kind='ifc_element'
+        and pdf_page_number is null and x is null and y is null
+        and width is null and height is null
+        and ifc_global_id is not null
+        and ifc_global_id ~ '^[0-9A-Za-z_$]{22}$'
+        and (element_id is null or element_id ~ '^[1-9][0-9]*$')
+        and private.lukas_drawing_p5_camera_valid(camera_json))
+    ) or status='deleted' and (
+      (source_kind='pdf_region'
+        and pdf_page_number is not null and x is not null and y is not null
+        and width is not null and height is not null and pdf_page_number>0
+        and x>=0 and y>=0 and width>0 and height>0
+        and x+width<=1 and y+height<=1
+        and element_id is null and ifc_global_id is null and camera_json is null)
+      or
+      (source_kind='ifc_element'
+        and pdf_page_number is null and x is null and y is null
+        and width is null and height is null
+        and (element_id is not null or ifc_global_id is not null)
+        and (element_id is null
+          or pg_catalog.char_length(pg_catalog.btrim(element_id)) between 1 and 128)
+        and (ifc_global_id is null
+          or ifc_global_id ~ '^[0-9A-Za-z_$]{22}$')
+        and (camera_json is null
+          or pg_catalog.jsonb_typeof(camera_json)='object'))
+    )
   );
 
 create unique index lukas_drawing_object_sources_active_identity_uidx
@@ -910,6 +945,48 @@ begin
 end;
 $$;
 
+create function private.lukas_drawing_p5_checkpoint_sources(
+  p_sources jsonb,p_revision_id uuid
+) returns jsonb language plpgsql immutable security invoker set search_path='' as $$
+declare
+  v_source jsonb;
+  v_result jsonb:='[]'::jsonb;
+  v_legacy_keys text[]:=array[
+    'id','objectId','sourceFileId','sourceSha256','sourceKind',
+    'pdfPageNumber','x','y','width','height','elementId','ifcGlobalId','camera'
+  ];
+begin
+  if pg_catalog.jsonb_typeof(p_sources)<>'array' then return p_sources; end if;
+  for v_source in select value from pg_catalog.jsonb_array_elements(p_sources)
+  loop
+    if pg_catalog.jsonb_typeof(v_source)='object'
+      and v_source ?& v_legacy_keys
+      and v_source-v_legacy_keys='{}'::jsonb then
+      if v_source->>'sourceKind'='pdf_region' then
+        v_source:=pg_catalog.jsonb_build_object(
+          'id',v_source->'id','objectId',v_source->'objectId',
+          'revisionId',p_revision_id,'sourceFileId',v_source->'sourceFileId',
+          'sourceSha256',v_source->'sourceSha256','sourceKind','pdf_region',
+          'pdfPageNumber',v_source->'pdfPageNumber','x',v_source->'x',
+          'y',v_source->'y','width',v_source->'width','height',v_source->'height',
+          'version',1
+        );
+      elsif v_source->>'sourceKind'='ifc_element' then
+        v_source:=pg_catalog.jsonb_build_object(
+          'id',v_source->'id','objectId',v_source->'objectId',
+          'revisionId',p_revision_id,'sourceFileId',v_source->'sourceFileId',
+          'sourceSha256',v_source->'sourceSha256','sourceKind','ifc_element',
+          'ifcGlobalId',v_source->'ifcGlobalId','elementId',v_source->'elementId',
+          'camera',v_source->'camera','version',1
+        );
+      end if;
+    end if;
+    v_result:=v_result||pg_catalog.jsonb_build_array(v_source);
+  end loop;
+  return v_result;
+end;
+$$;
+
 alter function private.lukas_drawing_apply_operation_pre_p4_semantic_objects(
   uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid
 ) rename to lukas_drawing_apply_operation_pre_p5_checkpoint_sources;
@@ -926,8 +1003,9 @@ declare
   v_issue jsonb; v_action jsonb; v_identity jsonb; v_result jsonb;
   v_sources jsonb; v_inverse_sources jsonb; v_core jsonb; v_inverse_core jsonb;
   v_plan jsonb; v_core_bases jsonb; v_results jsonb; v_live_sources jsonb;
-  v_target_sources jsonb; v_live_issues jsonb; v_source_ids text[];
-  v_operation_id uuid;
+  v_snapshot_sources jsonb; v_target_sources jsonb; v_live_issues jsonb;
+  v_source_ids text[];
+  v_operation_id uuid; v_sequence bigint;
 begin
   if p_operation_type<>'restore_checkpoint' then
     return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(
@@ -978,12 +1056,14 @@ begin
     or v_snapshot.sha256 is distinct from pg_catalog.encode(
       extensions.digest(pg_catalog.convert_to(
         v_snapshot.canonical_json::text,'UTF8'),'sha256'),'hex'
-    ) then raise exception using errcode='P1C01',
+  ) then raise exception using errcode='P1C01',
       message='Drawing checkpoint reference target is invalid'; end if;
+  v_snapshot_sources:=private.lukas_drawing_p5_checkpoint_sources(
+    v_snapshot.canonical_json->'sources',p_revision_id
+  );
   if exists(
-    select 1 from pg_catalog.jsonb_array_elements(
-      v_snapshot.canonical_json->'sources'
-    ) s where private.lukas_drawing_structure_action_valid(
+    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s
+    where private.lukas_drawing_structure_action_valid(
       pg_catalog.jsonb_build_object(
         'kind','put_source','entity',s,'baseVersion',null
       ),p_revision_id
@@ -998,9 +1078,8 @@ begin
           and ((s->>'sourceKind'='pdf_region' and f.kind='pdf')
             or (s->>'sourceKind'='ifc_element' and f.kind='ifc')))
   ) or exists(
-    select 1 from pg_catalog.jsonb_array_elements(
-      v_snapshot.canonical_json->'sources'
-    ) s group by s->>'objectId',s->>'sourceFileId',s->>'sourceKind'
+    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s
+    group by s->>'objectId',s->>'sourceFileId',s->>'sourceKind'
       having pg_catalog.count(*)>1
   ) or exists(
     select 1 from pg_catalog.jsonb_array_elements(
@@ -1054,7 +1133,7 @@ begin
     transaction_id,actor_id,revision_id,snapshot_id,sources,issues
   ) values(
     pg_catalog.txid_current(),v_actor,p_revision_id,v_snapshot.id,
-    v_snapshot.canonical_json->'sources',v_snapshot.canonical_json->'issues'
+    v_snapshot_sources,v_snapshot.canonical_json->'issues'
   );
 
   insert into private.lukas_drawing_checkpoint_issue_delete_leases(
@@ -1098,15 +1177,34 @@ begin
     end if;
   end loop;
 
-  v_result:=private.lukas_drawing_apply_operation_pre_checkpoint_reference_authority(
-    p_revision_id,p_client_operation_id,p_operation_type,v_core_bases,
-    v_core,v_inverse_core,p_history_action,p_original_operation_id
-  );
-  v_results:=(v_result->'resultVersions')||(v_plan->'results');
-  perform private.lukas_drawing_apply_source_actions(
-    p_revision_id,v_revision.project_id,v_actor,v_sources,v_results
-  );
-  v_operation_id:=(v_result->>'operationId')::uuid;
+  if pg_catalog.jsonb_array_length(v_core->'actions')=0 then
+    select coalesce(pg_catalog.max(o.sequence),0)+1 into v_sequence
+    from public.lukas_drawing_operations o where o.revision_id=p_revision_id;
+    v_operation_id:=extensions.gen_random_uuid();
+    v_results:=v_plan->'results';
+    insert into public.lukas_drawing_operations(
+      id,revision_id,project_id,sequence,client_operation_id,operation_type,
+      base_versions,forward,inverse,result_versions,actor_id,
+      history_action,original_operation_id
+    ) values(
+      v_operation_id,p_revision_id,v_revision.project_id,v_sequence,
+      p_client_operation_id,p_operation_type,p_base_versions,p_forward,
+      p_inverse,v_results,v_actor,p_history_action,p_original_operation_id
+    );
+    v_result:=pg_catalog.jsonb_build_object(
+      'operationId',v_operation_id,'sequence',v_sequence
+    );
+  else
+    v_result:=private.lukas_drawing_apply_operation_pre_checkpoint_reference_authority(
+      p_revision_id,p_client_operation_id,p_operation_type,v_core_bases,
+      v_core,v_inverse_core,p_history_action,p_original_operation_id
+    );
+    v_results:=(v_result->'resultVersions')||(v_plan->'results');
+    perform private.lukas_drawing_apply_source_actions(
+      p_revision_id,v_revision.project_id,v_actor,v_sources,v_results
+    );
+    v_operation_id:=(v_result->>'operationId')::uuid;
+  end if;
   perform pg_catalog.set_config(
     'private.lukas_drawing_p2_operation_rewrite',v_operation_id::text,true
   );
@@ -1146,7 +1244,7 @@ begin
   ) s;
   select coalesce(pg_catalog.jsonb_agg(s.value-'version' order by s.value->>'id'),
     '[]'::jsonb) into v_target_sources
-  from pg_catalog.jsonb_array_elements(v_snapshot.canonical_json->'sources') s;
+  from pg_catalog.jsonb_array_elements(v_snapshot_sources) s;
   select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
     'id',l.issue_id,'objectId',l.object_id
   ) order by l.issue_id,l.object_id),'[]'::jsonb) into v_live_issues
@@ -1183,6 +1281,8 @@ grant all on table public.lukas_drawing_object_sources to service_role;
 
 revoke all on function
   private.lukas_drawing_p5_camera_valid(jsonb),
+  private.lukas_drawing_object_source_guard(),
+  private.lukas_drawing_anchor_guard(),
   private.lukas_drawing_source_json(uuid,uuid,uuid,boolean),
   private.lukas_drawing_structure_entity_json_pre_p5_sources(text,uuid,uuid,uuid),
   private.lukas_drawing_structure_tombstone_pre_p5_sources(uuid,uuid,text),
@@ -1197,6 +1297,7 @@ revoke all on function
   private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(
     uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid
   ),
+  private.lukas_drawing_p5_checkpoint_sources(jsonb,uuid),
   private.lukas_drawing_apply_operation_pre_p4_semantic_objects(
     uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid
   ),
@@ -1225,13 +1326,6 @@ grant execute on function public.lukas_drawing_relink_issue_anchor(
   uuid,uuid,uuid,jsonb,text
 ) to authenticated,service_role;
 
--- Existing checkpoint, template, approved-child and freeze/review writers all
--- call lukas_drawing_p2_canonical_snapshot or pass through the guarded source
--- table. Their clone-time guard admits only active lineage from the source
--- revision. Names are kept explicit here as an upgrade contract:
--- private.lukas_drawing_create_from_template / public.lukas_drawing_restore_approved_snapshot
--- private.lukas_drawing_request_review / private.lukas_drawing_checkpoint_structure
-
-alter default privileges in schema public revoke execute on functions from public;
+alter default privileges revoke execute on functions from public;
 
 commit;

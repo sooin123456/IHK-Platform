@@ -1538,6 +1538,15 @@ function parseP2Workspace(
     });
   });
   const sources = rows.sources;
+  const byId = <T extends { id: string }>(values: T[]) =>
+    new Set(values.map((value) => value.id));
+  const pageIds = byId(pages),
+    canvasIds = byId(canvases),
+    layerIds = byId(layers),
+    blockIds = byId(blocks),
+    objectIds = byId(objects),
+    instanceIds = byId(blockInstances),
+    propertySchemaIds = byId(propertySchemas);
   const scopedRows = [
     ...rows.pages.map((row) => P2PageRowSchema.parse(row)),
     ...rows.canvases.map((row) => P2CanvasRowSchema.parse(row)),
@@ -1562,15 +1571,6 @@ function parseP2Workspace(
     ),
     "Drawing source ancestry is invalid.",
   );
-  const byId = <T extends { id: string }>(values: T[]) =>
-    new Set(values.map((value) => value.id));
-  const pageIds = byId(pages),
-    canvasIds = byId(canvases),
-    layerIds = byId(layers),
-    blockIds = byId(blocks),
-    objectIds = byId(objects),
-    instanceIds = byId(blockInstances),
-    propertySchemaIds = byId(propertySchemas);
   requireP2Ancestry(pages.every((page) => page.revisionId === revisionId));
   requireP2Ancestry(canvases.every((canvas) => pageIds.has(canvas.pageId)));
   requireP2Ancestry(

@@ -53,6 +53,7 @@ const p2Ids = {
   value: "00000000-0000-4000-8000-000000000018",
   table: "00000000-0000-4000-8000-000000000019",
   template: "00000000-0000-4000-8000-000000000020",
+  source: "00000000-0000-4000-8000-000000000021",
 };
 
 test("workspace object loading uses an ID keyset beyond the Supabase response cap", async () => {
@@ -444,6 +445,30 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
       })),
       error: null,
     },
+    lukas_drawing_object_sources: {
+      data: [
+        {
+          id: p2Ids.source,
+          object_id: wall.id,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          source_file_id: ids.file,
+          source_sha256: sourceSha,
+          source_kind: "pdf_region",
+          pdf_page_number: 1,
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4,
+          element_id: null,
+          ifc_global_id: null,
+          camera: null,
+          version: 1,
+          status: "active",
+        },
+      ],
+      error: null,
+    },
     lukas_drawing_styles: { data: [], error: null },
     lukas_drawing_blocks: { data: [], error: null },
     lukas_drawing_block_instances: { data: [], error: null },
@@ -452,6 +477,22 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
     lukas_drawing_tables: { data: [], error: null },
   });
   const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  assert.deepEqual(loaded.document.revision.sources, [
+    {
+      id: p2Ids.source,
+      objectId: wall.id,
+      revisionId: ids.revision,
+      sourceFileId: ids.file,
+      sourceSha256: sourceSha,
+      sourceKind: "pdf_region",
+      pdfPageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      version: 1,
+    },
+  ]);
   assert.deepEqual(loaded.document.revision.pages[0], {
     id: ids.page,
     revisionId: ids.revision,
