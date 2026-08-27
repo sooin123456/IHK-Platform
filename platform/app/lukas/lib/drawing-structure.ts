@@ -5,6 +5,7 @@ import type {
   DrawingLayer,
   DrawingStructureLayer,
   DrawingObject,
+  DrawingObjectSource,
   DrawingPage,
   DrawingPropertySchema,
   DrawingPropertyValue,
@@ -17,6 +18,7 @@ import type {
   DrawingPrimitiveGeometry,
 } from "./drawing-workspace.types.ts";
 import {
+  DrawingObjectSourceSchema,
   DrawingPrimitiveGeometrySchema,
   DrawingStructureActionSchema,
   DrawingStyleSchema,
@@ -32,6 +34,8 @@ export type DrawingStructureState = {
   canvases: Record<string, DrawingCanvas>;
   layers: Record<string, DrawingLayer>;
   objects: Record<string, DrawingObject>;
+  /** Hydrated by P5 source loading; legacy P0-P4 projections omit it until Task 2. */
+  sources?: Record<string, DrawingObjectSource>;
   styles: Record<string, DrawingStyleDefinition>;
   blocks: Record<string, DrawingBlock>;
   blockInstances: Record<string, DrawingBlockInstance>;
@@ -336,6 +340,7 @@ function cloneState(state: DrawingStructureState): DrawingStructureState {
     canvases: clone(state.canvases),
     layers: clone(state.layers),
     objects: clone(state.objects),
+    sources: clone(state.sources ?? {}),
     styles: clone(state.styles),
     blocks: clone(state.blocks),
     blockInstances: clone(state.blockInstances),
@@ -564,6 +569,31 @@ function validateReferences(state: DrawingStructureState): void {
     }
     validateStyleReference(object.styleId, state, `Object ${object.id}`);
   }
+  const activeSourceKeys = new Set<string>();
+  for (const source of Object.values(state.sources ?? {})) {
+    const parsed = DrawingObjectSourceSchema.safeParse(source);
+    if (
+      !parsed.success ||
+      JSON.stringify(parsed.data) !== JSON.stringify(source)
+    )
+      throw new DrawingStructureError(
+        `Source ${source.id} is not canonical evidence.`,
+      );
+    if (!state.objects[source.objectId])
+      throw new DrawingStructureError(
+        `Source ${source.id} references a missing object.`,
+      );
+    if (source.revisionId !== state.revisionId)
+      throw new DrawingStructureError(
+        `Source ${source.id} belongs to another revision.`,
+      );
+    const activeKey = `${source.objectId}\u0000${source.sourceFileId}\u0000${source.sourceKind}`;
+    if (activeSourceKeys.has(activeKey))
+      throw new DrawingStructureError(
+        `Source ${source.id} duplicates an active object/file/kind link.`,
+      );
+    activeSourceKeys.add(activeKey);
+  }
   const styleNames = new Set<string>();
   for (const style of Object.values(state.styles)) {
     if (style.revisionId !== state.revisionId) {
@@ -775,10 +805,9 @@ function validateFinalCanvasInvariant(state: DrawingStructureState): void {
 export function validateDrawingStructureState(
   state: DrawingStructureState,
 ): void {
-  const collections: Array<
-    [StructureCollection, Record<string, StructureEntity>]
-  > = [
+  const collections: [string, Record<string, { id: string }>][] = [
     ["objects", state.objects],
+    ["sources", state.sources ?? {}],
     ["pages", state.pages],
     ["canvases", state.canvases],
     ["layers", state.layers as Record<string, StructureEntity>],

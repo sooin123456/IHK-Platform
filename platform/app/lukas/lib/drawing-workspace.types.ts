@@ -5,6 +5,7 @@ import {
   drawingSemanticScaledInteger,
   isSimpleDrawingBoundary,
 } from "./drawing-semantic-geometry.ts";
+import { canonicalIfcCameraState } from "./ifc-anchor.ts";
 
 export type Point = { x: number; y: number };
 export type Bounds = { x: number; y: number; width: number; height: number };
@@ -370,6 +371,91 @@ export const PdfCalibrationSchema = z
     millimetersPerNormalizedUnit: PositiveFinite,
   })
   .strict();
+
+const DrawingSourceSha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const DrawingSourceNormalizedCoordinateSchema = z
+  .number()
+  .min(0)
+  .max(1)
+  .refine(Number.isFinite, "유한한 숫자여야 합니다.");
+const DrawingSourceNormalizedSizeSchema =
+  DrawingSourceNormalizedCoordinateSchema.refine(
+    (value) => value > 0,
+    "0보다 커야 합니다.",
+  );
+const IfcCameraCoordinateSchema = z
+  .number()
+  .refine(Number.isFinite, "IFC 카메라 좌표가 올바르지 않습니다.");
+export const IfcCameraStateSchema = z
+  .object({
+    position: z.tuple([
+      IfcCameraCoordinateSchema,
+      IfcCameraCoordinateSchema,
+      IfcCameraCoordinateSchema,
+    ]),
+    target: z.tuple([
+      IfcCameraCoordinateSchema,
+      IfcCameraCoordinateSchema,
+      IfcCameraCoordinateSchema,
+    ]),
+  })
+  .strict()
+  .transform(canonicalIfcCameraState);
+
+const DrawingPdfObjectSourceSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    revisionId: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: DrawingSourceSha256Schema,
+    sourceKind: z.literal("pdf_region"),
+    pdfPageNumber: PositiveInteger,
+    x: DrawingSourceNormalizedCoordinateSchema,
+    y: DrawingSourceNormalizedCoordinateSchema,
+    width: DrawingSourceNormalizedSizeSchema,
+    height: DrawingSourceNormalizedSizeSchema,
+    version: PositiveInteger,
+  })
+  .strict()
+  .superRefine((source, context) => {
+    if (source.x + source.width > 1)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["width"],
+        message: "PDF 영역은 정규화된 화면 안에 있어야 합니다.",
+      });
+    if (source.y + source.height > 1)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["height"],
+        message: "PDF 영역은 정규화된 화면 안에 있어야 합니다.",
+      });
+  });
+
+const DrawingIfcObjectSourceSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    revisionId: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: DrawingSourceSha256Schema,
+    sourceKind: z.literal("ifc_element"),
+    ifcGlobalId: z.string().regex(/^[0-9A-Za-z_$]{22}$/),
+    elementId: z
+      .string()
+      .regex(/^[1-9][0-9]*$/)
+      .nullable(),
+    camera: IfcCameraStateSchema.nullable(),
+    version: PositiveInteger,
+  })
+  .strict();
+
+/** Canonical persisted evidence. Ephemeral URLs, pixels, renderer IDs, and markers are excluded. */
+export const DrawingObjectSourceSchema = z.union([
+  DrawingPdfObjectSourceSchema,
+  DrawingIfcObjectSourceSchema,
+]);
 
 const DrawingObjectValidatedSchema = z
   .object({
@@ -901,6 +987,7 @@ export const DrawingOperationInputSchema = z
   });
 
 export type PdfCalibration = z.infer<typeof PdfCalibrationSchema>;
+export type DrawingObjectSource = z.infer<typeof DrawingObjectSourceSchema>;
 export type DrawingStyleOverride = z.infer<typeof DrawingStyleOverrideSchema>;
 export type DrawingLayerInput = z.infer<typeof DrawingLayerInputSchema>;
 export type DrawingLayer = z.infer<typeof DrawingLayerSchema>;
