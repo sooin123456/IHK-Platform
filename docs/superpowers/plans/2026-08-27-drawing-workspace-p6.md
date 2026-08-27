@@ -231,7 +231,7 @@ test("fingerprint is the SHA of canonical geometry id name and version", () => {
 
 test("material handoff groups exact final quantity times coefficient", () => {
   const [plan] = deriveP6MaterialPlans([materialA, materialB]);
-  assert.equal(plan.designQuantity, "15.308642");
+  assert.equal(plan.designQuantity, "15.308645");
   assert.equal(plan.allowanceRate, "0");
   assert.equal(plan.ruleId, "P6_MATERIAL_HANDOFF_V1");
 });
