@@ -33,6 +33,7 @@ import type {
   DrawingTable,
 } from "~/lukas/lib/drawing-workspace.types";
 import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
+import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import { buildDrawingP4PerformanceFixture } from "~/lukas/lib/drawing-p4-performance";
 import {
   DrawingBlockInstanceSchema,
@@ -804,6 +805,10 @@ type PreviewFixture = {
   currentUserId: string;
   roomUrl: string;
   sourceUrl: null;
+  quantityLineage?: {
+    rows: DrawingObjectQuantityLineageRow[];
+    nextCursor: string | null;
+  } | null;
   sourceBundle?: DrawingWorkspaceSourceBundle;
   selectedIfcFileId?: string | null;
   viewMode?: "2d" | "3d" | "split";
@@ -1034,6 +1039,43 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     capability: "editor",
     currentUserId: ids.user,
     roomUrl: "/workspace-preview",
+    quantityLineage: options?.p5Integrated
+      ? {
+          rows: [
+            {
+              quantity: {
+                id: "00000000-0000-4000-8000-0000000000c1",
+                projectId: ids.project,
+                drawingRevisionId: ids.revision,
+                drawingRevisionVersion: 1,
+                drawingSnapshotSha256: "d".repeat(64),
+                drawingObjectId: ids.semanticWall,
+                drawingObjectLineageId: ids.semanticWall,
+                drawingObjectVersion: 1,
+                objectFingerprint: "e".repeat(64),
+                measurementKind: "length",
+                rawQuantity: "0.78",
+                unit: "m",
+                measurementRuleVersion: "P4_MEASUREMENT_V1",
+                createdBy: ids.user,
+                createdAt,
+              },
+              boqLinks: [
+                {
+                  id: "00000000-0000-4000-8000-0000000000c2",
+                  boqVersionId: "00000000-0000-4000-8000-0000000000c3",
+                  boqVersionStatus: "approved",
+                  boqLineId: "00000000-0000-4000-8000-0000000000c4",
+                  itemCode: "WALL-EXT-01",
+                  allocationFactor: "1",
+                  version: 1,
+                },
+              ],
+            },
+          ],
+          nextCursor: null,
+        }
+      : null,
     sourceUrl: null,
     sourceBundle: options?.p5Integrated
       ? {

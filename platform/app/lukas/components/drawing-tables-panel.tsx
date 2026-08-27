@@ -257,7 +257,7 @@ export function DrawingTablesPanel(props: Props) {
       const columns: DrawingTable["columns"] = [
         {
           id: createId(),
-          name: "Object name",
+          name: "객체 이름",
           kind: "object_name",
           propertySchemaId: null,
         },
@@ -269,7 +269,7 @@ export function DrawingTablesPanel(props: Props) {
         })),
         {
           id: createId(),
-          name: "Note",
+          name: "메모",
           kind: "text" as const,
           propertySchemaId: null,
         },

@@ -335,7 +335,7 @@ export function DrawingExportDialog({
 
   async function runExport() {
     if (!activeCanvas) {
-      setStatus({ kind: "error", message: "내보낼 canvas가 없습니다." });
+      setStatus({ kind: "error", message: "내보낼 캔버스가 없습니다." });
       return;
     }
     await runDrawingExportLifecycle<DrawingExportDownload>({

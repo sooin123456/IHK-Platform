@@ -395,10 +395,16 @@ function drawingShortcutTargetIsEditable(target: EventTarget | null) {
 
 /** Resolves the two canvas-first dock shortcuts without stealing input keys. */
 export function resolveDrawingWorkspaceDockShortcut(event: {
+  altKey?: boolean;
+  ctrlKey?: boolean;
   key: string;
+  metaKey?: boolean;
+  shiftKey?: boolean;
   target: EventTarget | null;
 }): "left" | "inspector" | null {
   if (drawingShortcutTargetIsEditable(event.target)) return null;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+    return null;
   if (event.key === "[") return "left";
   if (event.key === "]") return "inspector";
   return null;

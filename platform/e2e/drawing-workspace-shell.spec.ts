@@ -127,6 +127,12 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
   await expect(inspector).toBeVisible();
   await page.keyboard.press("]");
   await expect(inspector).toBeHidden();
+  await surface.click({
+    position: { x: viewportX + 690 * zoom, y: viewportY + 280 * zoom },
+  });
+  await expect(inspector).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(inspector).toBeHidden();
   await page.keyboard.press("]");
   await expect(inspector).toBeVisible();
   const pinnedZoom = Number(await surface.getAttribute("data-viewport-zoom"));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createElement } from "react";
@@ -133,6 +134,8 @@ test("workspace dock shortcuts recover both desktop docks outside editable contr
   assert.equal(typeof resolve, "function");
   assert.equal(resolve({ key: "[", target: null }), "left");
   assert.equal(resolve({ key: "]", target: null }), "inspector");
+  for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"])
+    assert.equal(resolve({ key: "[", target: null, [modifier]: true }), null);
   assert.equal(
     resolve({
       key: "[",
@@ -151,6 +154,27 @@ test("page and layer creation are compact contextual controls with Korean produc
   assert.match(html, />표·일람</);
   assert.doesNotMatch(html, />Schedule</);
   assert.doesNotMatch(html, /페이지 및 canvas|Paper canvas|Model canvas/);
+});
+
+test("workspace creation and export copy stays Korean", async () => {
+  const [tables, exportDialog] = await Promise.all([
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-tables-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-export-dialog.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.doesNotMatch(tables, /name: "Object name"|name: "Note"/);
+  assert.doesNotMatch(exportDialog, /내보낼 canvas가 없습니다/);
 });
 
 test("workspace SSR shell exposes one selected panel from seven accessible tabs", () => {
