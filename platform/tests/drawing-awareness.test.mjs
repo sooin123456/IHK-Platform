@@ -290,6 +290,114 @@ test("one canonical publication authority sanitizes initial connect reconnect re
   ]);
 });
 
+test("canonical visibility revokes real leases before reconnect and prevents renewal resurrection", () => {
+  const {
+    createDrawingAwarenessPublication,
+    createDrawingSoftLockLease,
+  } = requireAwareness();
+  const frames = [];
+  const firstAdapterStates = [];
+  const reconnectAdapterStates = [];
+  const remoteLocks = [
+    { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 20_000 },
+  ];
+  let now = 1_000;
+  let canonicalSelectedIds = [ids.objectA, ids.objectB];
+  let visibleEntityIds = new Set([ids.objectA, ids.objectB]);
+  const leases = new Map();
+  let publication;
+  const publishLeases = () =>
+    publication.update({
+      softLocks: [...leases.values()].flatMap((lease) => {
+        const lock = lease.current();
+        return lock ? [lock] : [];
+      }),
+    });
+  const revokeLeases = (entityIds) => {
+    for (const [entityId, lease] of leases)
+      if (lease.releaseIfEntityHidden(entityIds)) leases.delete(entityId);
+  };
+  const acquireLease = (entityId, leaseId) => {
+    const lease = createDrawingSoftLockLease({
+      now: () => now,
+      createId: () => leaseId,
+      onChange: publishLeases,
+    });
+    assert.equal(typeof lease.releaseIfEntityHidden, "function");
+    leases.set(entityId, lease);
+    lease.acquire(entityId);
+    return lease;
+  };
+  publication = createDrawingAwarenessPublication({
+    getCanonicalSelectedIds: () => canonicalSelectedIds,
+    getCanonicalVisibleEntityIds: () => visibleEntityIds,
+    initialState: {
+      pageId: ids.page,
+      canvasId: ids.canvas,
+      cursorWorld: null,
+      selectedIds: [ids.objectA, ids.objectB],
+      activeTool: "select",
+      softLocks: [],
+    },
+    onSoftLocksPruned: revokeLeases,
+    requestFrame: (callback) => (frames.push(callback), frames.length),
+    cancelFrame() {},
+  });
+  publication.connect({
+    adapter: { setLocalState: (state) => firstAdapterStates.push(state) },
+    user: { id: ids.me, displayName: "나" },
+  });
+  frames.shift()(1);
+  acquireLease(ids.objectA, ids.lease);
+  const unrelatedLease = acquireLease(ids.objectB, ids.otherCanvas);
+  frames.shift()(2);
+  assert.deepEqual(
+    firstAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
+    [ids.objectA, ids.objectB],
+  );
+
+  canonicalSelectedIds = [ids.objectB];
+  visibleEntityIds = new Set([ids.objectB]);
+  publication.connect({
+    adapter: { setLocalState: (state) => reconnectAdapterStates.push(state) },
+    user: { id: ids.me, displayName: "나" },
+  });
+  frames.shift()(3);
+  assert.equal(leases.has(ids.objectA), false, "hidden opening lease is removed");
+  assert.equal(leases.has(ids.objectB), true, "unrelated visible lease remains");
+  assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, [ids.objectB]);
+  assert.deepEqual(
+    reconnectAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
+    [ids.objectB],
+  );
+
+  publication.update();
+  frames.shift()(4);
+  visibleEntityIds = new Set([ids.objectA, ids.objectB]);
+  publication.update();
+  frames.shift()(5);
+  now += 6_000;
+  assert.equal(leases.get(ids.objectA)?.renew() ?? null, null);
+  assert.equal(unrelatedLease.renew()?.entityId, ids.objectB);
+  frames.shift()(6);
+  assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, [ids.objectB]);
+  assert.deepEqual(
+    reconnectAdapterStates.at(-1).softLocks.map(({ entityId }) => entityId),
+    [ids.objectB],
+  );
+  assert.deepEqual(remoteLocks, [
+    { entityId: ids.objectA, leaseId: ids.lease, expiresAt: 20_000 },
+  ]);
+
+  visibleEntityIds = new Set();
+  canonicalSelectedIds = [];
+  publication.update();
+  frames.shift()(7);
+  assert.equal(leases.size, 0, "deletion or layer hide revokes the last lease");
+  assert.deepEqual(reconnectAdapterStates.at(-1).selectedIds, []);
+  assert.deepEqual(reconnectAdapterStates.at(-1).softLocks, []);
+});
+
 test("peer parser excludes only the provider-owned local client and retains a second client for the same verified user", () => {
   const { parseDrawingAwarenessPeers, drawingAwarenessColor } =
     requireAwareness();

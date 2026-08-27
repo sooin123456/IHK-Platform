@@ -239,7 +239,7 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
     .toEqual([unlockedOpeningId]);
   await page
-    .getByRole("button", { name: "P4 canonical Awareness 잠금" })
+    .getByRole("button", { name: "P4 실제 Awareness lease 잠금" })
     .click();
   await expect
     .poll(async () => {
@@ -288,6 +288,53 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     )
     .toEqual([]);
   await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
+  await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
+  await page.waitForTimeout(5_500);
+  await expect
+    .poll(
+      async () =>
+        JSON.parse((await localAwareness.textContent()) ?? "null")?.softLocks,
+    )
+    .toEqual([]);
+});
+
+test("capability loss releases a real local lease without renewal resurrection", async ({
+  page,
+}) => {
+  await openPreview(page, "?awarenessTest=1&realtimeTest=1&verticalTest=1");
+  const localAwareness = page.getByLabel("로컬 Awareness payload");
+  const unlockedOpeningId = "00000000-0000-4000-8000-000000000102";
+  const remoteLockStatus = page.getByRole("status", {
+    name: "객체 잠금 상태",
+  });
+  await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
+  await page.getByRole("button", { name: "P4 두 번째 개구부 선택" }).click();
+  await page
+    .getByRole("button", { name: "P4 실제 Awareness lease 잠금" })
+    .click();
+  await expect
+    .poll(async () => {
+      const state = JSON.parse((await localAwareness.textContent()) ?? "null");
+      return state?.softLocks?.map(
+        (lock: { entityId: string }) => lock.entityId,
+      );
+    })
+    .toEqual([unlockedOpeningId]);
+
+  await page.getByRole("button", { name: "테스트 보기 권한" }).click();
+  await expect
+    .poll(async () => {
+      const state = JSON.parse((await localAwareness.textContent()) ?? "null");
+      return state?.softLocks ?? [];
+    })
+    .toEqual([]);
+  await page.waitForTimeout(5_500);
+  await expect
+    .poll(async () => {
+      const state = JSON.parse((await localAwareness.textContent()) ?? "null");
+      return state?.softLocks ?? [];
+    })
+    .toEqual([]);
   await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
 });
 

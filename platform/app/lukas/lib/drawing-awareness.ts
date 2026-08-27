@@ -177,12 +177,14 @@ export function createDrawingAwarenessPublication({
   getCanonicalSelectedIds,
   getCanonicalVisibleEntityIds,
   initialState,
+  onSoftLocksPruned,
   requestFrame,
   cancelFrame,
 }: {
   getCanonicalSelectedIds: () => readonly string[];
   getCanonicalVisibleEntityIds: () => ReadonlySet<string>;
   initialState: DrawingAwarenessLocalInput;
+  onSoftLocksPruned?: (entityIds: readonly string[]) => void;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (handle: number) => void;
 }) {
@@ -197,6 +199,13 @@ export function createDrawingAwarenessPublication({
     const candidate = { ...localState, ...patch };
     const canonicalSelectedIds = new Set(getCanonicalSelectedIds());
     const visibleEntityIds = getCanonicalVisibleEntityIds();
+    const prunedSoftLockIds = [
+      ...new Set(
+        candidate.softLocks
+          .filter((lock) => !visibleEntityIds.has(lock.entityId))
+          .map((lock) => lock.entityId),
+      ),
+    ];
     localState = {
       ...candidate,
       selectedIds: candidate.selectedIds.filter(
@@ -207,6 +216,7 @@ export function createDrawingAwarenessPublication({
       ),
     };
     publisher?.update(localState);
+    if (prunedSoftLockIds.length) onSoftLocksPruned?.(prunedSoftLockIds);
   };
   return {
     connect({
@@ -460,7 +470,7 @@ export function drawingSelectionSoftLockConflict(
 
 export function createDrawingSoftLockLease({
   now = Date.now,
-  createId = crypto.randomUUID,
+  createId = () => crypto.randomUUID(),
   onChange,
 }: {
   now?: () => number;
@@ -496,6 +506,12 @@ export function createDrawingSoftLockLease({
       if (!lock) return;
       lock = null;
       notify();
+    },
+    releaseIfEntityHidden(hiddenEntityIds: readonly string[]) {
+      if (!lock || !hiddenEntityIds.includes(lock.entityId)) return false;
+      lock = null;
+      notify();
+      return true;
     },
     current,
   };

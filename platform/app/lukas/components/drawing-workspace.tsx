@@ -895,6 +895,15 @@ export default function DrawingWorkspaceClient({
       activeTool: "select",
       softLocks: [],
     },
+    onSoftLocksPruned(entityIds) {
+      const lease = awarenessLeaseRef.current;
+      if (!lease?.releaseIfEntityHidden(entityIds)) return;
+      if (awarenessRenewalRef.current !== null) {
+        window.clearInterval(awarenessRenewalRef.current);
+        awarenessRenewalRef.current = null;
+      }
+      awarenessLeaseRef.current = null;
+    },
   });
   const [collaborationPhase, setCollaborationPhase] = useState<
     DrawingCollaborationConnection["phase"]
@@ -995,17 +1004,27 @@ export default function DrawingWorkspaceClient({
   const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
   awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
-  awarenessVisibleEntityIdsRef.current = new Set([
-    ...drawingVisibleCanvasObjects(
-      Object.values(activeDrawingState.objects),
+  const awarenessVisibleEntityIds = useMemo(
+    () => [
+      ...drawingVisibleCanvasObjects(
+        Object.values(activeDrawingState.objects),
+        activeDrawingState.layers,
+      ).map((object) => object.id),
+      ...Object.values(
+        activeDrawingState.structure?.blockInstances ?? {},
+      ).flatMap((instance) =>
+        activeDrawingState.layers[instance.layerId]?.visible
+          ? [instance.id]
+          : [],
+      ),
+    ],
+    [
       activeDrawingState.layers,
-    ).map((object) => object.id),
-    ...Object.values(
-      activeDrawingState.structure?.blockInstances ?? {},
-    ).flatMap((instance) =>
-      activeDrawingState.layers[instance.layerId]?.visible ? [instance.id] : [],
-    ),
-  ]);
+      activeDrawingState.objects,
+      activeDrawingState.structure?.blockInstances,
+    ],
+  );
+  awarenessVisibleEntityIdsRef.current = new Set(awarenessVisibleEntityIds);
   const selectionLockConflict = useMemo(
     () =>
       drawingSelectionSoftLockConflict(
@@ -1039,16 +1058,18 @@ export default function DrawingWorkspaceClient({
         window.clearInterval(awarenessRenewalRef.current);
         awarenessRenewalRef.current = null;
       }
+      if (!entityId) {
+        const lease = awarenessLeaseRef.current;
+        awarenessLeaseRef.current = null;
+        lease?.release();
+        return;
+      }
       const lease =
         awarenessLeaseRef.current ??
         createDrawingSoftLockLease({
           onChange: (softLocks) => publishAwareness({ softLocks }),
         });
       awarenessLeaseRef.current = lease;
-      if (!entityId) {
-        lease.release();
-        return;
-      }
       lease.acquire(entityId);
       awarenessRenewalRef.current = window.setInterval(
         () => lease.renew(),
@@ -1252,8 +1273,9 @@ export default function DrawingWorkspaceClient({
       if (awarenessRenewalRef.current !== null)
         window.clearInterval(awarenessRenewalRef.current);
       awarenessRenewalRef.current = null;
-      awarenessLeaseRef.current?.release();
+      const lease = awarenessLeaseRef.current;
       awarenessLeaseRef.current = null;
+      lease?.release();
       awarenessPublicationRef.current?.disconnect();
       awarenessStoreRef.current.replace([]);
     };
@@ -1353,9 +1375,6 @@ export default function DrawingWorkspaceClient({
             awarenessPublicationRef.current?.connect({
               adapter: remote,
               user: { id: currentUserId, displayName: "나" },
-            });
-            awarenessLeaseRef.current ??= createDrawingSoftLockLease({
-              onChange: (softLocks) => publishAwareness({ softLocks }),
             });
             refreshPeers();
           }
@@ -1547,6 +1566,10 @@ export default function DrawingWorkspaceClient({
       activeTool: transient.activeTool,
     });
   }, [publishAwareness, transient.activeTool, transientSelectedIdsKey]);
+
+  useEffect(() => {
+    publishAwareness({});
+  }, [awarenessVisibleEntityIds, publishAwareness]);
 
   useEffect(() => {
     const adapter = collaborationAdapterRef.current;
@@ -2505,23 +2528,12 @@ export default function DrawingWorkspaceClient({
             P4 두 번째 개구부 선택
           </button>
           <button
-            onClick={() => {
-              const entityId = transient.selectedIds[0];
-              publishAwareness({
-                softLocks: entityId
-                  ? [
-                      {
-                        entityId,
-                        expiresAt: Date.now() + 10_000,
-                        leaseId: crypto.randomUUID(),
-                      },
-                    ]
-                  : [],
-              });
-            }}
+            onClick={() =>
+              setAwarenessSoftLock(transient.selectedIds[0] ?? null)
+            }
             type="button"
           >
-            P4 canonical Awareness 잠금
+            P4 실제 Awareness lease 잠금
           </button>
           <button onClick={runVerticalDirectMutation} type="button">
             P4 직접 변경 시도
