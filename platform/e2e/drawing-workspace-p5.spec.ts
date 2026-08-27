@@ -246,6 +246,191 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   );
 });
 
+test("a non-current PDF mode queues one fresh capability while cancellation is pending", async ({
+  page,
+}) => {
+  page.setDefaultTimeout(15_000);
+  const source = await readFile(
+    path.resolve(
+      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+    ),
+  );
+  let loadRequests = 0;
+  let cancelRequests = 0;
+  let initialLoadReady = false;
+  let cancelReady = false;
+  let releaseInitialLoad!: () => void;
+  let releaseCancel!: () => void;
+  const initialLoadRelease = new Promise<void>((resolve) => {
+    releaseInitialLoad = resolve;
+  });
+  const cancelRelease = new Promise<void>((resolve) => {
+    releaseCancel = resolve;
+  });
+  const previousRequests: string[] = [];
+  await page.route("**/workspace-preview/drawing-workspace*", async (route) => {
+    const request = route.request();
+    const postData = request.postData() ?? "";
+    if (request.method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    if (postData.includes("load_pdf_compare")) {
+      const requestNumber = ++loadRequests;
+      const response = await route.fetch();
+      if (requestNumber === 1) {
+        initialLoadReady = true;
+        await initialLoadRelease;
+        await route.fulfill({ response });
+        return;
+      }
+      const originalBody = (await response.body()).toString();
+      expect(originalBody).toContain("/__p5-previous.pdf");
+      await route.fulfill({
+        body: originalBody.replaceAll(
+          "/__p5-previous.pdf",
+          "/__p5-previous.pdf?capability=queued",
+        ),
+        response,
+      });
+      return;
+    }
+    if (postData.includes("cancel_pdf_compare")) {
+      cancelRequests += 1;
+      const response = await route.fetch();
+      cancelReady = true;
+      await cancelRelease;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route("**/__p5-current.pdf", (route) =>
+    route.fulfill({ body: source, contentType: "application/pdf" }),
+  );
+  await page.route("**/__p5-previous.pdf*", async (route) => {
+    previousRequests.push(route.request().url());
+    await route.fulfill({ body: source, contentType: "application/pdf" });
+  });
+
+  await page.goto("/workspace-preview/drawing-workspace?p5PdfTest=1", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  const canvas = page.getByLabel(/도면 화면/);
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect.poll(() => initialLoadReady).toBe(true);
+  await page.getByRole("button", { name: "현재 도면" }).click();
+  await expect.poll(() => cancelReady).toBe(true);
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  try {
+    await expect(
+      page.getByRole("button", { name: "겹쳐 보기" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByText("이전 PDF 접근 권한을 요청합니다."),
+    ).toBeVisible();
+    expect(loadRequests).toBe(1);
+    expect(cancelRequests).toBe(1);
+    expect(previousRequests).toHaveLength(0);
+  } finally {
+    releaseInitialLoad();
+    releaseCancel();
+  }
+  await expect.poll(() => loadRequests).toBe(2);
+  await expect.poll(() => previousRequests).toHaveLength(1);
+  await page.waitForTimeout(250);
+  expect(loadRequests).toBe(2);
+  expect(cancelRequests).toBe(1);
+  expect(previousRequests).toEqual([
+    expect.stringContaining("/__p5-previous.pdf?capability=queued"),
+  ]);
+  await expect(canvas).toHaveAttribute("data-pdf-previous-mounted", "true");
+  await expect(
+    page.getByRole("button", { name: "변경 표시 계산" }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "이전 도면" }).click();
+  await page.getByRole("button", { name: "현재 도면" }).click();
+  await expect(page.getByRole("button", { name: "현재 도면" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(canvas).toHaveAttribute("data-pdf-previous-mounted", "false");
+  await page.waitForTimeout(250);
+  expect(loadRequests).toBe(2);
+  expect(cancelRequests).toBe(1);
+  expect(previousRequests).toHaveLength(1);
+});
+
+test("a failed PDF capability settles until a new user selection retries", async ({
+  page,
+}) => {
+  page.setDefaultTimeout(15_000);
+  const source = await readFile(
+    path.resolve(
+      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+    ),
+  );
+  let loadRequests = 0;
+  let previousRequests = 0;
+  await page.route("**/workspace-preview/drawing-workspace*", async (route) => {
+    const request = route.request();
+    const postData = request.postData() ?? "";
+    if (request.method() !== "POST" || !postData.includes("load_pdf_compare")) {
+      await route.continue();
+      return;
+    }
+    loadRequests += 1;
+    if (loadRequests === 1) {
+      const response = await route.fetch();
+      await route.fulfill({
+        body: JSON.stringify([
+          { _1: 2 },
+          "data",
+          { _3: 4, _5: 6, _7: 8, _9: -5 },
+          "ok",
+          false,
+          "kind",
+          "pdf_compare",
+          "error",
+          "PDF 개정 비교 증거가 일치하지 않습니다.",
+          "previousPdf",
+        ]),
+        response,
+        status: 200,
+      });
+      return;
+    }
+    await route.fulfill({ response: await route.fetch() });
+  });
+  await page.route("**/__p5-current.pdf", (route) =>
+    route.fulfill({ body: source, contentType: "application/pdf" }),
+  );
+  await page.route("**/__p5-previous.pdf", async (route) => {
+    previousRequests += 1;
+    await route.fulfill({ body: source, contentType: "application/pdf" });
+  });
+
+  await page.goto("/workspace-preview/drawing-workspace?p5PdfTest=1", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "PDF 개정 비교 증거가 일치하지 않습니다.",
+  );
+  await page.waitForTimeout(250);
+  expect(loadRequests).toBe(1);
+  expect(previousRequests).toBe(0);
+
+  await page.getByRole("button", { name: "겹쳐 보기" }).click();
+  await expect.poll(() => loadRequests).toBe(2);
+  await expect.poll(() => previousRequests).toBe(1);
+  await expect(
+    page.getByRole("button", { name: "변경 표시 계산" }),
+  ).toBeEnabled();
+});
+
 test("disabling PDF compare cancels pending predecessor work and clears transient resources", async ({
   page,
 }) => {
