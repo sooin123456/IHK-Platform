@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Worker } from "node:worker_threads";
 
 import { computeDrawingPdfRevisionDiff } from "../app/lukas/lib/drawing-pdf-revision-diff.ts";
 
@@ -38,6 +39,65 @@ function paintInPlace(input, x, y, width, height, rgba = [0, 0, 0, 255]) {
       const index = (row * input.pixels.width + column) * 4;
       input.pixels.data.set(rgba, index);
     }
+}
+
+async function finalPublicationRace({ previous, current, finalWorkCheck }) {
+  const control = new Int32Array(
+    new SharedArrayBuffer(5 * Int32Array.BYTES_PER_ELEMENT),
+  );
+  const worker = new Worker(
+    `
+      const { workerData } = require("node:worker_threads");
+      const control = new Int32Array(workerData);
+      let command = 0;
+      for (;;) {
+        Atomics.wait(control, 3, command);
+        command = Atomics.load(control, 3);
+        if (command < 0) break;
+        Atomics.store(control, 4, command);
+        Atomics.notify(control, 4);
+        while (Atomics.load(control, 1) < Atomics.load(control, 2))
+          Atomics.wait(control, 1, Atomics.load(control, 1));
+        Atomics.store(control, 0, 5);
+      }
+    `,
+    { eval: true, workerData: control.buffer },
+  );
+
+  try {
+    for (let iteration = 1; iteration <= 20; iteration += 1) {
+      Atomics.store(control, 0, 4);
+      Atomics.store(control, 1, 0);
+      Atomics.store(control, 2, finalWorkCheck);
+      Atomics.store(control, 3, iteration);
+      Atomics.notify(control, 3);
+      while (Atomics.load(control, 4) !== iteration)
+        Atomics.wait(control, 4, Atomics.load(control, 4));
+
+      assert.throws(
+        () =>
+          computeDrawingPdfRevisionDiff({
+            previous,
+            current,
+            generation: {
+              requested: 4,
+              current: () => {
+                const generation = Atomics.load(control, 0);
+                Atomics.add(control, 1, 1);
+                Atomics.notify(control, 1);
+                return generation;
+              },
+            },
+          }),
+        { name: "AbortError" },
+      );
+      assert.equal(Atomics.load(control, 0), 5);
+    }
+  } finally {
+    Atomics.store(control, 3, -1);
+    Atomics.notify(control, 3);
+    await worker.terminate();
+  }
 }
 
 test("identical premultiplied RGBA pages produce no preview markers", () => {
@@ -254,4 +314,57 @@ test("diff work is bounded and AbortController/generation cancellable", () => {
       }),
     { name: "AbortError" },
   );
+});
+
+test("final publication rejects concurrent generation changes for empty and changed diffs", async () => {
+  const previous = page(1024, 1024);
+  await finalPublicationRace({
+    previous,
+    current: page(1024, 1024),
+    finalWorkCheck: 33,
+  });
+
+  const current = page(1024, 1024);
+  for (let tileY = 0; tileY < 32; tileY += 1)
+    for (let tileX = 0; tileX < 32; tileX += 1)
+      paintInPlace(current, tileX * 32, tileY * 32, 2, 2);
+  await finalPublicationRace({
+    previous,
+    current,
+    finalWorkCheck: 34,
+  });
+});
+
+test("final publication rejects cancellation during rotation and aspect refusal", () => {
+  for (const createCurrent of [
+    (controller) =>
+      page(64, 64, {
+        get rotation() {
+          controller.abort();
+          return 90;
+        },
+      }),
+    (controller) =>
+      page(64, 64, {
+        viewport: {
+          get width() {
+            controller.abort();
+            return 102;
+          },
+          height: 100,
+        },
+      }),
+  ]) {
+    const controller = new AbortController();
+    const current = createCurrent(controller);
+    assert.throws(
+      () =>
+        computeDrawingPdfRevisionDiff({
+          previous: page(64, 64),
+          current,
+          signal: controller.signal,
+        }),
+      { name: "AbortError" },
+    );
+  }
 });

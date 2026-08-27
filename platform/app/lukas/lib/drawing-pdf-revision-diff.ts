@@ -45,6 +45,17 @@ function checkCancellation(input: {
     throw abortError();
 }
 
+function finalizeResult(
+  input: {
+    signal?: AbortSignal;
+    generation?: { requested: number; current: () => number };
+  },
+  result: DrawingPdfDiffResult,
+) {
+  checkCancellation(input);
+  return result;
+}
+
 function validatePage(page: DrawingPdfDiffPage) {
   const { width, height, data } = page.pixels;
   if (
@@ -195,7 +206,11 @@ export function computeDrawingPdfRevisionDiff(input: {
   validatePage(input.previous);
   validatePage(input.current);
   if (input.previous.rotation !== input.current.rotation)
-    return { status: "refused", reason: "rotation_mismatch", markers: [] };
+    return finalizeResult(input, {
+      status: "refused",
+      reason: "rotation_mismatch",
+      markers: [],
+    });
   const previousAspect =
     input.previous.viewport.width / input.previous.viewport.height;
   const currentAspect =
@@ -205,14 +220,18 @@ export function computeDrawingPdfRevisionDiff(input: {
       Math.max(previousAspect, currentAspect) >
     0.01 + Number.EPSILON * 8
   )
-    return { status: "refused", reason: "aspect_mismatch", markers: [] };
+    return finalizeResult(input, {
+      status: "refused",
+      reason: "aspect_mismatch",
+      markers: [],
+    });
   if (
     input.previous.pixels.width !== input.current.pixels.width ||
     input.previous.pixels.height !== input.current.pixels.height
   )
     throw new Error("PDF diff rasters must have equal dimensions.");
   const tiles = changedTiles(input.previous, input.current, input);
-  return {
+  const result: DrawingPdfDiffResult = {
     status: "ready",
     markers: mergeTiles(
       tiles,
@@ -221,4 +240,5 @@ export function computeDrawingPdfRevisionDiff(input: {
       input,
     ),
   };
+  return finalizeResult(input, result);
 }
