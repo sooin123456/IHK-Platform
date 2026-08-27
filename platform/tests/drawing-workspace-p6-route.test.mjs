@@ -65,8 +65,8 @@ test("material lineage route binds and preserves exact plan and BOQ line filters
     ),
     "utf8",
   );
-  assert.match(route, /searchParams\.get\("materialPlanId"\)/);
-  assert.match(route, /searchParams\.get\("boqLineId"\)/);
+  assert.match(route, /lineageFilter\("materialPlanId"\)/);
+  assert.match(route, /lineageFilter\("boqLineId"\)/);
   assert.match(route, /materialPlanId,/);
   assert.match(route, /boqLineId,/);
   assert.match(component, /search\.set\("materialPlanId"/);

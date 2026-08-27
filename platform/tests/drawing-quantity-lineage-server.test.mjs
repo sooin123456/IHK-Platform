@@ -281,6 +281,9 @@ test("approved BOQ material handoff persists only selected authoritative materia
         components: [{ ...context.components[0], finalQuantity: "0" }],
       };
     },
+    async persistManifest() {
+      return manifestFileId;
+    },
   };
   await createP6MaterialHandoff(
     authorizedClient(p6Ids.actor, p6Ids.project, "estimator"),
@@ -573,16 +576,29 @@ test("material lineage cursor returns every link once across bounded pages", asy
       (row) => row.carbonCoverage === "missing",
     ),
   );
-  const looseDateCursor = Buffer.from(
-    JSON.stringify({ createdAt: "2026-08-28T00:00:00Z", id: links[0].id }),
+  const unsafeDateCursor = Buffer.from(
+    JSON.stringify({ createdAt: "2026-08-28 00:00:00Z", id: links[0].id }),
   ).toString("base64url");
   await assert.rejects(
     listMaterialBoqLineage(client, {
       projectId: p6Ids.project,
-      cursor: looseDateCursor,
+      cursor: unsafeDateCursor,
       limit: 2,
     }),
     /커서가 올바르지 않습니다/,
+  );
+  await assert.rejects(
+    listMaterialBoqLineage(
+      tableClient({
+        lukas_drawing_material_links: [links[0]],
+        lukas_qto_material_transactions: Array.from(
+          { length: 10_001 },
+          () => ({}),
+        ),
+      }),
+      { projectId: p6Ids.project, cursor: null },
+    ),
+    /허용 범위를 초과했습니다/,
   );
 });
 
@@ -643,6 +659,12 @@ function tableClient(rows) {
         },
         limit() {
           return Promise.resolve(result);
+        },
+        range(from, to) {
+          return Promise.resolve({
+            data: (rows[table] ?? []).slice(from, to + 1),
+            error: null,
+          });
         },
       };
       return query;
@@ -721,6 +743,9 @@ function pagedLineageClient(links) {
               )
             : links;
           return Promise.resolve({ data: rows.slice(0, size), error: null });
+        },
+        range() {
+          return Promise.resolve({ data: [], error: null });
         },
       };
       return query;

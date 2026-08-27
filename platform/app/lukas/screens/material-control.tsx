@@ -420,11 +420,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       alreadyImported: importedArtifactIds.has(artifact.id),
     }));
   const requestUrl = new URL(request.url);
+  const lineageFilter = (name: "materialPlanId" | "boqLineId") => {
+    const value = requestUrl.searchParams.get(name);
+    if (!value) return undefined;
+    const parsed = z.string().uuid().safeParse(value);
+    if (!parsed.success)
+      throw new Response("자재 계보 범위가 올바르지 않습니다.", {
+        status: 400,
+      });
+    return parsed.data;
+  };
+  const materialPlanId = lineageFilter("materialPlanId");
+  const boqLineId = lineageFilter("boqLineId");
+  const asOfDate = new Date().toISOString().slice(0, 10);
   const lineage = await listMaterialBoqLineage(client, {
     projectId: project.id,
+    materialPlanId,
+    boqLineId,
     cursor: requestUrl.searchParams.get("lineageCursor"),
+    asOfDate,
   });
-  const { data: approvedBoqRows } = await client
+  const { data: approvedBoqRows, error: approvedBoqError } = await client
     .from("lukas_qto_boq_versions")
     .select("id,version_no,title,status")
     .eq("project_id", project.id)
@@ -432,6 +448,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .in("status", ["approved", "superseded"])
     .order("version_no", { ascending: false })
     .limit(200);
+  if (approvedBoqError)
+    throw new Response("승인 BOQ 목록을 읽지 못했습니다.", { status: 409 });
   const approvedBoqIds = (approvedBoqRows ?? []).map((row) => row.id);
   const [componentResult, existingLinkResult] = approvedBoqIds.length
     ? await Promise.all([
@@ -500,7 +518,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     factorRows.map((row) =>
       carbonFactorRow(row as unknown as Record<string, unknown>),
     ),
-    new Date().toISOString().slice(0, 10),
+    asOfDate,
   );
   return {
     project,
@@ -511,6 +529,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     approvedTakeoffs,
     approvedBoqs,
     materialLineage: lineage,
+    materialPlanId,
+    boqLineId,
     materialHandoffOperationId: randomUUID(),
     summaries,
   };
@@ -883,6 +903,8 @@ export default function MaterialControl({
       </section>
       <MaterialBoqLineage
         approvedBoqs={loaderData.approvedBoqs}
+        boqLineId={loaderData.boqLineId}
+        materialPlanId={loaderData.materialPlanId}
         nextCursor={loaderData.materialLineage.nextCursor}
         operationId={loaderData.materialHandoffOperationId}
         projectId={loaderData.project.id}

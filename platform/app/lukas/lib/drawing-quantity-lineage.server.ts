@@ -1024,6 +1024,7 @@ function materialHandoffRows(
   );
   const plans: P6MaterialPlanInsert[] = [];
   const links: P6MaterialLinkInsert[] = [];
+  let linkIndex = 0;
   for (const [planIndex, plan] of derived.entries()) {
     // One operation owns one ordered plan set. Reusing it with any other
     // selection collides on the first plan and the private authority rejects it.
@@ -1055,7 +1056,7 @@ function materialHandoffRows(
           boqVersionId,
           operationId,
           "link",
-          source.rateComponentId,
+          String(linkIndex++),
         ),
         boqLineId: source.lineId,
         boqRateComponentId: source.rateComponentId,

@@ -76,6 +76,10 @@ export type MaterialBoqLineageRow = {
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const POSTGRES_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+const MATERIAL_TRANSACTION_LIMIT = 10_000;
+const MATERIAL_TRANSACTION_PAGE_SIZE = 200;
 
 function lineageCursor(cursor: string | null) {
   if (!cursor) return null;
@@ -84,8 +88,8 @@ function lineageCursor(cursor: string | null) {
     if (
       !value ||
       typeof value.createdAt !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.createdAt) ||
-      new Date(value.createdAt).toISOString() !== value.createdAt ||
+      !POSTGRES_TIMESTAMP.test(value.createdAt) ||
+      !Number.isFinite(Date.parse(value.createdAt)) ||
       !UUID.test(value.id)
     )
       throw new Error("invalid cursor");
@@ -160,6 +164,7 @@ export async function listMaterialBoqLineage(
     boqLineId?: string;
     cursor: string | null;
     limit?: number;
+    asOfDate?: string;
   },
 ): Promise<{ rows: MaterialBoqLineageRow[]; nextCursor: string | null }> {
   if (
@@ -191,8 +196,11 @@ export async function listMaterialBoqLineage(
     Record<string, unknown>
   >;
   const planIds = [...new Set(page.map((row) => String(row.material_plan_id)))];
-  const { data: transactionData, error: transactionError } = planIds.length
-    ? await userClient
+  const transactionData: Record<string, unknown>[] = [];
+  if (planIds.length) {
+    let offset = 0;
+    while (true) {
+      const { data: batch, error: transactionError } = await userClient
         .from("lukas_qto_material_transactions")
         .select(
           "id,material_plan_id,transaction_type,document_number,supplier_name,quantity,unit_price_krw,amount_krw,related_order_id,carbon_factor_id,evidence_sha256",
@@ -200,11 +208,19 @@ export async function listMaterialBoqLineage(
         .eq("project_id", input.projectId)
         .in("material_plan_id", planIds)
         .order("created_at", { ascending: true })
-        .limit(10_001)
-    : { data: [], error: null };
-  if (transactionError || (transactionData?.length ?? 0) > 10_000)
-    throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
-  const transactions = (transactionData ?? []).map((row) =>
+        .order("id", { ascending: true })
+        .range(offset, offset + MATERIAL_TRANSACTION_PAGE_SIZE - 1);
+      if (transactionError)
+        throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
+      const rows = (batch ?? []) as unknown as Record<string, unknown>[];
+      if (!rows.length) break;
+      transactionData.push(...rows);
+      if (transactionData.length > MATERIAL_TRANSACTION_LIMIT)
+        throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
+      offset += rows.length;
+    }
+  }
+  const transactions = transactionData.map((row) =>
     materialTransactionRow(row as unknown as Record<string, unknown>),
   );
   const factorIds = [
@@ -268,9 +284,12 @@ export async function listMaterialBoqLineage(
     ).values(),
   ];
   const coverageByPlan = new Map(
-    buildMaterialControlSummaries(uniquePlans, transactions, factors).map(
-      (summary) => [summary.materialPlanId, summary.carbonCoverage],
-    ),
+    buildMaterialControlSummaries(
+      uniquePlans,
+      transactions,
+      factors,
+      input.asOfDate ?? new Date().toISOString().slice(0, 10),
+    ).map((summary) => [summary.materialPlanId, summary.carbonCoverage]),
   );
   const last = page.at(-1);
   return {

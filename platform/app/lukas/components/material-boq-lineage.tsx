@@ -23,13 +23,29 @@ export function MaterialBoqLineage({
   approvedBoqs,
   rows,
   nextCursor,
+  materialPlanId,
+  boqLineId,
 }: {
   projectId: string;
   operationId: string;
   approvedBoqs: ApprovedBoqOption[];
   rows: MaterialBoqLineageRow[];
   nextCursor: string | null;
+  materialPlanId?: string;
+  boqLineId?: string;
 }) {
+  const lineageHref = (input: {
+    cursor?: string;
+    materialPlanId?: string;
+    boqLineId?: string;
+  }) => {
+    const search = new URLSearchParams();
+    if (input.cursor) search.set("lineageCursor", input.cursor);
+    if (input.materialPlanId)
+      search.set("materialPlanId", input.materialPlanId);
+    if (input.boqLineId) search.set("boqLineId", input.boqLineId);
+    return `?${search.toString()}`;
+  };
   return (
     <section className="mt-8 rounded-2xl border bg-card p-6 shadow-sm">
       <p className="text-sm font-bold text-primary">승인 BOQ 자재 인계</p>
@@ -115,6 +131,20 @@ export function MaterialBoqLineage({
                 자재계획 {row.materialPlanId} · 설계 {row.derivedDesignQuantity}{" "}
                 {row.materialPlan.unit}
               </p>
+              <p className="mt-1 flex flex-wrap gap-3 text-xs">
+                <Link
+                  className="underline underline-offset-4"
+                  to={lineageHref({ materialPlanId: row.materialPlanId })}
+                >
+                  이 자재계획 계보만 보기
+                </Link>
+                <Link
+                  className="underline underline-offset-4"
+                  to={lineageHref({ boqLineId: row.boqLineId })}
+                >
+                  이 BOQ 행 계보만 보기
+                </Link>
+              </p>
               <p className="mt-1 break-all text-xs text-muted-foreground">
                 BOQ 결과 {row.boqResultSha256} · 승인 manifest 파일{" "}
                 {row.manifestFileId} · SHA {row.manifestFileSha256}
@@ -160,7 +190,9 @@ export function MaterialBoqLineage({
                     <b>{factor.productName}</b> · {factor.sourceType} ·{" "}
                     {factor.gwpA1A3PerUnit} kgCO₂e/{factor.declaredUnit}
                     <span className="block break-all text-xs text-muted-foreground">
-                      탄소계수 ID {factor.id} · 원본 SHA {factor.sourceSha256}
+                      탄소계수 ID {factor.id} · 표준 {factor.standard} ·
+                      유효기한 {factor.validUntil ?? "제한 없음"} · 원본 SHA{" "}
+                      {factor.sourceSha256}
                     </span>
                   </div>
                 ))}
@@ -178,7 +210,7 @@ export function MaterialBoqLineage({
       {nextCursor ? (
         <Link
           className="mt-4 inline-block text-sm underline underline-offset-4"
-          to={`?lineageCursor=${encodeURIComponent(nextCursor)}`}
+          to={lineageHref({ cursor: nextCursor, materialPlanId, boqLineId })}
         >
           계보 다음 200건
         </Link>

@@ -1364,10 +1364,12 @@ test("material handoff independently verifies approval, ancestry, totals, and re
       insertMaterialHandoff(db, { plans: changedPlans }),
       "P6O01",
     );
-    const changedLinks = structuredClone(payload.links);
-    changedLinks[0].derivedDesignQuantity = "9";
+    // The server assigns the same canonical ordinal identity to a disjoint
+    // zero-quantity retry, so the real RPC must reject the changed link row.
+    const zeroQuantityRetryLinks = structuredClone(payload.links);
+    zeroQuantityRetryLinks[0].derivedDesignQuantity = "0";
     await assertSqlState(
-      insertMaterialHandoff(db, { links: changedLinks }),
+      insertMaterialHandoff(db, { links: zeroQuantityRetryLinks }),
       "P6O01",
     );
 
