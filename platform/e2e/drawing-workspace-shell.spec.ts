@@ -24,9 +24,11 @@ async function waitForPreviewRealtimeEffect(page: Page) {
   ).toBeVisible({ timeout: 15_000 });
 }
 
-test("desktop split keeps IFC evidence inside its panel", async ({ page }) => {
+test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await openPreview(page, `${previewPath}?view=split`);
+  await openPreview(page);
   const panel = page.getByRole("complementary", { name: "IFC 3D 원본" });
   await expect(panel).toBeVisible();
   await expect(
@@ -41,6 +43,41 @@ test("desktop split keeps IFC evidence inside its panel", async ({ page }) => {
     .getByRole("img", { name: "IFC 3D 모델 화면" })
     .evaluate((element) => element.getBoundingClientRect().toJSON());
   expect(modelBounds.bottom).toBeLessThanOrEqual(720);
+  await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);
+  await expect(
+    page.getByRole("complementary", { name: "속성 검사기" }),
+  ).toHaveCount(0);
+
+  const canvas = page.getByRole("region", { name: "도면 캔버스" });
+  const canvasBounds = await canvas.evaluate((element) =>
+    element.getBoundingClientRect().toJSON(),
+  );
+  expect(canvasBounds.width).toBeGreaterThan(900);
+  expect(canvasBounds.height).toBeGreaterThan(600);
+
+  const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+  await page.keyboard.press("[");
+  await expect(tools).toHaveCount(0);
+  await page.keyboard.press("[");
+  await expect(tools).toBeVisible();
+
+  await page.keyboard.press("]");
+  await expect(
+    page.getByRole("complementary", { name: "속성 검사기" }),
+  ).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(
+    page.getByRole("complementary", { name: "속성 검사기" }),
+  ).toHaveCount(0);
+
+  const createPage = page.getByText("페이지 만들기", { exact: true });
+  await expect(
+    page.getByRole("textbox", { name: "새 페이지 이름" }),
+  ).toBeHidden();
+  await createPage.click();
+  await expect(
+    page.getByRole("textbox", { name: "새 페이지 이름" }),
+  ).toBeVisible();
 });
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
@@ -97,11 +134,12 @@ test("two Awareness clients including the same verified user render object and b
   ).toBeVisible();
   const participants = page.getByRole("list", { name: "참여자 목록" });
   await expect(participants.getByText("김도윤", { exact: true })).toBeVisible();
-  await expect(participants.getByText("나", { exact: true })).toHaveCount(2);
+  await expect(participants.getByText("나", { exact: true })).toHaveCount(1);
+  await expect(participants.getByText("박서연", { exact: true })).toBeVisible();
   await expect(page.getByLabel("김도윤 커서")).toBeVisible();
-  await expect(page.getByLabel("나 커서")).toBeVisible();
+  await expect(page.getByLabel("박서연 커서")).toBeVisible();
   await expect(page.locator('[data-remote-selection="김도윤"]')).toBeVisible();
-  await expect(page.getByLabel("나 커서")).toHaveAttribute(
+  await expect(page.getByLabel("박서연 커서")).toHaveAttribute(
     "data-remote-selection-ids",
     /00000000-0000-4000-8000-000000000080/,
   );
@@ -119,7 +157,7 @@ test("two Awareness clients including the same verified user render object and b
   ).toContainText("김도윤님이 D-101 편집 중");
   await expect(
     page.getByRole("status", { name: "객체 잠금 상태" }),
-  ).toContainText("나님이 D-01 북측 편집 중");
+  ).toContainText("박서연님이 D-01 북측 편집 중");
   await expect(
     page.getByRole("status", { name: /공동 편집 상태/ }),
   ).toContainText("3명");
@@ -146,7 +184,7 @@ test("two Awareness clients including the same verified user render object and b
   await lockedInstance.click();
   await expect(
     page.getByRole("status", { name: "선택 블록 잠금 상태" }),
-  ).toContainText("나님이 편집 중");
+  ).toContainText("박서연님이 편집 중");
   await page.keyboard.press("Delete");
   await expect(
     page.getByRole("status", { name: "공동 편집 작업 차단 안내" }),

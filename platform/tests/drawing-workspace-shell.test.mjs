@@ -105,13 +105,13 @@ test("review submit stays disabled for pending, conflicted, or volatile work", (
     );
 });
 
-test("workspace SSR shell keeps the canvas first below xl and restores three columns at xl", () => {
+test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first desktop", () => {
   const html = renderWorkspace();
   assert.match(html, /<main class="[^"]*xl:h-dvh[^"]*xl:overflow-hidden/);
   assert.match(html, /xl:\[contain:strict\]/);
   assert.match(
     html,
-    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)_18rem\][^"]*xl:overflow-hidden/,
+    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)\][^"]*xl:overflow-hidden/,
   );
   assert.match(
     html,
@@ -121,12 +121,36 @@ test("workspace SSR shell keeps the canvas first below xl and restores three col
     html,
     /aria-label="도면 캔버스" class="[^"]*order-1[^"]*xl:order-2/,
   );
-  assert.match(
-    html,
-    /aria-label="속성 검사기" class="[^"]*order-3[^"]*max-h-\[28rem\][^"]*xl:max-h-none/,
-  );
+  assert.doesNotMatch(html, /aria-label="속성 검사기"/);
+  assert.match(html, /aria-label="왼쪽 도구 패널 숨기기"/);
+  assert.match(html, /aria-label="속성 검사기 열기"/);
   assert.match(html, /aria-label="캔버스 도구"/);
   assert.match(html, /aria-label="P2 도면 객체 미리보기"/);
+});
+
+test("workspace dock shortcuts recover both desktop docks outside editable controls", () => {
+  const resolve = workspaceModule.resolveDrawingWorkspaceDockShortcut;
+  assert.equal(typeof resolve, "function");
+  assert.equal(resolve({ key: "[", target: null }), "left");
+  assert.equal(resolve({ key: "]", target: null }), "inspector");
+  assert.equal(
+    resolve({
+      key: "[",
+      target: { tagName: "INPUT", closest: () => null },
+    }),
+    null,
+  );
+  assert.equal(resolve({ key: "Escape", target: null }), null);
+});
+
+test("page and layer creation are compact contextual controls with Korean product copy", () => {
+  const html = renderWorkspace();
+  assert.match(html, /<details[^>]*>.*페이지 만들기/s);
+  assert.match(html, /<details[^>]*>.*레이어 만들기/s);
+  assert.doesNotMatch(html, /<details[^>]*open=""/);
+  assert.match(html, />표·일람</);
+  assert.doesNotMatch(html, />Schedule</);
+  assert.doesNotMatch(html, /페이지 및 canvas|Paper canvas|Model canvas/);
 });
 
 test("workspace SSR shell exposes one selected panel from seven accessible tabs", () => {

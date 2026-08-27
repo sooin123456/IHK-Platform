@@ -126,7 +126,7 @@ test("P2 local drawing preview loader allows only development loopback", async (
   process.env.NODE_ENV = "development";
 });
 
-test("P5 canonical preview mounts PDF and an IFC chooser without test-only query flags", async () => {
+test("current canonical preview opens the integrated PDF and IFC split without query flags", async () => {
   const loaded = await preview.loader({
     request: request(
       "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
@@ -155,7 +155,11 @@ test("P5 canonical preview mounts PDF and an IFC chooser without test-only query
     loaded.selectedIfcFileId,
     "00000000-0000-4000-8000-0000000000a1",
   );
-  assert.equal(loaded.sourceBundle.ifc, null);
+  assert.equal(loaded.viewMode, "split");
+  assert.equal(
+    loaded.sourceBundle.ifc.id,
+    "00000000-0000-4000-8000-0000000000a1",
+  );
   assert.ok(
     loaded.sourceBundle.catalog.some(
       (item) =>
