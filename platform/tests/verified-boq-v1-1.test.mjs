@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -631,4 +632,20 @@ test("1.1 result and manifests are independent of order, locale, time, and rando
     if (oldTimezone === undefined) delete process.env.TZ;
     else process.env.TZ = oldTimezone;
   }
+});
+
+test("verified BOQ 1.1 renders four distinct quantity columns and Drawing mapping UI", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/verified-boq.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const label of ["원수량", "보정값", "보정 후 수량", "최종수량"])
+    assert.match(screen, new RegExp(`>${label}<`));
+  assert.match(screen, /VerifiedBoqDrawingSources/);
+  assert.match(screen, /drawingSources/);
+  assert.match(screen, /engine_version/);
+  assert.doesNotMatch(
+    screen,
+    /name="(?:raw_quantity|final_quantity|unit_price|amount|result_sha256|manifest_sha256)"/,
+  );
 });

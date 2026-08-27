@@ -3,9 +3,123 @@ import test from "node:test";
 
 import {
   createDrawingQuantityLink,
+  deleteDrawingBoqLink,
   listDrawingObjectQuantityLineage,
+  parseVerifiedBoqV1_1RpcInput,
+  putDrawingBoqLink,
+  recheckAndDecideVerifiedBoqV1_1,
   resolveDrawingWorkspaceEntry,
+  submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+
+const P6_SHA_A = "a".repeat(64);
+const P6_SHA_B = "b".repeat(64);
+
+const p6Ids = {
+  actor: "00000000-0000-4000-8000-000000000101",
+  reviewer: "00000000-0000-4000-8000-000000000102",
+  project: "00000000-0000-4000-8000-000000000103",
+  version: "00000000-0000-4000-8000-000000000104",
+  section: "00000000-0000-4000-8000-000000000105",
+  line: "00000000-0000-4000-8000-000000000106",
+  quantity: "00000000-0000-4000-8000-000000000107",
+  drawingLink: "00000000-0000-4000-8000-000000000108",
+  revision: "00000000-0000-4000-8000-000000000109",
+  object: "00000000-0000-4000-8000-000000000110",
+  lineage: "00000000-0000-4000-8000-000000000111",
+  priceBook: "00000000-0000-4000-8000-000000000112",
+  priceFile: "00000000-0000-4000-8000-000000000113",
+  resource: "00000000-0000-4000-8000-000000000114",
+  component: "00000000-0000-4000-8000-000000000115",
+};
+
+function boqInputRpcPayload() {
+  return {
+    inputStateSha256: P6_SHA_A,
+    input: {
+      versionId: p6Ids.version,
+      projectId: p6Ids.project,
+      engineVersion: "VERIFIED-BOQ-1.1",
+      calculationPolicy: "general_half_away",
+      quantityScale: 3,
+      lines: [
+        {
+          id: p6Ids.line,
+          sectionId: p6Ids.section,
+          section: {
+            id: p6Ids.section,
+            parentId: null,
+            code: "01",
+            name: "건축",
+            sortOrder: 1,
+          },
+          itemCode: "001-A",
+          itemName: "벽체",
+          specification: "A",
+          unit: "m2",
+          adjustment: "0",
+          reason: "",
+          sortOrder: 1,
+        },
+      ],
+      drawingLinks: [
+        {
+          id: p6Ids.drawingLink,
+          line: p6Ids.line,
+          factor: "1",
+          version: 1,
+          source: {
+            id: p6Ids.quantity,
+            revisionId: p6Ids.revision,
+            revisionVersion: 2,
+            snapshotSha256: P6_SHA_B,
+            objectId: p6Ids.object,
+            lineageId: p6Ids.lineage,
+            objectVersion: 3,
+            fingerprint: P6_SHA_A,
+            kind: "area",
+            rawQuantity: "4.75",
+            unit: "m2",
+            rule: "P4_MEASUREMENT_V1",
+            anchors: [],
+            issues: [],
+          },
+        },
+      ],
+      legacyMappings: [],
+      legacyExclusions: [],
+      components: [
+        {
+          id: p6Ids.component,
+          line: p6Ids.line,
+          resourceId: p6Ids.resource,
+          coefficient: "2",
+          resource: {
+            id: p6Ids.resource,
+            code: "M-001",
+            type: "material",
+            name: "벽체재",
+            specification: "A",
+            unit: "m2",
+            unitPriceKrw: "100",
+            priceBookId: p6Ids.priceBook,
+          },
+        },
+      ],
+      priceBook: {
+        id: p6Ids.priceBook,
+        name: "고객 단가표",
+        versionLabel: "2026-08",
+        fileId: p6Ids.priceFile,
+        sha256: P6_SHA_B,
+        effectiveDate: "2026-08-01",
+        currency: "KRW",
+        rightsBasis: "customer_owned",
+        licenseNote: "customer",
+      },
+    },
+  };
+}
 
 test("trusted quantity creation forwards only server-derived evidence", async () => {
   const ids = {
@@ -252,6 +366,269 @@ test("workspace resolution returns exact evidence route and never falls back", a
   );
 });
 
+test("1.1 RPC input parser keeps fixed authoritative fields and rejects injection", () => {
+  const parsed = parseVerifiedBoqV1_1RpcInput(boqInputRpcPayload());
+  assert.equal(parsed.projectId, p6Ids.project);
+  assert.equal(parsed.inputStateSha256, P6_SHA_A);
+  assert.equal(parsed.input.engineVersion, "VERIFIED-BOQ-1.1");
+  assert.equal(parsed.input.drawingMappings[0].source.rawQuantity, "4.75");
+  assert.equal(parsed.input.drawingMappings[0].allocationFactor, "1");
+  assert.equal(parsed.input.resources[0].unit, "m2");
+
+  for (const mutate of [
+    (value) => (value.resultSha256 = P6_SHA_B),
+    (value) => (value.input.lines[0].finalQuantity = "999"),
+    (value) => (value.input.drawingLinks[0].source.amount = "999"),
+    (value) => (value.input.components[0].resource.unitPrice = "999"),
+  ]) {
+    const injected = structuredClone(boqInputRpcPayload());
+    mutate(injected);
+    assert.throws(() => parseVerifiedBoqV1_1RpcInput(injected), /P6B04|입력/);
+  }
+});
+
+test("BOQ link put accepts only IDs factor and OCC version, supports partial and exact retry", async () => {
+  const calls = [];
+  const row = {
+    id: p6Ids.drawingLink,
+    project_id: p6Ids.project,
+    quantity_link_id: p6Ids.quantity,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    allocation_factor: "0.5",
+    version: 1,
+    created_by: p6Ids.actor,
+    updated_by: p6Ids.actor,
+    created_at: "2026-08-28T00:00:00.000Z",
+    updated_at: "2026-08-28T00:00:00.000Z",
+  };
+  const client = rpcClient(p6Ids.actor, async (name, args) => {
+    calls.push([name, args]);
+    return { data: row, error: null };
+  });
+  const input = {
+    id: p6Ids.drawingLink,
+    quantityLinkId: p6Ids.quantity,
+    boqVersionId: p6Ids.version,
+    boqLineId: p6Ids.line,
+    allocationFactor: "0.5",
+    baseVersion: null,
+  };
+  assert.equal(
+    (await putDrawingBoqLink(client, input)).allocationFactor,
+    "0.5",
+  );
+  assert.deepEqual(calls[0], [
+    "lukas_drawing_put_boq_link",
+    {
+      p_id: p6Ids.drawingLink,
+      p_quantity_link_id: p6Ids.quantity,
+      p_boq_version_id: p6Ids.version,
+      p_boq_line_id: p6Ids.line,
+      p_allocation_factor: "0.5",
+      p_base_version: null,
+    },
+  ]);
+  assert.deepEqual(
+    await putDrawingBoqLink(client, input),
+    await putDrawingBoqLink(client, input),
+  );
+
+  await assert.rejects(
+    putDrawingBoqLink(client, { ...input, resultSha256: P6_SHA_A }),
+    (error) => error.code === "P6B04",
+  );
+});
+
+test("BOQ link put/delete bounds allocation, unit, authorization, project, and OCC failures", async () => {
+  const input = {
+    id: p6Ids.drawingLink,
+    quantityLinkId: p6Ids.quantity,
+    boqVersionId: p6Ids.version,
+    boqLineId: p6Ids.line,
+    allocationFactor: "1",
+    baseVersion: 3,
+  };
+  for (const code of ["P6B04", "P6U01", "P6A01", "P6O01"]) {
+    const client = rpcClient(p6Ids.actor, async () => ({
+      data: null,
+      error: { code, message: "database detail must stay bounded" },
+    }));
+    await assert.rejects(
+      putDrawingBoqLink(client, input),
+      (error) =>
+        error.code === code && !error.message.includes("database detail"),
+    );
+  }
+  await assert.rejects(
+    putDrawingBoqLink(rpcClient(p6Ids.actor), {
+      ...input,
+      allocationFactor: "1.000000001",
+    }),
+    (error) => error.code === "P6B04",
+  );
+  const calls = [];
+  await deleteDrawingBoqLink(
+    rpcClient(p6Ids.actor, async (name, args) => {
+      calls.push([name, args]);
+      return { data: { id: p6Ids.drawingLink, deleted: true }, error: null };
+    }),
+    { id: p6Ids.drawingLink, baseVersion: 3 },
+  );
+  assert.deepEqual(calls[0], [
+    "lukas_drawing_delete_boq_link",
+    {
+      p_id: p6Ids.drawingLink,
+      p_base_version: 3,
+    },
+  ]);
+});
+
+test("1.1 submission calculates trusted input then compare-and-freezes exact hashes", async () => {
+  const finalizeCalls = [];
+  const result = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async (name) => {
+      assert.equal(name, "lukas_qto_boq_v1_1_input");
+      return { data: boqInputRpcPayload(), error: null };
+    }),
+    p6Ids.actor,
+    p6Ids.version,
+    {
+      async finalize(args) {
+        finalizeCalls.push(args);
+        return args;
+      },
+      async loadFrozenInput() {
+        throw new Error("not used");
+      },
+    },
+  );
+  assert.match(result.resultSha256, /^[0-9a-f]{64}$/);
+  assert.match(result.manifestSha256, /^[0-9a-f]{64}$/);
+  assert.deepEqual(finalizeCalls[0], {
+    actorId: p6Ids.actor,
+    versionId: p6Ids.version,
+    inputStateSha256: P6_SHA_A,
+    resultSha256: result.resultSha256,
+    manifestSha256: result.manifestSha256,
+    directCostKrw: "950",
+    lineCount: 1,
+  });
+});
+
+test("1.1 submission fails closed on uncalculated input and finalize race", async () => {
+  const uncalculated = boqInputRpcPayload();
+  uncalculated.input.components = [];
+  await assert.rejects(
+    submitVerifiedBoqV1_1(
+      rpcClient(p6Ids.actor, async () => ({ data: uncalculated, error: null })),
+      p6Ids.actor,
+      p6Ids.version,
+      freezeAuthority(),
+    ),
+    (error) => error.code === "P6B04",
+  );
+  await assert.rejects(
+    submitVerifiedBoqV1_1(
+      rpcClient(p6Ids.actor, async () => ({
+        data: boqInputRpcPayload(),
+        error: null,
+      })),
+      p6Ids.actor,
+      p6Ids.version,
+      freezeAuthority({ finalizeCode: "P6O01" }),
+    ),
+    (error) => error.code === "P6O01",
+  );
+  await assert.rejects(
+    submitVerifiedBoqV1_1(
+      rpcClient(p6Ids.reviewer, async () => ({
+        data: boqInputRpcPayload(),
+        error: null,
+      })),
+      p6Ids.actor,
+      p6Ids.version,
+      freezeAuthority(),
+    ),
+    (error) => error.code === "P6A01",
+  );
+});
+
+test("1.1 decision reruns frozen hashes, requires an independent reviewer, and forwards no hashes", async () => {
+  const payload = boqInputRpcPayload();
+  const submitted = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async () => ({ data: payload, error: null })),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority(),
+  );
+  const rpcCalls = [];
+  const reviewer = decisionClient({
+    actorId: p6Ids.reviewer,
+    version: {
+      created_by: p6Ids.actor,
+      status: "in_review",
+      input_state_sha256: P6_SHA_A,
+      result_sha256: submitted.resultSha256,
+      manifest_sha256: submitted.manifestSha256,
+    },
+    rpcCalls,
+  });
+  await recheckAndDecideVerifiedBoqV1_1(
+    reviewer,
+    p6Ids.reviewer,
+    { versionId: p6Ids.version, decision: "approved", note: "확인" },
+    freezeAuthority({ payload }),
+  );
+  assert.deepEqual(rpcCalls, [
+    [
+      "lukas_qto_decide_boq",
+      {
+        p_version_id: p6Ids.version,
+        p_decision: "approved",
+        p_note: "확인",
+      },
+    ],
+  ]);
+
+  await assert.rejects(
+    recheckAndDecideVerifiedBoqV1_1(
+      decisionClient({
+        actorId: p6Ids.actor,
+        version: {
+          created_by: p6Ids.actor,
+          status: "in_review",
+          input_state_sha256: P6_SHA_A,
+          result_sha256: submitted.resultSha256,
+          manifest_sha256: submitted.manifestSha256,
+        },
+      }),
+      p6Ids.actor,
+      { versionId: p6Ids.version, decision: "approved", note: "self" },
+      freezeAuthority({ payload }),
+    ),
+    (error) => error.code === "P6A01",
+  );
+  await assert.rejects(
+    recheckAndDecideVerifiedBoqV1_1(
+      decisionClient({
+        actorId: p6Ids.reviewer,
+        version: {
+          created_by: p6Ids.actor,
+          status: "in_review",
+          input_state_sha256: P6_SHA_A,
+          result_sha256: P6_SHA_B,
+          manifest_sha256: submitted.manifestSha256,
+        },
+      }),
+      p6Ids.reviewer,
+      { versionId: p6Ids.version, decision: "approved", note: "stale" },
+      freezeAuthority({ payload }),
+    ),
+    (error) => error.code === "P6C01",
+  );
+});
+
 function authorizedClient(actor, project, role) {
   return {
     auth: {
@@ -384,6 +761,66 @@ function exactEntryClient(ids) {
   return {
     from(table) {
       return chain({ data: rows[table], error: null });
+    },
+  };
+}
+
+function rpcClient(
+  actorId,
+  handler = async () => ({ data: null, error: null }),
+) {
+  return {
+    auth: {
+      async getUser() {
+        return {
+          data: {
+            user: { id: actorId, is_anonymous: false, app_metadata: {} },
+          },
+          error: null,
+        };
+      },
+    },
+    rpc: handler,
+  };
+}
+
+function freezeAuthority(options = {}) {
+  return {
+    async finalize(args) {
+      if (options.finalizeCode)
+        throw Object.assign(new Error("database detail"), {
+          code: options.finalizeCode,
+        });
+      return args;
+    },
+    async loadFrozenInput() {
+      return options.payload ?? boqInputRpcPayload();
+    },
+  };
+}
+
+function decisionClient({ actorId, version, rpcCalls = [] }) {
+  return {
+    auth: {
+      async getUser() {
+        return {
+          data: {
+            user: { id: actorId, is_anonymous: false, app_metadata: {} },
+          },
+          error: null,
+        };
+      },
+    },
+    from(table) {
+      assert.equal(table, "lukas_qto_boq_versions");
+      return chain({
+        data: { id: p6Ids.version, project_id: p6Ids.project, ...version },
+        error: null,
+      });
+    },
+    async rpc(name, args) {
+      rpcCalls.push([name, args]);
+      return { data: null, error: null };
     },
   };
 }
