@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
@@ -82,6 +83,85 @@ test("verified BOQ closes the 10m3 direct-cost golden vector with source evidenc
   assert.deepEqual(result.lines[0].elementIds, ["1001", "1002"]);
   assert.match(result.canonicalSha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(calculateVerifiedBoq(goldenInput()), result);
+});
+
+test("Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen", () => {
+  const result = calculateVerifiedBoq(goldenInput());
+  assert.equal(
+    JSON.stringify(result),
+    '{"engineVersion":"VERIFIED-BOQ-1.0","versionId":"boq-v1","calculationPolicy":"general_half_away","status":"calculated","lines":[{"lineId":"line-1","sectionCode":"01","itemCode":"CONC-001","itemName":"콘크리트","specification":"25-270-15","unit":"m3","adjustment":"0","status":"calculated","rawQuantity":"10","finalQuantity":"10","materialUnitPriceKrw":"100000","laborUnitPriceKrw":"10000","expenseUnitPriceKrw":"5000","totalUnitPriceKrw":"115000","amountKrw":"1150000","formula":"ROUND_HALF_AWAY(Q×(M+L+E),0)","sourceSha256":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"elementIds":["1001","1002"],"message":"계산 가능"}],"directCostKrw":"1150000","exclusions":[],"canonicalSha256":"55baa46f10c6d9b087074d166daeb57ff0d0ff1d8905bb4ec95a1949e1ea4f6a"}',
+  );
+  assert.equal(
+    result.canonicalSha256,
+    "55baa46f10c6d9b087074d166daeb57ff0d0ff1d8905bb4ec95a1949e1ea4f6a",
+  );
+  assert.equal(
+    createHash("sha256").update(buildVerifiedBoqCsv(result)).digest("hex"),
+    "c194a5b8fd1add317a9cf5e81ed9d809b4288241049af653a8c4c5a0893465f8",
+  );
+  const RealDate = globalThis.Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      super(args.length ? args[0] : "2026-08-28T00:00:00.000Z");
+    }
+
+    static now() {
+      return new RealDate("2026-08-28T00:00:00.000Z").valueOf();
+    }
+  };
+  try {
+    assert.equal(
+      createHash("sha256")
+        .update(
+          buildVerifiedBoqXlsx({
+            result,
+            resources: [
+              {
+                code: "M-001",
+                type: "material",
+                name: "레미콘",
+                specification: "25-270-15",
+                unit: "m3",
+                unitPriceKrw: "100000",
+              },
+            ],
+            mappings: [
+              {
+                itemCode: "CONC-001",
+                sourceFilename: "원수량.csv",
+                sourceSha256: "a".repeat(64),
+                subjectKey: "WALL-CONCRETE",
+                sourceQuantity: "10",
+                factor: "1",
+                unit: "m3",
+                elementIds: ["1001", "1002"],
+              },
+            ],
+            structures: [
+              {
+                itemCode: "CONC-001",
+                cbsCode: "01",
+                cbsName: "철근콘크리트",
+                wbsCode: "A-01",
+                wbsName: "본관 1층",
+                allocationPercent: "100",
+              },
+            ],
+            review: {
+              projectName: "유치원",
+              versionLabel: "V1",
+              status: "draft",
+              makerId: "maker",
+              approvals: [],
+            },
+          }),
+        )
+        .digest("hex"),
+      "89d84aff9f892d1bf243736e0def67ebe15785ecfd44d2abf7424cd03e81419c",
+    );
+  } finally {
+    globalThis.Date = RealDate;
+  }
 });
 
 test("general and EMS policies use their documented rounding order", () => {
