@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "MEASURED",
   "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "d4d51efed1c5546e6357b2c6dc4372590e29dad0",
+  "sourceCommitSha": "84c235f24cc335ad3a28f6187b913c8892593806",
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
   "viewport": {
@@ -17,32 +17,79 @@
   },
   "lifecycle": {
     "ifcFetches": 1,
-    "ifcCanvasesAfterUnmount": 0
+    "ifcCanvasesAfterUnmount": 0,
+    "ifcOwnedDisposals": 1,
+    "ifcContextLossRequests": 1
   },
-  "sourceFixtures": [
-    {
-      "kind": "pdf_current",
-      "byteSize": 62602,
-      "sha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
-      "beforeSha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
-      "afterSha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326"
-    },
-    {
-      "kind": "pdf_previous",
-      "byteSize": 63118,
-      "sha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
-      "beforeSha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
-      "afterSha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc"
-    },
-    {
-      "kind": "ifc",
-      "byteSize": 413681,
-      "sha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
-      "beforeSha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
-      "afterSha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d"
-    }
-  ],
-  "firstUsableMs": 10775.400000035763,
+  "sourceObservation": {
+    "observedBy": "browser_mutation_workflow",
+    "runId": "30d8153a-558a-427f-b89e-bac52a5ab9cc",
+    "before": [
+      {
+        "kind": "pdf_current",
+        "byteSize": 62602,
+        "sha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "byteSize": 62602,
+          "sha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326"
+        }
+      },
+      {
+        "kind": "pdf_previous",
+        "byteSize": 63118,
+        "sha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-0000000000b1",
+          "byteSize": 63118,
+          "sha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc"
+        }
+      },
+      {
+        "kind": "ifc",
+        "byteSize": 413681,
+        "sha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-0000000000a1",
+          "byteSize": 413681,
+          "sha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d"
+        }
+      }
+    ],
+    "after": [
+      {
+        "kind": "pdf_current",
+        "byteSize": 62602,
+        "sha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "byteSize": 62602,
+          "sha256": "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326"
+        }
+      },
+      {
+        "kind": "pdf_previous",
+        "byteSize": 63118,
+        "sha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-0000000000b1",
+          "byteSize": 63118,
+          "sha256": "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc"
+        }
+      },
+      {
+        "kind": "ifc",
+        "byteSize": 413681,
+        "sha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
+        "fileRow": {
+          "id": "00000000-0000-4000-8000-0000000000a1",
+          "byteSize": 413681,
+          "sha256": "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d"
+        }
+      }
+    ]
+  },
+  "firstUsableMs": 13718,
   "firstUsableTargetMs": 2500,
   "firstUsableTargetStatus": "NOT MET",
   "p7SixtyFpsGate": "UNEXECUTED",
