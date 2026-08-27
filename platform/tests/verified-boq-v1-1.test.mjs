@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { strFromU8, unzipSync } from "fflate";
 
 import {
   VERIFIED_BOQ_V1_1_ENGINE_VERSION,
@@ -17,6 +18,7 @@ import {
   compareVerifiedBoqApprovedStates,
   verifiedBoqStoredReplayMatches,
 } from "../app/lukas/lib/verified-boq-comparison-v1-1.server.ts";
+import { buildApprovedVerifiedBoqExport } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -49,6 +51,8 @@ const ids = {
   componentA: "00000000-0000-4000-8000-000000000901",
   componentB: "00000000-0000-4000-8000-000000000902",
   approver: "00000000-0000-4000-8000-000000000999",
+  pdfAnchor: "00000000-0000-4000-8000-000000000997",
+  ifcAnchor: "00000000-0000-4000-8000-000000000998",
 };
 
 function drawingSource() {
@@ -594,6 +598,154 @@ test("manifest builders reject stale result and approval hashes", () => {
       }),
     /P6C01/,
   );
+});
+
+test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas", () => {
+  const input = mixedInput();
+  input.lines[0].itemName = "=악성";
+  input.lines[0].specification = "+사양";
+  const result = calculateVerifiedBoqV1_1(input);
+  const calculation = buildVerifiedBoqCalculationManifest(input, result, {
+    projectId: ids.project,
+    inputStateSha256: F,
+  });
+  const approvalEnvelope = {
+    versionId: ids.version,
+    resultSha256: result.canonicalSha256,
+    manifestSha256: calculation.manifestSha256,
+    decision: "approved",
+    decidedBy: ids.approver,
+    decidedAt: "2026-08-28T00:00:00.000Z",
+    note: "승인",
+  };
+  const exported = buildApprovedVerifiedBoqExport({
+    result,
+    calculationManifest: calculation.manifest,
+    approvalEnvelope,
+    resources: [
+      {
+        code: "0001",
+        type: "material",
+        name: "-자재",
+        specification: "@규격",
+        unit: "m2",
+        unitPriceKrw: "100.00",
+      },
+    ],
+    legacyMappings: [
+      {
+        itemCode: "001-A",
+        sourceFilename: "-원수량.csv",
+        sourceSha256: A,
+        subjectKey: "@WALL",
+        sourceQuantity: "10.00",
+        factor: "1.0",
+        unit: "m2",
+        elementIds: ["1001", "1002"],
+      },
+    ],
+    drawingEvidence: [
+      {
+        itemCode: "001-A",
+        quantityLinkId: ids.quantity,
+        revisionId: ids.revision,
+        revisionVersion: 2,
+        snapshotSha256: B,
+        objectId: ids.object,
+        lineageId: ids.lineage,
+        objectVersion: 3,
+        objectFingerprint: C,
+        measurementKind: "area",
+        unit: "m2",
+        rawQuantity: "4.7500",
+        allocationFactor: "0.250",
+        measurementRuleVersion: "P4_MEASUREMENT_V1",
+        sourceAnchorIds: [ids.ifcAnchor, ids.pdfAnchor],
+        sourceFileSha256: [D, E],
+        issueIds: [ids.issueA, ids.issueB],
+      },
+    ],
+    structures: [
+      {
+        itemCode: "001-A",
+        cbsCode: "01",
+        cbsName: "건축",
+        wbsCode: "A-01",
+        wbsName: "본관",
+        allocationPercent: "100",
+      },
+    ],
+    review: {
+      projectName: "한글 프로젝트",
+      versionLabel: "V001",
+      status: "approved",
+      makerId: ids.project,
+      approvals: [
+        {
+          decision: "approved",
+          note: "승인",
+          decidedBy: ids.approver,
+          createdAt: "2026-08-28T00:00:00.000Z",
+        },
+      ],
+    },
+  });
+
+  assert.equal(exported.resultSha256, result.canonicalSha256);
+  assert.equal(exported.manifestSha256, calculation.manifestSha256);
+  assert.match(exported.handoffSha256, /^[0-9a-f]{64}$/);
+
+  const manifestText = new TextDecoder().decode(exported.manifestJson);
+  const manifest = JSON.parse(manifestText);
+  assert.equal(manifestText, JSON.stringify(manifest));
+  assert.equal(manifest.resultSha256, exported.resultSha256);
+  assert.equal(manifest.manifestSha256, exported.manifestSha256);
+  assert.equal(manifest.handoffSha256, exported.handoffSha256);
+  assert.deepEqual(manifest.evidenceFiles, [
+    { fileId: ids.ifcFile, sha256: D },
+    { fileId: ids.pdfFile, sha256: E },
+    { fileId: ids.legacyFile, sha256: A },
+    { fileId: ids.priceFile, sha256: NINE },
+  ]);
+
+  const csv = new TextDecoder().decode(exported.csv);
+  assert.ok(csv.startsWith("\uFEFF"));
+  assert.match(csv, /한글 프로젝트|악성/);
+  assert.match(csv, /'001-A/);
+  for (const protectedCell of ["'=악성", "'+사양", "'-원수량.csv", "'@WALL"])
+    assert.match(csv, new RegExp(protectedCell.replace(/[+]/g, "\\+")));
+  for (const hash of [
+    exported.resultSha256,
+    exported.manifestSha256,
+    exported.handoffSha256,
+  ])
+    assert.match(csv, new RegExp(hash));
+  assert.match(csv, /4\.7500/);
+  assert.match(csv, /1001\|1002/);
+
+  const archive = unzipSync(exported.xlsx);
+  const workbook = strFromU8(archive["xl/workbook.xml"]);
+  for (const name of [
+    "공종별내역서",
+    "자원단가",
+    "매핑근거",
+    "검토정보",
+    "WBS-CBS",
+    "도면근거",
+    "승인·매니페스트",
+  ])
+    assert.match(workbook, new RegExp(`name="${name}"`));
+  const workbookXml = Object.entries(archive)
+    .filter(([name]) => name.endsWith(".xml"))
+    .map(([, bytes]) => strFromU8(bytes))
+    .join("\n");
+  assert.doesNotMatch(workbookXml, /<f(?:\s|>)/);
+  for (const hash of [
+    exported.resultSha256,
+    exported.manifestSha256,
+    exported.handoffSha256,
+  ])
+    assert.match(workbookXml, new RegExp(hash));
 });
 
 test("1.1 result and manifests are independent of order, locale, time, and random", () => {

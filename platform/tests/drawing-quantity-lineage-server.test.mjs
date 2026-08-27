@@ -12,6 +12,7 @@ import {
   resolveDrawingWorkspaceEntry,
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+import { loadApprovedVerifiedBoqExport } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
 
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
@@ -1040,6 +1041,78 @@ test("1.1 decision reruns frozen hashes, requires an independent reviewer, and f
   assert.equal(privilegedLoads, 0);
 });
 
+test("approved export reloads authoritative input and denies non-approved or stale snapshots before bytes", async () => {
+  const payload = boqInputRpcPayload();
+  const submitted = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async () => ({ data: payload, error: null })),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority(),
+  );
+  const stored = {
+    input_state_sha256: P6_SHA_A,
+    result_sha256: submitted.resultSha256,
+    manifest_sha256: submitted.manifestSha256,
+    direct_cost_krw: "950.000000",
+    line_count: 1,
+  };
+
+  for (const denied of [
+    { status: "draft", decision: "approved" },
+    { status: "in_review", decision: "approved" },
+    { status: "approved", decision: "rejected" },
+  ])
+    await assert.rejects(
+      loadApprovedVerifiedBoqExport(
+        approvedExportClient({ ...stored, ...denied }),
+        p6Ids.actor,
+        p6Ids.version,
+        freezeAuthority({ payload }),
+      ),
+      (error) => error.code === "P6A01",
+    );
+
+  for (const mutation of [
+    { input_state_sha256: P6_SHA_B },
+    { result_sha256: P6_SHA_B },
+    { manifest_sha256: P6_SHA_B },
+  ])
+    await assert.rejects(
+      loadApprovedVerifiedBoqExport(
+        approvedExportClient({
+          ...stored,
+          status: "approved",
+          decision: "approved",
+          ...mutation,
+        }),
+        p6Ids.actor,
+        p6Ids.version,
+        freezeAuthority({ payload }),
+      ),
+      (error) => error.code === "P6C01",
+    );
+
+  for (const status of ["approved", "superseded"])
+    for (const replay of [
+      await loadApprovedVerifiedBoqExport(
+        approvedExportClient({
+          ...stored,
+          status,
+          decision: "approved",
+        }),
+        p6Ids.actor,
+        p6Ids.version,
+        freezeAuthority({ payload }),
+      ),
+    ]) {
+      assert.equal(replay.resultSha256, submitted.resultSha256);
+      assert.equal(replay.manifestSha256, submitted.manifestSha256);
+      assert.ok(replay.csv.byteLength > 3);
+      assert.ok(replay.xlsx.byteLength > 0);
+      assert.ok(replay.manifestJson.byteLength > 0);
+    }
+});
+
 function authorizedClient(actor, project, role) {
   return {
     auth: {
@@ -1257,6 +1330,62 @@ function decisionClient({
     async rpc(name, args) {
       rpcCalls.push([name, args]);
       return { data: null, error: null };
+    },
+  };
+}
+
+function approvedExportClient({ status, decision, ...stored }) {
+  const rows = {
+    lukas_qto_boq_versions: {
+      id: p6Ids.version,
+      project_id: p6Ids.project,
+      version_no: 1,
+      title: "승인 내역",
+      status,
+      created_by: p6Ids.actor,
+      engine_version: "VERIFIED-BOQ-1.1",
+      ...stored,
+    },
+    lukas_qto_boq_approvals: [
+      {
+        id: "00000000-0000-4000-8000-000000000190",
+        version_id: p6Ids.version,
+        decision,
+        note: "검토",
+        decided_by: p6Ids.reviewer,
+        created_at: "2026-08-28T00:00:00.000Z",
+      },
+    ],
+    lukas_qto_projects: { id: p6Ids.project, name: "한글 프로젝트" },
+    lukas_qto_files: [
+      {
+        id: p6Ids.priceFile,
+        original_filename: "단가표.csv",
+        sha256: P6_SHA_B,
+        immutable: true,
+      },
+    ],
+    lukas_qto_wbs_nodes: [],
+    lukas_qto_boq_wbs_allocations: [],
+  };
+  return {
+    auth: {
+      async getUser() {
+        return {
+          data: {
+            user: {
+              id: p6Ids.actor,
+              is_anonymous: false,
+              app_metadata: {},
+            },
+          },
+          error: null,
+        };
+      },
+    },
+    from(table) {
+      assert.ok(table in rows, table);
+      return chain({ data: rows[table], error: null });
     },
   };
 }
