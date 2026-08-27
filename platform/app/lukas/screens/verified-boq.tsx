@@ -45,6 +45,7 @@ import {
 import {
   approvedVerifiedBoqDownloadResponse,
   loadApprovedVerifiedBoqExport,
+  selectVerifiedBoqVersion,
 } from "~/lukas/lib/verified-boq-approved-export.server";
 import { buildVerifiedBoqXlsx } from "~/lukas/lib/verified-boq-xlsx.server";
 import {
@@ -540,9 +541,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const priceBooks = (bookResult.data ?? []) as PriceBook[];
   const versions = (versionResult.data ?? []) as Version[];
   const requested = url.searchParams.get("version");
-  const version =
-    versions.find((item) => item.id === requested) ?? versions[0] ?? null;
   const download = url.searchParams.get("download");
+  const version = selectVerifiedBoqVersion(
+    versions,
+    requested,
+    Boolean(download),
+  );
+  if (download && requested && !version)
+    throw new Response("요청한 내역 버전을 찾을 수 없습니다.", {
+      status: 404,
+      headers: { "Cache-Control": "private, no-store" },
+    });
   if (download && version?.engine_version === "VERIFIED-BOQ-1.1") {
     if (!(["csv", "xlsx", "manifest"] as string[]).includes(download))
       throw new Response("지원하지 않는 내보내기 형식입니다.", { status: 400 });

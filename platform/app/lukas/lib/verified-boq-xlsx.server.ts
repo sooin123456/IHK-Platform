@@ -66,13 +66,43 @@ export type VerifiedBoqWorkbookInput = {
   };
 };
 
-const xml = (value: string) =>
-  value
+function xmlText(value: string) {
+  let valid = "";
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if (
+      code === 0x9 ||
+      code === 0xa ||
+      code === 0xd ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) ||
+      (code >= 0x10000 && code <= 0x10ffff)
+    )
+      valid += character;
+  }
+  return valid
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function excelTextChunks(value: string) {
+  const chunks: string[] = [];
+  for (let start = 0; start < value.length;) {
+    let end = Math.min(start + 32_767, value.length);
+    if (
+      end < value.length &&
+      /[\uD800-\uDBFF]/.test(value[end - 1]) &&
+      /[\uDC00-\uDFFF]/.test(value[end])
+    )
+      end -= 1;
+    chunks.push(value.slice(start, end));
+    start = end;
+  }
+  return chunks.length ? chunks : [""];
+}
 
 function columnName(index: number) {
   let value = index + 1;
@@ -92,7 +122,7 @@ function sheet(rows: string[][]) {
         `<row r="${rowIndex + 1}">${row
           .map(
             (value, columnIndex) =>
-              `<c r="${columnName(columnIndex)}${rowIndex + 1}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`,
+              `<c r="${columnName(columnIndex)}${rowIndex + 1}" t="inlineStr"><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`,
           )
           .join("")}</row>`,
     )
@@ -313,7 +343,10 @@ export function buildVerifiedBoqXlsx(input: VerifiedBoqWorkbookInput) {
       ["승인자 ID", approvedManifest.decidedBy],
       ["승인시각", approvedManifest.decidedAt],
       ["승인 메모", approvedManifest.note],
-      ["정규 manifest JSON", approvedManifest.canonicalJson],
+      ...excelTextChunks(approvedManifest.canonicalJson).map((value, index) => [
+        `정규 manifest JSON ${index + 1}`,
+        value,
+      ]),
     ];
     files["[Content_Types].xml"] = strToU8(
       new TextDecoder()

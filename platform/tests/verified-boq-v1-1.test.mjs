@@ -21,7 +21,9 @@ import {
 import {
   approvedVerifiedBoqDownloadResponse,
   buildApprovedVerifiedBoqExport,
+  selectVerifiedBoqVersion,
 } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
+import { buildVerifiedBoqXlsx } from "../app/lukas/lib/verified-boq-xlsx.server.ts";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -603,6 +605,62 @@ test("manifest builders reject stale result and approval hashes", () => {
   );
 });
 
+test("download version selection never substitutes another revision for an explicit unknown ID", () => {
+  const versions = [{ id: "v2" }, { id: "v1" }];
+  assert.equal(selectVerifiedBoqVersion(versions, "v1", true)?.id, "v1");
+  assert.equal(selectVerifiedBoqVersion(versions, "missing", true), null);
+  assert.equal(selectVerifiedBoqVersion(versions, null, true)?.id, "v2");
+  assert.equal(selectVerifiedBoqVersion(versions, "missing", false)?.id, "v2");
+});
+
+test("approved XLSX strips invalid XML controls and chunks manifest cells below Excel limits", () => {
+  const result = calculateVerifiedBoqV1_1(mixedInput());
+  const canonicalJson = "한".repeat(70_000);
+  const archive = unzipSync(
+    buildVerifiedBoqXlsx({
+      result,
+      resources: [],
+      mappings: [],
+      structures: [],
+      review: {
+        projectName: "현장\u0001명",
+        versionLabel: "V1",
+        status: "approved",
+        makerId: ids.project,
+        approvals: [],
+      },
+      drawingEvidence: [],
+      approvedManifest: {
+        resultSha256: result.canonicalSha256,
+        manifestSha256: A,
+        handoffSha256: B,
+        versionId: ids.version,
+        decidedBy: ids.approver,
+        decidedAt: "2026-08-28T00:00:00.000Z",
+        note: "승인\u0002",
+        canonicalJson,
+      },
+    }),
+  );
+  const workbookXml = Object.entries(archive)
+    .filter(([name]) => name.endsWith(".xml"))
+    .map(([, bytes]) => strFromU8(bytes))
+    .join("\n");
+  assert.doesNotMatch(workbookXml, /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
+  const manifestSheet = strFromU8(archive["xl/worksheets/sheet7.xml"]);
+  const chunks = [...manifestSheet.matchAll(/<t[^>]*>(한+)<\/t>/g)].map(
+    (match) => match[1],
+  );
+  assert.ok(chunks.length >= 3);
+  assert.equal(
+    chunks.every((chunk) => chunk.length <= 32_767),
+    true,
+  );
+  assert.equal(chunks.join(""), "한".repeat(70_000));
+  assert.match(manifestSheet, /정규 manifest JSON 1/);
+  assert.match(manifestSheet, /정규 manifest JSON 3/);
+});
+
 test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas", async () => {
   const input = mixedInput();
   input.lines[0].itemName = "=악성";
@@ -717,6 +775,21 @@ test("approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest 
   staleEvidence.drawingEvidence[0].objectFingerprint = A;
   assert.throws(
     () => buildApprovedVerifiedBoqExport(staleEvidence),
+    (error) => error.code === "P6C01",
+  );
+  const selfApproved = structuredClone(exportInput);
+  selfApproved.review.makerId = ids.approver;
+  assert.throws(
+    () => buildApprovedVerifiedBoqExport(selfApproved),
+    (error) => error.code === "P6A01",
+  );
+  const duplicateAnchor = structuredClone(exportInput);
+  duplicateAnchor.drawingEvidence[0].sourceAnchorIds = [
+    ids.ifcAnchor,
+    ids.ifcAnchor,
+  ];
+  assert.throws(
+    () => buildApprovedVerifiedBoqExport(duplicateAnchor),
     (error) => error.code === "P6C01",
   );
 

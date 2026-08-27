@@ -30,6 +30,17 @@ export type ApprovedVerifiedBoqExport = {
   manifestJson: Uint8Array;
 };
 
+export function selectVerifiedBoqVersion<T extends { id: string }>(
+  versions: readonly T[],
+  requested: string | null,
+  requireExact: boolean,
+): T | null {
+  const match = requested
+    ? versions.find((version) => version.id === requested)
+    : undefined;
+  return match ?? (requested && requireExact ? null : (versions[0] ?? null));
+}
+
 export function approvedVerifiedBoqDownloadResponse(
   exported: ApprovedVerifiedBoqExport,
   format: "csv" | "xlsx" | "manifest",
@@ -134,6 +145,17 @@ function validateWorkbookEvidence(input: ApprovedInput) {
     ]),
   );
   const remaining = [...input.drawingEvidence];
+  for (const row of remaining)
+    if (
+      row.sourceAnchorIds.length !== new Set(row.sourceAnchorIds).size ||
+      row.sourceAnchorIds.some(
+        (id) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            id,
+          ),
+      )
+    )
+      throw new DrawingQuantityLineageServerError("P6C01");
   for (const mapping of input.calculationManifest.mappings.filter(
     (row) => row.sourceKind === "drawing",
   )) {
@@ -276,6 +298,8 @@ function buildCsv(
 export function buildApprovedVerifiedBoqExport(
   input: ApprovedInput,
 ): ApprovedVerifiedBoqExport {
+  if (input.approvalEnvelope.decidedBy === input.review.makerId)
+    throw new DrawingQuantityLineageServerError("P6A01");
   if (
     input.calculationManifest.result.resultSha256 !==
       input.result.canonicalSha256 ||
@@ -325,6 +349,43 @@ export function buildApprovedVerifiedBoqExport(
   };
 }
 
+type FrozenDrawingInput = {
+  lines: Array<{ id: string; itemCode: string }>;
+  drawingLinks: Array<{
+    line: string;
+    factor: string;
+    source: { id: string; anchors: Array<{ id: string }> };
+  }>;
+};
+
+export function assertVerifiedBoqSourceAnchorIds(
+  evidence: readonly VerifiedBoqWorkbookDrawingEvidence[],
+  frozen: FrozenDrawingInput,
+) {
+  const itemByLine = new Map(
+    frozen.lines.map((line) => [line.id, line.itemCode]),
+  );
+  const expected = frozen.drawingLinks.map((row) => ({
+    itemCode: itemByLine.get(row.line),
+    quantityLinkId: row.source.id,
+    factor: row.factor,
+    anchorIds: joined(row.source.anchors.map((anchor) => anchor.id)),
+  }));
+  const remaining = [...evidence];
+  for (const row of expected) {
+    const index = remaining.findIndex(
+      (candidate) =>
+        candidate.itemCode === row.itemCode &&
+        candidate.quantityLinkId === row.quantityLinkId &&
+        sameDecimal(candidate.allocationFactor, row.factor) &&
+        joined(candidate.sourceAnchorIds) === row.anchorIds,
+    );
+    if (index < 0) throw new DrawingQuantityLineageServerError("P6C01");
+    remaining.splice(index, 1);
+  }
+  if (remaining.length) throw new DrawingQuantityLineageServerError("P6C01");
+}
+
 function exactEquals(left: string | number | null, right: string) {
   if (left === null) return false;
   try {
@@ -337,6 +398,59 @@ function exactEquals(left: string | number | null, right: string) {
   } catch {
     return false;
   }
+}
+
+const POSTGREST_PAGE_SIZE = 1_000;
+const FILE_ID_BATCH_SIZE = 100;
+
+async function loadAllVersionRows(
+  userClient: SupabaseClient,
+  table: "lukas_qto_boq_wbs_nodes" | "lukas_qto_boq_wbs_allocations",
+  columns: string,
+  versionId: string,
+) {
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += POSTGREST_PAGE_SIZE) {
+    const result = await userClient
+      .from(table)
+      .select(columns)
+      .eq("version_id", versionId)
+      .order("id", { ascending: true })
+      .range(from, from + POSTGREST_PAGE_SIZE - 1);
+    if (result.error) throw new DrawingQuantityLineageServerError("P6A01");
+    const page = (result.data ?? []) as unknown as Record<string, unknown>[];
+    rows.push(...page);
+    if (rows.length > 10_000)
+      throw new DrawingQuantityLineageServerError("P6C01");
+    if (page.length < POSTGREST_PAGE_SIZE) return rows;
+  }
+}
+
+async function loadEvidenceFiles(
+  userClient: SupabaseClient,
+  fileIds: readonly string[],
+) {
+  const rows: Array<{
+    id: string;
+    original_filename: string;
+    sha256: string;
+    immutable: boolean;
+  }> = [];
+  const ids = [...new Set(fileIds)].sort(bytewise);
+  for (let offset = 0; offset < ids.length; offset += FILE_ID_BATCH_SIZE) {
+    const result = await userClient
+      .from("lukas_qto_files")
+      .select("id,original_filename,sha256,immutable")
+      .in("id", ids.slice(offset, offset + FILE_ID_BATCH_SIZE));
+    if (result.error) throw new DrawingQuantityLineageServerError("P6A01");
+    rows.push(...(result.data ?? []));
+  }
+  if (
+    rows.length !== ids.length ||
+    new Set(rows.map((row) => row.id)).size !== ids.length
+  )
+    throw new DrawingQuantityLineageServerError("P6C01");
+  return rows;
 }
 
 /** @internal Optional fourth argument is a server-test seam, never route input. */
@@ -396,36 +510,32 @@ export async function loadApprovedVerifiedBoqExport(
         row.source.anchors.map((anchor) => anchor.sourceFileId),
       ),
     ];
-    const [projectResult, fileResult, wbsResult, allocationResult] =
+    const [projectResult, fileRows, wbsRows, allocationRows] =
       await Promise.all([
         userClient
           .from("lukas_qto_projects")
           .select("id,name")
           .eq("id", version.project_id)
           .single(),
-        userClient
-          .from("lukas_qto_files")
-          .select("id,original_filename,sha256,immutable")
-          .in("id", [...new Set(fileIds)]),
-        userClient
-          .from("lukas_qto_boq_wbs_nodes")
-          .select("id,code,name")
-          .eq("version_id", versionId),
-        userClient
-          .from("lukas_qto_boq_wbs_allocations")
-          .select("line_id,wbs_node_id,allocation_percent")
-          .eq("version_id", versionId),
+        loadEvidenceFiles(userClient, fileIds),
+        loadAllVersionRows(
+          userClient,
+          "lukas_qto_boq_wbs_nodes",
+          "id,code,name",
+          versionId,
+        ),
+        loadAllVersionRows(
+          userClient,
+          "lukas_qto_boq_wbs_allocations",
+          "id,line_id,wbs_node_id,allocation_percent",
+          versionId,
+        ),
       ]);
-    for (const result of [
-      projectResult,
-      fileResult,
-      wbsResult,
-      allocationResult,
-    ])
-      if (result.error) throw new DrawingQuantityLineageServerError("P6A01");
+    if (projectResult.error)
+      throw new DrawingQuantityLineageServerError("P6A01");
     if (!projectResult.data)
       throw new DrawingQuantityLineageServerError("P6A01");
-    const files = new Map((fileResult.data ?? []).map((row) => [row.id, row]));
+    const files = new Map(fileRows.map((row) => [row.id, row]));
     const expectedFiles = new Map<string, string>([
       [frozen.priceBook.fileId, frozen.priceBook.sha256],
       ...frozen.legacyMappings.map(
@@ -453,10 +563,15 @@ export async function loadApprovedVerifiedBoqExport(
         component.resource,
       ]),
     );
-    const nodes = new Map(
-      (wbsResult.data ?? []).map((node) => [node.id, node]),
-    );
-    const allocations = allocationResult.data ?? [];
+    const nodes = new Map(wbsRows.map((node) => [node.id, node]));
+    const allocations = allocationRows;
+    if (
+      allocations.some(
+        (row) =>
+          !lineById.has(String(row.line_id)) || !nodes.has(row.wbs_node_id),
+      )
+    )
+      throw new DrawingQuantityLineageServerError("P6C01");
     const structures = frozen.lines.flatMap((line) => {
       const matches = allocations.filter((row) => row.line_id === line.id);
       if (!matches.length)
@@ -470,14 +585,18 @@ export async function loadApprovedVerifiedBoqExport(
             allocationPercent: "",
           },
         ];
-      return matches.map((row) => ({
-        itemCode: line.itemCode,
-        cbsCode: line.section.code,
-        cbsName: line.section.name,
-        wbsCode: nodes.get(row.wbs_node_id)?.code ?? "",
-        wbsName: nodes.get(row.wbs_node_id)?.name ?? "",
-        allocationPercent: String(row.allocation_percent),
-      }));
+      return matches.map((row) => {
+        const node = nodes.get(row.wbs_node_id);
+        if (!node) throw new DrawingQuantityLineageServerError("P6C01");
+        return {
+          itemCode: line.itemCode,
+          cbsCode: line.section.code,
+          cbsName: line.section.name,
+          wbsCode: String(node.code),
+          wbsName: String(node.name),
+          allocationPercent: String(row.allocation_percent),
+        };
+      });
     });
     const approvalEnvelope: VerifiedBoqApprovalEnvelope = {
       versionId,
@@ -488,6 +607,26 @@ export async function loadApprovedVerifiedBoqExport(
       decidedAt: approval.created_at,
       note: approval.note,
     };
+    const drawingEvidence = frozen.drawingLinks.map((row) => ({
+      itemCode: lineById.get(row.line)?.itemCode ?? "",
+      quantityLinkId: row.source.id,
+      revisionId: row.source.revisionId,
+      revisionVersion: row.source.revisionVersion,
+      snapshotSha256: row.source.snapshotSha256,
+      objectId: row.source.objectId,
+      lineageId: row.source.lineageId,
+      objectVersion: row.source.objectVersion,
+      objectFingerprint: row.source.fingerprint,
+      measurementKind: row.source.kind,
+      unit: row.source.unit,
+      rawQuantity: row.source.rawQuantity,
+      allocationFactor: row.factor,
+      measurementRuleVersion: row.source.rule,
+      sourceAnchorIds: row.source.anchors.map((anchor) => anchor.id),
+      sourceFileSha256: row.source.anchors.map((anchor) => anchor.sourceSha256),
+      issueIds: row.source.issues.map((issue) => issue.issueId),
+    }));
+    assertVerifiedBoqSourceAnchorIds(drawingEvidence, frozen);
     return buildApprovedVerifiedBoqExport({
       result: calculation.result,
       calculationManifest: calculation.manifest.manifest,
@@ -510,27 +649,7 @@ export async function loadApprovedVerifiedBoqExport(
         unit: row.unit,
         elementIds: row.elementIds,
       })),
-      drawingEvidence: frozen.drawingLinks.map((row) => ({
-        itemCode: lineById.get(row.line)?.itemCode ?? "",
-        quantityLinkId: row.source.id,
-        revisionId: row.source.revisionId,
-        revisionVersion: row.source.revisionVersion,
-        snapshotSha256: row.source.snapshotSha256,
-        objectId: row.source.objectId,
-        lineageId: row.source.lineageId,
-        objectVersion: row.source.objectVersion,
-        objectFingerprint: row.source.fingerprint,
-        measurementKind: row.source.kind,
-        unit: row.source.unit,
-        rawQuantity: row.source.rawQuantity,
-        allocationFactor: row.factor,
-        measurementRuleVersion: row.source.rule,
-        sourceAnchorIds: row.source.anchors.map((anchor) => anchor.id),
-        sourceFileSha256: row.source.anchors.map(
-          (anchor) => anchor.sourceSha256,
-        ),
-        issueIds: row.source.issues.map((issue) => issue.issueId),
-      })),
+      drawingEvidence,
       structures,
       review: {
         projectName: projectResult.data.name,

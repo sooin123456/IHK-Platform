@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { strFromU8, unzipSync } from "fflate";
 
 import {
   createDrawingQuantityLink,
@@ -12,7 +13,10 @@ import {
   resolveDrawingWorkspaceEntry,
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
-import { loadApprovedVerifiedBoqExport } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
+import {
+  assertVerifiedBoqSourceAnchorIds,
+  loadApprovedVerifiedBoqExport,
+} from "../app/lukas/lib/verified-boq-approved-export.server.ts";
 
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
@@ -1113,6 +1117,138 @@ test("approved export reloads authoritative input and denies non-approved or sta
     }
 });
 
+test("approved export pages every WBS row instead of accepting a PostgREST-capped workbook", async () => {
+  const payload = boqInputRpcPayload();
+  const submitted = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async () => ({ data: payload, error: null })),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority(),
+  );
+  const wbsNodes = Array.from({ length: 1001 }, (_, index) => ({
+    id: `wbs-${index}`,
+    code: `W-${String(index).padStart(4, "0")}`,
+    name: `작업 ${index}`,
+  }));
+  const allocations = wbsNodes.map((node) => ({
+    line_id: p6Ids.line,
+    wbs_node_id: node.id,
+    allocation_percent: "0.1",
+  }));
+  const observed = {};
+  const exported = await loadApprovedVerifiedBoqExport(
+    approvedExportClient({
+      status: "approved",
+      decision: "approved",
+      input_state_sha256: P6_SHA_A,
+      result_sha256: submitted.resultSha256,
+      manifest_sha256: submitted.manifestSha256,
+      direct_cost_krw: "950",
+      line_count: 1,
+      wbsNodes,
+      allocations,
+      observed,
+    }),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority({ payload }),
+  );
+  const structureSheet = strFromU8(
+    unzipSync(exported.xlsx)["xl/worksheets/sheet5.xml"],
+  );
+  assert.match(structureSheet, /W-1000/);
+  assert.deepEqual(
+    observed.ranges.filter(([table]) => table === "lukas_qto_boq_wbs_nodes"),
+    [
+      ["lukas_qto_boq_wbs_nodes", 0, 999],
+      ["lukas_qto_boq_wbs_nodes", 1000, 1999],
+    ],
+  );
+});
+
+test("approved export batches the complete immutable evidence-file union", async () => {
+  const payload = boqInputRpcPayload();
+  const anchors = Array.from({ length: 200 }, (_, index) => ({
+    id: `00000000-0000-4000-8100-${String(index + 1).padStart(12, "0")}`,
+    sourceFileId: `00000000-0000-4000-8200-${String(index + 1).padStart(12, "0")}`,
+    sourceSha256: P6_SHA_B,
+    sourceKind: "pdf_region",
+    pdfPageNumber: 1,
+    x: index,
+    y: 0,
+    width: 1,
+    height: 1,
+    elementId: null,
+    ifcGlobalId: null,
+    camera: null,
+    version: 1,
+  }));
+  payload.input.drawingLinks[0].source.anchors = anchors;
+  const submitted = await submitVerifiedBoqV1_1(
+    rpcClient(p6Ids.actor, async () => ({ data: payload, error: null })),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority({ payload }),
+  );
+  const files = [
+    {
+      id: p6Ids.priceFile,
+      original_filename: "단가표.csv",
+      sha256: P6_SHA_B,
+      immutable: true,
+    },
+    ...anchors.map((anchor) => ({
+      id: anchor.sourceFileId,
+      original_filename: `${anchor.sourceFileId}.pdf`,
+      sha256: anchor.sourceSha256,
+      immutable: true,
+    })),
+  ];
+  const observed = {};
+  const exported = await loadApprovedVerifiedBoqExport(
+    approvedExportClient({
+      status: "superseded",
+      decision: "approved",
+      input_state_sha256: P6_SHA_A,
+      result_sha256: submitted.resultSha256,
+      manifest_sha256: submitted.manifestSha256,
+      direct_cost_krw: "950",
+      line_count: 1,
+      files,
+      observed,
+    }),
+    p6Ids.actor,
+    p6Ids.version,
+    freezeAuthority({ payload }),
+  );
+  assert.ok(exported.manifestJson.byteLength > 0);
+  assert.equal(observed.fileBatches.length, 3);
+  assert.equal(
+    observed.fileBatches.every((batch) => batch.length <= 100),
+    true,
+  );
+});
+
+test("approved export binds source anchor IDs to the frozen database input", () => {
+  const frozen = boqInputRpcPayload().input;
+  const anchorId = "00000000-0000-4000-8300-000000000001";
+  frozen.drawingLinks[0].source.anchors = [{ id: anchorId }];
+  const evidence = [
+    {
+      itemCode: "001-A",
+      quantityLinkId: p6Ids.quantity,
+      allocationFactor: "1.0",
+      sourceAnchorIds: [anchorId],
+    },
+  ];
+  assert.doesNotThrow(() => assertVerifiedBoqSourceAnchorIds(evidence, frozen));
+  evidence[0].sourceAnchorIds = ["00000000-0000-4000-8300-000000000002"];
+  assert.throws(
+    () => assertVerifiedBoqSourceAnchorIds(evidence, frozen),
+    (error) => error.code === "P6C01",
+  );
+});
+
 function authorizedClient(actor, project, role) {
   return {
     auth: {
@@ -1334,7 +1470,17 @@ function decisionClient({
   };
 }
 
-function approvedExportClient({ status, decision, ...stored }) {
+function approvedExportClient({
+  status,
+  decision,
+  wbsNodes = [],
+  allocations = [],
+  files: suppliedFiles,
+  observed = {},
+  ...stored
+}) {
+  observed.ranges ??= [];
+  observed.fileBatches ??= [];
   const rows = {
     lukas_qto_boq_versions: {
       id: p6Ids.version,
@@ -1357,7 +1503,7 @@ function approvedExportClient({ status, decision, ...stored }) {
       },
     ],
     lukas_qto_projects: { id: p6Ids.project, name: "한글 프로젝트" },
-    lukas_qto_files: [
+    lukas_qto_files: suppliedFiles ?? [
       {
         id: p6Ids.priceFile,
         original_filename: "단가표.csv",
@@ -1365,8 +1511,8 @@ function approvedExportClient({ status, decision, ...stored }) {
         immutable: true,
       },
     ],
-    lukas_qto_boq_wbs_nodes: [],
-    lukas_qto_boq_wbs_allocations: [],
+    lukas_qto_boq_wbs_nodes: wbsNodes,
+    lukas_qto_boq_wbs_allocations: allocations,
   };
   return {
     auth: {
@@ -1389,12 +1535,37 @@ function approvedExportClient({ status, decision, ...stored }) {
       const query = chain(result);
       if (table === "lukas_qto_boq_approvals")
         query.order = () => Promise.resolve(result);
-      if (table === "lukas_qto_files") query.in = () => Promise.resolve(result);
+      if (table === "lukas_qto_files")
+        query.in = (_column, values) => {
+          observed.fileBatches.push(values);
+          return Promise.resolve(
+            values.length > 100
+              ? { data: null, error: new Error("request too large") }
+              : {
+                  data: rows[table].filter((row) => values.includes(row.id)),
+                  error: null,
+                },
+          );
+        };
       if (
         table === "lukas_qto_boq_wbs_nodes" ||
         table === "lukas_qto_boq_wbs_allocations"
-      )
-        query.eq = () => Promise.resolve(result);
+      ) {
+        query.eq = () => query;
+        query.order = () => query;
+        query.range = (from, to) => {
+          observed.ranges.push([table, from, to]);
+          return Promise.resolve({
+            data: rows[table].slice(from, to + 1),
+            error: null,
+          });
+        };
+        query.then = (resolve, reject) =>
+          Promise.resolve({
+            data: rows[table].slice(0, 1000),
+            error: null,
+          }).then(resolve, reject);
+      }
       return query;
     },
   };
