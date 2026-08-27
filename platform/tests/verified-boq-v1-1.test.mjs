@@ -13,6 +13,7 @@ import {
   buildVerifiedBoqHandoffManifest,
 } from "../app/lukas/lib/verified-boq-manifest.server.ts";
 import { calculateVerifiedBoq } from "../app/lukas/lib/verified-boq.server.ts";
+import { compareVerifiedBoqApprovedStates } from "../app/lukas/lib/verified-boq-comparison-v1-1.server.ts";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -657,4 +658,202 @@ test("verified BOQ 1.1 renders four distinct quantity columns and Drawing mappin
     screen,
     /name="(?:raw_quantity|final_quantity|unit_price|amount|result_sha256|manifest_sha256)"/,
   );
+});
+
+function approved(input, engineVersion = "VERIFIED-BOQ-1.1") {
+  return {
+    engineVersion,
+    status: "approved",
+    approvedDecision: {
+      decidedBy: ids.approver,
+      createdAt: "2026-08-28T00:00:00.000Z",
+    },
+    input,
+    result:
+      engineVersion === "VERIFIED-BOQ-1.0"
+        ? calculateVerifiedBoq(input)
+        : calculateVerifiedBoqV1_1(input),
+  };
+}
+
+test("approved 1.1 comparison attributes each exact waterfall category", () => {
+  const changes = [
+    [
+      "RAW",
+      (input) => {
+        input.legacyMappings[0].sourceQuantity = "12";
+      },
+      "400",
+    ],
+    [
+      "MAPPING",
+      (input) => {
+        input.drawingMappings[0].allocationFactor = "0.5";
+        input.drawingMappings[1].allocationFactor = "0.5";
+      },
+      "118",
+    ],
+    [
+      "ADJUSTMENT",
+      (input) => {
+        input.lines.find((line) => line.itemCode === "001-A").signedAdjustment =
+          "0";
+      },
+      "250",
+    ],
+    [
+      "PRICE",
+      (input) => {
+        input.resources[0].unitPriceKrw = "110";
+      },
+      "235",
+    ],
+    [
+      "FORMULA",
+      (input) => {
+        input.quantityScale = 1;
+      },
+      "-7",
+    ],
+  ];
+  for (const [cause, mutate, amountDeltaKrw] of changes) {
+    const current = mixedInput();
+    mutate(current);
+    const comparison = compareVerifiedBoqApprovedStates(
+      approved(mixedInput()),
+      approved(current),
+    );
+    assert.equal(comparison.status, "comparable", cause);
+    assert.equal(comparison.amountDeltaKrw, amountDeltaKrw, cause);
+    assert.equal(comparison.causeAmountDeltaKrw, amountDeltaKrw, cause);
+    assert.equal(comparison.rowAmountDeltaKrw, amountDeltaKrw, cause);
+    assert.equal(comparison.amountCloses, true, cause);
+    assert.deepEqual(
+      [...new Set(comparison.rows.flatMap((row) => row.causes.map((item) => item.cause)))],
+      [cause],
+      cause,
+    );
+  }
+});
+
+test("comparison keeps multiple visible causes and closes their exact row totals", () => {
+  const current = mixedInput();
+  current.legacyMappings[0].sourceQuantity = "12";
+  current.drawingMappings[0].allocationFactor = "0.5";
+  current.drawingMappings[1].allocationFactor = "0.5";
+  current.lines.find((line) => line.itemCode === "001-A").signedAdjustment =
+    "0";
+  current.resources[0].unitPriceKrw = "110";
+  current.quantityScale = 1;
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(current),
+  );
+  assert.equal(comparison.status, "comparable");
+  assert.equal(comparison.amountCloses, true);
+  assert.equal(comparison.causeAmountDeltaKrw, comparison.amountDeltaKrw);
+  assert.equal(comparison.rowAmountDeltaKrw, comparison.amountDeltaKrw);
+  assert.deepEqual(
+    [...new Set(comparison.rows.flatMap((row) => row.causes.map((item) => item.cause)))],
+    ["RAW", "MAPPING", "ADJUSTMENT", "PRICE", "FORMULA"],
+  );
+});
+
+test("comparison reports added and removed rows without inventing a sixth cause", () => {
+  const removed = mixedInput();
+  removed.lines = removed.lines.filter((line) => line.itemCode === "002-B");
+  removed.legacyMappings = [];
+  removed.drawingMappings = removed.drawingMappings
+    .filter((mapping) => mapping.lineId === ids.lineB)
+    .map((mapping) => ({ ...mapping, allocationFactor: "1" }));
+  removed.components = removed.components.filter(
+    (component) => component.lineId === ids.lineB,
+  );
+  const removal = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(removed),
+  );
+  assert.equal(removal.status, "comparable");
+  assert.equal(
+    removal.rows.find((row) => row.itemCode === "001-A").rowState,
+    "removed",
+  );
+
+  const addition = compareVerifiedBoqApprovedStates(
+    approved(removed),
+    approved(mixedInput()),
+  );
+  assert.equal(addition.status, "comparable");
+  assert.equal(
+    addition.rows.find((row) => row.itemCode === "001-A").rowState,
+    "added",
+  );
+  for (const row of [...removal.rows, ...addition.rows])
+    assert.ok(
+      row.causes.every((cause) =>
+        ["RAW", "MAPPING", "ADJUSTMENT", "PRICE", "FORMULA"].includes(
+          cause.cause,
+        ),
+      ),
+    );
+});
+
+test("1.0 to 1.1 replay exposes the engine switch only as FORMULA", () => {
+  const legacy = legacyInput();
+  const current = {
+    ...structuredClone(legacy),
+    engineVersion: "VERIFIED-BOQ-1.1",
+    legacyMappings: structuredClone(legacy.mappings),
+    drawingMappings: [],
+    priceBook: structuredClone(mixedInput().priceBook),
+  };
+  delete current.mappings;
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(legacy, "VERIFIED-BOQ-1.0"),
+    approved(current),
+  );
+  assert.equal(comparison.status, "comparable");
+  assert.equal(comparison.amountDeltaKrw, "0");
+  assert.deepEqual(
+    comparison.rows.flatMap((row) => row.causes),
+    [{ cause: "FORMULA", amountDeltaKrw: "0" }],
+  );
+});
+
+test("comparison fails closed for unavailable engines ambiguous rows and invalid counterfactuals", () => {
+  const base = approved(mixedInput());
+  const unavailable = structuredClone(base);
+  unavailable.engineVersion = "VERIFIED-BOQ-9.9";
+  assert.deepEqual(
+    compareVerifiedBoqApprovedStates(unavailable, base),
+    {
+      status: "review",
+      rows: [],
+      amountDeltaKrw: "0",
+      causeAmountDeltaKrw: "0",
+      rowAmountDeltaKrw: "0",
+      amountCloses: false,
+      message: "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
+    },
+  );
+
+  const duplicate = structuredClone(base);
+  duplicate.input.lines[1].itemCode = duplicate.input.lines[0].itemCode;
+  assert.equal(
+    compareVerifiedBoqApprovedStates(base, duplicate).status,
+    "review",
+  );
+
+  const invalid = structuredClone(base);
+  invalid.input.lines[0].signedAdjustment = "-999999";
+  assert.equal(compareVerifiedBoqApprovedStates(base, invalid).status, "review");
+});
+
+test("comparison rejects non-approved or tampered historical results", () => {
+  const prior = approved(mixedInput());
+  const draft = { ...approved(mixedInput()), status: "in_review" };
+  assert.equal(compareVerifiedBoqApprovedStates(prior, draft).status, "review");
+  const tampered = structuredClone(prior);
+  tampered.result.directCostKrw = "999999";
+  assert.equal(compareVerifiedBoqApprovedStates(tampered, prior).status, "review");
 });

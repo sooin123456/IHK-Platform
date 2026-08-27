@@ -3,10 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  assertDrawingBoqEvidenceScope,
   assertDrawingQuantityWorkspaceScope,
   parseDrawingQuantityLinkForm,
   parseDrawingQuantityLineageSearch,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
+import { drawingWorkspaceObjectFocusViewport } from "../app/lukas/lib/drawing-workspace-view.ts";
 import { sanitizeDrawingTransientInput } from "../app/lukas/lib/drawing-document-store.ts";
 import { parseDrawingBoqMutationForm } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 
@@ -87,6 +89,8 @@ test("quantity lineage URL identity is validated before workspace loading", asyn
     {
       revisionId: "00000000-0000-4000-8000-000000000021",
       objectId: "00000000-0000-4000-8000-000000000022",
+      boqVersionId: null,
+      boqLineId: null,
       cursor: "cursor",
     },
   );
@@ -109,6 +113,124 @@ test("quantity lineage URL identity is validated before workspace loading", asyn
   );
   const loadAt = source.indexOf("await loadDrawingWorkspace(");
   assert.ok(parseAt >= 0 && parseAt < loadAt);
+});
+
+test("BOQ evidence URL requires one exact UUID ancestry tuple", () => {
+  const tuple = {
+    revision: "00000000-0000-4000-8000-000000000021",
+    object: "00000000-0000-4000-8000-000000000022",
+    boq: "00000000-0000-4000-8000-000000000023",
+    line: "00000000-0000-4000-8000-000000000024",
+  };
+  assert.deepEqual(
+    parseDrawingQuantityLineageSearch(new URLSearchParams(tuple)),
+    {
+      revisionId: tuple.revision,
+      objectId: tuple.object,
+      boqVersionId: tuple.boq,
+      boqLineId: tuple.line,
+      cursor: null,
+    },
+  );
+  for (const input of [
+    { ...tuple, boq: "not-a-uuid" },
+    { ...tuple, line: "not-a-uuid" },
+    { revision: tuple.revision, object: tuple.object, boq: tuple.boq },
+    { revision: tuple.revision, object: tuple.object, line: tuple.line },
+    { boq: tuple.boq, line: tuple.line },
+  ])
+    assert.throws(
+      () => parseDrawingQuantityLineageSearch(new URLSearchParams(input)),
+      /URL이 올바르지 않습니다/,
+    );
+  const duplicate = new URLSearchParams(tuple);
+  duplicate.append("object", tuple.object);
+  assert.throws(
+    () => parseDrawingQuantityLineageSearch(duplicate),
+    /URL이 올바르지 않습니다/,
+  );
+});
+
+test("BOQ evidence focus accepts only the exact authorized persisted link", () => {
+  const boqVersionId = "00000000-0000-4000-8000-000000000023";
+  const boqLineId = "00000000-0000-4000-8000-000000000024";
+  const lineage = {
+    rows: [
+      {
+        quantity: { id: "00000000-0000-4000-8000-000000000025" },
+        boqLinks: [
+          {
+            boqVersionId,
+            boqLineId,
+          },
+        ],
+      },
+    ],
+    nextCursor: null,
+  };
+  assert.deepEqual(
+    assertDrawingBoqEvidenceScope(lineage, { boqVersionId, boqLineId }),
+    { boqVersionId, boqLineId },
+  );
+  for (const mismatch of [
+    {
+      boqVersionId: "00000000-0000-4000-8000-000000000026",
+      boqLineId,
+    },
+    {
+      boqVersionId,
+      boqLineId: "00000000-0000-4000-8000-000000000027",
+    },
+  ])
+    assert.throws(
+      () => assertDrawingBoqEvidenceScope(lineage, mismatch),
+      /연결된 도면 근거를 열 수 없습니다/,
+    );
+  assert.throws(
+    () => assertDrawingBoqEvidenceScope({ rows: [], nextCursor: null }, { boqVersionId, boqLineId }),
+    /연결된 도면 근거를 열 수 없습니다/,
+  );
+});
+
+test("BOQ object focus selects its non-default canvas and computes a bounded initial fit", () => {
+  assert.deepEqual(
+    drawingWorkspaceObjectFocusViewport({
+      bounds: { x: 100, y: 50, width: 200, height: 100 },
+      canvasId: "canvas-b",
+      pageId: "page-b",
+      viewportSize: { width: 1000, height: 600 },
+    }),
+    {
+      activeCanvasId: "canvas-b",
+      activePageId: "page-b",
+      viewport: { x: -300, y: -100, zoom: 4 },
+    },
+  );
+});
+
+test("workspace loader binds the BOQ tuple before returning focus and never falls back", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const loader = source.slice(
+    source.indexOf("export async function loader"),
+    source.indexOf("export async function action"),
+  );
+  assert.match(loader, /lineageSearch\.objectId/);
+  assert.match(loader, /assertDrawingBoqEvidenceScope\(/);
+  assert.match(loader, /boqVersionId: lineageSearch\.boqVersionId/);
+  assert.match(loader, /boqLineId: lineageSearch\.boqLineId/);
+  assert.match(loader, /연결된 도면 근거를 열 수 없습니다/);
+  assert.doesNotMatch(loader, /boqVersionId[\s\S]{0,180}(?:versions\[0\]|rows\[0\])/);
+
+  const client = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(client, /drawingWorkspaceObjectFocusViewport\(/);
+  assert.match(client, /canvasRef\.current\?\.setViewport\(/);
+  assert.match(client, /initialEvidenceFocusAppliedRef/);
 });
 
 test("quantity lineage loader binds the URL file, revision, and object before reading lineage", async () => {
