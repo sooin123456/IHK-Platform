@@ -66,6 +66,7 @@ type DrawingOutboxOptions = {
 };
 
 export type DrawingOutbox = {
+  recoveryScope(): DrawingRecoveryScope;
   claimLegacyEntries(): Promise<number>;
   enqueue(operation: unknown): Promise<DrawingOperationInput>;
   entries(): Promise<DrawingOutboxEntry[]>;
@@ -83,6 +84,11 @@ export type DrawingOutbox = {
     error: string,
   ): Promise<void>;
   dispose(): void;
+};
+
+export type DrawingRecoveryScope = {
+  trustedOwnerId: string;
+  revisionId: string;
 };
 
 const retryDelays = [1000, 2000, 4000, 8000, 15000] as const;
@@ -251,6 +257,12 @@ export function createDrawingOutbox(
   };
 
   const api: DrawingOutbox = {
+    recoveryScope() {
+      return {
+        trustedOwnerId: options.ownerId,
+        revisionId: options.revisionId,
+      };
+    },
     async claimLegacyEntries() {
       const claimed = await adapter.claimLegacy(
         options.revisionId,
@@ -555,6 +567,8 @@ function recoveryBaseVersionsMatch(
   versions: Map<string, number>,
   operation: DrawingOperationInput,
   historyEvidence: ObjectHistoryEvidence[],
+  scope: DrawingRecoveryScope,
+  pendingOwnerId: string | undefined,
 ) {
   // P2 validates every action against its captured operation-start state in
   // applyDrawingStructureActions. New entities intentionally have no version
@@ -568,7 +582,13 @@ function recoveryBaseVersionsMatch(
   if (operation.type !== "add_layer")
     return (
       baseVersionsMatch(versions, operation.baseVersions) ||
-      exactCompactedObjectRedo(state, operation, historyEvidence)
+      exactCompactedObjectRedo(
+        state,
+        operation,
+        historyEvidence,
+        scope,
+        pendingOwnerId,
+      )
     );
   const layer = (
     operation.forward as { layer?: { id?: unknown; version?: unknown } }
@@ -701,11 +721,16 @@ function exactCompactedObjectRedo(
   state: DrawingDocumentState,
   operation: DrawingOperationInput,
   evidence: ObjectHistoryEvidence[],
+  scope: DrawingRecoveryScope,
+  pendingOwnerId: string | undefined,
 ) {
   if (
     operation.type !== "add_objects" ||
     operation.historyAction !== "redo" ||
-    !operation.originalOperationId
+    !operation.originalOperationId ||
+    pendingOwnerId !== scope.trustedOwnerId ||
+    operation.revisionId !== scope.revisionId ||
+    state.revisionId !== scope.revisionId
   )
     return false;
   const byId = new Map<string, ObjectHistoryEvidence>();
@@ -727,7 +752,9 @@ function exactCompactedObjectRedo(
     !original ||
     original.type !== "add_objects" ||
     original.historyAction ||
-    original.originalOperationId
+    original.originalOperationId ||
+    original.revisionId !== scope.revisionId ||
+    original.actorId !== scope.trustedOwnerId
   )
     return false;
   const orderedEvidence = [...byId.values()];
@@ -740,9 +767,8 @@ function exactCompactedObjectRedo(
     orderedEvidence.indexOf(original) >= orderedEvidence.indexOf(undo) ||
     undo.type !== "delete_objects" ||
     undo.historyAction !== "undo" ||
-    (original.actorId !== undefined &&
-      undo.actorId !== undefined &&
-      original.actorId !== undo.actorId)
+    undo.revisionId !== scope.revisionId ||
+    undo.actorId !== scope.trustedOwnerId
   )
     return false;
   const originalObjects = (original.forward as { objects?: unknown }).objects;
@@ -1141,6 +1167,7 @@ function acknowledgedPrefixIsRepresented(
 export function recoverPendingDrawingState(
   serverState: DrawingDocumentState,
   inputs: unknown[],
+  scope: DrawingRecoveryScope,
   acknowledgedHistory: unknown[] = [],
 ): {
   state: DrawingDocumentState;
@@ -1162,12 +1189,8 @@ export function recoverPendingDrawingState(
   const conflictedOperationIds: string[] = [];
   const ambiguousOperationIds: string[] = [];
   let blocked = false;
-  const historyEvidence: ObjectHistoryEvidence[] = [
-    ...serverState.operations,
-    ...acknowledgedHistory,
-  ].map((input) => {
-    const operation = DrawingOperationInputSchema.parse(input);
-    const recorded = input as Partial<DrawingRecordedOperation>;
+  const serverHistory = serverState.operations.map((recorded) => {
+    const operation = DrawingOperationInputSchema.parse(recorded);
     return {
       ...operation,
       ...(typeof recorded.actorId === "string"
@@ -1181,6 +1204,18 @@ export function recoverPendingDrawingState(
         : {}),
     };
   });
+  const acknowledgedOutboxHistory = acknowledgedHistory.map((input) => {
+    const entry = input as { operation?: unknown; ownerId?: unknown };
+    const operation = DrawingOperationInputSchema.parse(entry.operation);
+    return {
+      ...operation,
+      ...(typeof entry.ownerId === "string" ? { actorId: entry.ownerId } : {}),
+    };
+  });
+  const historyEvidence: ObjectHistoryEvidence[] = [
+    ...serverHistory,
+    ...acknowledgedOutboxHistory,
+  ];
   const queued = inputs.map((input, index) => {
     if (
       input &&
@@ -1188,34 +1223,54 @@ export function recoverPendingDrawingState(
       "operation" in input &&
       "status" in input
     ) {
-      const entry = input as { operation: unknown; status: unknown };
+      const entry = input as {
+        operation: unknown;
+        ownerId?: unknown;
+        status: unknown;
+      };
       return {
         index,
         operation: DrawingOperationInputSchema.parse(entry.operation),
+        ownerId:
+          typeof entry.ownerId === "string" ? entry.ownerId : undefined,
         status: entry.status,
       };
     }
     return {
       index,
       operation: DrawingOperationInputSchema.parse(input),
+      ownerId: undefined,
       status: "pending",
     };
   });
+  if (
+    !scope ||
+    typeof scope.trustedOwnerId !== "string" ||
+    !scope.trustedOwnerId ||
+    typeof scope.revisionId !== "string" ||
+    scope.revisionId !== state.revisionId
+  )
+    return {
+      state,
+      conflictedOperationIds,
+      ambiguousOperationIds: queued
+        .filter((entry) => entry.status === "pending")
+        .map((entry) => entry.operation.clientOperationId),
+    };
   const revisionBlocked = queued.some(
     (entry) =>
       entry.operation.revisionId === state.revisionId &&
       entry.status !== "pending",
   );
 
-  for (const operation of queued
+  for (const queuedOperation of queued
     .filter(
       (entry) =>
         !revisionBlocked &&
-        entry.status === "pending" &&
-        entry.operation.revisionId === state.revisionId,
+        entry.status === "pending",
     )
-    .sort((left, right) => left.index - right.index)
-    .map((entry) => entry.operation)) {
+    .sort((left, right) => left.index - right.index)) {
+    const { operation, ownerId } = queuedOperation;
     if (operation.type === "mutate_objects_with_references") {
       try {
         // A pending restore carries the only offline proof of its object and
@@ -1229,7 +1284,16 @@ export function recoverPendingDrawingState(
     }
     if (
       blocked ||
-      !recoveryBaseVersionsMatch(state, versions, operation, historyEvidence)
+      operation.revisionId !== scope.revisionId ||
+      (ownerId !== undefined && ownerId !== scope.trustedOwnerId) ||
+      !recoveryBaseVersionsMatch(
+        state,
+        versions,
+        operation,
+        historyEvidence,
+        scope,
+        ownerId,
+      )
     ) {
       ambiguousOperationIds.push(operation.clientOperationId);
       blocked = true;
@@ -1531,6 +1595,7 @@ export async function restoreDrawingWorkspaceState({
   send: DrawingOutboxSend;
   serverState: DrawingDocumentState;
 }) {
+  const recoveryScope = outbox.recoveryScope();
   const before = await outbox.entries();
   if (online) {
     try {
@@ -1571,7 +1636,8 @@ export async function restoreDrawingWorkspaceState({
     // A conflicting acknowledged prefix is causally before every remaining
     // pending entry. Keep that work durable, but never project it locally.
     conflictedOperationIds.length > 0 ? [] : entriesForRecovery,
-    acknowledged.map((entry) => entry.operation),
+    recoveryScope,
+    acknowledged,
   );
   const malformedPendingIds = new Set(recovered.conflictedOperationIds);
   for (const entry of entriesForRecovery) {

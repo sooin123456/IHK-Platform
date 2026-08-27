@@ -214,6 +214,13 @@ function scopedOutbox(adapter, options = {}) {
   return outbox;
 }
 
+function recoveryScope(
+  trustedOwnerId = ids.ownerA,
+  revisionId = ids.revisionA,
+) {
+  return { trustedOwnerId, revisionId };
+}
+
 function rectangle(overrides = {}) {
   return {
     id: ids.object,
@@ -873,7 +880,7 @@ test("a hung durable enqueue remains visibly saving", () => {
 test("reload recovery applies exact-base work and retains ambiguous stale work", () => {
   const matching = recoverPendingDrawingState(state(), [
     operation(ids.operation1),
-  ]);
+  ], recoveryScope());
   assert.equal(matching.state.objects[ids.object].name, "Door");
   assert.equal(matching.state.objects[ids.object].version, 2);
   assert.deepEqual(matching.conflictedOperationIds, []);
@@ -882,7 +889,7 @@ test("reload recovery applies exact-base work and retains ambiguous stale work",
     operation(ids.operation1, {
       baseVersions: { [ids.object]: 2 },
     }),
-  ]);
+  ], recoveryScope());
   assert.equal(stale.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(stale.conflictedOperationIds, []);
   assert.deepEqual(stale.ambiguousOperationIds, [ids.operation1]);
@@ -907,7 +914,7 @@ test("reload recovery never partially applies a conflicted multi-object operatio
         ],
       },
     }),
-  ]);
+  ], recoveryScope());
 
   assert.equal(recovered.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -932,7 +939,7 @@ test("reload recovery restores a pending custom layer with its creation-version 
       },
       inverse: {},
     }),
-  ]);
+  ], recoveryScope());
 
   assert.equal(recovered.state.layers[newLayer].systemKind, "custom");
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -960,7 +967,11 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
     ],
   }, { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" });
 
-  const recovered = recoverPendingDrawingState(initial, [applied.operation]);
+  const recovered = recoverPendingDrawingState(
+    initial,
+    [applied.operation],
+    recoveryScope(),
+  );
 
   assert.equal(recovered.ambiguousOperationIds.length, 0);
   assert.equal(recovered.state.structure.canvases[modelId].name, "Model");
@@ -1168,7 +1179,11 @@ test("reference-aware object deletion enqueues once and pending recovery stays a
   await outbox.enqueue(applied.operation);
   assert.equal((await outbox.entries()).length, 1);
 
-  const recovered = recoverPendingDrawingState(initial, [applied.operation]);
+  const recovered = recoverPendingDrawingState(
+    initial,
+    [applied.operation],
+    recoveryScope(),
+  );
 
   assert.deepEqual(recovered.ambiguousOperationIds, []);
   assert.equal(recovered.state.objects[ids.object], undefined);
@@ -1194,7 +1209,7 @@ test("pending reference restore reconstructs exact object and structure tombston
   const chained = recoverPendingDrawingState(initial, [
     applied.operation,
     restored.operation,
-  ]);
+  ], recoveryScope());
   assert.deepEqual(chained.ambiguousOperationIds, []);
   assert.equal(chained.state.objects[ids.object].version, 3);
   assert.equal(chained.state.structure.propertyValues[valueId].version, 3);
@@ -1202,7 +1217,7 @@ test("pending reference restore reconstructs exact object and structure tombston
 
   const recovered = recoverPendingDrawingState(serverAfterDelete, [
     restored.operation,
-  ]);
+  ], recoveryScope());
 
   assert.deepEqual(recovered.ambiguousOperationIds, []);
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -1275,9 +1290,11 @@ test("compacted acknowledged add and undo authorize the exact pending redo acros
     [redone.operation.clientOperationId],
   );
 
-  const secondRealm = recoverPendingDrawingState(authoritative, [
-    redone.operation,
-  ]);
+  const secondRealm = recoverPendingDrawingState(
+    authoritative,
+    [{ ownerId: ids.ownerA, operation: redone.operation, status: "pending" }],
+    recoveryScope(),
+  );
   assert.deepEqual(secondRealm.conflictedOperationIds, []);
   assert.deepEqual(secondRealm.ambiguousOperationIds, []);
   assert.equal(secondRealm.state.objects[ids.object].version, 3);
@@ -1315,10 +1332,114 @@ test("compacted object redo rejects missing lineage, changed payload, and an act
   for (const candidate of cases) {
     const operation = structuredClone(redone.operation);
     candidate.mutate(operation);
-    const recovered = recoverPendingDrawingState(candidate.state, [operation]);
+    const recovered = recoverPendingDrawingState(
+      candidate.state,
+      [{ ownerId: ids.ownerA, operation, status: "pending" }],
+      recoveryScope(),
+    );
     assert.equal(recovered.state.objects[ids.object]?.version, candidate.name === "active UUID owner" ? 5 : undefined, candidate.name);
     assert.deepEqual(recovered.ambiguousOperationIds, [ids.operation3], candidate.name);
   }
+});
+
+test("compacted redo is bound to trusted outbox owner and current revision", async () => {
+  const { authoritative, redone } = compactedAddUndoRedoFixture();
+
+  const actorBOutbox = scopedOutbox(memoryAdapter(), { ownerId: ids.ownerB });
+  await actorBOutbox.enqueue(redone.operation);
+  const actorMismatch = await restoreDrawingWorkspaceState({
+    online: false,
+    outbox: actorBOutbox,
+    send: async () => {
+      throw new Error("offline");
+    },
+    serverState: authoritative,
+  });
+  assert.equal(actorMismatch.state.objects[ids.object], undefined);
+  assert.deepEqual(actorMismatch.ambiguousOperationIds, [ids.operation3]);
+
+  const crossRevisionHistory = structuredClone(authoritative);
+  for (const operation of crossRevisionHistory.operations)
+    operation.revisionId = ids.revisionB;
+  const revisionEvidenceOutbox = scopedOutbox(memoryAdapter());
+  await revisionEvidenceOutbox.enqueue(redone.operation);
+  const revisionEvidenceMismatch = await restoreDrawingWorkspaceState({
+    online: false,
+    outbox: revisionEvidenceOutbox,
+    send: async () => {
+      throw new Error("offline");
+    },
+    serverState: crossRevisionHistory,
+  });
+  assert.equal(revisionEvidenceMismatch.state.objects[ids.object], undefined);
+  assert.deepEqual(revisionEvidenceMismatch.ambiguousOperationIds, [
+    ids.operation3,
+  ]);
+
+  const crossRevisionState = structuredClone(authoritative);
+  crossRevisionState.revisionId = ids.revisionB;
+  const currentRevisionOutbox = scopedOutbox(memoryAdapter());
+  await currentRevisionOutbox.enqueue(redone.operation);
+  const currentRevisionMismatch = await restoreDrawingWorkspaceState({
+    online: false,
+    outbox: currentRevisionOutbox,
+    send: async () => {
+      throw new Error("offline");
+    },
+    serverState: crossRevisionState,
+  });
+  assert.equal(currentRevisionMismatch.state.objects[ids.object], undefined);
+  assert.deepEqual(currentRevisionMismatch.ambiguousOperationIds, [
+    ids.operation3,
+  ]);
+
+  const trustedEntry = {
+    ownerId: ids.ownerA,
+    operation: redone.operation,
+    status: "pending",
+    retryCount: 0,
+    enqueueSequence: 1,
+  };
+  const missingContext = recoverPendingDrawingState(authoritative, [trustedEntry]);
+  assert.equal(missingContext.state.objects[ids.object], undefined);
+  assert.deepEqual(missingContext.ambiguousOperationIds, [ids.operation3]);
+
+  const wrongCurrentRevision = recoverPendingDrawingState(
+    authoritative,
+    [trustedEntry],
+    { trustedOwnerId: ids.ownerA, revisionId: ids.revisionB },
+  );
+  assert.equal(wrongCurrentRevision.state.objects[ids.object], undefined);
+  assert.deepEqual(wrongCurrentRevision.ambiguousOperationIds, [ids.operation3]);
+
+  const mismatchedHistory = recoverPendingDrawingState(
+    crossRevisionHistory,
+    [trustedEntry],
+    { trustedOwnerId: ids.ownerA, revisionId: ids.revisionA },
+  );
+  assert.equal(mismatchedHistory.state.objects[ids.object], undefined);
+  assert.deepEqual(mismatchedHistory.ambiguousOperationIds, [ids.operation3]);
+
+  const pendingRevisionSpoof = structuredClone(trustedEntry);
+  pendingRevisionSpoof.operation.revisionId = ids.revisionB;
+  const mismatchedPending = recoverPendingDrawingState(
+    authoritative,
+    [pendingRevisionSpoof],
+    recoveryScope(),
+  );
+  assert.equal(mismatchedPending.state.objects[ids.object], undefined);
+  assert.deepEqual(mismatchedPending.ambiguousOperationIds, [ids.operation3]);
+
+  const spoofed = structuredClone(trustedEntry);
+  spoofed.ownerId = ids.ownerB;
+  spoofed.operation.actorId = ids.ownerA;
+  const metadataSpoof = recoverPendingDrawingState(
+    authoritative,
+    [spoofed],
+    { trustedOwnerId: ids.ownerB, revisionId: ids.revisionA },
+  );
+  assert.equal(metadataSpoof.state.objects[ids.object], undefined);
+  assert.deepEqual(metadataSpoof.ambiguousOperationIds, [ids.operation3]);
 });
 
 test("pending reference restore quarantines mismatched object and structure result versions", async () => {
@@ -1408,7 +1529,11 @@ test("P2 recovery restores a deleted tombstone at the authoritative inverse vers
   }, { createId: () => ids.operation2, now: () => "2026-08-25T00:01:00.000Z" });
   const serverAfterDelete = structuredClone(deleted.state);
   delete serverAfterDelete.structure.tombstones;
-  const recovered = recoverPendingDrawingState(serverAfterDelete, [restored.operation]);
+  const recovered = recoverPendingDrawingState(
+    serverAfterDelete,
+    [restored.operation],
+    recoveryScope(),
+  );
 
   assert.equal(recovered.ambiguousOperationIds.length, 0);
   assert.equal(recovered.state.structure.canvases[modelId].version, 3);
@@ -1693,7 +1818,7 @@ test("reload recovery does not apply later work from a blocked revision", () => 
       status: "pending",
       retryCount: 0,
     },
-  ]);
+  ], recoveryScope());
 
   assert.equal(recovered.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(recovered.conflictedOperationIds, []);

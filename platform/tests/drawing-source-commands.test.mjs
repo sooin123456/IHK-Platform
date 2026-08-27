@@ -406,7 +406,7 @@ test("structured semantic add undo reserves its UUID through recovery and redo",
   const recovered = recoverPendingDrawingState(initial, [
     added.operation,
     undone.operation,
-  ]);
+  ], { trustedOwnerId: ids.actor, revisionId: ids.revision });
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.deepEqual(recovered.ambiguousOperationIds, []);
   assert.deepEqual(
@@ -639,7 +639,11 @@ test("reference-aware deletion reserves the exact object UUID tombstone through 
   assert.equal(restored.state.objects[ids.object].version, 3);
   assert.equal(restored.state.structure.tombstones[ids.object], undefined);
 
-  const recovered = recoverPendingDrawingState(initial, [deleted.operation]);
+  const recovered = recoverPendingDrawingState(
+    initial,
+    [deleted.operation],
+    { trustedOwnerId: ids.actor, revisionId: ids.revision },
+  );
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.deepEqual(recovered.ambiguousOperationIds, []);
   assert.deepEqual(recovered.state.structure.tombstones[ids.object], tombstone);

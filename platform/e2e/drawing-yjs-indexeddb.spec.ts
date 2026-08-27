@@ -906,6 +906,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
       const recovered = outboxModule.recoverPendingDrawingState(
         baseState,
         entries,
+        outbox.recoveryScope(),
       );
       const snapshot = adapter.getSnapshot();
       const result = {
@@ -991,9 +992,11 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
       const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
       const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
       const persistence = await import(persistencePath);
       const draft = await import(draftPath);
       const commands = await import(commandsPath);
+      const outboxModule = await import(outboxPath);
       const baseState = commands.createDrawingDocumentState({
         revisionId: revision,
         layers: [
@@ -1071,6 +1074,12 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
       );
       if (!redone || "kind" in redone) throw new Error("Redo conflicted.");
       adapter.appendDurableLocal(adapter.prepareRecordedLocal(redone.operation));
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      await outbox.enqueue(redone.operation);
       document.transact(() => {
         document.getMap("serverMeta").set("baseOperationSequence", 2);
         document.getMap("operationStatus").set(operationIds[0], {
@@ -1088,6 +1097,7 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
       });
       await handle.flush();
       return {
+        authoritativeHistory: [added, undone.operation],
         operationIds: adapter.operations().map(
           (operation: { clientOperationId: string }) =>
             operation.clientOperationId,
@@ -1098,18 +1108,20 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
     },
     { fixtureIds: ids, initialUpdate, objectId, operationIds, revision },
   );
-  expect(written).toEqual({ operationIds, version: 3 });
+  expect(written).toMatchObject({ operationIds, version: 3 });
 
   await page.reload();
   const reopened = await page.evaluate(
-    async ({ fixtureIds, initialUpdate, objectId, revision }) => {
+    async ({ authoritativeHistory, fixtureIds, initialUpdate, objectId, revision }) => {
       const persistencePath =
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
       const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
       const commandsPath = "/app/lukas/lib/drawing-commands.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
       const persistence = await import(persistencePath);
       const draft = await import(draftPath);
       const commands = await import(commandsPath);
+      const outboxModule = await import(outboxPath);
       const baseState = commands.createDrawingDocumentState({
         revisionId: revision,
         layers: [
@@ -1142,24 +1154,55 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         baseOperationSequence: 2,
       });
       const snapshot = adapter.getSnapshot();
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId: fixtureIds.actor,
+        revisionId: revision,
+        schedule: () => undefined,
+      });
+      const entries = await outbox.entries();
+      const recoveryBase = structuredClone(baseState);
+      recoveryBase.operations = authoritativeHistory;
+      const recovered = outboxModule.recoverPendingDrawingState(
+        recoveryBase,
+        entries,
+        outbox.recoveryScope(),
+      );
       const result = {
         quarantine: snapshot.quarantine,
         provisional: snapshot.provisionalConflictOperationIds,
         pending: snapshot.pendingOperationIds,
         version: snapshot.state.objects[objectId]?.version,
+        recoveredVersion: recovered.state.objects[objectId]?.version,
+        recoveryAmbiguous: recovered.ambiguousOperationIds,
+        outboxOwners: entries.map((entry: { ownerId: string }) => entry.ownerId),
+        outboxRevisions: entries.map(
+          (entry: { operation: { revisionId: string } }) =>
+            entry.operation.revisionId,
+        ),
       };
+      outbox.dispose();
       adapter.dispose();
       await handle.dispose();
       document.destroy();
       return result;
     },
-    { fixtureIds: ids, initialUpdate, objectId, revision },
+    {
+      authoritativeHistory: written.authoritativeHistory,
+      fixtureIds: ids,
+      initialUpdate,
+      objectId,
+      revision,
+    },
   );
   expect(reopened).toEqual({
     quarantine: null,
     provisional: [],
     pending: [operationIds[2]],
     version: 3,
+    recoveredVersion: 3,
+    recoveryAmbiguous: [],
+    outboxOwners: [ids.actor],
+    outboxRevisions: [revision],
   });
 });
 

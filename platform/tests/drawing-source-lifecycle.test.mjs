@@ -267,7 +267,15 @@ test("outbox crash recovery replays link then unlink without losing evidence ver
     ids.unlinkOperation,
   );
 
-  const afterLink = recoverPendingDrawingState(base, [linked.operation]);
+  const recoveryScope = {
+    trustedOwnerId: ids.actor,
+    revisionId: ids.revision,
+  };
+  const afterLink = recoverPendingDrawingState(
+    base,
+    [linked.operation],
+    recoveryScope,
+  );
   assert.deepEqual(afterLink.conflictedOperationIds, []);
   assert.deepEqual(afterLink.ambiguousOperationIds, []);
   assert.deepEqual(afterLink.state.structure.sources, {
@@ -277,7 +285,7 @@ test("outbox crash recovery replays link then unlink without losing evidence ver
   const afterUnlink = recoverPendingDrawingState(base, [
     linked.operation,
     unlinked.operation,
-  ]);
+  ], recoveryScope);
   assert.deepEqual(afterUnlink.conflictedOperationIds, []);
   assert.deepEqual(afterUnlink.ambiguousOperationIds, []);
   assert.deepEqual(afterUnlink.state.structure.sources, {});
