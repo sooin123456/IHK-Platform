@@ -108,6 +108,12 @@ function unique<T>(rows: readonly T[], key: (row: T) => string, label: string) {
   }
 }
 
+export function verifiedBoqLegacySourceId(
+  mapping: Pick<BoqQuantityMapping, "sourceFileId" | "subjectKey" | "unit">,
+) {
+  return `${mapping.sourceFileId}\u001f${mapping.subjectKey}\u001f${mapping.unit}`;
+}
+
 function canonicalSource(source: DrawingQuantitySource): DrawingQuantitySource {
   if (
     source.measurementRuleVersion !== "P4_MEASUREMENT_V1" ||
@@ -207,7 +213,10 @@ export function canonicalizeVerifiedBoqV1_1Input(
       signedAdjustment: decimal(line.signedAdjustment, "보정수량"),
       adjustmentReason: line.adjustmentReason.normalize("NFKC").trim(),
     }))
-    .sort((left, right) => bytewise(left.id, right.id));
+    .sort(
+      (left, right) =>
+        bytewise(left.itemCode, right.itemCode) || bytewise(left.id, right.id),
+    );
   const legacyMappings = input.legacyMappings
     .map((mapping) => ({
       id: normalizedId(mapping.id, "legacy 수량 연결 ID"),
@@ -249,6 +258,21 @@ export function canonicalizeVerifiedBoqV1_1Input(
     (row) => row.id,
     "수량 연결 ID",
   );
+  const legacySources = new Map<string, string>();
+  for (const mapping of legacyMappings) {
+    const sourceId = verifiedBoqLegacySourceId(mapping);
+    const source = JSON.stringify({
+      sourceSha256: mapping.sourceSha256,
+      sourceQuantity: mapping.sourceQuantity,
+      elementIds: mapping.elementIds,
+    });
+    const prior = legacySources.get(sourceId);
+    if (prior !== undefined && prior !== source)
+      throw new Error(
+        "P6B04: 같은 legacy 원수량 근거의 SHA, 수량, Element ID가 다릅니다.",
+      );
+    legacySources.set(sourceId, source);
+  }
   const sources = new Map<string, string>();
   for (const mapping of drawingMappings) {
     const serialized = JSON.stringify(mapping.source);
@@ -278,7 +302,13 @@ export function canonicalizeVerifiedBoqV1_1Input(
       unit: normalizedId(row.unit, "자원 단위"),
       unitPriceKrw: decimal(row.unitPriceKrw, "자원 단가"),
     }))
-    .sort((left, right) => bytewise(left.id, right.id));
+    .sort(
+      (left, right) =>
+        bytewise(left.code, right.code) || bytewise(left.id, right.id),
+    );
+  const resourceCodeById = new Map(
+    resources.map((resource) => [resource.id, resource.code]),
+  );
   const components = input.components
     .map((row) => ({
       id: normalizedId(row.id, "일위대가 구성 ID"),
@@ -286,7 +316,13 @@ export function canonicalizeVerifiedBoqV1_1Input(
       resourceId: normalizedId(row.resourceId, "자원 ID"),
       coefficient: decimal(row.coefficient, "자원 소요계수"),
     }))
-    .sort((left, right) => bytewise(left.id, right.id));
+    .sort(
+      (left, right) =>
+        bytewise(
+          resourceCodeById.get(left.resourceId) ?? left.resourceId,
+          resourceCodeById.get(right.resourceId) ?? right.resourceId,
+        ) || bytewise(left.id, right.id),
+    );
 
   const priceBookSha = input.priceBook.sourceSha256;
   if (!sha256Pattern.test(priceBookSha))

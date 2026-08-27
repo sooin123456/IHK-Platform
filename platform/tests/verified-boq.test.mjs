@@ -99,6 +99,8 @@ test("Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen", () => {
     createHash("sha256").update(buildVerifiedBoqCsv(result)).digest("hex"),
     "c194a5b8fd1add317a9cf5e81ed9d809b4288241049af653a8c4c5a0893465f8",
   );
+  const oldTimezone = process.env.TZ;
+  process.env.TZ = "Asia/Seoul";
   const RealDate = globalThis.Date;
   globalThis.Date = class extends RealDate {
     constructor(...args) {
@@ -161,6 +163,8 @@ test("Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen", () => {
     );
   } finally {
     globalThis.Date = RealDate;
+    if (oldTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = oldTimezone;
   }
 });
 

@@ -10,6 +10,7 @@ import {
   type VerifiedBoqV1_1Input,
   type VerifiedBoqV1_1Line,
   type VerifiedBoqV1_1Result,
+  verifiedBoqLegacySourceId,
 } from "./verified-boq-v1-1.server.ts";
 
 export type VerifiedBoqCalculationManifest = {
@@ -148,22 +149,26 @@ export function buildVerifiedBoqCalculationManifest(
   const drawingSources = [...sourceById.values()]
     .sort((left, right) => bytewise(left.quantityLinkId, right.quantityLinkId))
     .map(canonicalDrawingSource);
-  const legacySources = canonical.legacyMappings
-    .map((mapping) => ({
-      fileId: mapping.sourceFileId,
-      fileSha256: mapping.sourceSha256,
-      subjectKey: mapping.subjectKey,
-      unit: mapping.unit,
-      sourceQuantity: mapping.sourceQuantity,
-      elementIds: mapping.elementIds,
-    }))
-    .sort((left, right) =>
-      bytewise(JSON.stringify(left), JSON.stringify(right)),
-    );
+  const legacySourceById = new Map(
+    canonical.legacyMappings.map((mapping) => [
+      verifiedBoqLegacySourceId(mapping),
+      {
+        fileId: mapping.sourceFileId,
+        fileSha256: mapping.sourceSha256,
+        subjectKey: mapping.subjectKey,
+        unit: mapping.unit,
+        sourceQuantity: mapping.sourceQuantity,
+        elementIds: mapping.elementIds,
+      },
+    ]),
+  );
+  const legacySources = [...legacySourceById.values()].sort((left, right) =>
+    bytewise(JSON.stringify(left), JSON.stringify(right)),
+  );
   const mappings = [
     ...canonical.legacyMappings.map((mapping) => ({
       sourceKind: "legacy" as const,
-      sourceId: `${mapping.sourceFileId}\u001f${mapping.subjectKey}\u001f${mapping.unit}`,
+      sourceId: verifiedBoqLegacySourceId(mapping),
       lineId: mapping.lineId,
       allocationFactor: mapping.factor,
     })),
