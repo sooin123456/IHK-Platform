@@ -1083,6 +1083,14 @@ export default function DrawingWorkspaceClient({
     });
   }
   const documentStore = documentStoreRef.current;
+  const validatedInitialAuthoritativeStateRef = useRef<{
+    checkpointKey: string;
+    proof: ReturnType<DrawingDocumentStore["getValidatedInitialState"]>;
+  } | null>(null);
+  validatedInitialAuthoritativeStateRef.current ??= {
+    checkpointKey: authoritativeCheckpoint.key,
+    proof: documentStore.getValidatedInitialState(),
+  };
   const collaborationAdapterRef = useRef<DrawingDraftAdapter | null>(null);
   const collaborationCommandRef = useRef<ReturnType<
     typeof createDrawingCollaborationCommandBridge
@@ -1818,6 +1826,11 @@ export default function DrawingWorkspaceClient({
               document,
               localBaseMeta,
               authoritativeState: capturedCheckpoint.state,
+              validatedAuthoritativeState:
+                validatedInitialAuthoritativeStateRef.current?.checkpointKey ===
+                capturedCheckpoint.key
+                  ? validatedInitialAuthoritativeStateRef.current.proof
+                  : null,
               actorId: currentUserId,
               authorization: capabilityRef.current,
               frozen: revisionStatusRef.current !== "draft",

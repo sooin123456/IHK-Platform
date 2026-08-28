@@ -1,6 +1,5 @@
 import {
   applyDrawingCommand,
-  createDrawingDocumentState,
   type AppliedDrawingCommand,
   type DrawingCommand,
   type DrawingCommandEnvironment,
@@ -59,11 +58,36 @@ export type DrawingDocumentHydration = {
 
 export type DrawingDocumentStore = {
   getSnapshot(): DrawingDocumentSnapshot;
+  getValidatedInitialState(): DrawingValidatedDocumentState | null;
   subscribe(listener: () => void): () => void;
   dispatch(command: DrawingCommand): AppliedDrawingCommand;
   replace(state: DrawingDocumentState): void;
   selectCanvas(canvasId: string): void;
 };
+
+export type DrawingValidatedDocumentState = Readonly<{
+  state: DrawingDocumentState;
+}>;
+
+const validatedHydrationStates = new WeakSet<DrawingDocumentState>();
+const validatedStateProofs = new WeakSet<DrawingValidatedDocumentState>();
+
+function freezeGraph(value: unknown, seen = new WeakSet<object>()): void {
+  if (!value || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  for (const child of Object.values(value)) freezeGraph(child, seen);
+  Object.freeze(value);
+}
+
+export function isValidatedDrawingDocumentState(
+  value: unknown,
+): value is DrawingValidatedDocumentState {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    validatedStateProofs.has(value as DrawingValidatedDocumentState)
+  );
+}
 
 type DrawingDocumentStoreOptions = Partial<DrawingCommandEnvironment> &
   Pick<Partial<DrawingDocumentSnapshot>, "activePageId" | "activeCanvasId"> & {
@@ -174,10 +198,18 @@ export function hydrateDrawingDocumentState(
     revisionId: hydration.revisionId,
     ...structure,
   });
-  return createDrawingDocumentState({
+  const state: DrawingDocumentState = {
     revisionId: hydration.revisionId,
+    objects: structure.objects,
+    layers: structure.layers,
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
     structure,
-  });
+  };
+  freezeGraph(state);
+  validatedHydrationStates.add(state);
+  return state;
 }
 
 function isAccessibleCanvas(
@@ -506,6 +538,10 @@ export function createDrawingDocumentStore(
 ): DrawingDocumentStore {
   const revisionStatus = options.revisionStatus ?? "draft";
   let snapshot = snapshotFor(initial, options);
+  const validatedInitialState = validatedHydrationStates.has(initial)
+    ? Object.freeze({ state: initial })
+    : null;
+  if (validatedInitialState) validatedStateProofs.add(validatedInitialState);
   const listeners = new Set<() => void>();
   const publish = () => {
     for (const listener of listeners) listener();
@@ -518,6 +554,7 @@ export function createDrawingDocumentStore(
 
   return {
     getSnapshot: () => snapshot,
+    getValidatedInitialState: () => validatedInitialState,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

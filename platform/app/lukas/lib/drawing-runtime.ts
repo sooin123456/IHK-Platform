@@ -85,11 +85,6 @@ export function drawingAuthoritativeSnapshotKey(input: {
 type DrawingLocalInitializationScheduler = {
   requestAnimationFrame(callback: FrameRequestCallback): number;
   cancelAnimationFrame(handle: number): void;
-  requestIdleCallback?(
-    callback: IdleRequestCallback,
-    options?: IdleRequestOptions,
-  ): number;
-  cancelIdleCallback?(handle: number): void;
   setTimeout(callback: () => void, delay: number): number;
   clearTimeout(handle: number): void;
 };
@@ -105,7 +100,6 @@ export function scheduleDrawingLocalInitialization({
   let active = true;
   let started = false;
   let frameHandle: number | null = null;
-  let idleHandle: number | null = null;
   let immediateHandle: number | null = null;
   let fallbackHandle: number | null = null;
   const start = () => {
@@ -118,22 +112,13 @@ export function scheduleDrawingLocalInitialization({
   frameHandle = scheduler.requestAnimationFrame(() => {
     frameHandle = null;
     if (!active || started) return;
-    if (scheduler.requestIdleCallback) {
-      idleHandle = scheduler.requestIdleCallback(
-        () => {
-          idleHandle = null;
-          start();
-        },
-        { timeout: 250 },
-      );
-    } else immediateHandle = scheduler.setTimeout(start, 0);
+    immediateHandle = scheduler.setTimeout(start, 0);
   });
   fallbackHandle = scheduler.setTimeout(start, 5_000);
   return () => {
     if (!active) return;
     active = false;
     if (frameHandle !== null) scheduler.cancelAnimationFrame(frameHandle);
-    if (idleHandle !== null) scheduler.cancelIdleCallback?.(idleHandle);
     if (immediateHandle !== null) scheduler.clearTimeout(immediateHandle);
     if (fallbackHandle !== null) scheduler.clearTimeout(fallbackHandle);
   };

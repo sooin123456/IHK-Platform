@@ -32,9 +32,8 @@ test("local editing is ready only with an outbox, a command bridge, and healthy 
     assert.equal(drawingLocalEditReady(input), false);
 });
 
-test("local initialization starts exactly once after the first shell frame becomes idle", () => {
+test("local initialization starts exactly once immediately after the first shell frame", () => {
   const frames = [];
-  const idles = [];
   const timers = [];
   let starts = 0;
   const scheduler = {
@@ -43,9 +42,8 @@ test("local initialization starts exactly once after the first shell frame becom
       return frames.length;
     },
     cancelAnimationFrame() {},
-    requestIdleCallback(callback) {
-      idles.push(callback);
-      return idles.length;
+    requestIdleCallback() {
+      throw new Error("durability initialization must not wait for idle time");
     },
     cancelIdleCallback() {},
     setTimeout(callback) {
@@ -65,11 +63,10 @@ test("local initialization starts exactly once after the first shell frame becom
 
   assert.equal(starts, 0);
   assert.equal(frames.length, 1);
-  assert.equal(idles.length, 0);
   frames[0](0);
   assert.equal(starts, 0);
-  assert.equal(idles.length, 1);
-  idles[0]({ didTimeout: false, timeRemaining: () => 10 });
+  assert.equal(timers.length, 2);
+  timers[1]();
   assert.equal(starts, 1);
   timers[0]();
   assert.equal(starts, 1);

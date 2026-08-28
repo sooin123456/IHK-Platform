@@ -15,6 +15,11 @@ import {
   initializeDrawingCollaborationDocument,
   reconcileDrawingCollaborationDraft,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
+import {
+  createDrawingDocumentStore,
+  DRAWING_SERVER_VALIDATED_HYDRATION,
+  hydrateDrawingDocumentState,
+} from "../app/lukas/lib/drawing-document-store.ts";
 
 const draftModule = await import("../app/lukas/lib/drawing-yjs-draft.ts").catch(
   () => null,
@@ -39,6 +44,8 @@ const ids = {
   operationA: "00000000-0000-4000-8000-000000000508",
   operationB: "00000000-0000-4000-8000-000000000509",
   operationC: "00000000-0000-4000-8000-000000000510",
+  page: "00000000-0000-4000-8000-000000000511",
+  canvas: "00000000-0000-4000-8000-000000000512",
 };
 
 function requireModule() {
@@ -299,6 +306,61 @@ function countAuthoritativeGraphClones(run) {
   }
 }
 
+function validatedBaseProof() {
+  const state = hydrateDrawingDocumentState(
+    {
+      revisionId: ids.revision,
+      pages: [
+        {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+      canvases: [
+        {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+      layers: [
+        {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: ids.canvas,
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+      objects: [object(ids.objectA), object(ids.objectB, 20)],
+      sources: [],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+    },
+    { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
+  );
+  return {
+    state,
+    proof: createDrawingDocumentStore(state).getValidatedInitialState(),
+  };
+}
+
 test("a fresh empty ledger clones its validated authoritative graph only once", () => {
   let adapter;
   const clones = countAuthoritativeGraphClones(() => {
@@ -308,6 +370,62 @@ test("a fresh empty ledger clones its validated authoritative graph only once", 
   assert.equal(adapter.getSnapshot().quarantine, null);
   assert.equal(clones, 1);
   adapter.dispose();
+});
+
+test("a fresh empty ledger reuses an immutable validated hydration without cloning", () => {
+  const { state, proof } = validatedBaseProof();
+  let adapter;
+  const clones = countAuthoritativeGraphClones(() => {
+    adapter = create(initializedDoc(), {
+      authoritativeState: state,
+      validatedAuthoritativeState: proof,
+    });
+  });
+
+  assert.equal(clones, 0);
+  assert.strictEqual(adapter.getSnapshot().state, state);
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  adapter.dispose();
+});
+
+test("an immutable base proof does not weaken offline ledger replay validation", () => {
+  const { state, proof } = validatedBaseProof();
+  const doc = initializedDoc();
+  const operation = recorded(
+    state,
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Offline proof" } }],
+    },
+    ids.operationA,
+  );
+  append(doc, operation.envelope);
+  let adapter;
+  const clones = countAuthoritativeGraphClones(() => {
+    adapter = create(doc, {
+      authoritativeState: state,
+      validatedAuthoritativeState: proof,
+    });
+  });
+
+  assert.ok(clones >= 1);
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "Offline proof",
+  );
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  adapter.dispose();
+});
+
+test("a fabricated authoritative proof is rejected", () => {
+  const state = baseState();
+  assert.throws(() =>
+    create(initializedDoc(), {
+      authoritativeState: state,
+      validatedAuthoritativeState: { state },
+    }),
+  );
 });
 
 test("an offline ledger keeps the replay clone and full projection validation path", () => {

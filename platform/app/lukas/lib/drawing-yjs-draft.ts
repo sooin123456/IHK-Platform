@@ -24,6 +24,10 @@ import {
   readDrawingCollaborationLedger,
 } from "./drawing-collaboration-yjs.ts";
 import { validateDrawingStructureState } from "./drawing-structure.ts";
+import {
+  isValidatedDrawingDocumentState,
+  type DrawingValidatedDocumentState,
+} from "./drawing-document-store.ts";
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
 import {
   DrawingLayerSchema,
@@ -77,6 +81,7 @@ export type DrawingDraftAdapter = {
 type DrawingDraftAdapterOptions = DrawingCommandEnvironment & {
   document: Y.Doc;
   authoritativeState: DrawingDocumentState;
+  validatedAuthoritativeState?: DrawingValidatedDocumentState | null;
   actorId: string;
   authorization: DrawingWorkspaceCapability;
   frozen: boolean;
@@ -407,8 +412,17 @@ export function createDrawingDraftAdapter(
   options: DrawingDraftAdapterOptions,
 ): DrawingDraftAdapter {
   const document = options.document;
-  let authoritativeState = structuredClone(options.authoritativeState);
-  validateState(authoritativeState);
+  const validatedAuthoritativeState = options.validatedAuthoritativeState;
+  if (
+    validatedAuthoritativeState &&
+    (!isValidatedDrawingDocumentState(validatedAuthoritativeState) ||
+      validatedAuthoritativeState.state !== options.authoritativeState)
+  )
+    throw new Error("Drawing authoritative state proof is invalid.");
+  let authoritativeState = validatedAuthoritativeState
+    ? validatedAuthoritativeState.state
+    : structuredClone(options.authoritativeState);
+  if (!validatedAuthoritativeState) validateState(authoritativeState);
   if (!options.actorId)
     throw new Error("Drawing collaboration actor is required.");
   let authorization = options.authorization;

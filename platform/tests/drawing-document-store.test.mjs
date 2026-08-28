@@ -248,6 +248,31 @@ test("explicit server-validated hydration skips duplicate row parsing but keeps 
   );
 });
 
+test("validated hydration clones each authoritative entity only once", () => {
+  const input = structure();
+  const hydration = {
+    revisionId: ids.revision,
+    ...Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [key, Object.values(value)]),
+    ),
+  };
+  const clone = globalThis.structuredClone;
+  let objectClones = 0;
+  globalThis.structuredClone = (value, options) => {
+    if (value?.id === ids.object) objectClones += 1;
+    return clone(value, options);
+  };
+  try {
+    hydrateDrawingDocumentState(hydration, {
+      authority: DRAWING_SERVER_VALIDATED_HYDRATION,
+    });
+  } finally {
+    globalThis.structuredClone = clone;
+  }
+
+  assert.equal(objectClones, 1);
+});
+
 test("store preserves canonical P2 state and falls back to the page default after active canvas deletion", () => {
   const initial = createDrawingDocumentState({
     revisionId: ids.revision,
@@ -325,6 +350,40 @@ test("post-validation nested mutation cannot bypass document replacement validat
     store.replaceValidated?.bind(store) ?? store.replace.bind(store);
   assert.throws(() => replace(next));
   assert.strictEqual(store.getSnapshot().objects[ids.object].layerId, ids.work);
+});
+
+test("server-validated hydration exposes one immutable authoritative proof", () => {
+  const initial = hydrateDrawingDocumentState(
+    {
+      revisionId: ids.revision,
+      pages: Object.values(structure().pages),
+      canvases: Object.values(structure().canvases),
+      layers: Object.values(structure().layers),
+      objects: Object.values(structure().objects),
+      sources: Object.values(structure().sources ?? {}),
+      styles: Object.values(structure().styles),
+      blocks: Object.values(structure().blocks),
+      blockInstances: Object.values(structure().blockInstances),
+      propertySchemas: Object.values(structure().propertySchemas),
+      propertyValues: Object.values(structure().propertyValues),
+      tables: Object.values(structure().tables),
+    },
+    { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
+  );
+  const store = createDrawingDocumentStore(initial);
+  const proof = store.getValidatedInitialState();
+
+  assert.ok(proof);
+  assert.strictEqual(proof.state, initial);
+  assert.equal(
+    documentStoreModule.isValidatedDrawingDocumentState(proof),
+    true,
+  );
+  assert.equal(Object.isFrozen(proof.state.objects[ids.object].geometry), true);
+  assert.throws(() => {
+    proof.state.objects[ids.object].geometry.width = 0;
+  }, TypeError);
+  assert.equal(proof.state.objects[ids.object].geometry.width, 10);
 });
 
 test("hydration fails closed on a malformed P2 row", () => {
