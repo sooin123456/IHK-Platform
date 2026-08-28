@@ -7,6 +7,7 @@ const drawingRoots = [
   "@hocuspocus/provider",
   "@hocuspocus/server",
   "fflate",
+  "gltf-validator",
   "jose",
   "konva",
   "pdf-lib",

@@ -75,6 +75,7 @@
     "drizzle-orm": "0.45.2",
     "fast-xml-parser": "^5.10.1",
     "fflate": "^0.8.3",
+    "gltf-validator": "2.0.0-dev.3.10",
     "i18next": "^24.2.3",
     "i18next-browser-languagedetector": "^8.0.4",
     "i18next-fetch-backend": "^6.0.0",

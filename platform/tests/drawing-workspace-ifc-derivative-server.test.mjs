@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { loadDrawingIfcDerivative } from "../app/lukas/lib/drawing-workspace.server.ts";
+import {
+  loadDrawingIfcDerivative,
+  publishManagedIfcDerivativeObject,
+} from "../app/lukas/lib/drawing-workspace.server.ts";
 
 const ids = {
   actor: "20000000-0000-4000-8000-000000000001",
@@ -28,10 +31,13 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
-function glb(json) {
+function glb(json, binary = null) {
   const source = new TextEncoder().encode(JSON.stringify(json));
   const padded = Math.ceil(source.byteLength / 4) * 4;
-  const bytes = new Uint8Array(12 + 8 + padded);
+  const binaryPadded = binary ? Math.ceil(binary.byteLength / 4) * 4 : 0;
+  const bytes = new Uint8Array(
+    12 + 8 + padded + (binary ? 8 + binaryPadded : 0),
+  );
   const view = new DataView(bytes.buffer);
   view.setUint32(0, 0x46546c67, true);
   view.setUint32(4, 2, true);
@@ -40,19 +46,43 @@ function glb(json) {
   view.setUint32(16, 0x4e4f534a, true);
   bytes.set(source, 20);
   bytes.fill(0x20, 20 + source.byteLength);
+  if (binary) {
+    const binaryOffset = 20 + padded;
+    view.setUint32(binaryOffset, binaryPadded, true);
+    view.setUint32(binaryOffset + 4, 0x004e4942, true);
+    bytes.set(binary, binaryOffset + 8);
+  }
   return bytes;
 }
 
+function validGeometryGlb(overrides = {}) {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const binary = new Uint8Array(positions.buffer);
+  const document = {
+    asset: { version: "2.0" },
+    buffers: [{ byteLength: binary.byteLength }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: binary.byteLength }],
+    accessors: [
+      {
+        bufferView: 0,
+        componentType: 5126,
+        count: 3,
+        type: "VEC3",
+        min: [0, 0, 0],
+        max: [1, 1, 0],
+      },
+    ],
+    nodes: [{ name: "ifc-42", mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    scenes: [{ nodes: [0] }],
+    scene: 0,
+    ...overrides,
+  };
+  return glb(document, binary);
+}
+
 function artifact(version, options = {}) {
-  const geometryBytes =
-    options.geometryBytes ??
-    glb({
-      asset: { version: "2.0" },
-      nodes: [{ name: "ifc-42", mesh: 0 }],
-      meshes: [{ primitives: [{}] }],
-      scenes: [{ nodes: [0] }],
-      scene: 0,
-    });
+  const geometryBytes = options.geometryBytes ?? validGeometryGlb();
   const geometrySha256 = sha256(geometryBytes);
   const manifest = {
     schemaVersion: 1,
@@ -109,8 +139,22 @@ const file = {
 
 function clientFor({ derivatives, bindings = [], objects = {} }) {
   const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push(["fetch", url, init]);
+    const path = String(url).replace("https://storage.test/internal/", "");
+    const bytes = objects[path];
+    if (!bytes) return new Response(null, { status: 404 });
+    return new Response(bytes, {
+      status: 206,
+      headers: {
+        "content-length": String(bytes.byteLength),
+        "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+      },
+    });
+  };
   return {
     calls,
+    fetchImpl,
     from(table) {
       const filters = [];
       let descending = false;
@@ -160,7 +204,12 @@ function clientFor({ derivatives, bindings = [], objects = {} }) {
           async createSignedUrl(path, ttl) {
             calls.push(["sign", path, ttl]);
             return {
-              data: { signedUrl: `https://storage.test/${path}` },
+              data: {
+                signedUrl:
+                  ttl <= 30
+                    ? `https://storage.test/internal/${path}`
+                    : `https://storage.test/${path}`,
+              },
               error: null,
             };
           },
@@ -218,18 +267,19 @@ test("an approved revision keeps its pin after pending, failed, and ready append
     bindings: [binding],
     objects: objectsFor(first, laterReady),
   });
-  const loaded = await loadDrawingIfcDerivative(client, file, {
-    id: ids.revision,
-    status: "approved",
-    version: 7,
-  });
+  const loaded = await loadDrawingIfcDerivative(
+    client,
+    file,
+    { id: ids.revision, status: "approved", version: 7 },
+    { fetch: client.fetchImpl },
+  );
   assert.equal(loaded.version, 1);
   assert.equal(loaded.manifestSha256, first.row.manifest_sha256);
   assert.deepEqual(
-    client.calls.filter(([kind]) => kind === "download"),
+    client.calls.filter(([kind]) => kind === "fetch").map(([, url]) => url),
     [
-      ["download", first.row.manifest_storage_path],
-      ["download", first.row.geometry_storage_path],
+      `https://storage.test/internal/${first.row.manifest_storage_path}`,
+      `https://storage.test/internal/${first.row.geometry_storage_path}`,
     ],
   );
 });
@@ -271,11 +321,12 @@ test("a draft deterministically resolves the newest ready derivative", async () 
     derivatives: [pending, first.row, latest.row],
     objects: objectsFor(first, latest),
   });
-  const loaded = await loadDrawingIfcDerivative(client, file, {
-    id: ids.revision,
-    status: "draft",
-    version: 7,
-  });
+  const loaded = await loadDrawingIfcDerivative(
+    client,
+    file,
+    { id: ids.revision, status: "draft", version: 7 },
+    { fetch: client.fetchImpl },
+  );
   assert.equal(loaded.version, 4);
   assert.equal(loaded.geometrySha256, latest.row.geometry_sha256);
 });
@@ -309,7 +360,7 @@ test("a draft exposes the latest failed status when no ready derivative exists",
   });
 });
 
-test("the loader verifies actual manifest and GLB bytes before signing", async (context) => {
+test("the loader verifies actual manifest and official GLB errors before final signing", async (context) => {
   const valid = artifact(1);
   const corrupt = artifact(1, { geometryBytes: new Uint8Array([1, 2, 3, 4]) });
   const external = artifact(1, {
@@ -320,6 +371,35 @@ test("the loader verifies actual manifest and GLB bytes before signing", async (
       meshes: [{ primitives: [{}] }],
     }),
   });
+  const missingAttributes = artifact(1, {
+    geometryBytes: glb({
+      asset: { version: "2.0" },
+      nodes: [{ name: "ifc-42", mesh: 0 }],
+      meshes: [{ primitives: [{}] }],
+      scenes: [{ nodes: [0] }],
+      scene: 0,
+    }),
+  });
+  const invalidAccessorReference = artifact(1, {
+    geometryBytes: validGeometryGlb({
+      accessors: [
+        {
+          bufferView: 99,
+          componentType: 5126,
+          count: 3,
+          type: "VEC3",
+        },
+      ],
+    }),
+  });
+  const invalidNodeReference = artifact(1, {
+    geometryBytes: validGeometryGlb({
+      nodes: [{ name: "ifc-42", mesh: 99 }],
+    }),
+  });
+  const invalidChunkBytes = validGeometryGlb();
+  new DataView(invalidChunkBytes.buffer).setUint32(12, 0xfffffffc, true);
+  const invalidChunk = artifact(1, { geometryBytes: invalidChunkBytes });
   const cases = [
     [
       "substituted manifest",
@@ -331,24 +411,86 @@ test("the loader verifies actual manifest and GLB bytes before signing", async (
     ],
     ["corrupt GLB", corrupt, objectsFor(corrupt)],
     ["external GLB URI", external, objectsFor(external)],
+    [
+      "primitive missing attributes",
+      missingAttributes,
+      objectsFor(missingAttributes),
+    ],
+    [
+      "invalid accessor reference",
+      invalidAccessorReference,
+      objectsFor(invalidAccessorReference),
+    ],
+    [
+      "invalid node reference",
+      invalidNodeReference,
+      objectsFor(invalidNodeReference),
+    ],
+    ["invalid chunk length", invalidChunk, objectsFor(invalidChunk)],
   ];
   for (const [name, selected, objects] of cases) {
     await context.test(name, async () => {
       const client = clientFor({ derivatives: [selected.row], objects });
       await assert.rejects(
-        loadDrawingIfcDerivative(client, file, {
-          id: ids.revision,
-          status: "draft",
-          version: 1,
-        }),
+        loadDrawingIfcDerivative(
+          client,
+          file,
+          { id: ids.revision, status: "draft", version: 1 },
+          { fetch: client.fetchImpl },
+        ),
         (error) => error instanceof Response && error.status === 409,
       );
       assert.equal(
-        client.calls.some(([kind]) => kind === "sign"),
+        client.calls
+          .filter(([kind]) => kind === "sign")
+          .some(([, , ttl]) => ttl > 30),
         false,
       );
     });
   }
+});
+
+test("actual storage bytes exceeding metadata are aborted without materializing the object", async () => {
+  const valid = artifact(1);
+  let pulls = 0;
+  let cancelled = false;
+  const client = clientFor({
+    derivatives: [valid.row],
+    objects: objectsFor(valid),
+  });
+  client.fetchImpl = async (_url, init) => {
+    client.calls.push(["bounded-fetch", init]);
+    const chunk = new Uint8Array(valid.row.manifest_byte_size);
+    return new Response(
+      new ReadableStream({
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(chunk);
+          if (pulls > 2) controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { status: 200 },
+    );
+  };
+  await assert.rejects(
+    loadDrawingIfcDerivative(
+      client,
+      file,
+      { id: ids.revision, status: "draft", version: 1 },
+      { fetch: client.fetchImpl },
+    ),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  assert.equal(cancelled, true);
+  assert.ok(
+    pulls <= 3,
+    `stream pulled ${pulls} chunks after exceeding metadata`,
+  );
+  const boundedCall = client.calls.find(([kind]) => kind === "bounded-fetch");
+  assert.match(boundedCall?.[1]?.headers?.Range ?? "", /^bytes=0-/);
 });
 
 test("the loader refuses oversized artifact metadata before download", async () => {
@@ -364,4 +506,38 @@ test("the loader refuses oversized artifact metadata before download", async () 
     (error) => error instanceof Response && error.status === 409,
   );
   assert.deepEqual(client.calls, []);
+});
+
+test("managed ingestion publishes a content-addressed object without replacement", async () => {
+  const bytes = new TextEncoder().encode("immutable derivative");
+  const expectedSha = sha256(bytes);
+  const calls = [];
+  const storage = {
+    from(bucket) {
+      assert.equal(bucket, "lukas-qto");
+      return {
+        async upload(path, body, options) {
+          calls.push({ path, body: new Uint8Array(body), options });
+          return { data: { path }, error: null };
+        },
+      };
+    },
+  };
+  const result = await publishManagedIfcDerivativeObject(storage, {
+    projectId: ids.project,
+    sourceSha256: sourceSha,
+    version: 3,
+    bytes,
+    extension: "glb",
+    contentType: "model/gltf-binary",
+  });
+  assert.deepEqual(result, {
+    path: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v3/${expectedSha}.glb`,
+    byteSize: bytes.byteLength,
+    sha256: expectedSha,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.upsert, false);
+  assert.equal(calls[0].options.contentType, "model/gltf-binary");
+  assert.deepEqual(calls[0].body, bytes);
 });

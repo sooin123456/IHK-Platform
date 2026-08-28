@@ -25,6 +25,59 @@ async function bindingMigration() {
   return readFile(new URL(names[0], migrations), "utf8");
 }
 
+async function storageHardeningMigration() {
+  const names = (await readdir(migrations)).filter((name) =>
+    name.endsWith("_drawing_ifc_derivative_storage_hardening.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "one forward migration owns derivative storage hardening",
+  );
+  return readFile(new URL(names[0], migrations), "utf8");
+}
+
+test("authenticated storage policies cannot replace derivative artifacts", async () => {
+  const db = new PGlite();
+  await db.exec(`
+    create schema storage;
+    create role authenticated;
+    grant usage on schema storage to authenticated;
+    create table storage.objects(bucket_id text not null,name text not null,payload text not null);
+    grant select,insert,update,delete on storage.objects to authenticated;
+    create policy permissive_select on storage.objects for select to authenticated using(true);
+    create policy permissive_update on storage.objects for update to authenticated using(true) with check(true);
+    create policy permissive_delete on storage.objects for delete to authenticated using(true);
+    alter table storage.objects enable row level security;
+    insert into storage.objects values
+      ('lukas-qto','projects/20000000-0000-4000-8000-000000000002/ifc-derivatives/${"a".repeat(64)}/v1/${"b".repeat(64)}.glb','immutable'),
+      ('lukas-qto','projects/20000000-0000-4000-8000-000000000002/uploads/model.ifc','ordinary');
+  `);
+  await db.exec(await storageHardeningMigration());
+  await db.exec("set role authenticated");
+  await assert.rejects(
+    db.exec(`insert into storage.objects values(
+      'lukas-qto',
+      'projects/20000000-0000-4000-8000-000000000002/ifc-derivatives/not-content-addressed.glb',
+      'replacement'
+    )`),
+    /row-level security/i,
+  );
+  await db.exec("update storage.objects set payload='changed'");
+  await db.exec("delete from storage.objects where name like '%/uploads/%'");
+  await db.exec("reset role");
+  const rows = await db.query(
+    "select name,payload from storage.objects order by name",
+  );
+  assert.deepEqual(rows.rows, [
+    {
+      name: `projects/20000000-0000-4000-8000-000000000002/ifc-derivatives/${"a".repeat(64)}/v1/${"b".repeat(64)}.glb`,
+      payload: "immutable",
+    },
+  ]);
+  await db.close();
+});
+
 test("review freeze pins one exact content-addressed derivative per revision source", async () => {
   const sql = await bindingMigration();
   assert.match(

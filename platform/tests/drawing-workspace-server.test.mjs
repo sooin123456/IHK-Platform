@@ -56,15 +56,34 @@ function canonicalJson(value) {
 }
 
 function ifcTestGlb() {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const binary = new Uint8Array(positions.buffer);
   const json = new TextEncoder().encode(
     JSON.stringify({
       asset: { version: "2.0" },
+      buffers: [{ byteLength: binary.byteLength }],
+      bufferViews: [
+        { buffer: 0, byteOffset: 0, byteLength: binary.byteLength },
+      ],
+      accessors: [
+        {
+          bufferView: 0,
+          componentType: 5126,
+          count: 3,
+          type: "VEC3",
+          min: [0, 0, 0],
+          max: [1, 1, 0],
+        },
+      ],
       nodes: [{ name: "ifc-42", mesh: 0 }],
-      meshes: [{ primitives: [{}] }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+      scenes: [{ nodes: [0] }],
+      scene: 0,
     }),
   );
   const padded = Math.ceil(json.byteLength / 4) * 4;
-  const bytes = new Uint8Array(20 + padded);
+  const binaryPadded = Math.ceil(binary.byteLength / 4) * 4;
+  const bytes = new Uint8Array(20 + padded + 8 + binaryPadded);
   const view = new DataView(bytes.buffer);
   view.setUint32(0, 0x46546c67, true);
   view.setUint32(4, 2, true);
@@ -73,6 +92,9 @@ function ifcTestGlb() {
   view.setUint32(16, 0x4e4f534a, true);
   bytes.set(json, 20);
   bytes.fill(0x20, 20 + json.byteLength);
+  view.setUint32(20 + padded, binaryPadded, true);
+  view.setUint32(24 + padded, 0x004e4942, true);
+  bytes.set(binary, 28 + padded);
   return bytes;
 }
 
@@ -185,7 +207,12 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
           async createSignedUrl(path, ttl) {
             calls.push(["sign", path, ttl]);
             return {
-              data: { signedUrl: `https://storage.test/${path}` },
+              data: {
+                signedUrl:
+                  ttl <= 30
+                    ? `https://storage.test/internal/${path}`
+                    : `https://storage.test/${path}`,
+              },
               error: null,
             };
           },
@@ -193,18 +220,37 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
       },
     },
   };
-  const loaded = await workspaceServer.loadDrawingIfcDerivative(client, {
-    id: ids.file,
-    project_id: ids.project,
-    kind: "ifc",
-    original_filename: "model.ifc",
-    storage_path: "projects/model.ifc",
-    content_type: "application/x-step",
-    byte_size: 1,
-    sha256: sourceSha,
-    immutable: true,
-    created_at: "2026-08-28T00:00:00Z",
-  });
+  const loaded = await workspaceServer.loadDrawingIfcDerivative(
+    client,
+    {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "ifc",
+      original_filename: "model.ifc",
+      storage_path: "projects/model.ifc",
+      content_type: "application/x-step",
+      byte_size: 1,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-08-28T00:00:00Z",
+    },
+    undefined,
+    {
+      fetch: async (url, init) => {
+        calls.push(["fetch", url, init]);
+        const bytes = String(url).endsWith(".json")
+          ? ifcManifestBytes
+          : ifcGeometryBytes;
+        return new Response(bytes, {
+          status: 206,
+          headers: {
+            "content-length": String(bytes.byteLength),
+            "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+          },
+        });
+      },
+    },
+  );
   assert.deepEqual(loaded, {
     status: "ready",
     version: 1,
@@ -215,7 +261,7 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
     geometrySignedUrl: `https://storage.test/${ifcDerivativePrefix}/${ifcGeometrySha}.glb`,
   });
   assert.deepEqual(
-    calls.filter(([kind]) => kind === "sign"),
+    calls.filter(([kind, , ttl]) => kind === "sign" && ttl === 300),
     [
       ["sign", `${ifcDerivativePrefix}/${ifcManifestSha}.json`, 300],
       ["sign", `${ifcDerivativePrefix}/${ifcGeometrySha}.glb`, 300],

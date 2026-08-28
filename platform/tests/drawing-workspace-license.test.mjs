@@ -4,6 +4,14 @@ import { test } from "node:test";
 
 const packageUrl = new URL("../package.json", import.meta.url);
 const noticeUrl = new URL("../THIRD_PARTY_NOTICES.md", import.meta.url);
+const gltfValidatorNoticeUrl = new URL(
+  "../third_party/gltf-validator/NOTICES",
+  import.meta.url,
+);
+const gltfValidatorLicenseUrl = new URL(
+  "../third_party/gltf-validator/LICENSE",
+  import.meta.url,
+);
 const rendererUrl = new URL(
   "../app/lukas/lib/pdf-page-renderer.client.ts",
   import.meta.url,
@@ -13,8 +21,9 @@ const viewerUrl = new URL(
   import.meta.url,
 );
 const lockUrl = new URL("../package-lock.json", import.meta.url);
-const licenseAuthority =
-  await import("../scripts/drawing-p7-license-authority.mjs").catch(() => ({}));
+const licenseAuthority = await import(
+  "../scripts/drawing-p7-license-authority.mjs"
+).catch(() => ({}));
 
 const approvedDirectDependencies = [
   "@hcaptcha/react-hcaptcha",
@@ -44,6 +53,7 @@ const approvedDirectDependencies = [
   "drizzle-orm",
   "fast-xml-parser",
   "fflate",
+  "gltf-validator",
   "i18next",
   "i18next-browser-languagedetector",
   "i18next-fetch-backend",
@@ -193,12 +203,35 @@ test("drawing editor dependencies are permissive and noticed", async () => {
 
   assert.equal(pkg.dependencies.konva, "10.3.1");
   assert.equal(pkg.dependencies["react-konva"], "19.2.5");
+  assert.equal(pkg.dependencies["gltf-validator"], "2.0.0-dev.3.10");
   assert.match(notice, /\|\s*Konva\s*\|\s*10\.3\.1\s*\|.*\|\s*MIT\s*\|/);
   assert.match(notice, /\|\s*react-konva\s*\|\s*19\.2\.5\s*\|.*\|\s*MIT\s*\|/);
   assert.match(
     notice,
     /\|\s*@electric-sql\/pglite\s*\|\s*0\.5\.3\s*\|.*\|\s*Apache-2\.0\s*\|/,
   );
+  assert.match(
+    notice,
+    /\|\s*gltf-validator\s*\|\s*2\.0\.0-dev\.3\.10\s*\|.*\|\s*Apache-2\.0\s*\|/,
+  );
+});
+
+test("the official glTF validator ships its exact Apache license and upstream notices", async () => {
+  const installedRoot = new URL(
+    "../node_modules/gltf-validator/",
+    import.meta.url,
+  );
+  const normalized = (value) => value.replaceAll("\r\n", "\n").trimEnd();
+  assert.equal(
+    normalized(await readFile(gltfValidatorNoticeUrl, "utf8")),
+    normalized(await readFile(new URL("NOTICES", installedRoot), "utf8")),
+  );
+  const license = normalized(await readFile(gltfValidatorLicenseUrl, "utf8"));
+  assert.equal(
+    license,
+    normalized(await readFile(new URL("LICENSE", installedRoot), "utf8")),
+  );
+  assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 });
 
 test("drawing export uses the exact unmodified MIT pdf-lib dependency", async () => {
@@ -346,8 +379,9 @@ test("P7 release inspects the actual drawing dependency closure and notices", as
     notice,
     installedRoot: new URL("../node_modules/", import.meta.url),
   });
-  assert.equal(result.packages.length, 33);
-  assert.equal(result.entries.length, 33);
+  assert.equal(result.packages.length, 34);
+  assert.equal(result.entries.length, 34);
+  assert.ok(result.packages.includes("node_modules/gltf-validator"));
   assert.ok(result.packages.includes("node_modules/pdfjs-dist"));
   assert.ok(result.packages.includes("node_modules/web-ifc"));
   assert.ok(result.packages.includes("node_modules/@hocuspocus/server"));
