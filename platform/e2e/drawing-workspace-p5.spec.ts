@@ -245,9 +245,14 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     page.locator('[data-pdf-diff-marker="true"][data-listening="false"]'),
   ).not.toHaveCount(0);
   await page.screenshot({
-    path: path.resolve(
-      "../.superpowers/sdd/2026-08-27-drawing-workspace-p5/task-5-pdf-overlay.png",
-    ),
+    path: process.env.DRAWING_P5_ARTIFACT_ROOT
+      ? path.resolve(
+          process.env.DRAWING_P5_ARTIFACT_ROOT,
+          "task-5-pdf-overlay.png",
+        )
+      : path.resolve(
+          "../.superpowers/sdd/2026-08-27-drawing-workspace-p5/task-5-pdf-overlay.png",
+        ),
     fullPage: true,
   });
   await page.getByRole("button", { name: "현재 도면" }).click();

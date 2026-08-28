@@ -6,10 +6,9 @@ import { expect, test, type Download, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 
 const previewPath = "/workspace-preview/drawing-workspace";
-const artifactRoot = path.resolve(
-  "..",
-  ".superpowers/sdd/2026-08-26-drawing-workspace-p4",
-);
+const artifactRoot = process.env.DRAWING_P4_ARTIFACT_ROOT
+  ? path.resolve(process.env.DRAWING_P4_ARTIFACT_ROOT)
+  : path.resolve("..", ".superpowers/sdd/2026-08-26-drawing-workspace-p4");
 
 async function openPreview(page: Page, query = "") {
   await page.goto(`${previewPath}${query}`, { waitUntil: "domcontentloaded" });
@@ -161,7 +160,7 @@ test("P4 populated preview exports every semantic object", async ({ page }) => {
   ).toContainText("카펫 타일");
 
   const svg = (await exportBytes(page, "SVG")).toString("utf8");
-  expect(svg.match(/data-semantic-type=/g)).toHaveLength(8);
+  expect(svg.match(/data-semantic-type=/g) ?? []).toHaveLength(8);
   expect(svg).toContain("101 · 회의실");
   expect(svg).toContain("외부 포장");
   expect(svg).toContain('aria-label="A · grid"');
@@ -683,8 +682,15 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     "data-rendered-semantic-object-count",
     "12",
   );
+  const deletedSnapshot = await mountedSnapshot(page);
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장됨" }),
+  ).toBeVisible();
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await expect
+    .poll(async () => (await mountedSnapshot(page)).undoIds)
+    .toEqual(deletedSnapshot.undoIds);
   await page.getByRole("button", { name: "P4 원자 삭제 복원" }).click();
   await expect(page.getByLabel("P4 mounted command result")).toHaveText(
     "호스트와 개구부 원자 삭제 실행 취소됨",
@@ -805,8 +811,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   const lockedDoorBefore = (await mountedSnapshot(page)).objects[
     "00000000-0000-4000-8000-000000000101"
   ].geometry.offsetMillimeters;
-  await page.getByRole("button", { name: "선택 도구" }).click();
-  await clickWorld(page, { x: 350, y: 720 });
+  await page.getByRole("button", { name: "P4 첫 개구부 선택" }).click();
   await expect
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
     .toEqual(["00000000-0000-4000-8000-000000000101"]);

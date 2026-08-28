@@ -29,6 +29,7 @@ type ExportStatus =
   | { kind: "error"; message: string };
 
 type DrawingExportDialogProps = {
+  auditRequired?: boolean;
   createdAt: string;
   documentState: DrawingDocumentSnapshot;
   fileId: string;
@@ -271,8 +272,17 @@ export async function auditDrawingExport(
   form.set("request_id", crypto.randomUUID());
   form.set("revision_id", revisionId);
   const response = await fetch(path, { body: form, method: "POST" });
+  if (response.redirected)
+    throw new Error("도면 내보내기 감사 기록이 redirect 되었습니다.");
   if (!response.ok)
     throw new Error(`도면 내보내기 감사 기록 실패 (${response.status})`);
+  const returnedType = response.headers.get("content-type")?.split(";", 1)[0];
+  const expectedType =
+    extension === "pdf"
+      ? "application/pdf"
+      : `image/${extension === "svg" ? "svg+xml" : extension}`;
+  if (returnedType !== expectedType)
+    throw new Error("도면 내보내기 감사 응답 형식이 일치하지 않습니다.");
   downloadDrawingExport(await response.blob(), filename);
 }
 
@@ -333,6 +343,7 @@ export async function pdfBackground(
 }
 
 export function DrawingExportDialog({
+  auditRequired = true,
   createdAt,
   documentState,
   fileId,
@@ -370,7 +381,9 @@ export function DrawingExportDialog({
     await runDrawingExportLifecycle<DrawingExportDownload>({
       activeOperationRef,
       download: ({ blob, filename }) =>
-        auditDrawingExport(blob, filename, fileId, projectId, revisionId),
+        auditRequired
+          ? auditDrawingExport(blob, filename, fileId, projectId, revisionId)
+          : downloadDrawingExport(blob, filename),
       execute: async ({ registerDisposer, signal }) => {
         const baseName = safeFilename(title);
         if (format === "svg") {

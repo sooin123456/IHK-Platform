@@ -1,6 +1,14 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
@@ -99,7 +107,16 @@ function manifest() {
     },
     {
       id: "browser.p6_release",
-      argv: ["npm", "run", "test:e2e:drawing-workspace-p6:local"],
+      argv: [
+        "./node_modules/.bin/playwright",
+        "test",
+        "e2e/drawing-workspace-p6.spec.ts",
+        "--config=playwright.p6-release.config.ts",
+        "--project=chromium",
+        "--workers=1",
+        "--grep-invert",
+        "local mounted server-action authority is configured",
+      ],
     },
     {
       id: "collaboration.service",
@@ -183,6 +200,24 @@ function manifest() {
 }
 
 export const P7_RELEASE_GATES = Object.freeze(manifest());
+
+export function p7LocalGateEnvironment(
+  gateId,
+  environment,
+  isolatedBrowserArtifactRoot,
+) {
+  if (gateId === "browser.p4_functional")
+    return {
+      ...environment,
+      DRAWING_P4_ARTIFACT_ROOT: path.join(isolatedBrowserArtifactRoot, "p4"),
+    };
+  if (gateId === "browser.p5_release")
+    return {
+      ...environment,
+      DRAWING_P5_ARTIFACT_ROOT: path.join(isolatedBrowserArtifactRoot, "p5"),
+    };
+  return environment;
+}
 
 export function assertExactP7GateManifest(gates) {
   if (!isDeepStrictEqual(gates, manifest()))
@@ -629,15 +664,11 @@ function gateRequirementIds(gateId) {
       "p7.organization_library_provenance",
       "p7.organization_admin_entitlements",
     ],
-    "license.closure": [
-      "release.no_rayon_assets_or_copy",
-    ],
+    "license.closure": ["release.no_rayon_assets_or_copy"],
     "license.permissive_policy": ["release.license_lock_notices"],
     "application.typecheck_build": ["release.typecheck_build_collaboration"],
     "application.build": ["release.typecheck_build_collaboration"],
-    "collaboration.typecheck_build": [
-      "release.typecheck_build_collaboration",
-    ],
+    "collaboration.typecheck_build": ["release.typecheck_build_collaboration"],
     "collaboration.build": ["release.typecheck_build_collaboration"],
   };
   return mapping[gateId] ?? [];
@@ -684,9 +715,7 @@ export function buildReleaseEvidenceFromResults(
             : "PASS";
         authority = buildGateIds.join(" + ");
         receipts = buildResults.map((result) =>
-          fileReceipt(
-            result.receiptPath ?? `${artifactRoot}${result.id}.log`,
-          ),
+          fileReceipt(result.receiptPath ?? `${artifactRoot}${result.id}.log`),
         );
         receipt = receipts.at(-1);
       }
@@ -710,9 +739,7 @@ export function buildReleaseEvidenceFromResults(
             : "PASS";
         authority = browserGateIds.join(" + ");
         receipts = browserResults.map((result) =>
-          fileReceipt(
-            result.receiptPath ?? `${artifactRoot}${result.id}.log`,
-          ),
+          fileReceipt(result.receiptPath ?? `${artifactRoot}${result.id}.log`),
         );
         receipt = receipts.at(-1);
       }
@@ -772,65 +799,77 @@ export function buildReleaseEvidenceFromResults(
 async function collectLocal() {
   assertExactP7GateManifest(P7_RELEASE_GATES);
   mkdirSync(artifactRoot, { recursive: true });
+  const isolatedBrowserArtifactRoot = mkdtempSync(
+    path.join(tmpdir(), "1hk-p7-browser-"),
+  );
   const results = [];
-  for (const gate of P7_RELEASE_GATES) {
-    const logPath = `${artifactRoot}${gate.id}.log`;
-    const preflight = p7LocalGatePreflight(gate.id, process.env);
-    if (preflight) {
-      writeFileSync(
-        logPath,
-        `${JSON.stringify(
-          {
-            gate: gate.id,
-            ...preflight,
-            reason: "hosted browser authority is unavailable",
-          },
-          null,
-          2,
-        )}\n`,
-      );
+  try {
+    for (const gate of P7_RELEASE_GATES) {
+      const logPath = `${artifactRoot}${gate.id}.log`;
+      const preflight = p7LocalGatePreflight(gate.id, process.env);
+      if (preflight) {
+        writeFileSync(
+          logPath,
+          `${JSON.stringify(
+            {
+              gate: gate.id,
+              ...preflight,
+              reason: "hosted browser authority is unavailable",
+            },
+            null,
+            2,
+          )}\n`,
+        );
+        results.push({
+          id: gate.id,
+          status: preflight.status,
+          exitCode: 2,
+        });
+        continue;
+      }
+      const chunks = [];
+      const exitCode = await new Promise((resolve, reject) => {
+        const child = spawn(gate.argv[0], gate.argv.slice(1), {
+          cwd: root,
+          env: p7LocalGateEnvironment(
+            gate.id,
+            {
+              ...process.env,
+              GIT_PAGER: "cat",
+              GIT_TERMINAL_PROMPT: "0",
+              PAGER: "cat",
+            },
+            isolatedBrowserArtifactRoot,
+          ),
+          shell: false,
+        });
+        for (const stream of [child.stdout, child.stderr])
+          stream.on("data", (chunk) => {
+            chunks.push(chunk);
+            process.stdout.write(chunk);
+          });
+        child.once("error", reject);
+        child.once("exit", (code) => resolve(code ?? 1));
+      });
+      writeFileSync(logPath, Buffer.concat(chunks));
       results.push({
         id: gate.id,
-        status: preflight.status,
-        exitCode: 2,
+        status: p7LocalGateStatus(gate.id, exitCode, process.env),
+        exitCode,
       });
-      continue;
     }
-    const chunks = [];
-    const exitCode = await new Promise((resolve, reject) => {
-      const child = spawn(gate.argv[0], gate.argv.slice(1), {
-        cwd: root,
-        env: {
-          ...process.env,
-          GIT_PAGER: "cat",
-          GIT_TERMINAL_PROMPT: "0",
-          PAGER: "cat",
-        },
-        shell: false,
-      });
-      for (const stream of [child.stdout, child.stderr])
-        stream.on("data", (chunk) => {
-          chunks.push(chunk);
-          process.stdout.write(chunk);
-        });
-      child.once("error", reject);
-      child.once("exit", (code) => resolve(code ?? 1));
+  } finally {
+    rmSync(isolatedBrowserArtifactRoot, { recursive: true, force: true });
+  }
+  const visualResult = results.find(
+    ({ id }) => id === "browser.desktop_tablet",
+  );
+  if (visualResult?.exitCode === 0) {
+    execFileSync(process.execPath, [visualEvidenceScript, "write"], {
+      cwd: root,
+      stdio: "inherit",
     });
-    writeFileSync(logPath, Buffer.concat(chunks));
-    let receiptPath;
-    if (gate.id === "browser.desktop_tablet" && exitCode === 0) {
-      execFileSync(process.execPath, [visualEvidenceScript, "write"], {
-        cwd: root,
-        stdio: "inherit",
-      });
-      receiptPath = visualEvidencePath;
-    }
-    results.push({
-      id: gate.id,
-      status: p7LocalGateStatus(gate.id, exitCode, process.env),
-      exitCode,
-      ...(receiptPath ? { receiptPath } : {}),
-    });
+    visualResult.receiptPath = visualEvidencePath;
   }
   const performancePath = fileURLToPath(
     new URL(

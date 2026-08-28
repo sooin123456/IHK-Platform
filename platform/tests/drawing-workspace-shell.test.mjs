@@ -30,6 +30,31 @@ const previewModule = await vite.ssrLoadModule(
 );
 test.after(() => vite.close());
 
+test("drawing export audit refuses a followed login redirect as an artifact", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    blob: async () => new Blob(["login"]),
+    headers: new Headers({ "content-type": "text/html" }),
+    ok: true,
+    redirected: true,
+    status: 200,
+  });
+  try {
+    await assert.rejects(
+      exportDialogModule.auditDrawingExport(
+        new Blob(["<svg/>"]),
+        "drawing.svg",
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003",
+      ),
+      /redirect/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function renderWorkspace(overrides = {}) {
   const fixture = {
     ...previewModule.localDrawingWorkspacePreviewFixture(),

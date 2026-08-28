@@ -72,7 +72,10 @@ function currentReleaseFixture() {
   for (const requirement of evidence.requirements) {
     if (requirement.status === "PASS")
       requirement.receipt = structuredClone(nodeReceipt);
-    if (requirement.id.startsWith("performance.") && requirement.scope === "local")
+    if (
+      requirement.id.startsWith("performance.") &&
+      requirement.scope === "local"
+    )
       requirement.receipt = receipt(performancePath);
   }
   for (const [requirementId, gateIds] of [
@@ -621,6 +624,38 @@ test("missing hosted browser authority preflights without starting a local dev s
   );
 });
 
+test("Task7 browser gates isolate legacy screenshot roots from user artifacts", () => {
+  assert.equal(typeof runnerModule.p7LocalGateEnvironment, "function");
+  const base = { DRAWING_P4_ARTIFACT_ROOT: "/user/p4" };
+  assert.deepEqual(
+    runnerModule.p7LocalGateEnvironment(
+      "browser.p4_functional",
+      base,
+      "/tmp/task7-browser",
+    ),
+    {
+      ...base,
+      DRAWING_P4_ARTIFACT_ROOT: "/tmp/task7-browser/p4",
+    },
+  );
+  assert.deepEqual(
+    runnerModule.p7LocalGateEnvironment(
+      "browser.p5_release",
+      {},
+      "/tmp/task7-browser",
+    ),
+    { DRAWING_P5_ARTIFACT_ROOT: "/tmp/task7-browser/p5" },
+  );
+  assert.deepEqual(
+    runnerModule.p7LocalGateEnvironment(
+      "browser.p6_release",
+      { KEEP: "1" },
+      "/tmp/task7-browser",
+    ),
+    { KEEP: "1" },
+  );
+});
+
 test("actual P3 and P0-P6 browser gates directly bind realtime and regression requirements", () => {
   const browserGateIds = [
     "browser.p0_p2",
@@ -778,7 +813,10 @@ test("visual receipt detects tampering anywhere in the client build tree", () =>
   const path = new URL(asset, assets);
   const original = readFileSync(path);
   try {
-    writeFileSync(path, Buffer.concat([original, Buffer.from("\n/* tamper */\n")]));
+    writeFileSync(
+      path,
+      Buffer.concat([original, Buffer.from("\n/* tamper */\n")]),
+    );
     assert.throws(
       () => visualModule.inspectDrawingP7VisualEvidence(evidence),
       /client build|binding|tree/i,

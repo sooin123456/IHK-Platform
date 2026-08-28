@@ -932,6 +932,10 @@ export default function DrawingWorkspaceClient({
   );
   const setAuthorizedTool = useCallback((tool: DrawingTool) => {
     transientInputInvalidatedRef.current = false;
+    if (tool !== "select" && tool !== "pan") {
+      semanticBlockSelectionRef.current.clear();
+      setSelectedIds([]);
+    }
     setActiveTool(tool);
   }, []);
   const setAuthorizedSelection = useCallback((ids: string[]) => {
@@ -1195,6 +1199,7 @@ export default function DrawingWorkspaceClient({
   const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
   const inspectorHasContent =
     transient.selectedIds.length > 0 ||
+    effectiveCapability === "viewer" ||
     Boolean(collaborationEditNotice) ||
     awarenessLockPeers.some((peer) => peer.softLocks.length > 0);
   const inspectorOpen = inspectorOpenOverride ?? inspectorHasContent;
@@ -1204,9 +1209,18 @@ export default function DrawingWorkspaceClient({
     [transientSelectedIdsKey],
   );
   useEffect(() => {
-    if (!tabletLayout || !inspectorOpen) return;
-    setLeftDockOpen(false);
-  }, [inspectorOpen, tabletLayout]);
+    if (!inspectorOpen) return;
+    if (
+      tabletLayout ||
+      (inspectorOpenOverride === null && transient.selectedIds.length > 0)
+    )
+      setLeftDockOpen(false);
+  }, [
+    inspectorOpen,
+    inspectorOpenOverride,
+    tabletLayout,
+    transient.selectedIds.length,
+  ]);
   const focusCanvas = useCallback(() => {
     window.requestAnimationFrame(() => canvasRef.current?.focus());
   }, []);
@@ -3545,6 +3559,7 @@ export default function DrawingWorkspaceClient({
           />
           <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
           <DrawingExportDialog
+            auditRequired={!previewMode}
             createdAt={drawingDocument.created_at}
             documentState={drawingState}
             fileId={file.id}
