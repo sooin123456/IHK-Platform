@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import * as drawingRuntime from "../app/lukas/lib/drawing-runtime.ts";
+
+const {
   createVisibilityRenderGate,
   drawingRealtimeState,
   drawingRealtimeTransition,
   markDrawingFirstUsable,
-} from "../app/lukas/lib/drawing-runtime.ts";
+} = drawingRuntime;
 
 test("hidden IFC render requests collapse into one render when visible again", () => {
   let hidden = true;
@@ -56,6 +58,30 @@ test("drawing first usable marks distinguish PDF and IFC without duplicates", ()
   markDrawingFirstUsable("ifc", performance);
 
   assert.deepEqual(names, ["drawing-first-page", "drawing-first-ifc-frame"]);
+});
+
+test("workspace stages record measured production-boundary durations", () => {
+  assert.equal(typeof drawingRuntime.startDrawingWorkspaceStage, "function");
+  const measures = [];
+  const times = [10, 24.5];
+  const finish = drawingRuntime.startDrawingWorkspaceStage("render-adapter", {
+    measure(name, options) {
+      measures.push({ name, ...options });
+    },
+    now() {
+      return times.shift();
+    },
+  });
+
+  assert.equal(finish(), 14.5);
+  assert.equal(finish(), 14.5);
+  assert.deepEqual(measures, [
+    {
+      name: "drawing-workspace:render-adapter",
+      start: 10,
+      end: 24.5,
+    },
+  ]);
 });
 
 test("realtime transport failures produce an explicit reconnecting state", () => {

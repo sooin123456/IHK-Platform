@@ -39,6 +39,7 @@ import {
   resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
+import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type {
   DrawingWorkspaceCapability,
   DrawingWorkspaceClient as DrawingWorkspaceDatabaseClient,
@@ -72,6 +73,7 @@ async function workspaceContext(request: Request, projectId: string) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
+  const finishLoaderStage = startDrawingWorkspaceStage("loader");
   const { client, headers, project, user, capability } = await workspaceContext(
     request,
     params.projectId!,
@@ -229,6 +231,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     loadDrawingRoom(collaborationClient, project.id, workspace.file.id),
     listDrawingAssignees(collaborationClient, project.id, project.owner_id),
   ]);
+  const loaderMs = finishLoaderStage();
+  headers.append(
+    "Server-Timing",
+    `drawing-workspace-loader;dur=${loaderMs.toFixed(3)}`,
+  );
   return data(
     {
       project,

@@ -33,6 +33,7 @@ import type {
   DrawingTable,
 } from "~/lukas/lib/drawing-workspace.types";
 import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
+import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import { buildDrawingP4PerformanceFixture } from "~/lukas/lib/drawing-p4-performance";
 import {
@@ -821,6 +822,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
   p5IfcTest?: boolean;
   p5Integrated?: boolean;
   p5PdfTest?: boolean;
+  p7PerformanceTest?: boolean;
   selectedIfcFileId?: string | null;
   viewMode?: "2d" | "3d" | "split";
   performanceObjects?: DrawingObject[];
@@ -869,18 +871,20 @@ export function localDrawingWorkspacePreviewFixture(options?: {
   const fixtureTables = performance ? [] : tables;
   const fixtureSources: DrawingObjectSource[] =
     options?.p5Integrated && options.performanceObjects
-      ? fixtureObjects.slice(0, 2_000).map((object, index) => ({
-          id: `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-          objectId: object.id,
-          revisionId: ids.revision,
-          sourceFileId: previewIfcFileId,
-          sourceSha256: activeIfcSha256,
-          sourceKind: "ifc_element" as const,
-          ifcGlobalId: `P5${String(index + 1).padStart(20, "0")}`,
-          elementId: null,
-          camera: null,
-          version: 1,
-        }))
+      ? fixtureObjects
+          .slice(0, options.p7PerformanceTest ? 2 : 2_000)
+          .map((object, index) => ({
+            id: `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+            objectId: object.id,
+            revisionId: ids.revision,
+            sourceFileId: previewIfcFileId,
+            sourceSha256: activeIfcSha256,
+            sourceKind: "ifc_element" as const,
+            ifcGlobalId: `P5${String(index + 1).padStart(20, "0")}`,
+            elementId: null,
+            camera: null,
+            version: 1,
+          }))
       : options?.p5IfcTest || options?.p5Integrated
         ? [
             {
@@ -1173,6 +1177,7 @@ function isLocalPreviewRequest(request: Request) {
 export function loader({ request }: Route.LoaderArgs) {
   if (!isLocalPreviewRequest(request))
     throw new Response("Not Found", { status: 404 });
+  const finishLoaderStage = startDrawingWorkspaceStage("loader");
   const performanceTest =
     new URL(request.url).searchParams.get("performanceTest") === "1";
   const performanceFixture = performanceTest
@@ -1204,7 +1209,8 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams,
   );
   const viewMode =
-    canonicalP5 && !new URL(request.url).searchParams.has("view")
+    (canonicalP5 || performanceTest) &&
+    !new URL(request.url).searchParams.has("view")
       ? "split"
       : viewState.view;
   const fixture = localDrawingWorkspacePreviewFixture({
@@ -1214,8 +1220,10 @@ export function loader({ request }: Route.LoaderArgs) {
       viewState.view === "2d",
     hiddenHostTest,
     p5IfcTest,
-    p5Integrated: canonicalP5 || p5BaselineTest || p5ReleaseTest,
+    p5Integrated:
+      performanceTest || canonicalP5 || p5BaselineTest || p5ReleaseTest,
     p5PdfTest,
+    p7PerformanceTest: performanceTest,
     selectedIfcFileId: viewState.ifcFileId,
     viewMode,
     performanceObjects:
@@ -1236,7 +1244,7 @@ export function loader({ request }: Route.LoaderArgs) {
   const verticalTest =
     new URL(request.url).searchParams.get("verticalTest") === "1";
   const revision = fixture.workspace.document.revision;
-  return {
+  const payload = {
     ...fixture,
     assignees: [
       { userId: ids.user, role: "estimator" },
@@ -1342,6 +1350,15 @@ export function loader({ request }: Route.LoaderArgs) {
     p5ReleaseTest,
     canonicalP5,
   };
+  const loaderMs = finishLoaderStage();
+  return data(
+    { ...payload, drawingWorkspaceLoaderMs: loaderMs },
+    {
+      headers: {
+        "Server-Timing": `drawing-workspace-loader;dur=${loaderMs.toFixed(3)}`,
+      },
+    },
+  );
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -1632,6 +1649,16 @@ export default function LocalDrawingWorkspacePreview({
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>
+        {loaderData.performanceTest ? (
+          <>
+            <output aria-label="P7 loader duration" className="sr-only">
+              {loaderData.drawingWorkspaceLoaderMs}
+            </output>
+            <output aria-label="P7 source link count" className="sr-only">
+              {loaderData.workspace.document.revision.sources?.length ?? 0}
+            </output>
+          </>
+        ) : null}
         {loaderData.verticalTest ? (
           <output
             aria-label="P4 mounted workspace snapshot"

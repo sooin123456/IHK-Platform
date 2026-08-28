@@ -238,6 +238,7 @@ type ActiveCanvasSlice = {
   layers: Record<string, DrawingLayer>;
   objects: Record<string, DrawingObject>;
   blockInstances: Record<string, DrawingBlockInstance>;
+  visibleObjectIds: ReadonlySet<string>;
 };
 
 const EMPTY_BLOCK_INSTANCES: Record<string, DrawingBlockInstance> = {};
@@ -304,6 +305,12 @@ export function createDrawingActiveCanvasSliceCache(): DrawingActiveCanvasSliceC
         layers: scopedLayers,
         objects: scopedObjects,
         blockInstances: scopedBlockInstances,
+        visibleObjectIds: new Set(
+          drawingVisibleCanvasObjects(
+            Object.values(scopedObjects),
+            scopedLayers,
+          ).map((object) => object.id),
+        ),
       };
       byCanvas.set(canvasId, slice);
       buildCount += 1;
@@ -398,7 +405,7 @@ export function deriveDrawingTransientState(
     semanticBlockInstanceIds?: readonly string[];
   },
 ): DrawingTransientState {
-  const { layers, objects, blockInstances } =
+  const { layers, objects, blockInstances, visibleObjectIds } =
     drawingActiveCanvasSlice(snapshot);
   const eligible = (layer: DrawingLayer | undefined) =>
     Boolean(
@@ -419,11 +426,6 @@ export function deriveDrawingTransientState(
         : null;
   const semanticBlockInstanceIds = new Set(
     input.semanticBlockInstanceIds ?? [],
-  );
-  const visibleObjectIds = new Set(
-    drawingVisibleCanvasObjects(Object.values(objects), layers).map(
-      (object) => object.id,
-    ),
   );
   const selectedIds =
     (input.canSelect ?? input.canEdit)

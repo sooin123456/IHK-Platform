@@ -144,6 +144,7 @@ import {
 import type {
   DrawingObject,
   DrawingStyle,
+  Point,
 } from "~/lukas/lib/drawing-workspace.types";
 import {
   drawingRevisionDecisionFields,
@@ -176,6 +177,7 @@ import {
   useDrawingWorkspaceRealtime,
   type DrawingWorkspaceRealtimeAdapter,
 } from "~/lukas/lib/drawing-workspace-realtime";
+import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import {
   createDrawingAwarenessPublication,
   createDrawingAwarenessPeerStore,
@@ -834,6 +836,17 @@ export default function DrawingWorkspaceClient({
   workspace,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (
+      performance.getEntriesByName("drawing-workspace:hydration:start").length >
+        0 &&
+      performance.getEntriesByName("drawing-workspace:hydration").length === 0
+    )
+      performance.measure(
+        "drawing-workspace:hydration",
+        "drawing-workspace:hydration:start",
+      );
+  }, []);
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const initialEvidenceFocusKeyRef = useRef<string | null>(null);
   const [canvasModule, setCanvasModule] = useState<
@@ -1198,6 +1211,40 @@ export default function DrawingWorkspaceClient({
   );
   awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
+  const activeDrawingLayers = useMemo(
+    () => Object.values(activeDrawingState.layers),
+    [activeDrawingState.layers],
+  );
+  const collaborationObjectNames = useMemo(
+    () =>
+      Object.fromEntries(
+        [
+          ...Object.values(activeDrawingState.objects),
+          ...Object.values(activeDrawingState.structure?.blockInstances ?? {}),
+        ].map((entity) => [entity.id, entity.name]),
+      ),
+    [activeDrawingState.objects, activeDrawingState.structure?.blockInstances],
+  );
+  const onCanvasSelectionChange = useCallback(
+    (ids: string[]) =>
+      setAuthorizedSelection(
+        ids.filter(
+          (id) =>
+            Boolean(activeDrawingState.objects[id]) ||
+            Boolean(activeDrawingState.structure?.blockInstances[id]),
+        ),
+      ),
+    [
+      activeDrawingState.objects,
+      activeDrawingState.structure?.blockInstances,
+      setAuthorizedSelection,
+    ],
+  );
+  const onCanvasToolComplete = useCallback(
+    (tool: DrawingTool) =>
+      setAuthorizedTool(transient.activeLayerId ? tool : "select"),
+    [setAuthorizedTool, transient.activeLayerId],
+  );
   const awarenessVisibleEntityIds = useMemo(
     () => [
       ...drawingVisibleCanvasObjects(
@@ -1245,6 +1292,13 @@ export default function DrawingWorkspaceClient({
       awarenessPublicationRef.current?.update(patch),
     [],
   );
+  const onCanvasCursorWorldChange = useCallback(
+    (cursorWorld: Point | null) => {
+      awarenessCursorRef.current = cursorWorld;
+      publishAwareness({ cursorWorld });
+    },
+    [publishAwareness],
+  );
   const setAwarenessSoftLock = useCallback(
     (entityId: string | null) => {
       previewHarness?.onSoftLockChange?.(entityId);
@@ -1282,6 +1336,7 @@ export default function DrawingWorkspaceClient({
     if (!selectionLockConflict) setCollaborationEditNotice(null);
   }, [selectionLockConflict]);
   const resolvedObjects = useMemo(() => {
+    const finish = startDrawingWorkspaceStage("style-resolution");
     const resolver = createDrawingStyleResolutionCache(
       activeDrawingState.structure?.styles ?? {},
     );
@@ -1297,6 +1352,7 @@ export default function DrawingWorkspaceClient({
             : "도면 스타일을 해석할 수 없습니다.";
       }
     }
+    finish();
     return { objects, styleError };
   }, [activeDrawingState.objects, activeDrawingState.structure?.styles]);
   const blockStructure = drawingState.structure;
@@ -1334,7 +1390,7 @@ export default function DrawingWorkspaceClient({
     : revision.pages.find((candidate) => "width_mm" in candidate);
   const editingContext = drawingEditingContext(
     effectiveCapability,
-    Object.values(activeDrawingState.layers),
+    activeDrawingLayers,
     resolvedActiveLayerId,
   );
   const editing = {
@@ -4493,29 +4549,13 @@ export default function DrawingWorkspaceClient({
                   calibrationId={calibrationId}
                   canEdit={editing.canEdit}
                   layerId={editing.layerId}
-                  layers={Object.values(activeDrawingState.layers)}
+                  layers={activeDrawingLayers}
                   blockInstances={resolvedBlockInstances.instances}
                   objects={resolvedObjects.objects}
                   onCommand={applyCommand}
-                  onCursorWorldChange={(cursorWorld) => {
-                    awarenessCursorRef.current = cursorWorld;
-                    publishAwareness({ cursorWorld });
-                  }}
-                  onSelectionChange={(ids) =>
-                    setAuthorizedSelection(
-                      ids.filter(
-                        (id) =>
-                          transient.selectedIds.includes(id) ||
-                          Boolean(activeDrawingState.objects[id]) ||
-                          Boolean(
-                            activeDrawingState.structure?.blockInstances[id],
-                          ),
-                      ),
-                    )
-                  }
-                  onToolComplete={(tool) =>
-                    setAuthorizedTool(transient.activeLayerId ? tool : "select")
-                  }
+                  onCursorWorldChange={onCanvasCursorWorldChange}
+                  onSelectionChange={onCanvasSelectionChange}
+                  onToolComplete={onCanvasToolComplete}
                   onSoftLockChange={setAwarenessSoftLock}
                   ref={canvasRef}
                   repeatMode={repeatMode}
@@ -4946,14 +4986,7 @@ export default function DrawingWorkspaceClient({
             </p>
           ) : null}
           <DrawingCollaborationLockStatus
-            objectNames={Object.fromEntries(
-              [
-                ...Object.values(activeDrawingState.objects),
-                ...Object.values(
-                  activeDrawingState.structure?.blockInstances ?? {},
-                ),
-              ].map((entity) => [entity.id, entity.name]),
-            )}
+            objectNames={collaborationObjectNames}
             store={awarenessStoreRef.current}
           />
           <section

@@ -550,6 +550,63 @@ test("render order is a stable host dependency graph across randomized layer and
   }
 });
 
+test("the exact 10k authoritative graph projects only viewport objects for render hit snap and accessibility work", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const { buildDrawingP4PerformanceFixture } =
+    await import("../app/lukas/lib/drawing-p4-performance.ts");
+  const layerId = "10000000-0000-4000-8000-000000000001";
+  const fixture = buildDrawingP4PerformanceFixture(10_000, layerId);
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    blockInstances: [],
+    layers: {
+      [layerId]: { visible: true, locked: false, sortOrder: 0 },
+    },
+    objects: fixture.objects.map((item) => ({ ...item, style: item.style })),
+    viewportBounds: { x: 90, y: 90, width: 220, height: 70 },
+    zoom: 1,
+  });
+
+  assert.equal(adapter.items.length, 10_000);
+  assert.equal(Array.isArray(adapter.projectedItems), true);
+  assert.deepEqual(
+    adapter.projectedItems.map(({ id }) => id),
+    [
+      "40000000-0000-4000-8000-000000000001",
+      "40000000-0000-4000-8000-000000000002",
+      "40000000-0000-4000-8000-000000002001",
+      "40000000-0000-4000-8000-000000002002",
+    ],
+  );
+  assert.deepEqual(
+    adapter.hitItems.map(({ id }) => id),
+    adapter.projectedItems.map(({ id }) => id),
+  );
+});
+
+test("the exact 10k render adapter removes quadratic host ordering", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const { buildDrawingP4PerformanceFixture } =
+    await import("../app/lukas/lib/drawing-p4-performance.ts");
+  const layerId = "10000000-0000-4000-8000-000000000001";
+  const fixture = buildDrawingP4PerformanceFixture(10_000, layerId);
+  const started = performance.now();
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    blockInstances: [],
+    layers: {
+      [layerId]: { visible: true, locked: false, sortOrder: 0 },
+    },
+    objects: fixture.objects.map((item) => ({ ...item, style: item.style })),
+    zoom: 1,
+  });
+  const elapsed = performance.now() - started;
+
+  assert.equal(adapter.items.length, 10_000);
+  assert.ok(
+    elapsed < 100,
+    `10,000 authoritative render items took ${elapsed.toFixed(1)}ms`,
+  );
+});
+
 test("a hosted opening inherits hidden host visibility across layers", async () => {
   const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
   const wallId = "50000000-0000-4000-8000-000000000001";

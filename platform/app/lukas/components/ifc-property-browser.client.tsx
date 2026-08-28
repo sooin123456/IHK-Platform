@@ -20,6 +20,7 @@ import type {
   IfcModelViewerDisposeEvidence,
 } from "./ifc-model-viewer.client";
 import type { IfcCameraState } from "~/lukas/lib/ifc-anchor";
+import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 
 type IfcElement = {
   expressId: number;
@@ -231,6 +232,7 @@ export default function IfcPropertyBrowser({
 
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
+    const finishIfcStage = startDrawingWorkspaceStage("ifc");
     const sourceFetch = acquireIfcBytes(sourceKey, signedUrlRef.current);
     let disposed = false;
     let ownedApi: IfcAPI | null = null;
@@ -347,6 +349,7 @@ export default function IfcPropertyBrowser({
             "대형 IFC는 브라우저 메모리를 보호하기 위해 속성만 표시합니다.",
           );
         } else if (viewerContainerRef.current) await mountViewer(generation);
+        finishIfcStage();
       } catch (loadError) {
         disposeOwnedIfc();
         if (isCurrentLoad()) {
@@ -355,6 +358,7 @@ export default function IfcPropertyBrowser({
             loadError.name === "AbortError"
           )
             return;
+          finishIfcStage();
           setViewerPhase("error");
           setViewerStatus(
             loadError instanceof Error

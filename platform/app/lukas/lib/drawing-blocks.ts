@@ -368,17 +368,16 @@ export function drawingVisibleCanvasObjects<T extends DrawingObject>(
   });
 }
 
-export function drawingCanvasRenderAdapter(input: {
+type DrawingCanvasRenderInput = {
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   layers: Record<
     string,
     { visible: boolean; locked: boolean; sortOrder?: number }
   >;
   objects: Array<DrawingObject & { style: DrawingStyle }>;
-  zoom: number;
-}) {
-  if (!Number.isFinite(input.zoom) || input.zoom <= 0)
-    throw new DrawingBlockError("Drawing canvas zoom must be positive.");
+};
+
+export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
   const objectMap = Object.fromEntries(
     input.objects.map((object) => [object.id, object]),
   );
@@ -411,19 +410,57 @@ export function drawingCanvasRenderAdapter(input: {
         (input.layers[right.layerId]?.sortOrder ?? 0) ||
       left.id.localeCompare(right.id),
   );
-  const remaining = [...sortedItems];
+  const itemById = new Map(sortedItems.map((item) => [item.id, item]));
+  const waitingByHost = new Map<string, DrawingCanvasRenderItem[]>();
+  const emittedIds = new Set<string>();
   const items: DrawingCanvasRenderItem[] = [];
-  while (remaining.length) {
-    const readyIndex = remaining.findIndex((item) => {
-      if (item.kind !== "object" || item.object.geometry.type !== "opening")
-        return true;
-      const host = objectMap[item.object.geometry.hostWallId];
-      return !host || !remaining.some((candidate) => candidate.id === host.id);
-    });
-    items.push(...remaining.splice(readyIndex < 0 ? 0 : readyIndex, 1));
+  const emit = (item: DrawingCanvasRenderItem) => {
+    if (emittedIds.has(item.id)) return;
+    emittedIds.add(item.id);
+    items.push(item);
+    for (const dependent of waitingByHost.get(item.id) ?? []) emit(dependent);
+    waitingByHost.delete(item.id);
+  };
+  for (const item of sortedItems) {
+    const hostId =
+      item.kind === "object" && item.object.geometry.type === "opening"
+        ? item.object.geometry.hostWallId
+        : null;
+    if (hostId && itemById.has(hostId) && !emittedIds.has(hostId)) {
+      const waiting = waitingByHost.get(hostId);
+      if (waiting) waiting.push(item);
+      else waitingByHost.set(hostId, [item]);
+    } else emit(item);
   }
+  for (const item of sortedItems) emit(item);
+  return items;
+}
+
+export function drawingCanvasViewportProjection(input: {
+  items: readonly DrawingCanvasRenderItem[];
+  layers: DrawingCanvasRenderInput["layers"];
+  viewportBounds?: Bounds | null;
+  zoom: number;
+}) {
+  if (!Number.isFinite(input.zoom) || input.zoom <= 0)
+    throw new DrawingBlockError("Drawing canvas zoom must be positive.");
+  const projectedItems =
+    input.viewportBounds === null
+      ? []
+      : input.viewportBounds
+        ? input.items.filter((item) => {
+            const bounds = item.bounds;
+            const viewport = input.viewportBounds!;
+            return (
+              bounds.x <= viewport.x + viewport.width &&
+              bounds.x + bounds.width >= viewport.x &&
+              bounds.y <= viewport.y + viewport.height &&
+              bounds.y + bounds.height >= viewport.y
+            );
+          })
+        : [...input.items];
   const tolerance = 6 / input.zoom;
-  const hitItems = items.flatMap((item) => {
+  const hitItems = projectedItems.flatMap((item) => {
     const layer = input.layers[item.layerId];
     if (!layer?.visible || layer.locked) return [];
     return [
@@ -440,7 +477,7 @@ export function drawingCanvasRenderAdapter(input: {
   });
   return {
     hitItems,
-    items,
+    projectedItems,
     topmostAt(point: Point) {
       return [...hitItems].reverse().find((item) => {
         const bounds = item.hitBounds;
@@ -452,6 +489,21 @@ export function drawingCanvasRenderAdapter(input: {
         );
       });
     },
+  };
+}
+
+export function drawingCanvasRenderAdapter(
+  input: DrawingCanvasRenderInput & { viewportBounds?: Bounds; zoom: number },
+) {
+  const items = drawingCanvasRenderItems(input);
+  return {
+    items,
+    ...drawingCanvasViewportProjection({
+      items,
+      layers: input.layers,
+      viewportBounds: input.viewportBounds,
+      zoom: input.zoom,
+    }),
   };
 }
 

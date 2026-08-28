@@ -47,12 +47,14 @@ import {
   type DrawingMoveSnapshot,
 } from "~/lukas/lib/drawing-commands";
 import {
-  drawingCanvasRenderAdapter,
+  drawingCanvasRenderItems,
+  drawingCanvasViewportProjection,
   drawingKindExclusiveSelection,
   drawingVisibleCanvasObjects,
   type DrawingBlockRenderModel,
   type DrawingCanvasRenderItem,
 } from "~/lukas/lib/drawing-blocks";
+import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import {
   drawingDimensionDisplayPoints,
   drawingDimensionLabel,
@@ -79,6 +81,7 @@ import type {
   DrawingGeometry,
   DrawingLayer,
   DrawingObject,
+  DrawingSemanticGeometry,
   DrawingStyle,
   Point,
   Viewport,
@@ -133,6 +136,7 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
 const BASE_GRID_SIZE = 10;
 const SELECTION_HIT_TOLERANCE_PIXELS = 6;
+const VIEWPORT_OVERSCAN_PIXELS = 48;
 const DIRECTION_45 = [
   [1, 0],
   [1, 1],
@@ -143,6 +147,14 @@ const DIRECTION_45 = [
   [0, -1],
   [1, -1],
 ] as const;
+
+function isDrawingSemanticObject(
+  object: DrawingObject,
+): object is DrawingObject & { geometry: DrawingSemanticGeometry } {
+  return ["wall", "opening", "space", "area", "grid", "arc"].includes(
+    object.geometry.type,
+  );
+}
 
 export type DrawingTool =
   | "select"
@@ -1765,6 +1777,31 @@ export function drawingFittedViewport(
   };
 }
 
+export function drawingCanvasViewportBounds(
+  size: CanvasSize,
+  viewport: Viewport,
+  overscanPixels = VIEWPORT_OVERSCAN_PIXELS,
+): Bounds | null {
+  if (size.width <= 0 || size.height <= 0) return null;
+  const start = screenToWorld(
+    { x: -overscanPixels, y: -overscanPixels },
+    viewport,
+  );
+  const end = screenToWorld(
+    {
+      x: size.width + overscanPixels,
+      y: size.height + overscanPixels,
+    },
+    viewport,
+  );
+  return {
+    x: start.x,
+    y: start.y,
+    width: end.x - start.x,
+    height: end.y - start.y,
+  };
+}
+
 function visibleGrid(
   size: CanvasSize,
   viewport: Viewport,
@@ -2179,6 +2216,24 @@ const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
   );
 });
 
+const DrawingSemanticAccessibilityList = memo(
+  function DrawingSemanticAccessibilityList({
+    objects,
+  }: {
+    objects: Array<DrawingObject & { geometry: DrawingSemanticGeometry }>;
+  }) {
+    return (
+      <ul className="sr-only" aria-label="건축 객체 목록">
+        {objects.map((object) => (
+          <li key={object.id}>
+            {drawingSemanticAccessibilityLabel(object.name, object.geometry)}
+          </li>
+        ))}
+      </ul>
+    );
+  },
+);
+
 function previewGeometry(
   session: ToolSession,
   point: Point | null,
@@ -2324,6 +2379,9 @@ export const DrawingCanvas = forwardRef<
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const konvaMountFinishRef = useRef<null | (() => number)>(null);
+  if (konvaMountFinishRef.current === null)
+    konvaMountFinishRef.current = startDrawingWorkspaceStage("konva-mount");
   const awarenessPeers = useDrawingAwarenessPeers(awarenessStore);
   const remotelyLockedIds = useMemo(
     () =>
@@ -2367,13 +2425,46 @@ export const DrawingCanvas = forwardRef<
     () => new Set(Object.keys(blockInstancesById)),
     [blockInstancesById],
   );
-  const objectCandidates = useMemo(
-    () =>
-      visibleObjects.flatMap((object) =>
-        geometrySnapPoints(object.geometry, objectsById),
-      ),
-    [objectsById, visibleObjects],
+  const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
+  const [viewport, setViewportState] = useState<Viewport>(viewportRef.current);
+  const renderItems = useMemo(() => {
+    const finish = startDrawingWorkspaceStage("render-adapter");
+    try {
+      return drawingCanvasRenderItems({
+        blockInstances,
+        layers: layersById,
+        objects,
+      });
+    } finally {
+      finish();
+    }
+  }, [blockInstances, layersById, objects]);
+  const viewportBounds = useMemo(
+    () => drawingCanvasViewportBounds(size, viewport),
+    [size, viewport],
   );
+  const viewportProjection = useMemo(() => {
+    const finish = startDrawingWorkspaceStage("snap-hit-preparation");
+    try {
+      const projection = drawingCanvasViewportProjection({
+        items: renderItems,
+        layers: layersById,
+        viewportBounds,
+        zoom: viewport.zoom,
+      });
+      return {
+        ...projection,
+        objectCandidates: projection.projectedItems.flatMap((item) =>
+          item.kind === "object"
+            ? geometrySnapPoints(item.object.geometry, objectsById)
+            : [],
+        ),
+      };
+    } finally {
+      finish();
+    }
+  }, [layersById, objectsById, renderItems, viewport.zoom, viewportBounds]);
+  const objectCandidates = viewportProjection.objectCandidates;
   const [controllerState, setControllerState] =
     useState<DrawingToolControllerState>(() =>
       createDrawingToolControllerState({
@@ -2403,8 +2494,6 @@ export const DrawingCanvas = forwardRef<
   const [spacePressed, setSpacePressed] = useState(false);
   const [panGesture, setPanGesture] = useState<DrawingPanGesture | null>(null);
   const [textValue, setTextValue] = useState("");
-  const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
-  const [viewport, setViewportState] = useState<Viewport>(viewportRef.current);
   const [pdfSource, setPdfSource] = useState<{
     canvas: HTMLCanvasElement;
     bounds: { x: number; y: number; width: number; height: number };
@@ -2517,6 +2606,11 @@ export const DrawingCanvas = forwardRef<
     return () => observer.disconnect();
   }, []);
 
+  useLayoutEffect(() => {
+    if (size.width <= 0 || size.height <= 0) return;
+    konvaMountFinishRef.current?.();
+  }, [size.height, size.width]);
+
   useEffect(() => {
     fitPendingRef.current = true;
   }, [background.height, background.kind, background.width]);
@@ -2539,6 +2633,7 @@ export const DrawingCanvas = forwardRef<
     let renderCleanup: (() => void) | null = null;
     const controller = new AbortController();
     const canvas = document.createElement("canvas");
+    const finishPdfStage = startDrawingWorkspaceStage("pdf");
     setPdfSource(null);
     setPdfMessage("PDF 배경을 준비하는 중입니다.");
     void openPdfDocument(background.signedUrl, controller.signal)
@@ -2585,6 +2680,7 @@ export const DrawingCanvas = forwardRef<
           }),
         );
         setPdfMessage("PDF 원본 배경을 표시하고 있습니다.");
+        finishPdfStage();
       })
       .catch((error: unknown) => {
         renderCleanup?.();
@@ -2595,6 +2691,7 @@ export const DrawingCanvas = forwardRef<
         canvas.width = 0;
         canvas.height = 0;
         if (!alive || controller.signal.aborted || isCancelled(error)) return;
+        finishPdfStage();
         setPdfMessage(
           error instanceof Error
             ? error.message
@@ -2967,24 +3064,32 @@ export const DrawingCanvas = forwardRef<
     controllerState.session.tool === "text"
       ? worldToScreen(controllerState.session.origin, viewport)
       : null;
-  const renderAdapter = useMemo(
+  const selectionCandidates = useMemo(
     () =>
-      drawingCanvasRenderAdapter({
-        blockInstances,
-        layers: layersById,
-        objects,
-        zoom: viewport.zoom,
-      }),
-    [blockInstances, layersById, objects, viewport.zoom],
+      viewportProjection.hitItems.map((item) => ({
+        id: item.id,
+        bounds: item.hitBounds,
+      })),
+    [viewportProjection.hitItems],
   );
-  const selectionCandidates = renderAdapter.hitItems.map((item) => ({
-    id: item.id,
-    bounds: item.hitBounds,
-  }));
   const remoteSelections = awarenessPeers.flatMap((peer) =>
-    drawingRemoteSelectionBounds(peer.selectedIds, renderAdapter.items).map(
-      (selection) => ({ ...selection, peer }),
-    ),
+    drawingRemoteSelectionBounds(
+      peer.selectedIds,
+      viewportProjection.projectedItems,
+    ).map((selection) => ({ ...selection, peer })),
+  );
+  const projectedSemanticObjects = useMemo(
+    () =>
+      viewportProjection.projectedItems.flatMap((item) =>
+        item.kind === "object" && isDrawingSemanticObject(item.object)
+          ? [item.object]
+          : [],
+      ),
+    [viewportProjection.projectedItems],
+  );
+  const visibleSemanticObjectCount = useMemo(
+    () => visibleObjects.filter(isDrawingSemanticObject).length,
+    [visibleObjects],
   );
   const selectedObjects = selectionState.selectedIds.flatMap((objectId) => {
     const object = objectsById[objectId];
@@ -3071,11 +3176,12 @@ export const DrawingCanvas = forwardRef<
     return result;
   }
 
-  function candidateIdFor(event: KonvaEventObject<PointerEvent>) {
-    const candidate = (
-      event.target as unknown as { getAttr: (name: string) => unknown }
-    ).getAttr("drawingSelectionId");
-    return typeof candidate === "string" ? candidate : null;
+  function candidateIdFor(screenPoint: Point) {
+    const point = screenToWorld(screenPoint, viewportRef.current);
+    for (let index = selectionCandidates.length - 1; index >= 0; index -= 1)
+      if (pointInBounds(point, selectionCandidates[index].bounds))
+        return selectionCandidates[index].id;
+    return null;
   }
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
@@ -3107,7 +3213,7 @@ export const DrawingCanvas = forwardRef<
     const target = event.evt.currentTarget as HTMLElement | null;
     if (activeTool === "select") {
       event.evt.preventDefault();
-      const candidateId = candidateIdFor(event);
+      const candidateId = candidateIdFor(pointer);
       if (!candidateId || !blockInstancesById[candidateId]) {
         target?.setPointerCapture?.(event.evt.pointerId);
         capturedSelectionTargetRef.current = target;
@@ -3234,13 +3340,9 @@ export const DrawingCanvas = forwardRef<
       data-rendered-instance-count={blockInstances.length}
       data-rendered-layer-count={layers.length}
       data-rendered-object-count={visibleObjects.length}
-      data-rendered-semantic-object-count={
-        visibleObjects.filter((object) =>
-          ["wall", "opening", "space", "area", "grid", "arc"].includes(
-            object.geometry.type,
-          ),
-        ).length
-      }
+      data-rendered-semantic-object-count={visibleSemanticObjectCount}
+      data-projected-object-count={viewportProjection.projectedItems.length}
+      data-projected-semantic-object-count={projectedSemanticObjects.length}
       data-remote-block-selection-count={
         remoteSelections.filter((selection) => selection.kind === "block")
           .length
@@ -3432,7 +3534,7 @@ export const DrawingCanvas = forwardRef<
           </Layer>
           <CommittedDrawingLayer
             calibration={calibration}
-            items={renderAdapter.items}
+            items={viewportProjection.projectedItems}
             objects={objectsById}
             viewportX={viewport.x}
             viewportY={viewport.y}
@@ -3462,22 +3564,6 @@ export const DrawingCanvas = forwardRef<
               ))}
             </Group>
             <Group name="drawing-selection">
-              {activeTool === "select"
-                ? selectionCandidates.map((candidate) => {
-                    const { bounds } = candidate;
-                    return (
-                      <Rect
-                        drawingSelectionId={candidate.id}
-                        fill="rgba(0,0,0,0.001)"
-                        height={bounds.height}
-                        key={`hit-${candidate.id}`}
-                        width={bounds.width}
-                        x={bounds.x}
-                        y={bounds.y}
-                      />
-                    );
-                  })
-                : null}
               {selectionState.previewDelta.x !== 0 ||
               selectionState.previewDelta.y !== 0
                 ? selectionPreview.objectIds.map((objectId) => {
@@ -3639,28 +3725,10 @@ export const DrawingCanvas = forwardRef<
       <p className="sr-only" role="status">
         {pdfMessage || "빈 도면 배경을 표시하고 있습니다."}
       </p>
-      <ul className="sr-only" aria-label="건축 객체 목록">
-        {visibleObjects.flatMap((object) => {
-          switch (object.geometry.type) {
-            case "wall":
-            case "opening":
-            case "space":
-            case "area":
-            case "grid":
-            case "arc":
-              return [
-                <li key={object.id}>
-                  {drawingSemanticAccessibilityLabel(
-                    object.name,
-                    object.geometry,
-                  )}
-                </li>,
-              ];
-            default:
-              return [];
-          }
-        })}
-      </ul>
+      <DrawingSemanticAccessibilityList
+        key={`${projectedSemanticObjects[0]?.id ?? "empty"}:${projectedSemanticObjects.at(-1)?.id ?? "empty"}:${projectedSemanticObjects.length}`}
+        objects={projectedSemanticObjects}
+      />
     </div>
   );
 });

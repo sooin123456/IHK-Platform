@@ -3,6 +3,38 @@ export type DrawingRealtimeState = {
   message: string;
 };
 
+export type DrawingWorkspacePerformanceStage =
+  | "loader"
+  | "ssr"
+  | "hydration"
+  | "style-resolution"
+  | "render-adapter"
+  | "konva-mount"
+  | "snap-hit-preparation"
+  | "pdf"
+  | "ifc";
+
+type DrawingWorkspacePerformanceMarker = Pick<Performance, "measure" | "now">;
+
+/** Records one real production-boundary interval and closes it at most once. */
+export function startDrawingWorkspaceStage(
+  stage: DrawingWorkspacePerformanceStage,
+  performanceMarker: DrawingWorkspacePerformanceMarker = performance,
+) {
+  const started = performanceMarker.now();
+  let duration: number | null = null;
+  return () => {
+    if (duration !== null) return duration;
+    const ended = performanceMarker.now();
+    duration = ended - started;
+    performanceMarker.measure(`drawing-workspace:${stage}`, {
+      start: started,
+      end: ended,
+    });
+    return duration;
+  };
+}
+
 export function drawingRealtimeState(status: string): DrawingRealtimeState {
   if (status === "SUBSCRIBED")
     return { phase: "connected", message: "실시간 연결됨" };
