@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { renameSync, rmSync } from "node:fs";
+import { renameSync } from "node:fs";
 
 import {
   P7_PERFORMANCE_EVIDENCE_PATH,
