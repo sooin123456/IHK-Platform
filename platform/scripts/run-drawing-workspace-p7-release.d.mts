@@ -60,6 +60,10 @@ export function p7LocalGateStatus(
   exitCode: number,
   environment: Record<string, string | undefined>,
 ): P7ReleaseStatus;
+export function p7LocalGatePreflight(
+  gateId: string,
+  environment: Record<string, string | undefined>,
+): { status: "UNEXECUTED"; missing: string[] } | null;
 export function buildReleaseEvidenceFromResults(
   results: Array<{
     id: string;

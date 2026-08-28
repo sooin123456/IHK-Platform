@@ -604,6 +604,23 @@ test("real PostgreSQL and production-browser gates classify missing authority in
   );
 });
 
+test("missing hosted browser authority preflights without starting a local dev server", () => {
+  assert.equal(typeof runnerModule.p7LocalGatePreflight, "function");
+  assert.deepEqual(runnerModule.p7LocalGatePreflight("browser.p0_p2", {}), {
+    status: "UNEXECUTED",
+    missing: [
+      "E2E_BASE_URL",
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+    ],
+  });
+  assert.equal(
+    runnerModule.p7LocalGatePreflight("browser.p4_functional", {}),
+    null,
+  );
+});
+
 test("actual P3 and P0-P6 browser gates directly bind realtime and regression requirements", () => {
   const browserGateIds = [
     "browser.p0_p2",

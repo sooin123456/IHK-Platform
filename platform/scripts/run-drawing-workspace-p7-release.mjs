@@ -514,6 +514,27 @@ function suppliedAuthority(environment, names) {
   });
 }
 
+export function p7LocalGatePreflight(gateId, environment) {
+  const names =
+    gateId === "browser.p0_p2"
+      ? p0P2BrowserAuthorityNames
+      : gateId === "browser.p3_multiplayer"
+        ? p3BrowserAuthorityNames
+        : null;
+  if (!names) return null;
+  const missing = names.filter(
+    (name) => !suppliedAuthority(environment, [name]),
+  );
+  if (
+    gateId === "browser.p3_multiplayer" &&
+    environment.COLLABORATION_INTERNAL_SECRET?.trim() ===
+      environment.COLLABORATION_FREEZE_SECRET?.trim() &&
+    !missing.includes("COLLABORATION_FREEZE_SECRET")
+  )
+    missing.push("COLLABORATION_FREEZE_SECRET");
+  return missing.length ? { status: "UNEXECUTED", missing } : null;
+}
+
 export function p7LocalGateStatus(gateId, exitCode, environment) {
   if (exitCode === 0) return "PASS";
   if (
@@ -754,6 +775,27 @@ async function collectLocal() {
   const results = [];
   for (const gate of P7_RELEASE_GATES) {
     const logPath = `${artifactRoot}${gate.id}.log`;
+    const preflight = p7LocalGatePreflight(gate.id, process.env);
+    if (preflight) {
+      writeFileSync(
+        logPath,
+        `${JSON.stringify(
+          {
+            gate: gate.id,
+            ...preflight,
+            reason: "hosted browser authority is unavailable",
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      results.push({
+        id: gate.id,
+        status: preflight.status,
+        exitCode: 2,
+      });
+      continue;
+    }
     const chunks = [];
     const exitCode = await new Promise((resolve, reject) => {
       const child = spawn(gate.argv[0], gate.argv.slice(1), {
