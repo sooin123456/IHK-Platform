@@ -123,6 +123,10 @@ test("trusted purge is service-only and proves expiry, holds, and protected depe
   );
   assert.match(
     sql,
+    /create unique index[^;]*retention_events_hold_release[^;]*where releases_event_id is not null/i,
+  );
+  assert.match(
+    sql,
     /lukas_qto_place_legal_hold[\s\S]*pg_advisory_xact_lock[\s\S]*request_sha256<>v_sha/i,
   );
   assert.match(

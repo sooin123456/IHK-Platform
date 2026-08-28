@@ -141,6 +141,9 @@ create index lukas_qto_retention_events_active_hold_idx
   where event_type in('legal_hold_placed','legal_hold_released');
 create unique index lukas_qto_retention_events_service_request_idx
   on public.lukas_qto_retention_events(request_id) where actor_id is null;
+create unique index lukas_qto_retention_events_hold_release_idx
+  on public.lukas_qto_retention_events(releases_event_id)
+  where releases_event_id is not null;
 create index lukas_qto_restore_runs_org_idx
   on public.lukas_qto_restore_runs(organization_id,recorded_at desc,id desc);
 create index lukas_qto_projects_active_idx
