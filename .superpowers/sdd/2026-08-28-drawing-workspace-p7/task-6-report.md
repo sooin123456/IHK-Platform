@@ -3,7 +3,8 @@
 ## Status
 
 - Implementation commit: `42501a93d049d89f69e70bc6554da94a057003db`.
-- Source/build-bound performance refresh: `9285c7a` (capture is bound to `42501a9`).
+- Review hardening commit: `a9c7f78e0124410e2605791c24c653633a937305`.
+- Source/build-bound performance refresh: `aee3a39` (capture is bound to `a9c7f78`).
 - Focused database, route, typecheck, production build, collaboration build, and complete Drawing Workspace regressions: **PASS**.
 - Real PostgreSQL RLS/ACL/trigger counterexamples: **UNEXECUTED** (`DRAWING_P7_REAL_DATABASE_URL` unavailable).
 - Required real-PostgreSQL mode exits nonzero instead of producing a synthetic pass.
@@ -14,10 +15,13 @@
 
 - One forward migration, `20260828073233_drawing_workspace_organization_administration.sql`; it reuses the existing organization, organization-membership, project, project-membership, company-library, drawing-capability, collaboration, retention, and export authorities.
 - Exact, expiring organization invitations with accept, revoke, and same-request retry semantics. Expired invitations can be replaced under an organization/email advisory lock, and acceptance rechecks the signed-in user's exact normalized email and seat capacity.
+- Invitation responses never disclose the internally resolved auth-user UUID. Registered and unregistered recipients use the same Resend delivery path and public response shape; missing delivery authority fails closed instead of returning a false success.
 - Organization member role and library-access administration through RPC-only boundaries. Direct organization-role mutation is rejected, role changes append an immutable administration event, and removal is denied while the member owns or belongs to a project.
 - Exact project-member lookup/add/update/remove and audited organization move. The old `auth.admin.listUsers` full-user scans are removed; routes accept exact email or stable UUID identity and return bounded 100-row keyset pages.
+- Invitation, project, and managed-destination lists use independent deterministic UUID keysets and expose UI continuation beyond 100 rows. Project moves conservatively reject approved drawing/BOQ evidence and any quantity, BOQ, material-plan, transaction, or drawing lineage, and stale retries after a later move cannot disclose the project's current organization.
 - Organization plan versions covering plan name, seats, trial expiry, project/library quotas, and five explicit feature entitlements: Drawing Workspace, organization library, realtime collaboration, IFC workspace, and quantity lineage. Every version is append-only, idempotent by stable request identity, and records an immutable entitlement-change event.
 - Seat and quota enforcement is serialized at the database boundary. Project creation, organization-library publication, Drawing Workspace capability, collaboration authorization/load/store/bootstrap, IFC loader, and quantity-lineage loader/action revalidate the exact project organization and feature entitlement. Hidden UI is never the authority.
+- Known-ID company-library imports recheck both the project feature and the actor's exact library access inside the database. Price books/resources, BOQ tables, drawing lineage tables, and all public/private lineage RPCs are fenced by `quantity_lineage`; verified BOQ and material routes perform the same server revalidation.
 - Organization settings UI for invitations, roles, library access, plan/trial/quota/feature versions, organization projects, membership, and project moves, plus exact invitation acceptance and dashboard navigation.
 - Cross-organization invitation, feature, project, move, and library counterexamples; role escalation, direct role update, direct project move, quota overflow, expired invitation replacement, and immutable audit counterexamples.
 - Task 5 archive/retention/hold/export/restore boundaries and all prior immutable drawing, approval, BOQ/material, source-hash, collaboration, and library invariants remain intact.
@@ -39,10 +43,10 @@ The implementation adds no dependency, state manager, collaboration server, queu
 node --test \
   tests/drawing-workspace-p7-organization-admin-database.test.mjs \
   tests/drawing-workspace-p7-organization-admin-route.test.mjs
-tests 13; pass 12; fail 0; skipped 1 real PostgreSQL
+tests 19; pass 18; fail 0; skipped 1 real PostgreSQL
 ```
 
-PGlite executes exact invitation replacement/accept/retry, seat locking and overflow denial, append-only role/entitlement audit, direct privilege and project-move rejection, audited idempotent project move, cross-organization denial, and disabled Drawing Workspace/realtime boundaries. It proves executable SQL and catalog behavior but does not substitute for PostgreSQL RLS role/JWT execution.
+PGlite executes exact invitation replacement/accept/retry, non-enumerating response shape, seat locking and overflow denial, append-only role/entitlement audit, direct privilege and project-move rejection, chained-move stale-retry denial, every approved/quantity/BOQ/material move blocker, cross-organization denial, and disabled Drawing Workspace/realtime boundaries. It proves executable SQL and catalog behavior but does not substitute for PostgreSQL RLS role/JWT execution.
 
 ```text
 DRAWING_P7_REQUIRE_REAL_POSTGRES=1 node --test \
@@ -54,12 +58,12 @@ This required-mode failure is intentional. No local emulator result is promoted 
 
 ## Performance evidence refreshed after Task 6
 
-The Task 4 source-tree digest intentionally invalidated the prior capture after Task 6. The exact production-build Playwright runner rebuilt the application and executed all three browser gates against `42501a9` on isolated ports, leaving port 5173 untouched:
+The Task 4 source-tree digest intentionally invalidated the prior capture after Task 6. The exact production-build Playwright runner rebuilt the application and executed all three browser gates against `a9c7f78` on isolated ports, leaving port 5173 untouched:
 
 - exact Playwright gates: `3/3 PASS`;
-- warm reopen first usable: `2275.5 ms — MET` (`<= 2500 ms`);
-- cold/cache-miss baseline: `2901.8 ms — NOT MET`;
-- warm p95: zoom `0.2 ms`, pan `0.3 ms`, selection `8.0 ms` — all `MET` (`<= 16.7 ms`);
+- warm reopen first usable: `2281.3 ms — MET` (`<= 2500 ms`);
+- cold/cache-miss baseline: `2761.2 ms — NOT MET`;
+- warm p95: zoom `0.2 ms`, pan `0.2 ms`, selection `8.1 ms` — all `MET` (`<= 16.7 ms`);
 - hosted production: `UNEXECUTED`.
 
 The cold/cache-miss miss remains explicit in the committed evidence and is not folded into a false all-environments pass.
@@ -83,7 +87,7 @@ node --test tests/drawing-workspace-p7-performance.test.mjs
 tests 14; pass 14; fail 0
 
 npm run test:drawing-workspace
-tests 816; pass 810; fail 0; skipped 6
+tests 822; pass 816; fail 0; skipped 6
 
 git diff --check
 PASS
@@ -93,7 +97,7 @@ The complete regression includes P0–P7 migrations, exact measurement/hash orac
 
 ## Honest remaining gates
 
-- A disposable real PostgreSQL or authorized hosted Supabase database is still required to execute RLS/ACL/trigger counterexamples with real role and JWT session context.
+- A disposable real PostgreSQL or authorized hosted Supabase database is still required to execute the owner/admin/member/outsider/service RLS, ACL, append-trigger, invitation, role-escalation, project-move, library, and disabled-feature counterexample matrix with real role and JWT session context. Required mode fails nonzero while that URL is absent.
 - Hosted production sessions are still required to prove end-to-end owner/admin/member/outsider behavior against deployed routes and database policies.
 - Payment and checkout are not a missing Task 6 gate; they are explicitly outside the P7 plan.
 - The user-owned P4 progress/images and `.superpowers/audits/` remain unmodified by Task 6 commits.
