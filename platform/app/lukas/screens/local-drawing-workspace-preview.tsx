@@ -1233,7 +1233,6 @@ export function loader({ request }: Route.LoaderArgs) {
     "realtimeTest",
     "collaborationRetryTest",
     "bootstrapReadOnlyTest",
-    "awarenessTest",
     "verticalTest",
   ].some((name) => new URL(request.url).searchParams.get(name) === "1");
   const canonicalP5 =
@@ -1247,7 +1246,8 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams,
   );
   const viewMode =
-    performanceTest && !new URL(request.url).searchParams.has("view")
+    (performanceTest || canonicalP5) &&
+    !new URL(request.url).searchParams.has("view")
       ? "split"
       : viewState.view;
   const fixture = localDrawingWorkspacePreviewFixture({

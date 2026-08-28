@@ -33,6 +33,10 @@ function request(url, init) {
   return new Request(url, init);
 }
 
+function unwrapRouteData(result) {
+  return result?.type === "DataWithResponseInit" ? result.data : result;
+}
+
 function validOperation() {
   return {
     clientOperationId: "00000000-0000-4000-8000-000000000091",
@@ -94,12 +98,14 @@ test("P2 preview server module does not import browser-only state modules", asyn
 });
 
 test("P2 local drawing preview loader allows only development loopback", async () => {
-  const allowed = await preview.loader({
-    request: request(
-      "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
-    ),
-    params: {},
-  });
+  const allowed = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
+      ),
+      params: {},
+    }),
+  );
   assert.equal(allowed.workspace.document.revision.status, "draft");
   assert.equal(allowed.capability, "editor");
   assert.throws(
@@ -127,12 +133,14 @@ test("P2 local drawing preview loader allows only development loopback", async (
 });
 
 test("current canonical preview opens the integrated PDF and IFC split without query flags", async () => {
-  const loaded = await preview.loader({
-    request: request(
-      "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
-    ),
-    params: {},
-  });
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
+      ),
+      params: {},
+    }),
+  );
 
   assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
   assert.equal(loaded.sourceBundle.pdf.byteSize, 62_602);
@@ -214,13 +222,35 @@ test("current canonical preview opens the integrated PDF and IFC split without q
   assert.doesNotMatch(source, /canonicalP5\s*\?\s*p5PreviewHarness/);
 });
 
+test("awareness harness preserves the canonical integrated workspace", async () => {
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?awarenessTest=1",
+      ),
+      params: {},
+    }),
+  );
+
+  assert.equal(loaded.awarenessTest, true);
+  assert.equal(loaded.canonicalP5, true);
+  assert.equal(loaded.viewMode, "split");
+  assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
+  assert.equal(
+    loaded.selectedIfcFileId,
+    "00000000-0000-4000-8000-0000000000a1",
+  );
+});
+
 test("P5 local baseline contains exactly 10,000 objects and 2,000 immutable IFC links", async () => {
-  const loaded = await preview.loader({
-    request: request(
-      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5BaselineTest=1",
-    ),
-    params: {},
-  });
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5BaselineTest=1",
+      ),
+      params: {},
+    }),
+  );
   const revision = loaded.workspace.document.revision;
   assert.equal(revision.objects.length, 10_000);
   assert.equal(revision.sources.length, 2_000);
@@ -245,12 +275,14 @@ test("P5 local baseline contains exactly 10,000 objects and 2,000 immutable IFC 
 
 test("P5 preview exposes a controlled IFC pair without putting its URL in drawing state", async () => {
   const ifcFileId = "00000000-0000-4000-8000-0000000000a1";
-  const loaded = await preview.loader({
-    request: request(
-      `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=split&ifc=${ifcFileId}`,
-    ),
-    params: {},
-  });
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=split&ifc=${ifcFileId}`,
+      ),
+      params: {},
+    }),
+  );
   assert.equal(loaded.viewMode, "split");
   assert.equal(loaded.sourceBundle.ifc.id, ifcFileId);
   assert.equal(loaded.sourceBundle.ifc.signedUrl.includes("example.ifc"), true);
@@ -277,23 +309,27 @@ test("P5 preview exposes a controlled IFC pair without putting its URL in drawin
   );
   assert.equal(JSON.stringify(loaded.workspace).includes("example.ifc"), false);
 
-  const twoDimensional = await preview.loader({
-    request: request(
-      `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=2d&ifc=${ifcFileId}`,
-    ),
-    params: {},
-  });
+  const twoDimensional = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        `http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5IfcTest=1&view=2d&ifc=${ifcFileId}`,
+      ),
+      params: {},
+    }),
+  );
   assert.equal(twoDimensional.selectedIfcFileId, ifcFileId);
   assert.equal(twoDimensional.sourceBundle.ifc, null);
 });
 
 test("P5 preview exposes one exact PDF predecessor edge without canonical compare state", async () => {
-  const loaded = await preview.loader({
-    request: request(
-      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5PdfTest=1",
-    ),
-    params: {},
-  });
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?p5PdfTest=1",
+      ),
+      params: {},
+    }),
+  );
 
   assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
   assert.equal("signedUrl" in loaded.sourceBundle.previousPdf, false);
@@ -329,12 +365,14 @@ test("P5 preview exposes one exact PDF predecessor edge without canonical compar
 });
 
 test("P4 vertical preview exposes only mounted-workspace test instrumentation", async () => {
-  const loaded = await preview.loader({
-    request: request(
-      "http://127.0.0.1:5173/workspace-preview/drawing-workspace?verticalTest=1",
-    ),
-    params: {},
-  });
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?verticalTest=1",
+      ),
+      params: {},
+    }),
+  );
   assert.equal(loaded.verticalTest, true);
 
   const source = await readFile(
