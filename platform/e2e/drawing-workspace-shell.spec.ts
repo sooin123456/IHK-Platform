@@ -277,6 +277,78 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
   }
 });
 
+test("tablet entry keeps an awareness inspector exclusive with the tools drawer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openPreview(page, awarenessTestPreviewPath);
+
+  const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+  const inspector = page.getByRole("complementary", {
+    name: "속성 검사기",
+  });
+  await expect(tools).toBeVisible();
+  await expect(inspector).toBeVisible();
+  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(inspector).toBeVisible();
+  await expect(tools).toBeHidden();
+});
+
+test("tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await openPreview(page);
+
+  const workspace = page.locator("main.drawing-workspace");
+  const toolbar = page.getByRole("navigation", { name: "캔버스 도구" });
+  await workspace.evaluate((element) => {
+    element.style.setProperty("--drawing-workspace-safe-inline-start", "200px");
+    element.style.setProperty("--drawing-workspace-safe-inline-end", "160px");
+  });
+  const safeBounds = await toolbar.evaluate((element) =>
+    element.getBoundingClientRect().toJSON(),
+  );
+  expect(safeBounds.x).toBeGreaterThanOrEqual(200);
+  expect(safeBounds.right).toBeLessThanOrEqual(608);
+
+  await toolbar.evaluate((element) => {
+    (element as HTMLElement).style.width = "180px";
+  });
+  const overflow = await toolbar.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+  await toolbar.evaluate((element) => {
+    (element as HTMLElement).scrollLeft = 120;
+  });
+  await expect
+    .poll(() => toolbar.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+
+  await toolbar.evaluate((element) => {
+    (element as HTMLElement).scrollLeft = 0;
+  });
+  await page.getByRole("button", { name: "건축 객체" }).click();
+  const menu = page.getByRole("menu", { name: "건축 객체 도구" });
+  await expect(menu).toBeVisible();
+  const menuBounds = await menu.evaluate((element) =>
+    element.getBoundingClientRect().toJSON(),
+  );
+  const toolbarBounds = await toolbar.evaluate((element) =>
+    element.getBoundingClientRect().toJSON(),
+  );
+  expect(menuBounds.bottom).toBeLessThanOrEqual(toolbarBounds.top);
+  const documentBounds = await page.evaluate(() => ({
+    width: document.documentElement.scrollWidth,
+    viewportWidth: document.documentElement.clientWidth,
+  }));
+  expect(documentBounds.width).toBeLessThanOrEqual(documentBounds.viewportWidth);
+});
+
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
   page,
 }) => {

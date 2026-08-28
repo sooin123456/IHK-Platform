@@ -123,3 +123,99 @@ No output; whitespace check passed.
 
 - Production build warnings about existing large chunks, dynamic-import chunking, unsigned theme cookie, and React Router future flags remain outside Task 3 scope.
 - The tablet layout is covered in Chromium Playwright only; no separate physical-device safe-area browser authority was available.
+
+## Fix round 1 — review follow-up
+
+### Reviewed findings and implementation
+
+- **Tablet entry normalization:** verified that an awareness-lock inspector is open without any selected IDs and that the original selection-only tablet effect left the tools drawer visible after resizing from desktop. The tablet effect now closes the left drawer whenever any inspector content is open, including awareness locks and collaboration notices.
+- **Inline safe areas:** added inherited, overrideable inline safe-area custom properties and constrained the floating toolbar with `left`/`right` safe-area gutters. The tablet rule also clears Tailwind's separate `translate` property so the old centering utility cannot move it under an inset.
+- **Scrollable toolbar/menu:** extended browser coverage to force real toolbar overflow, set `scrollLeft`, and verify the opened architecture menu remains above the toolbar without document horizontal overflow. The existing visible-overflow menu exception is now exercised.
+
+### RED
+
+Command:
+
+```sh
+E2E_BASE_URL=http://127.0.0.1:5173 npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --grep "tablet entry|tablet toolbar respects" --reporter=line
+```
+
+Observed failures before the fixes:
+
+```text
+tablet entry keeps an awareness inspector exclusive with the tools drawer
+Expected: hidden
+Received: visible
+getByRole('complementary', { name: '도면 도구 패널' })
+
+tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen
+Expected: >= 200
+Received:    115
+```
+
+After the first CSS pass, the state normalization test passed but the safe-area test reproducibly exposed the remaining Tailwind translation root cause:
+
+```text
+Expected: >= 200
+Received:    -4
+```
+
+The toolbar's `-translate-x-1/2` utility used CSS `translate`, not `transform`; adding `translate: none` was the isolated correction.
+
+### GREEN
+
+The same focused command after the state and safe-area fixes:
+
+```text
+2 passed (1.9s)
+```
+
+### Full verification
+
+```sh
+E2E_BASE_URL=http://127.0.0.1:5173 npx playwright test e2e/drawing-workspace-shell.spec.ts --project=chromium --reporter=line
+```
+
+```text
+15 passed (11.8s)
+```
+
+```sh
+npm run test:drawing-workspace
+```
+
+```text
+tests 757
+pass 753
+fail 0
+skipped 4
+duration_ms 34866.896375
+```
+
+```sh
+npm run typecheck
+```
+
+```text
+react-router typegen && tsc
+```
+
+Exit status: 0.
+
+```sh
+npm run build
+```
+
+```text
+✓ built in 6.57s
+✓ built in 1.19s
+```
+
+Exit status: 0. Existing bundle-size, dynamic-import, unsigned theme-cookie, and React Router future-flag warnings remain outside this task.
+
+### Fix-round self-review and concerns
+
+- The entry rule depends on observable inspector openness, so it covers selection, collaboration notices, and awareness locks without duplicating those states.
+- Custom safe-area variables preserve real `env()` values by default and make controlled browser verification possible without simulating a device API.
+- The overflow test uses the real toolbar and its real scroll container; it does not assert source text or a mock.
+- User-owned P4 progress/images and `.superpowers/audits/` remain unstaged and unchanged.

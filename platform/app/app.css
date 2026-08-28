@@ -164,6 +164,9 @@ body {
 
 @media (min-width: 768px) and (max-width: 1199px) {
   .drawing-workspace {
+    --drawing-workspace-safe-inline-start: env(safe-area-inset-left, 0px);
+    --drawing-workspace-safe-inline-end: env(safe-area-inset-right, 0px);
+
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
@@ -205,9 +208,14 @@ body {
   }
 
   .drawing-workspace-toolbar {
+    right: max(1rem, var(--drawing-workspace-safe-inline-end));
+    left: max(1rem, var(--drawing-workspace-safe-inline-start));
     bottom: max(1rem, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    transform: none;
+    translate: none;
     flex-wrap: nowrap;
-    max-width: calc(100% - 2rem);
     justify-content: flex-start;
     overflow-x: auto;
     overscroll-behavior-x: contain;
