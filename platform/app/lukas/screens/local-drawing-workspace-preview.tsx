@@ -1262,8 +1262,7 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams,
   );
   const viewMode =
-    (performanceTest || canonicalP5) &&
-    !new URL(request.url).searchParams.has("view")
+    performanceTest && !new URL(request.url).searchParams.has("view")
       ? "split"
       : viewState.view;
   const fixture = localDrawingWorkspacePreviewFixture({

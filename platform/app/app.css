@@ -147,7 +147,7 @@ body {
   * {
     @apply border-border outline-ring/50;
   }
-body {
+  body {
     @apply bg-background text-foreground antialiased;
     word-break: keep-all;
   }
@@ -225,11 +225,14 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 
-  .drawing-workspace-toolbar:has([role="menu"]) {
-    overflow: visible;
+  .drawing-workspace-toolbar [data-slot="button"],
+  .drawing-workspace-toolbar [data-slot="dropdown-menu-trigger"] {
+    width: auto;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
 
-  .drawing-workspace-toolbar [data-slot="button"],
   .drawing-workspace-dock-toggle {
     width: 44px;
     min-width: 44px;

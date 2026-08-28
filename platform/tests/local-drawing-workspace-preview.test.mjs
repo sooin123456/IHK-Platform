@@ -161,7 +161,7 @@ test("P2 local drawing preview loader allows only development loopback", async (
   process.env.NODE_ENV = "development";
 });
 
-test("current canonical preview opens the integrated PDF and IFC split without query flags", async () => {
+test("current canonical preview opens the editable 2D canvas before loading IFC", async () => {
   const loaded = unwrapRouteData(
     await preview.loader({
       request: request(
@@ -192,26 +192,16 @@ test("current canonical preview opens the integrated PDF and IFC split without q
     loaded.selectedIfcFileId,
     "00000000-0000-4000-8000-0000000000a1",
   );
-  assert.equal(loaded.viewMode, "split");
+  assert.equal(loaded.viewMode, "2d");
+  assert.equal(loaded.sourceBundle.ifc, null);
   assert.equal(
-    loaded.sourceBundle.ifc.id,
-    "00000000-0000-4000-8000-0000000000a1",
+    loaded.sourceBundle.catalog.some(
+      (source) =>
+        source.kind === "ifc" &&
+        source.id === "00000000-0000-4000-8000-0000000000a1",
+    ),
+    true,
   );
-  assert.deepEqual(loaded.sourceBundle.ifc.derivative, {
-    status: "ready",
-    version: 1,
-    sourceSha256:
-      "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
-    geometrySha256:
-      "cb450586de90c234831a6a206c0cb83078d65eca1870ac642680df5b5056270f",
-    geometryByteSize: 16_196,
-    geometrySignedUrl: "/examples/synthetic-ifc-mapping.glb",
-    manifestSha256:
-      "65dc191d9089409f37d4757707e4a191bb7774ac4a64ac191384a67e3e85a17c",
-    manifestByteSize: 84_033,
-    manifestSignedUrl: "/examples/synthetic-ifc-mapping.manifest.json",
-  });
-  assert.equal("signedUrl" in loaded.sourceBundle.ifc, false);
   assert.ok(
     loaded.sourceBundle.catalog.some(
       (item) =>
@@ -281,7 +271,7 @@ test("awareness harness preserves the canonical integrated workspace", async () 
   const loaded = unwrapRouteData(
     await preview.loader({
       request: request(
-        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?awarenessTest=1",
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?awarenessTest=1&view=split",
       ),
       params: {},
     }),

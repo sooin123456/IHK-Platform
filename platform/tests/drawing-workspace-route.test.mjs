@@ -180,7 +180,7 @@ test("layers and inspector expose native labeled controls", async () => {
   assert.match(shell, /<DrawingInspector/);
   assert.match(
     shell,
-    /\{editing\.canEdit \? \(\s*<>\s*<Button\s+aria-label="선 도구"/,
+    /\{authorityCanWrite \? \(\s*<fieldset[\s\S]*?disabled=\{!editing\.canEdit\}[\s\S]*?<Button\s+aria-label="선 도구"/,
   );
   assert.match(
     shell,
@@ -661,7 +661,7 @@ test("workspace exposes grouped architectural tools and a focused semantic inspe
     assert.match(shell, new RegExp(label));
     assert.match(menu, new RegExp(label));
   }
-  assert.match(shell, /max-w-\[calc\(100%-2rem\)\]/);
+  assert.match(shell, /style=\{\{ maxWidth: "calc\(100% - 2rem\)" \}\}/);
   assert.match(shell, /objects=\{resolvedObjects\.objects\}/);
   assert.match(canvas, /name="drawing-semantic-label"/);
   assert.match(canvas, /data-rendered-semantic-object-count/);

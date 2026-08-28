@@ -154,6 +154,72 @@ test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first 
   assert.match(html, /aria-label="P2 도면 객체 미리보기"/);
 });
 
+test("workspace makes modes, tools, and business lineage visible without icon guesswork", async () => {
+  const html = renderWorkspace();
+  assert.match(html, /aria-label="작업 보기"/);
+  assert.match(html, />2D 도면</);
+  assert.match(html, />IFC 3D</);
+  assert.match(html, />분할 보기</);
+  assert.match(html, /aria-label="캔버스 작성 도구"/);
+  assert.match(
+    html,
+    /aria-label="캔버스 도구" class="[^"]*overflow-x-auto[^"]*" style="max-width:calc\(100% - 2rem\)"/,
+  );
+  for (const label of [
+    "선택",
+    "선",
+    "건축",
+    "폴리라인",
+    "사각형",
+    "원",
+    "텍스트",
+    "치수",
+    "이동",
+    "화면 맞춤",
+  ])
+    assert.match(html, new RegExp(`data-tool-label="${label}"[^>]*>${label}<`));
+  assert.match(html, /aria-label="업무 계보"/);
+  for (const step of ["원본", "객체", "이슈", "승인", "물량·금액"])
+    assert.match(html, new RegExp(`data-lineage-step="${step}"[^>]*>${step}<`));
+});
+
+test("tablet toolbar gives labeled tools their intrinsic width", async () => {
+  const css = await readFile(
+    new URL("../app/app.css", import.meta.url),
+    "utf8",
+  );
+  const tabletToolbarButtons = css.match(
+    /\.drawing-workspace-toolbar \[data-slot="button"\][\s\S]*?\}/,
+  )?.[0];
+  assert.ok(tabletToolbarButtons, "tablet toolbar button rule must exist");
+  assert.match(tabletToolbarButtons, /width:\s*auto/);
+  assert.doesNotMatch(tabletToolbarButtons, /\n\s*width:\s*44px/);
+});
+
+test("architectural tool menu uses the existing portalled dropdown trigger", () => {
+  const html = renderWorkspace();
+  assert.match(
+    html,
+    /data-slot="dropdown-menu-trigger"[^>]*aria-label="건축 객체"/,
+  );
+});
+
+test("quantity lineage status belongs only to the selected drawing object", () => {
+  const hasLineage = workspaceModule.drawingObjectHasQuantityLineage;
+  assert.equal(typeof hasLineage, "function");
+  const rows = [
+    {
+      quantity: {
+        drawingObjectId: "object-a",
+      },
+    },
+  ];
+  assert.equal(hasLineage(rows, "object-a"), true);
+  assert.equal(hasLineage(rows, "object-b"), false);
+  assert.equal(hasLineage(rows, null), false);
+  assert.equal(hasLineage(undefined, "object-a"), false);
+});
+
 test("workspace dock shortcuts recover both desktop docks outside editable controls", () => {
   const resolve = workspaceModule.resolveDrawingWorkspaceDockShortcut;
   assert.equal(typeof resolve, "function");

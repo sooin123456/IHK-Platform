@@ -43,6 +43,12 @@ import * as Y from "yjs";
 
 import { Button } from "~/core/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/core/components/ui/dropdown-menu";
+import {
   copyDrawingBlockInstancesClipboard,
   createDrawingBlockRenderCache,
   deleteDrawingBlockInstancesCommand,
@@ -826,6 +832,15 @@ type PdfCompareActionData =
       error: null;
     };
 
+export function drawingObjectHasQuantityLineage(
+  rows: readonly DrawingObjectQuantityLineageRow[] | null | undefined,
+  objectId: string | null,
+) {
+  return Boolean(
+    objectId && rows?.some((row) => row.quantity.drawingObjectId === objectId),
+  );
+}
+
 export default function DrawingWorkspaceClient({
   actionError,
   activityPage,
@@ -912,8 +927,6 @@ export default function DrawingWorkspaceClient({
   const pendingIfcSelectionRef = useRef<string | null>(null);
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
-  const [semanticMenuOpen, setSemanticMenuOpen] = useState(false);
-  const semanticMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
     useState<DrawingWorkspacePanel>("structure");
@@ -3855,32 +3868,35 @@ export default function DrawingWorkspaceClient({
         </div>
       ) : null}
 
-      {sourceBundle ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-1">
-          <div
-            aria-label="도면 작업실 보기"
-            className="flex rounded-lg border border-white/15 p-1"
-            role="group"
-          >
-            {(
-              [
-                ["2d", "2D 도면"],
-                ["3d", "IFC 3D"],
-                ["split", "분할 보기"],
-              ] as const
-            ).map(([mode, label]) => (
-              <button
-                aria-pressed={activeView === mode}
-                className={`min-h-10 rounded-md px-3 text-xs font-semibold ${activeView === mode ? "bg-indigo-500 text-white" : "text-slate-300 hover:bg-white/10"}`}
-                disabled={mode !== "2d" && !selectedIfcChoice}
-                key={mode}
-                onClick={() => updateWorkspaceView(mode)}
-                type="button"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          보기
+        </span>
+        <div
+          aria-label="작업 보기"
+          className="flex rounded-lg border border-white/15 bg-slate-950/60 p-1 shadow-inner"
+          role="group"
+        >
+          {(
+            [
+              ["2d", "2D 도면"],
+              ["3d", "IFC 3D"],
+              ["split", "분할 보기"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              aria-pressed={activeView === mode}
+              className={`min-h-10 rounded-md px-3 text-xs font-semibold ${activeView === mode ? "bg-indigo-500 text-white" : "text-slate-300 hover:bg-white/10"}`}
+              disabled={mode !== "2d" && !selectedIfcChoice}
+              key={mode}
+              onClick={() => updateWorkspaceView(mode)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {sourceBundle ? (
           <label className="flex min-h-10 items-center gap-2 text-xs font-semibold text-slate-300">
             IFC 파일 선택
             <select
@@ -3913,136 +3929,134 @@ export default function DrawingWorkspaceClient({
                 ))}
             </select>
           </label>
-          {!selectedIfcChoice ? (
-            <p className="text-xs text-amber-200" role="status">
-              IFC 파일을 선택하면 3D와 분할 보기를 사용할 수 있습니다.
-            </p>
-          ) : null}
-          {background.kind === "pdf" ? (
-            previousPdfEvidence ? (
-              <div
-                aria-label="PDF 개정 비교"
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-white/15 p-1 text-xs text-white"
-                role="group"
-              >
-                {(
-                  [
-                    ["current", "현재 도면"],
-                    ["overlay", "겹쳐 보기"],
-                    ["previous", "이전 도면"],
-                  ] as const
-                ).map(([mode, label]) => (
-                  <button
-                    aria-pressed={pdfCompareMode === mode}
-                    className={`min-h-9 rounded px-2 font-semibold ${pdfCompareMode === mode ? "bg-amber-400 text-slate-950" : "text-slate-200"}`}
-                    key={mode}
-                    onClick={() => requestPdfCompareMode(mode)}
-                    type="button"
-                  >
-                    {label}
-                  </button>
-                ))}
-                <label className="flex min-h-9 items-center gap-2 px-1">
-                  이전 도면 불투명도
-                  <input
-                    aria-label="이전 도면 불투명도"
-                    disabled={pdfCompareMode !== "overlay"}
-                    max="100"
-                    min="0"
-                    onChange={(event) =>
-                      setPdfCompareOpacity(Number(event.target.value) / 100)
-                    }
-                    type="range"
-                    value={Math.round(pdfCompareOpacity * 100)}
-                  />
-                </label>
-                <button
-                  className="min-h-9 rounded bg-amber-500 px-3 font-semibold text-slate-950 disabled:opacity-50"
-                  disabled={pdfCompareMode === "current" || !exactPreviousPdf}
-                  onClick={() => setPdfDiffGeneration((value) => value + 1)}
-                  type="button"
-                >
-                  변경 표시 계산
-                </button>
-                {pdfCompareMode !== "current" && !exactPreviousPdf ? (
-                  pdfCompareTransitionPending ? (
-                    <span role="status">이전 PDF 접근 권한을 요청합니다.</span>
-                  ) : pdfCompareFetcher.data?.kind === "pdf_compare" &&
-                    !pdfCompareFetcher.data.ok ? (
-                    <span className="text-amber-200" role="alert">
-                      {pdfCompareFetcher.data.error}
-                    </span>
-                  ) : null
-                ) : pdfCompareState.status === "loading" ? (
-                  <span role="status">이전 PDF를 여는 중입니다.</span>
-                ) : pdfCompareState.status === "missing" ||
-                  pdfCompareState.status === "error" ? (
-                  <span className="text-amber-200" role="alert">
-                    {pdfCompareState.message}
-                  </span>
-                ) : pdfCompareState.status === "refused" ? (
-                  <span className="text-amber-200" role="alert">
-                    {pdfCompareState.reason === "rotation_mismatch"
-                      ? "회전이 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."
-                      : "페이지 비율이 1% 넘게 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."}
-                  </span>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-300" role="status">
-                바로 이전 PDF 개정본이 없어 비교할 수 없습니다.
-              </p>
-            )
-          ) : null}
-          {activeView === "split" ? (
+        ) : null}
+        {sourceBundle && !selectedIfcChoice ? (
+          <p className="text-xs text-amber-200" role="status">
+            IFC 파일을 선택하면 3D와 분할 보기를 사용할 수 있습니다.
+          </p>
+        ) : null}
+        {sourceBundle && background.kind === "pdf" ? (
+          previousPdfEvidence ? (
             <div
-              aria-label="분할 보기 패널"
-              className="ml-auto flex rounded-md border border-white/15 p-1 lg:hidden"
-              role="tablist"
+              aria-label="PDF 개정 비교"
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-white/15 p-1 text-xs text-white"
+              role="group"
             >
               {(
                 [
-                  ["2d", "2D 도면"],
-                  ["3d", "IFC 3D"],
+                  ["current", "현재 도면"],
+                  ["overlay", "겹쳐 보기"],
+                  ["previous", "이전 도면"],
                 ] as const
-              ).map(([tab, label]) => (
+              ).map(([mode, label]) => (
                 <button
-                  aria-controls={`drawing-split-panel-${tab}`}
-                  aria-selected={narrowSplitTab === tab}
-                  className={`min-h-10 rounded px-3 text-xs font-semibold ${narrowSplitTab === tab ? "bg-indigo-500 text-white" : "text-slate-300"}`}
-                  id={`drawing-split-tab-${tab}`}
-                  key={tab}
-                  onClick={() => setNarrowSplitTab(tab)}
-                  onKeyDown={(event) => {
-                    const next =
-                      event.key === "Home"
-                        ? "2d"
-                        : event.key === "End"
-                          ? "3d"
-                          : event.key === "ArrowLeft" ||
-                              event.key === "ArrowRight"
-                            ? tab === "2d"
-                              ? "3d"
-                              : "2d"
-                            : null;
-                    if (!next) return;
-                    event.preventDefault();
-                    setNarrowSplitTab(next);
-                    document
-                      .getElementById(`drawing-split-tab-${next}`)
-                      ?.focus();
-                  }}
-                  role="tab"
-                  tabIndex={narrowSplitTab === tab ? 0 : -1}
+                  aria-pressed={pdfCompareMode === mode}
+                  className={`min-h-9 rounded px-2 font-semibold ${pdfCompareMode === mode ? "bg-amber-400 text-slate-950" : "text-slate-200"}`}
+                  key={mode}
+                  onClick={() => requestPdfCompareMode(mode)}
                   type="button"
                 >
                   {label}
                 </button>
               ))}
+              <label className="flex min-h-9 items-center gap-2 px-1">
+                이전 도면 불투명도
+                <input
+                  aria-label="이전 도면 불투명도"
+                  disabled={pdfCompareMode !== "overlay"}
+                  max="100"
+                  min="0"
+                  onChange={(event) =>
+                    setPdfCompareOpacity(Number(event.target.value) / 100)
+                  }
+                  type="range"
+                  value={Math.round(pdfCompareOpacity * 100)}
+                />
+              </label>
+              <button
+                className="min-h-9 rounded bg-amber-500 px-3 font-semibold text-slate-950 disabled:opacity-50"
+                disabled={pdfCompareMode === "current" || !exactPreviousPdf}
+                onClick={() => setPdfDiffGeneration((value) => value + 1)}
+                type="button"
+              >
+                변경 표시 계산
+              </button>
+              {pdfCompareMode !== "current" && !exactPreviousPdf ? (
+                pdfCompareTransitionPending ? (
+                  <span role="status">이전 PDF 접근 권한을 요청합니다.</span>
+                ) : pdfCompareFetcher.data?.kind === "pdf_compare" &&
+                  !pdfCompareFetcher.data.ok ? (
+                  <span className="text-amber-200" role="alert">
+                    {pdfCompareFetcher.data.error}
+                  </span>
+                ) : null
+              ) : pdfCompareState.status === "loading" ? (
+                <span role="status">이전 PDF를 여는 중입니다.</span>
+              ) : pdfCompareState.status === "missing" ||
+                pdfCompareState.status === "error" ? (
+                <span className="text-amber-200" role="alert">
+                  {pdfCompareState.message}
+                </span>
+              ) : pdfCompareState.status === "refused" ? (
+                <span className="text-amber-200" role="alert">
+                  {pdfCompareState.reason === "rotation_mismatch"
+                    ? "회전이 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."
+                    : "페이지 비율이 1% 넘게 달라 변경 표시를 계산하지 않습니다. 수동 겹쳐 보기는 유지됩니다."}
+                </span>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-      ) : null}
+          ) : (
+            <p className="text-xs text-slate-300" role="status">
+              바로 이전 PDF 개정본이 없어 비교할 수 없습니다.
+            </p>
+          )
+        ) : null}
+        {activeView === "split" ? (
+          <div
+            aria-label="분할 보기 패널"
+            className="ml-auto flex rounded-md border border-white/15 p-1 lg:hidden"
+            role="tablist"
+          >
+            {(
+              [
+                ["2d", "2D 도면"],
+                ["3d", "IFC 3D"],
+              ] as const
+            ).map(([tab, label]) => (
+              <button
+                aria-controls={`drawing-split-panel-${tab}`}
+                aria-selected={narrowSplitTab === tab}
+                className={`min-h-10 rounded px-3 text-xs font-semibold ${narrowSplitTab === tab ? "bg-indigo-500 text-white" : "text-slate-300"}`}
+                id={`drawing-split-tab-${tab}`}
+                key={tab}
+                onClick={() => setNarrowSplitTab(tab)}
+                onKeyDown={(event) => {
+                  const next =
+                    event.key === "Home"
+                      ? "2d"
+                      : event.key === "End"
+                        ? "3d"
+                        : event.key === "ArrowLeft" ||
+                            event.key === "ArrowRight"
+                          ? tab === "2d"
+                            ? "3d"
+                            : "2d"
+                          : null;
+                  if (!next) return;
+                  event.preventDefault();
+                  setNarrowSplitTab(next);
+                  document.getElementById(`drawing-split-tab-${next}`)?.focus();
+                }}
+                role="tab"
+                tabIndex={narrowSplitTab === tab ? 0 : -1}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <div
         className={`drawing-workspace-shell grid min-h-0 flex-1 grid-cols-1 ${leftDockOpen && inspectorOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)_18rem]" : leftDockOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)]" : inspectorOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"} xl:overflow-hidden`}
@@ -4996,170 +5010,162 @@ export default function DrawingWorkspaceClient({
 
           <nav
             aria-label="캔버스 도구"
-            className={`drawing-workspace-toolbar absolute bottom-4 left-1/2 z-50 max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
+            className={`drawing-workspace-toolbar absolute bottom-4 left-1/2 z-50 -translate-x-1/2 flex-nowrap items-center justify-start gap-0.5 overflow-x-auto rounded-2xl border border-white/15 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
+            style={{ maxWidth: "calc(100% - 2rem)" }}
           >
+            <span
+              aria-label="캔버스 작성 도구"
+              className="hidden px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 lg:inline"
+            >
+              작성
+            </span>
             <Button
               aria-label="선택 도구"
               aria-pressed={transient.activeTool === "select"}
+              className="gap-1.5 px-2"
               onClick={() => setAuthorizedTool("select")}
-              size="icon"
+              size="sm"
               variant={
                 transient.activeTool === "select" ? "secondary" : "ghost"
               }
             >
               <MousePointer2 className="size-4" />
+              <span data-tool-label="선택">선택</span>
             </Button>
-            {editing.canEdit ? (
-              <>
+            {authorityCanWrite ? (
+              <fieldset
+                aria-label="작성 도구"
+                className="contents"
+                disabled={!editing.canEdit}
+              >
                 <Button
                   aria-label="선 도구"
                   aria-pressed={transient.activeTool === "line"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("line")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "line" ? "secondary" : "ghost"
                   }
                 >
                   <Minus className="size-4" />
+                  <span data-tool-label="선">선</span>
                 </Button>
-                <div className="relative">
-                  <Button
-                    aria-expanded={semanticMenuOpen}
-                    aria-haspopup="menu"
-                    aria-label="건축 객체"
-                    onClick={() => setSemanticMenuOpen((open) => !open)}
-                    ref={semanticMenuTriggerRef}
-                    size="icon"
-                    variant={
-                      [
-                        "wall",
-                        "opening",
-                        "space",
-                        "area",
-                        "grid",
-                        "arc",
-                      ].includes(transient.activeTool)
-                        ? "secondary"
-                        : "ghost"
-                    }
-                  >
-                    <Building2 className="size-4" />
-                  </Button>
-                  {semanticMenuOpen ? (
-                    <div
-                      aria-label="건축 객체 도구"
-                      className="absolute bottom-full left-1/2 mb-2 grid w-40 -translate-x-1/2 gap-1 rounded-lg border border-white/15 bg-slate-900 p-1.5 shadow-2xl"
-                      role="menu"
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          setSemanticMenuOpen(false);
-                          semanticMenuTriggerRef.current?.focus();
-                          return;
-                        }
-                        if (
-                          event.key !== "ArrowDown" &&
-                          event.key !== "ArrowUp"
-                        )
-                          return;
-                        event.preventDefault();
-                        const items = Array.from(
-                          event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                            '[role="menuitem"]',
-                          ),
-                        );
-                        const index = items.indexOf(
-                          document.activeElement as HTMLButtonElement,
-                        );
-                        const offset = event.key === "ArrowDown" ? 1 : -1;
-                        items[
-                          (index + offset + items.length) % items.length
-                        ]?.focus();
-                      }}
-                    >
-                      {(
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      aria-label="건축 객체"
+                      className="gap-1.5 px-2"
+                      size="sm"
+                      variant={
                         [
-                          ["wall", "벽 도구"],
-                          ["opening", "개구부 도구"],
-                          ["space", "공간 도구"],
-                          ["area", "영역 도구"],
-                          ["grid", "그리드 도구"],
-                          ["arc", "호 도구"],
-                        ] as const
-                      ).map(([tool, label], index) => (
-                        <button
-                          aria-label={label}
-                          autoFocus={index === 0}
-                          className="min-h-10 rounded-md px-3 text-left text-sm hover:bg-white/10 focus:bg-white/10"
-                          key={tool}
-                          onClick={() => {
-                            setAuthorizedTool(tool);
-                            setSemanticMenuOpen(false);
-                            semanticMenuTriggerRef.current?.focus();
-                          }}
-                          role="menuitem"
-                          type="button"
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                          "wall",
+                          "opening",
+                          "space",
+                          "area",
+                          "grid",
+                          "arc",
+                        ].includes(transient.activeTool)
+                          ? "secondary"
+                          : "ghost"
+                      }
+                    >
+                      <Building2 className="size-4" />
+                      <span data-tool-label="건축">건축</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="center"
+                    aria-label="건축 객체 도구"
+                    className="w-40 border-white/15 bg-slate-900 p-1.5 text-slate-100 shadow-2xl"
+                    side="top"
+                    sideOffset={8}
+                  >
+                    {(
+                      [
+                        ["wall", "벽 도구"],
+                        ["opening", "개구부 도구"],
+                        ["space", "공간 도구"],
+                        ["area", "영역 도구"],
+                        ["grid", "그리드 도구"],
+                        ["arc", "호 도구"],
+                      ] as const
+                    ).map(([tool, label]) => (
+                      <DropdownMenuItem
+                        aria-label={label}
+                        className="min-h-10 px-3 text-sm focus:bg-white/10 focus:text-white"
+                        key={tool}
+                        onSelect={() => setAuthorizedTool(tool)}
+                      >
+                        {label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   aria-label="폴리라인 도구"
                   aria-pressed={transient.activeTool === "polyline"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("polyline")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "polyline" ? "secondary" : "ghost"
                   }
                 >
                   <Waypoints className="size-4" />
+                  <span data-tool-label="폴리라인">폴리라인</span>
                 </Button>
                 <Button
                   aria-label="사각형 도구"
                   aria-pressed={transient.activeTool === "rectangle"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("rectangle")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "rectangle" ? "secondary" : "ghost"
                   }
                 >
                   <Square className="size-4" />
+                  <span data-tool-label="사각형">사각형</span>
                 </Button>
                 <Button
                   aria-label="원 도구"
                   aria-pressed={transient.activeTool === "circle"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("circle")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "circle" ? "secondary" : "ghost"
                   }
                 >
                   <CircleIcon className="size-4" />
+                  <span data-tool-label="원">원</span>
                 </Button>
                 <Button
                   aria-label="텍스트 도구"
                   aria-pressed={transient.activeTool === "text"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("text")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "text" ? "secondary" : "ghost"
                   }
                 >
                   <Type className="size-4" />
+                  <span data-tool-label="텍스트">텍스트</span>
                 </Button>
                 <Button
                   aria-label="치수 도구"
                   aria-pressed={transient.activeTool === "dimension"}
+                  className="gap-1.5 px-2"
                   onClick={() => setAuthorizedTool("dimension")}
-                  size="icon"
+                  size="sm"
                   variant={
                     transient.activeTool === "dimension" ? "secondary" : "ghost"
                   }
                 >
                   <Ruler className="size-4" />
+                  <span data-tool-label="치수">치수</span>
                 </Button>
                 <Button
                   aria-label="도구 반복"
@@ -5170,24 +5176,28 @@ export default function DrawingWorkspaceClient({
                 >
                   <Repeat2 className="size-4" />
                 </Button>
-              </>
+              </fieldset>
             ) : null}
             <Button
               aria-label="이동 도구"
               aria-pressed={transient.activeTool === "pan"}
+              className="gap-1.5 px-2"
               onClick={() => setAuthorizedTool("pan")}
-              size="icon"
+              size="sm"
               variant={transient.activeTool === "pan" ? "secondary" : "ghost"}
             >
               <Hand className="size-4" />
+              <span data-tool-label="이동">이동</span>
             </Button>
             <Button
               aria-label="화면 맞춤"
+              className="gap-1.5 px-2"
               onClick={() => canvasRef.current?.resetViewport()}
-              size="icon"
+              size="sm"
               variant="ghost"
             >
               <RotateCcw className="size-4" />
+              <span data-tool-label="화면 맞춤">화면 맞춤</span>
             </Button>
           </nav>
         </section>
@@ -5197,6 +5207,50 @@ export default function DrawingWorkspaceClient({
           className="drawing-workspace-inspector order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
           hidden={!inspectorOpen}
         >
+          <header className="sticky top-0 z-10 -mx-3 -mt-3 mb-3 border-b border-white/10 bg-slate-900/95 px-3 py-3 backdrop-blur">
+            <h2 className="text-sm font-bold text-white">객체 검사기</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              속성부터 근거·검토·물량까지 한 흐름으로 확인합니다.
+            </p>
+            <ol
+              aria-label="업무 계보"
+              className="mt-3 grid grid-cols-5 overflow-hidden rounded-md border border-white/10 bg-slate-950/70 text-center text-[10px] font-semibold"
+            >
+              {(
+                [
+                  ["원본", selectedObjectSources.length > 0],
+                  ["객체", Boolean(selectedDrawingObjectId)],
+                  [
+                    "이슈",
+                    revision.issueLinks.some(
+                      (link) => link.object_id === selectedDrawingObjectId,
+                    ),
+                  ],
+                  [
+                    "승인",
+                    effectiveRevisionStatus === "approved" ||
+                      effectiveRevisionStatus === "superseded",
+                  ],
+                  [
+                    "물량·금액",
+                    drawingObjectHasQuantityLineage(
+                      quantityLineage?.rows,
+                      selectedDrawingObjectId,
+                    ),
+                  ],
+                ] as const
+              ).map(([step, linked]) => (
+                <li
+                  className={`border-r border-white/10 px-1 py-2 last:border-r-0 ${linked ? "bg-emerald-500/15 text-emerald-200" : "text-slate-500"}`}
+                  data-lineage-step={step}
+                  data-lineage-state={linked ? "linked" : "empty"}
+                  key={step}
+                >
+                  {step}
+                </li>
+              ))}
+            </ol>
+          </header>
           {collaborationEditNotice ? (
             <p
               aria-label="공동 편집 작업 차단 안내"
