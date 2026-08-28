@@ -10,6 +10,7 @@ begin
     'public.lukas_drawing_library_imports',
     'public.lukas_qto_retention_events','public.lukas_qto_export_events',
     'public.lukas_drawing_revisions','public.lukas_drawing_revision_approvals',
+    'public.lukas_drawing_issue_approvals',
     'public.lukas_qto_price_books','public.lukas_qto_price_resources',
     'public.lukas_qto_boq_versions','public.lukas_qto_boq_sections',
     'public.lukas_qto_boq_lines','public.lukas_qto_boq_wbs_nodes',
@@ -17,7 +18,8 @@ begin
     'public.lukas_qto_boq_source_exclusions','public.lukas_qto_boq_rate_components',
     'public.lukas_qto_boq_approvals','public.lukas_drawing_quantity_links',
     'public.lukas_drawing_boq_links','public.lukas_drawing_material_links',
-    'public.lukas_qto_material_plans','public.lukas_qto_material_transactions'
+    'public.lukas_qto_material_plans','public.lukas_qto_material_transactions',
+    'public.lukas_qto_carbon_factors'
   ] loop
     if pg_catalog.to_regclass(v_table) is null then
       raise exception using errcode='P7A01',message='P7 organization administration base authority is missing';
@@ -738,6 +740,7 @@ begin
   end if;
   if exists(select 1 from public.lukas_drawing_revisions r where r.project_id=p_project_id and r.status in('approved','superseded'))
     or exists(select 1 from public.lukas_drawing_revision_approvals a where a.project_id=p_project_id and a.decision='approved')
+    or exists(select 1 from public.lukas_drawing_issue_approvals a where a.project_id=p_project_id and a.decision='approved')
     or exists(select 1 from public.lukas_qto_boq_versions b where b.project_id=p_project_id and b.status in('approved','superseded'))
     or exists(select 1 from public.lukas_qto_boq_approvals a join public.lukas_qto_boq_versions b on b.id=a.version_id where b.project_id=p_project_id and a.decision='approved')
     or exists(select 1 from public.lukas_drawing_quantity_links q where q.project_id=p_project_id)
@@ -957,6 +960,15 @@ create policy "P7 quantity lineage entitlement lukas_qto_price_books" on public.
 as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
 with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
 create policy "P7 quantity lineage entitlement lukas_qto_price_resources" on public.lukas_qto_price_resources
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_material_plans" on public.lukas_qto_material_plans
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_material_transactions" on public.lukas_qto_material_transactions
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_carbon_factors" on public.lukas_qto_carbon_factors
 as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
 with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
 create policy "P7 quantity lineage entitlement lukas_drawing_quantity_links" on public.lukas_drawing_quantity_links

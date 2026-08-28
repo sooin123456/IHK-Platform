@@ -9,10 +9,22 @@ process.env.SUPABASE_URL = "https://example.supabase.co";
 const {
   exchangeCrossBrowserCode,
   resolveAuthOrigin,
+  safeAuthNextPath,
   sendCrossBrowserMagicLink,
-} = await import(
-  "../app/features/auth/lib/auth-link.server.ts"
-);
+} = await import("../app/features/auth/lib/auth-link.server.ts");
+
+test("authentication accepts exact internal invitation returns and rejects external redirects", () => {
+  const invitation =
+    "/organization-invitations/75000000-0000-4000-8000-000000000003/accept";
+  assert.equal(safeAuthNextPath(invitation), invitation);
+  for (const unsafe of [
+    "https://evil.example/accept",
+    "//evil.example/accept",
+    "/\\evil.example/accept",
+    "workspace",
+  ])
+    assert.equal(safeAuthNextPath(unsafe), null);
+});
 
 test("local magic links return to the active development origin", () => {
   assert.equal(

@@ -18,12 +18,14 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import {
   resolveAuthOrigin,
+  safeAuthNextPath,
   sendCrossBrowserMagicLink,
 } from "~/features/auth/lib/auth-link.server";
 import { localWorkspacePreviewTarget } from "~/features/auth/lib/local-workspace-preview.server";
 
 const magicLinkSchema = z.object({
   email: z.string().trim().email("이메일 주소를 확인하세요."),
+  next: z.string().optional(),
 });
 
 export const meta: Route.MetaFunction = () => [
@@ -33,7 +35,11 @@ export const meta: Route.MetaFunction = () => [
 export function loader({ request }: Route.LoaderArgs) {
   const target = localWorkspacePreviewTarget(request.url);
   if (target) throw redirect(target);
-  return null;
+  return {
+    next:
+      safeAuthNextPath(new URL(request.url).searchParams.get("next")) ??
+      "/workspace",
+  };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -42,10 +48,17 @@ export async function action({ request }: Route.ActionArgs) {
   );
   if (!success)
     return data({ error: "이메일 주소를 확인하세요." }, { status: 400 });
+  const next = safeAuthNextPath(validData.next ?? "/workspace");
+  if (!next)
+    return data(
+      { error: "로그인 후 이동 경로를 확인하세요." },
+      { status: 400 },
+    );
 
   const origin = resolveAuthOrigin(request.url);
   const { error } = await sendCrossBrowserMagicLink({
     email: validData.email,
+    next,
     origin,
     shouldCreateUser: true,
   });
@@ -59,7 +72,10 @@ export async function action({ request }: Route.ActionArgs) {
   return data({ success: true });
 }
 
-export default function MagicLink({ actionData }: Route.ComponentProps) {
+export default function MagicLink({
+  actionData,
+  loaderData,
+}: Route.ComponentProps) {
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (actionData && "success" in actionData && actionData.success)
@@ -82,6 +98,7 @@ export default function MagicLink({ actionData }: Route.ComponentProps) {
         </CardHeader>
         <CardContent>
           <Form className="grid gap-5" method="post" ref={formRef}>
+            <input name="next" type="hidden" value={loaderData.next} />
             <div className="grid gap-2">
               <Label htmlFor="email">업무용 이메일</Label>
               <Input

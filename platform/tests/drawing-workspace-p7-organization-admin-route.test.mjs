@@ -280,6 +280,8 @@ test("workspace dashboard hides organization administration from ordinary member
 test("organization invitations, projects, and destinations continue beyond 100 exact rows", async () => {
   const { loadOrganizationAdminPage } =
     await import("../app/lukas/lib/organization-administration.server.ts");
+  const { organizationAdminPageHref } =
+    await import("../app/lukas/lib/organization-administration.ts");
   const configurations = [
     {
       rpc: "lukas_qto_list_organization_invitations",
@@ -332,6 +334,76 @@ test("organization invitations, projects, and destinations continue beyond 100 e
     );
     assert.equal(calls[1][configuration.cursorArgument], rows[99].id);
   }
+  const projectPage = organizationAdminPageHref(ids.organization, {
+    projectAfter: rows[99].id,
+  });
+  const combinedPage = organizationAdminPageHref(
+    ids.organization,
+    { projectAfter: rows[99].id },
+    { destinationAfter: rows[99].id },
+  );
+  assert.equal(
+    projectPage,
+    `/organizations/${ids.organization}/settings?projectAfter=${rows[99].id}`,
+  );
+  assert.equal(
+    combinedPage,
+    `/organizations/${ids.organization}/settings?projectAfter=${rows[99].id}&destinationAfter=${rows[99].id}`,
+  );
+  const combinedSearch = new URL(combinedPage, "https://platform.local")
+    .searchParams;
+  const combinedClient = {
+    rpc(name, args) {
+      const cursorArgument =
+        name === "lukas_qto_list_organization_projects"
+          ? "p_after_project_id"
+          : "p_after_organization_id";
+      const offset =
+        rows.findIndex(({ id }) => id === args[cursorArgument]) + 1;
+      return Promise.resolve({
+        data: rows.slice(offset, offset + args.p_page_size),
+        error: null,
+      });
+    },
+  };
+  const [combinedProjects, combinedDestinations] = await Promise.all([
+    loadOrganizationAdminPage(
+      combinedClient,
+      "lukas_qto_list_organization_projects",
+      ids.organization,
+      combinedSearch.get("projectAfter"),
+    ),
+    loadOrganizationAdminPage(
+      combinedClient,
+      "lukas_qto_list_managed_organizations",
+      ids.organization,
+      combinedSearch.get("destinationAfter"),
+    ),
+  ]);
+  assert.deepEqual(combinedProjects.rows, [rows[100]]);
+  assert.deepEqual(combinedDestinations.rows, [rows[100]]);
+});
+
+test("invitation login and magic-link preserve the exact safe acceptance return", () => {
+  const acceptance = readFileSync(
+    new URL(
+      "../app/lukas/screens/organization-invitation-accept.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const login = readFileSync(
+    new URL("../app/features/auth/screens/login-redirect.tsx", import.meta.url),
+    "utf8",
+  );
+  const magicLink = readFileSync(
+    new URL("../app/features/auth/screens/magic-link.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(acceptance, /login\?next=/);
+  assert.match(login, /safeAuthNextPath/);
+  assert.match(magicLink, /safeAuthNextPath/);
+  assert.match(magicLink, /sendCrossBrowserMagicLink\([\s\S]*\bnext,/);
 });
 
 test("IFC and quantity lineage feature flags are revalidated by route actions and loaders", () => {

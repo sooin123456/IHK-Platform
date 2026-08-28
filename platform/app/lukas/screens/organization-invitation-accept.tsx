@@ -9,21 +9,36 @@ export const meta: Route.MetaFunction = () => [
   { title: "회사 초대 수락 | 1HK Platform" },
 ];
 
-export async function loader({ request }: Route.LoaderArgs) {
+function acceptancePath(invitationId: string | undefined) {
+  if (
+    !invitationId ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      invitationId,
+    )
+  )
+    throw new Response("초대를 찾을 수 없습니다.", { status: 404 });
+  return `/organization-invitations/${invitationId}/accept`;
+}
+
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const next = acceptancePath(params.invitationId);
   const [client] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(`/login?next=${encodeURIComponent(next)}`);
   return { requestId: crypto.randomUUID() };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const next = acceptancePath(params.invitationId);
   const [client, headers] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(`/login?next=${encodeURIComponent(next)}`);
   const form = await request.formData();
   const requestId = String(form.get("request_id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(requestId))

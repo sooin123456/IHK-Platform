@@ -97,6 +97,7 @@ test("project membership and organization move are exact RPC authorities", async
   for (const table of [
     "lukas_drawing_revisions",
     "lukas_drawing_revision_approvals",
+    "lukas_drawing_issue_approvals",
     "lukas_qto_boq_versions",
     "lukas_qto_boq_approvals",
     "lukas_drawing_quantity_links",
@@ -178,6 +179,9 @@ test("quantity and BOQ reads and RPCs are fenced by quantity_lineage entitlement
   for (const table of [
     "lukas_qto_price_books",
     "lukas_qto_price_resources",
+    "lukas_qto_material_plans",
+    "lukas_qto_material_transactions",
+    "lukas_qto_carbon_factors",
     "lukas_drawing_quantity_links",
     "lukas_drawing_boq_links",
     "lukas_drawing_material_links",
@@ -290,6 +294,9 @@ async function runtimeDatabase() {
     create table public.lukas_drawing_revision_approvals(
       id uuid primary key default gen_random_uuid(),project_id uuid not null,decision text not null
     );
+    create table public.lukas_drawing_issue_approvals(
+      id uuid primary key default gen_random_uuid(),project_id uuid not null,decision text not null
+    );
     create table public.lukas_qto_boq_versions(
       id uuid primary key,project_id uuid not null,status text not null
     );
@@ -310,6 +317,7 @@ async function runtimeDatabase() {
     create table public.lukas_drawing_material_links(id uuid primary key,project_id uuid not null);
     create table public.lukas_qto_material_plans(id uuid primary key,project_id uuid not null);
     create table public.lukas_qto_material_transactions(id uuid primary key,project_id uuid not null);
+    create table public.lukas_qto_carbon_factors(id uuid primary key,project_id uuid not null);
     create function private.lukas_qto_organization_role(p_organization_id uuid)
     returns text language sql stable security definer set search_path='' as $$
       select case when (select auth.jwt()->'app_metadata'->>'role')='hangil_staff' then 'staff'
@@ -388,6 +396,9 @@ async function runtimeDatabase() {
     alter table public.lukas_drawing_library_entries enable row level security;
     alter table public.lukas_drawing_library_versions enable row level security;
     alter table public.lukas_drawing_library_imports enable row level security;
+    alter table public.lukas_qto_material_plans enable row level security;
+    alter table public.lukas_qto_material_transactions enable row level security;
+    alter table public.lukas_qto_carbon_factors enable row level security;
     alter table public.lukas_qto_price_books enable row level security;
     alter table public.lukas_qto_price_resources enable row level security;
     alter table public.lukas_drawing_quantity_links enable row level security;
@@ -760,6 +771,11 @@ test("PGlite conservatively rejects every approved and lineage project move", as
       remove: `delete from public.lukas_drawing_revision_approvals where id='75000000-0000-4000-8000-000000000302'`,
     },
     {
+      insert: `insert into public.lukas_drawing_issue_approvals(id,project_id,decision)
+        values('75000000-0000-4000-8000-000000000312','${projectId}','approved')`,
+      remove: `delete from public.lukas_drawing_issue_approvals where id='75000000-0000-4000-8000-000000000312'`,
+    },
+    {
       insert: `insert into public.lukas_qto_boq_versions(id,project_id,status)
         values('75000000-0000-4000-8000-000000000303','${projectId}','approved')`,
       remove: `delete from public.lukas_qto_boq_versions where id='75000000-0000-4000-8000-000000000303'`,
@@ -829,7 +845,7 @@ test("real PostgreSQL organization authority is optional locally and required mo
     const restrictivePolicies = await sql`
       select pg_catalog.count(*)::integer count from pg_catalog.pg_policy p
       where p.polname like 'P7 quantity lineage entitlement %' and not p.polpermissive`;
-    assert.equal(restrictivePolicies[0].count, 14);
+    assert.equal(restrictivePolicies[0].count, 17);
     const appendTriggers = await sql`
       select p.prosecdef security_definer from pg_catalog.pg_trigger t
       join pg_catalog.pg_proc p on p.oid=t.tgfoid
@@ -898,6 +914,19 @@ test("real PostgreSQL organization authority is optional locally and required mo
       drawingRevision,
       "real PostgreSQL gate needs one drawing revision",
     );
+    const materialRows = {};
+    for (const table of [
+      "lukas_qto_material_plans",
+      "lukas_qto_material_transactions",
+      "lukas_qto_carbon_factors",
+    ]) {
+      const [row] = await sql.unsafe(
+        `select * from public.${table} where project_id=$1 order by id limit 1`,
+        [scope.project_id],
+      );
+      assert.ok(row, `real PostgreSQL gate needs one ${table} fixture row`);
+      materialRows[table] = row;
+    }
     const [event] = await sql`
       select id from public.lukas_qto_organization_admin_events
       where organization_id=${scope.organization_id} order by id limit 1`;
@@ -1097,6 +1126,43 @@ test("real PostgreSQL organization authority is optional locally and required mo
     assert.equal(quantityReadFailure, rollback);
     assert.equal(disabledBoqRows.length, 0);
     assert.equal(disabledPriceBookRows.length, 0);
+    for (const [table, row] of Object.entries(materialRows)) {
+      let disabledRows;
+      const readFailure = await beginEntitlementProof(
+        entitlementWith("quantity_lineage", false),
+        async (transaction) => {
+          await setActor(transaction, "authenticated", scope.owner_id);
+          disabledRows = await transaction.unsafe(
+            `select id from public.${table} where id=$1`,
+            [row.id],
+          );
+        },
+      );
+      assert.equal(readFailure, rollback);
+      assert.equal(
+        disabledRows.length,
+        0,
+        `${table} direct read must be hidden`,
+      );
+      const writeFailure = await beginEntitlementProof(
+        entitlementWith("quantity_lineage", false),
+        async (transaction) => {
+          await setActor(transaction, "authenticated", scope.owner_id);
+          await transaction.unsafe(
+            `insert into public.${table}
+             select (pg_catalog.jsonb_populate_record(
+               null::public.${table},$1::jsonb || pg_catalog.jsonb_build_object(
+                 'id',$2::text,'created_by',$3::text))).*`,
+            [JSON.stringify(row), crypto.randomUUID(), scope.owner_id],
+          );
+        },
+      );
+      assert.match(
+        String(writeFailure?.message ?? writeFailure),
+        /row-level security|policy/i,
+        `${table} direct insert must be denied`,
+      );
+    }
     const quantityRpcFailure = await beginEntitlementProof(
       entitlementWith("quantity_lineage", false),
       async (transaction) => {

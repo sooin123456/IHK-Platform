@@ -7,6 +7,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { organizationAdminPageHref } from "~/lukas/lib/organization-administration";
 import {
   deliverOrganizationInvitationEmail,
   loadOrganizationAdminPage,
@@ -139,6 +140,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       projectNext: projectPage.next,
       destinations: destinationPage.rows,
       destinationNext: destinationPage.next,
+      cursors: {
+        memberAfter: memberCursor,
+        invitationAfter: invitationCursor,
+        projectAfter: projectCursor,
+        destinationAfter: destinationCursor,
+      },
       requestIds: {
         settings: crypto.randomUUID(),
         invite: crypto.randomUUID(),
@@ -361,7 +368,11 @@ export default function OrganizationSettings({
         {loaderData.invitationNext ? (
           <Button asChild className="mt-4" size="sm" variant="outline">
             <Link
-              to={`/organizations/${loaderData.organization.id}/settings?invitationAfter=${loaderData.invitationNext}`}
+              to={organizationAdminPageHref(
+                loaderData.organization.id,
+                loaderData.cursors,
+                { invitationAfter: loaderData.invitationNext },
+              )}
             >
               다음 초대
             </Link>
@@ -437,7 +448,11 @@ export default function OrganizationSettings({
         {loaderData.memberNext ? (
           <Button asChild className="mt-4" size="sm" variant="outline">
             <Link
-              to={`/organizations/${loaderData.organization.id}/settings?memberAfter=${loaderData.memberNext}`}
+              to={organizationAdminPageHref(
+                loaderData.organization.id,
+                loaderData.cursors,
+                { memberAfter: loaderData.memberNext },
+              )}
             >
               다음 구성원
             </Link>
@@ -551,7 +566,11 @@ export default function OrganizationSettings({
         {loaderData.destinationNext ? (
           <Button asChild className="mt-3" size="sm" variant="outline">
             <Link
-              to={`/organizations/${loaderData.organization.id}/settings?destinationAfter=${loaderData.destinationNext}`}
+              to={organizationAdminPageHref(
+                loaderData.organization.id,
+                loaderData.cursors,
+                { destinationAfter: loaderData.destinationNext },
+              )}
             >
               다음 이동 대상 회사
             </Link>
@@ -598,7 +617,11 @@ export default function OrganizationSettings({
         {loaderData.projectNext ? (
           <Button asChild className="mt-4" size="sm" variant="outline">
             <Link
-              to={`/organizations/${loaderData.organization.id}/settings?projectAfter=${loaderData.projectNext}`}
+              to={organizationAdminPageHref(
+                loaderData.organization.id,
+                loaderData.cursors,
+                { projectAfter: loaderData.projectNext },
+              )}
             >
               다음 프로젝트
             </Link>

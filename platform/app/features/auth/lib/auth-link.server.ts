@@ -26,10 +26,33 @@ function requiredEnvironment(name: string) {
 }
 
 function isLoopbackHost(hostname: string) {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  );
 }
 
-export function resolveAuthOrigin(requestUrl: string, configuredAppUrl = process.env.APP_URL) {
+export function safeAuthNextPath(value: string | null | undefined) {
+  if (
+    !value ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\")
+  )
+    return null;
+  try {
+    const target = new URL(value, "https://auth.local");
+    return target.origin === "https://auth.local"
+      ? `${target.pathname}${target.search}${target.hash}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveAuthOrigin(
+  requestUrl: string,
+  configuredAppUrl = process.env.APP_URL,
+) {
   const requestOrigin = new URL(requestUrl);
 
   // Local development frequently runs on a port selected by the dev server.

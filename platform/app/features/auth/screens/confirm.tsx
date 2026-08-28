@@ -19,7 +19,10 @@ import { data, redirect } from "react-router";
 import { z } from "zod";
 
 import makeServerClient from "~/core/lib/supa-client.server";
-import { exchangeCrossBrowserCode } from "~/features/auth/lib/auth-link.server";
+import {
+  exchangeCrossBrowserCode,
+  safeAuthNextPath,
+} from "~/features/auth/lib/auth-link.server";
 
 /**
  * Meta function for the confirmation page
@@ -45,10 +48,7 @@ export const meta: Route.MetaFunction = () => {
 const nextPathSchema = z
   .string()
   .default("/workspace")
-  .refine(
-    (path) => path.startsWith("/") && !path.startsWith("//"),
-    "Invalid redirect path",
-  );
+  .refine((path) => safeAuthNextPath(path) === path, "Invalid redirect path");
 
 const tokenParamsSchema = z.object({
   token_hash: z.string().min(1),
