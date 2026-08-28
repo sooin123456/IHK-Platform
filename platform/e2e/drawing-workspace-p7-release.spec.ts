@@ -9,7 +9,10 @@ const artifactRoot = path.resolve(
 );
 
 async function openCurrentWorkspace(page: Page, requireVisibleIfc = true) {
-  await page.goto(previewPath, { waitUntil: "domcontentloaded" });
+  await page.goto(
+    requireVisibleIfc ? `${previewPath}?view=split` : previewPath,
+    { waitUntil: "domcontentloaded" },
+  );
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
   await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);

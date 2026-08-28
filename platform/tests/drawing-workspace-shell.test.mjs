@@ -171,14 +171,33 @@ test("workspace dock shortcuts recover both desktop docks outside editable contr
   assert.equal(resolve({ key: "Escape", target: null }), null);
 });
 
-test("page and layer creation are compact contextual controls with Korean product copy", () => {
+test("page and layer creation fail closed before the durable bridge is ready", async () => {
   const html = renderWorkspace();
-  assert.match(html, /<details[^>]*>.*페이지 만들기/s);
-  assert.match(html, /<details[^>]*>.*레이어 만들기/s);
+  assert.doesNotMatch(html, /<details[^>]*>.*페이지 만들기/s);
+  assert.doesNotMatch(html, /<details[^>]*>.*레이어 만들기/s);
   assert.doesNotMatch(html, /<details[^>]*open=""/);
   assert.match(html, />표·일람</);
   assert.doesNotMatch(html, />Schedule</);
   assert.doesNotMatch(html, /페이지 및 canvas|Paper canvas|Model canvas/);
+
+  const [pagesPanel, layersPanel] = await Promise.all([
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-pages-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/components/drawing-layers-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(pagesPanel, /<details[^>]*>.*페이지 만들기/s);
+  assert.match(layersPanel, /<details[^>]*>.*레이어 만들기/s);
 });
 
 test("workspace creation and export copy stays Korean", async () => {
