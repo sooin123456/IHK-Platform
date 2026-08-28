@@ -430,7 +430,7 @@ export function createIfcModelViewer({
     pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const intersection = raycaster.intersectObject(modelRoot, true)[0];
-    const expressId = intersection?.object.userData.expressId;
+    const expressId = intersection?.object.userData.ifcResolvedExpressId;
     if (typeof expressId !== "number") return;
     selectElement(expressId);
     onSelect?.(expressId);

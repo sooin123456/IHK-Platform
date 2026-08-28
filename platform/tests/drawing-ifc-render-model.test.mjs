@@ -177,8 +177,8 @@ test("scene mapping requires stable node refs and matching express IDs while ret
     new THREE.MeshBasicMaterial(),
   );
   first.userData = {
-    nodeId: "node-wall-a",
-    expressId: 42,
+    ifcNodeId: "node-wall-a",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   const nested = new THREE.Group();
@@ -187,8 +187,8 @@ test("scene mapping requires stable node refs and matching express IDs while ret
     new THREE.MeshBasicMaterial(),
   ]);
   second.userData = {
-    nodeId: "node-wall-b",
-    expressId: 42,
+    ifcNodeId: "node-wall-b",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   nested.add(second);
@@ -196,19 +196,54 @@ test("scene mapping requires stable node refs and matching express IDs while ret
 
   const mapping = renderModel.mapIfcRenderScene(root, manifest());
   assert.deepEqual(mapping.elementMeshes.get(42), [first, second]);
-  assert.equal(first.userData.expressId, 42);
-  assert.equal(second.userData.expressId, 42);
+  assert.equal(first.userData.ifcResolvedExpressId, 42);
+  assert.equal(second.userData.ifcResolvedExpressId, 42);
+  assert.equal("expressId" in first.userData, false);
+  assert.equal("expressId" in second.userData, false);
 
-  second.userData.expressId = 99;
+  second.userData.ifcExpressId = 99;
   assert.throws(
     () => renderModel.mapIfcRenderScene(root, manifest()),
     /expressId/i,
   );
-  second.userData.expressId = 42;
-  second.userData.nodeId = "unknown-node";
+  second.userData.ifcExpressId = 42;
+  second.userData.ifcNodeId = "unknown-node";
   assert.throws(
     () => renderModel.mapIfcRenderScene(root, manifest()),
     /node.*primitive/i,
+  );
+});
+
+test("scene mapping accepts only canonical IFC extras and optional ifcExpressId", () => {
+  const root = new THREE.Group();
+  const canonical = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  canonical.userData = {
+    ifcNodeId: "node-wall-a",
+    ifcPrimitiveIndex: 0,
+  };
+  const second = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  second.userData = {
+    ifcNodeId: "node-wall-b",
+    ifcExpressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  root.add(canonical, second);
+  assert.doesNotThrow(() => renderModel.mapIfcRenderScene(root, manifest()));
+
+  canonical.userData = {
+    nodeId: "node-wall-a",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  assert.throws(
+    () => renderModel.mapIfcRenderScene(root, manifest()),
+    /node ID.*missing/i,
   );
 });
 
@@ -221,13 +256,13 @@ test("owned render-model disposal releases shared geometry, material arrays, and
   const first = new THREE.Mesh(geometry, [firstMaterial, secondMaterial]);
   const second = new THREE.Mesh(geometry, firstMaterial);
   first.userData = {
-    nodeId: "node-wall-a",
-    expressId: 42,
+    ifcNodeId: "node-wall-a",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   second.userData = {
-    nodeId: "node-wall-b",
-    expressId: 42,
+    ifcNodeId: "node-wall-b",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   root.add(first, second);
@@ -264,8 +299,8 @@ test("owned model disposal retains ownership of original resources after viewer 
   const highlight = new THREE.MeshBasicMaterial();
   const mesh = new THREE.Mesh(geometry, original);
   mesh.userData = {
-    nodeId: "node-wall-a",
-    expressId: 42,
+    ifcNodeId: "node-wall-a",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   const sibling = new THREE.Mesh(
@@ -273,8 +308,8 @@ test("owned model disposal retains ownership of original resources after viewer 
     new THREE.MeshBasicMaterial(),
   );
   sibling.userData = {
-    nodeId: "node-wall-b",
-    expressId: 42,
+    ifcNodeId: "node-wall-b",
+    ifcExpressId: 42,
     ifcPrimitiveIndex: 0,
   };
   root.add(mesh, sibling);
@@ -544,6 +579,29 @@ test("synthetic mapping fixture maps 115 GLB primitives without claiming source-
     ),
   );
   const geometrySha256 = digest(geometryBytes);
+  const glbView = new DataView(
+    geometryBytes.buffer,
+    geometryBytes.byteOffset,
+    geometryBytes.byteLength,
+  );
+  const glbJsonLength = glbView.getUint32(12, true);
+  const glbDocument = JSON.parse(
+    new TextDecoder()
+      .decode(geometryBytes.subarray(20, 20 + glbJsonLength))
+      .trim(),
+  );
+  assert.equal(glbDocument.asset.generator, "1HK synthetic mapping fixture");
+  assert.equal(glbDocument.nodes.length, 115);
+  for (const node of glbDocument.nodes) {
+    assert.deepEqual(Object.keys(node.extras).sort(), [
+      "ifcExpressId",
+      "ifcNodeId",
+    ]);
+    assert.equal(typeof node.extras.ifcNodeId, "string");
+    assert.equal(Number.isSafeInteger(node.extras.ifcExpressId), true);
+    assert.equal("nodeId" in node.extras, false);
+    assert.equal("expressId" in node.extras, false);
+  }
   const canonical = renderModel.validateIfcRenderManifest(manifestInput, {
     source: {
       fileId: previewSourceFileId,

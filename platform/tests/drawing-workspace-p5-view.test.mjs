@@ -87,6 +87,40 @@ test("backend ready derivative adapter preserves exact pinned hashes, byte sizes
     adaptIfcRenderBundleDescriptor({ id: ids.file, sha256: sha }),
     undefined,
   );
+  for (const unavailableDerivative of [
+    {
+      status: "pending",
+      version: null,
+      sourceSha256: sha,
+      manifestSha256: null,
+      geometrySha256: null,
+      manifestByteSize: null,
+      geometryByteSize: null,
+      manifestSignedUrl: null,
+      geometrySignedUrl: null,
+    },
+    {
+      status: "failed",
+      version: 7,
+      sourceSha256: sha,
+      manifestSha256: null,
+      geometrySha256: null,
+      manifestByteSize: null,
+      geometryByteSize: null,
+      manifestSignedUrl: null,
+      geometrySignedUrl: null,
+    },
+    { ...derivative, manifestByteSize: 0 },
+    { ...derivative, geometryByteSize: Number.NaN },
+  ])
+    assert.equal(
+      adaptIfcRenderBundleDescriptor({
+        id: ids.file,
+        sha256: sha,
+        derivative: unavailableDerivative,
+      }),
+      undefined,
+    );
 });
 
 test("IFC focus treats supplied GlobalId as authoritative and only uses expressId when GlobalId is absent", () => {

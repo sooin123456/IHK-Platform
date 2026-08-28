@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -36,6 +37,34 @@ function request(url, init) {
 function unwrapRouteData(result) {
   return result?.type === "DataWithResponseInit" ? result.data : result;
 }
+
+test("P5 synthetic derivative descriptor is byte-exact to its public assets", async () => {
+  const descriptor = preview.previewIfcDerivative(
+    "00000000-0000-4000-8000-0000000000a1",
+    "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
+  );
+  for (const asset of [
+    {
+      path: descriptor.manifestSignedUrl,
+      byteSize: descriptor.manifestByteSize,
+      sha256: descriptor.manifestSha256,
+    },
+    {
+      path: descriptor.geometrySignedUrl,
+      byteSize: descriptor.geometryByteSize,
+      sha256: descriptor.geometrySha256,
+    },
+  ]) {
+    const bytes = await readFile(
+      new URL(`../public${asset.path}`, import.meta.url),
+    );
+    assert.equal(bytes.byteLength, asset.byteSize);
+    assert.equal(
+      createHash("sha256").update(bytes).digest("hex"),
+      asset.sha256,
+    );
+  }
+});
 
 function validOperation() {
   return {
@@ -174,11 +203,11 @@ test("current canonical preview opens the integrated PDF and IFC split without q
     sourceSha256:
       "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
     geometrySha256:
-      "0e78c44795e77591a49f05f3e050e7eec8390817b4d317b2014b3f71e4acb4c1",
-    geometryByteSize: 15_500,
+      "cb450586de90c234831a6a206c0cb83078d65eca1870ac642680df5b5056270f",
+    geometryByteSize: 16_196,
     geometrySignedUrl: "/examples/synthetic-ifc-mapping.glb",
     manifestSha256:
-      "b1323ce7bd1705fcd78458719730905d4cb3f759c3ce5c3e59e81be723d56c86",
+      "65dc191d9089409f37d4757707e4a191bb7774ac4a64ac191384a67e3e85a17c",
     manifestByteSize: 84_033,
     manifestSignedUrl: "/examples/synthetic-ifc-mapping.manifest.json",
   });

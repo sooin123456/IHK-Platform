@@ -302,8 +302,9 @@ export function mapIfcRenderScene(
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     let node: THREE.Object3D | null = object;
-    while (node && typeof node.userData.nodeId !== "string") node = node.parent;
-    const nodeId = node?.userData.nodeId;
+    while (node && typeof node.userData.ifcNodeId !== "string")
+      node = node.parent;
+    const nodeId = node?.userData.ifcNodeId;
     const primitiveIndex = object.userData.ifcPrimitiveIndex;
     if (typeof nodeId !== "string" || !Number.isSafeInteger(primitiveIndex))
       throw new Error("IFC GLB node ID or primitive index is missing.");
@@ -313,7 +314,7 @@ export function mapIfcRenderScene(
     if (seen.has(primitiveKey))
       throw new Error(`IFC GLB node primitive is duplicated: ${primitiveKey}`);
     const expectedExpressId = expected.get(primitiveKey)!;
-    const embeddedExpressId = node?.userData.expressId;
+    const embeddedExpressId = node?.userData.ifcExpressId;
     if (
       embeddedExpressId !== undefined &&
       embeddedExpressId !== expectedExpressId
@@ -322,7 +323,7 @@ export function mapIfcRenderScene(
         `IFC GLB expressId does not match node primitive ${primitiveKey}.`,
       );
     seen.add(primitiveKey);
-    object.userData.expressId = expectedExpressId;
+    object.userData.ifcResolvedExpressId = expectedExpressId;
     const siblings = elementMeshes.get(expectedExpressId);
     if (siblings) siblings.push(object);
     else elementMeshes.set(expectedExpressId, [object]);
