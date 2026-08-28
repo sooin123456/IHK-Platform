@@ -76,7 +76,6 @@ import {
 import {
   createDrawingDocumentStore,
   deriveDrawingTransientState,
-  DRAWING_SERVER_VALIDATED_HYDRATION,
   drawingTransientAuthorizationKey,
   hydrateDrawingDocumentState,
   sanitizeDrawingTransientInput,
@@ -640,27 +639,24 @@ function drawingStateFromRevision(
     p2Layers.length === revision.layers.length &&
     p2Objects.length === revision.objects.length
   ) {
-    return hydrateDrawingDocumentState(
-      {
-        revisionId: revision.id,
-        pages: p2Pages,
-        canvases: revision.canvases,
-        layers: p2Layers.map((layer) => ({
-          ...layer,
-          canvasId: layer.canvasId!,
-          sortOrder: layer.sortOrder!,
-        })),
-        objects: p2Objects,
-        sources: revision.sources ?? [],
-        styles: revision.styles,
-        blocks: revision.blocks,
-        blockInstances: revision.blockInstances,
-        propertySchemas: revision.propertySchemas,
-        propertyValues: revision.propertyValues,
-        tables: revision.tables,
-      },
-      { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
-    );
+    return hydrateDrawingDocumentState({
+      revisionId: revision.id,
+      pages: p2Pages,
+      canvases: revision.canvases,
+      layers: p2Layers.map((layer) => ({
+        ...layer,
+        canvasId: layer.canvasId!,
+        sortOrder: layer.sortOrder!,
+      })),
+      objects: p2Objects,
+      sources: revision.sources ?? [],
+      styles: revision.styles,
+      blocks: revision.blocks,
+      blockInstances: revision.blockInstances,
+      propertySchemas: revision.propertySchemas,
+      propertyValues: revision.propertyValues,
+      tables: revision.tables,
+    });
   }
   const activeCanvasId = revision.activeCanvasId;
   const layers = revision.layers.filter(

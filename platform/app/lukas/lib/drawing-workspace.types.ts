@@ -553,30 +553,87 @@ export function normalizeDrawingCanonicalSources(
     });
 }
 
+const DrawingObjectIdentityShape = {
+  id: Uuid,
+  name: DrawingObjectNameSchema,
+  layerId: Uuid,
+};
+
+const DrawingObjectStyleShape = {
+  /** Omitted is legacy inline-style data and is treated as null by resolvers. */
+  styleId: Uuid.nullable().optional(),
+  style: z.union([DrawingStyleSchema, DrawingStyleOverrideSchema]),
+  version: PositiveInteger,
+};
+
+function validateDrawingObjectStyle(
+  object: {
+    styleId?: string | null;
+    style: DrawingStyle | z.infer<typeof DrawingStyleOverrideSchema>;
+  },
+  context: z.RefinementCtx,
+) {
+  if (
+    object.styleId == null &&
+    !DrawingStyleSchema.safeParse(object.style).success
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["style"],
+      message: "인라인 도면 스타일은 완전해야 합니다.",
+    });
+  }
+}
+
 const DrawingObjectValidatedSchema = z
   .object({
-    id: Uuid,
-    name: DrawingObjectNameSchema,
-    layerId: Uuid,
+    ...DrawingObjectIdentityShape,
     geometry: DrawingGeometrySchema,
-    /** Omitted is legacy inline-style data and is treated as null by resolvers. */
-    styleId: Uuid.nullable().optional(),
-    style: z.union([DrawingStyleSchema, DrawingStyleOverrideSchema]),
-    version: PositiveInteger,
+    ...DrawingObjectStyleShape,
   })
   .strict()
-  .superRefine((object, context) => {
-    if (
-      object.styleId == null &&
-      !DrawingStyleSchema.safeParse(object.style).success
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["style"],
-        message: "인라인 도면 스타일은 완전해야 합니다.",
-      });
-    }
-  });
+  .superRefine(validateDrawingObjectStyle);
+
+const DrawingObjectOuterSchema = z
+  .object({
+    ...DrawingObjectIdentityShape,
+    geometry: z.unknown(),
+    ...DrawingObjectStyleShape,
+  })
+  .strict()
+  .superRefine(validateDrawingObjectStyle);
+
+const DrawingGeometrySchemaByType = {
+  line: DrawingPrimitiveGeometrySchema,
+  polyline: DrawingPrimitiveGeometrySchema,
+  rectangle: DrawingPrimitiveGeometrySchema,
+  circle: DrawingPrimitiveGeometrySchema,
+  text: DrawingPrimitiveGeometrySchema,
+  dimension: DrawingPrimitiveGeometrySchema,
+  wall: DrawingWallGeometrySchema,
+  opening: DrawingOpeningGeometrySchema,
+  space: DrawingSpaceGeometrySchema,
+  area: DrawingAreaGeometrySchema,
+  grid: DrawingGridGeometrySchema,
+  arc: DrawingArcGeometrySchema,
+} as const;
+
+/** Validates one canonical row without retrying unrelated geometry unions. */
+export function parseCanonicalDrawingObject(input: unknown): DrawingObject {
+  const object = DrawingObjectOuterSchema.parse(input);
+  const type = (object.geometry as { type?: unknown } | null)?.type;
+  const schema =
+    typeof type === "string"
+      ? DrawingGeometrySchemaByType[
+          type as keyof typeof DrawingGeometrySchemaByType
+        ]
+      : undefined;
+  if (!schema) return DrawingObjectValidatedSchema.parse(input);
+  return {
+    ...object,
+    geometry: schema.parse(object.geometry),
+  } as DrawingObject;
+}
 
 /** `.strict()` remains available for P0/P1 callers; the inner object is strict. */
 export const DrawingObjectSchema = Object.assign(DrawingObjectValidatedSchema, {

@@ -7,13 +7,14 @@ import {
   drawingTransientAuthorizationKey,
   sanitizeDrawingTransientInput,
   createDrawingDocumentStore,
-  DRAWING_SERVER_VALIDATED_HYDRATION,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.ts";
 import { createDrawingStyleResolutionCache } from "../app/lukas/lib/drawing-style-resolution.ts";
 
 const documentStoreModule =
   await import("../app/lukas/lib/drawing-document-store.ts");
+const drawingTypesModule =
+  await import("../app/lukas/lib/drawing-workspace.types.ts");
 
 const ids = {
   revision: "00000000-0000-4000-8000-000000000101",
@@ -218,7 +219,7 @@ test("hydrates every P2 collection into one canonical document state", () => {
   assert.strictEqual(state.layers, state.structure.layers);
 });
 
-test("explicit server-validated hydration skips duplicate row parsing but keeps graph invariants", () => {
+test("public hydration always validates rows and graph invariants", () => {
   const input = structure();
   input.objects[ids.object].serverValidatedMarker = "preserved";
   const hydration = {
@@ -228,27 +229,59 @@ test("explicit server-validated hydration skips duplicate row parsing but keeps 
     ),
   };
 
-  assert.throws(() => hydrateDrawingDocumentState(hydration));
   assert.throws(() =>
-    hydrateDrawingDocumentState(hydration, { authority: "server-validated" }),
-  );
-  const trustedState = hydrateDrawingDocumentState(hydration, {
-    authority: DRAWING_SERVER_VALIDATED_HYDRATION,
-  });
-  assert.equal(
-    trustedState.objects[ids.object].serverValidatedMarker,
-    "preserved",
+    hydrateDrawingDocumentState(hydration, { authority: Symbol("forged") }),
   );
 
+  delete hydration.objects[0].serverValidatedMarker;
   hydration.canvases[0].pageId = ids.actor;
+  assert.throws(() => hydrateDrawingDocumentState(hydration));
+});
+
+test("public hydration authority cannot mint a proof for malformed nested entities", () => {
+  const input = structure();
+  Object.assign(input.objects[ids.object], {
+    name: 123,
+    geometry: {
+      ...input.objects[ids.object].geometry,
+      width: -5,
+    },
+    style: { stroke: "invalid", strokeWidth: -1, fill: null },
+  });
+  const hydration = {
+    revisionId: ids.revision,
+    ...Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [key, Object.values(value)]),
+    ),
+  };
+
   assert.throws(() =>
     hydrateDrawingDocumentState(hydration, {
-      authority: DRAWING_SERVER_VALIDATED_HYDRATION,
+      authority: Symbol("forged"),
     }),
   );
 });
 
-test("validated hydration clones each authoritative entity only once", () => {
+test("canonical object parsing validates its outer row and selected geometry schema", () => {
+  const parse = drawingTypesModule.parseCanonicalDrawingObject;
+  assert.equal(typeof parse, "function");
+  const valid = structure().objects[ids.object];
+  assert.deepEqual(parse(valid), valid);
+  for (const malformed of [
+    { ...valid, name: 123 },
+    {
+      ...valid,
+      geometry: { ...valid.geometry, width: -5 },
+    },
+    {
+      ...valid,
+      style: { stroke: "invalid", strokeWidth: -1, fill: null },
+    },
+  ])
+    assert.throws(() => parse(malformed));
+});
+
+test("schema-validated canonical entities are not cloned again", () => {
   const input = structure();
   const hydration = {
     revisionId: ids.revision,
@@ -263,14 +296,12 @@ test("validated hydration clones each authoritative entity only once", () => {
     return clone(value, options);
   };
   try {
-    hydrateDrawingDocumentState(hydration, {
-      authority: DRAWING_SERVER_VALIDATED_HYDRATION,
-    });
+    hydrateDrawingDocumentState(hydration);
   } finally {
     globalThis.structuredClone = clone;
   }
 
-  assert.equal(objectClones, 1);
+  assert.equal(objectClones, 0);
 });
 
 test("store preserves canonical P2 state and falls back to the page default after active canvas deletion", () => {
@@ -352,24 +383,21 @@ test("post-validation nested mutation cannot bypass document replacement validat
   assert.strictEqual(store.getSnapshot().objects[ids.object].layerId, ids.work);
 });
 
-test("server-validated hydration exposes one immutable authoritative proof", () => {
-  const initial = hydrateDrawingDocumentState(
-    {
-      revisionId: ids.revision,
-      pages: Object.values(structure().pages),
-      canvases: Object.values(structure().canvases),
-      layers: Object.values(structure().layers),
-      objects: Object.values(structure().objects),
-      sources: Object.values(structure().sources ?? {}),
-      styles: Object.values(structure().styles),
-      blocks: Object.values(structure().blocks),
-      blockInstances: Object.values(structure().blockInstances),
-      propertySchemas: Object.values(structure().propertySchemas),
-      propertyValues: Object.values(structure().propertyValues),
-      tables: Object.values(structure().tables),
-    },
-    { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
-  );
+test("schema-validated hydration exposes one immutable authoritative proof", () => {
+  const initial = hydrateDrawingDocumentState({
+    revisionId: ids.revision,
+    pages: Object.values(structure().pages),
+    canvases: Object.values(structure().canvases),
+    layers: Object.values(structure().layers),
+    objects: Object.values(structure().objects),
+    sources: Object.values(structure().sources ?? {}),
+    styles: Object.values(structure().styles),
+    blocks: Object.values(structure().blocks),
+    blockInstances: Object.values(structure().blockInstances),
+    propertySchemas: Object.values(structure().propertySchemas),
+    propertyValues: Object.values(structure().propertyValues),
+    tables: Object.values(structure().tables),
+  });
   const store = createDrawingDocumentStore(initial);
   const proof = store.getValidatedInitialState();
 

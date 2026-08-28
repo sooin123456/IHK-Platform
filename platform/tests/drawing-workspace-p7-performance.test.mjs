@@ -425,17 +425,3 @@ test("the runner artifact is inspectable but has no standalone execution authori
     /standalone.*authority/i,
   );
 });
-
-test("only the server-loaded revision callsite carries code-only hydration authority", () => {
-  const source = readFileSync(
-    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
-    "utf8",
-  );
-  assert.equal(source.match(/DRAWING_SERVER_VALIDATED_HYDRATION/g)?.length, 2);
-  const bootstrapBoundary = source.slice(
-    source.indexOf("function drawingStateFromBootstrap"),
-    source.indexOf("export default function DrawingWorkspaceClient"),
-  );
-  assert.doesNotMatch(bootstrapBoundary, /DRAWING_SERVER_VALIDATED_HYDRATION/);
-  assert.match(source, /data-edit-ready=\{editReady \? "true" : "false"\}/);
-});

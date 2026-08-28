@@ -17,7 +17,6 @@ import {
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
 import {
   createDrawingDocumentStore,
-  DRAWING_SERVER_VALIDATED_HYDRATION,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.ts";
 
@@ -307,54 +306,51 @@ function countAuthoritativeGraphClones(run) {
 }
 
 function validatedBaseProof() {
-  const state = hydrateDrawingDocumentState(
-    {
-      revisionId: ids.revision,
-      pages: [
-        {
-          id: ids.page,
-          revisionId: ids.revision,
-          name: "A1",
-          sortOrder: 0,
-          version: 1,
-        },
-      ],
-      canvases: [
-        {
-          id: ids.canvas,
-          pageId: ids.page,
-          name: "Paper",
-          spaceKind: "paper",
-          widthMillimeters: 210,
-          heightMillimeters: 297,
-          background: null,
-          sortOrder: 0,
-          version: 1,
-        },
-      ],
-      layers: [
-        {
-          id: ids.layer,
-          name: "Work",
-          visible: true,
-          locked: false,
-          systemKind: "work",
-          canvasId: ids.canvas,
-          sortOrder: 0,
-          version: 1,
-        },
-      ],
-      objects: [object(ids.objectA), object(ids.objectB, 20)],
-      sources: [],
-      styles: [],
-      blocks: [],
-      blockInstances: [],
-      propertySchemas: [],
-      propertyValues: [],
-      tables: [],
-    },
-    { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
-  );
+  const state = hydrateDrawingDocumentState({
+    revisionId: ids.revision,
+    pages: [
+      {
+        id: ids.page,
+        revisionId: ids.revision,
+        name: "A1",
+        sortOrder: 0,
+        version: 1,
+      },
+    ],
+    canvases: [
+      {
+        id: ids.canvas,
+        pageId: ids.page,
+        name: "Paper",
+        spaceKind: "paper",
+        widthMillimeters: 210,
+        heightMillimeters: 297,
+        background: null,
+        sortOrder: 0,
+        version: 1,
+      },
+    ],
+    layers: [
+      {
+        id: ids.layer,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        canvasId: ids.canvas,
+        sortOrder: 0,
+        version: 1,
+      },
+    ],
+    objects: [object(ids.objectA), object(ids.objectB, 20)],
+    sources: [],
+    styles: [],
+    blocks: [],
+    blockInstances: [],
+    propertySchemas: [],
+    propertyValues: [],
+    tables: [],
+  });
   return {
     state,
     proof: createDrawingDocumentStore(state).getValidatedInitialState(),
