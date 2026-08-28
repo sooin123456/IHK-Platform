@@ -2,6 +2,31 @@ import { z } from "zod";
 
 export const ORGANIZATION_ADMIN_PAGE_SIZE = 100;
 
+type OrganizationAdminListRpc =
+  | "lukas_qto_list_organization_members"
+  | "lukas_qto_list_organization_invitations"
+  | "lukas_qto_list_organization_projects"
+  | "lukas_qto_list_managed_organizations";
+
+const organizationAdminCursors = {
+  lukas_qto_list_organization_members: {
+    argument: "p_after_user_id",
+    field: "user_id",
+  },
+  lukas_qto_list_organization_invitations: {
+    argument: "p_after_invitation_id",
+    field: "id",
+  },
+  lukas_qto_list_organization_projects: {
+    argument: "p_after_project_id",
+    field: "id",
+  },
+  lukas_qto_list_managed_organizations: {
+    argument: "p_after_organization_id",
+    field: "id",
+  },
+} as const;
+
 const uuid = z.string().uuid();
 const requestId = uuid;
 const reason = z.string().trim().min(1).max(1000);
@@ -365,14 +390,15 @@ export async function runOrganizationAdministrationMutation(
 
 export async function loadOrganizationAdminPage<T>(
   client: RpcClient,
-  rpc: "lukas_qto_list_organization_members",
+  rpc: OrganizationAdminListRpc,
   organizationId: string,
   after: string | null,
 ) {
   const cursor = after === null ? null : uuid.parse(after);
+  const configuration = organizationAdminCursors[rpc];
   const result = await client.rpc(rpc, {
     p_organization_id: organizationId,
-    p_after_user_id: cursor,
+    [configuration.argument]: cursor,
     p_page_size: ORGANIZATION_ADMIN_PAGE_SIZE,
   });
   if (result.error) throw new Error(result.error.message);
@@ -381,7 +407,62 @@ export async function loadOrganizationAdminPage<T>(
     rows,
     next:
       rows.length === ORGANIZATION_ADMIN_PAGE_SIZE
-        ? String((rows.at(-1) as { user_id: string }).user_id)
+        ? String((rows.at(-1) as Record<string, unknown>)[configuration.field])
         : null,
   };
+}
+
+type InvitationDelivery = {
+  email: string;
+  invitationId: string;
+  organizationName: string;
+  origin: string;
+};
+
+type InvitationDeliveryOptions = {
+  apiKey?: string;
+  send?: (message: {
+    from: string;
+    to: string[];
+    subject: string;
+    html: string;
+  }) => Promise<{ error: { message: string } | null }>;
+};
+
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character]!,
+  );
+}
+
+export async function deliverOrganizationInvitationEmail(
+  invitation: InvitationDelivery,
+  options: InvitationDeliveryOptions = {},
+) {
+  const apiKey = options.apiKey ?? process.env.RESEND_API_KEY;
+  if (!apiKey)
+    throw new Error("Organization invitation delivery provider is unavailable");
+  const send =
+    options.send ??
+    (async (message) => {
+      const { default: resendClient } =
+        await import("~/core/lib/resend-client.server");
+      return resendClient.emails.send(message);
+    });
+  const acceptUrl = `${invitation.origin}/organization-invitations/${invitation.invitationId}/accept`;
+  const result = await send({
+    from: "1HK Platform <hello@supaplate.com>",
+    to: [invitation.email],
+    subject: `${invitation.organizationName} 회사 초대`,
+    html: `<p>${escapeHtml(invitation.organizationName)} 회사에 초대되었습니다.</p><p><a href="${escapeHtml(acceptUrl)}">로그인 또는 가입 후 초대 수락</a></p>`,
+  });
+  if (result.error) throw new Error(result.error.message);
 }

@@ -8,7 +8,16 @@ begin
     'public.lukas_qto_projects','public.lukas_qto_project_members',
     'public.lukas_drawing_library_entries','public.lukas_drawing_library_versions',
     'public.lukas_drawing_library_imports',
-    'public.lukas_qto_retention_events','public.lukas_qto_export_events'
+    'public.lukas_qto_retention_events','public.lukas_qto_export_events',
+    'public.lukas_drawing_revisions','public.lukas_drawing_revision_approvals',
+    'public.lukas_qto_price_books','public.lukas_qto_price_resources',
+    'public.lukas_qto_boq_versions','public.lukas_qto_boq_sections',
+    'public.lukas_qto_boq_lines','public.lukas_qto_boq_wbs_nodes',
+    'public.lukas_qto_boq_wbs_allocations','public.lukas_qto_boq_quantity_mappings',
+    'public.lukas_qto_boq_source_exclusions','public.lukas_qto_boq_rate_components',
+    'public.lukas_qto_boq_approvals','public.lukas_drawing_quantity_links',
+    'public.lukas_drawing_boq_links','public.lukas_drawing_material_links',
+    'public.lukas_qto_material_plans','public.lukas_qto_material_transactions'
   ] loop
     if pg_catalog.to_regclass(v_table) is null then
       raise exception using errcode='P7A01',message='P7 organization administration base authority is missing';
@@ -358,7 +367,7 @@ begin
   if found then
     if v_event.request_sha256<>v_sha then raise exception using errcode='P7A06',message='Request ID does not match organization invitation'; end if;
     select * into v_invitation from public.lukas_qto_organization_invitations where id=v_event.invitation_id;
-    return pg_catalog.jsonb_build_object('invitationId',v_invitation.id,'targetUserId',v_invitation.target_user_id,'expiresAt',v_invitation.expires_at);
+    return pg_catalog.jsonb_build_object('invitationId',v_invitation.id,'expiresAt',v_invitation.expires_at);
   end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
     p_organization_id::text||':'||v_email,0
@@ -385,7 +394,7 @@ begin
     organization_id,event_type,invitation_id,request_id,request_sha256,details,actor_id
   ) values(p_organization_id,'invitation_created',v_invitation.id,p_request_id,v_sha,
     pg_catalog.jsonb_build_object('email',v_email,'role',p_role,'libraryAccess',p_library_access,'expiresAt',v_invitation.expires_at),v_actor);
-  return pg_catalog.jsonb_build_object('invitationId',v_invitation.id,'targetUserId',v_target,'expiresAt',v_invitation.expires_at);
+  return pg_catalog.jsonb_build_object('invitationId',v_invitation.id,'expiresAt',v_invitation.expires_at);
 end;
 $$;
 
@@ -587,6 +596,52 @@ begin
 end;
 $$;
 
+create function public.lukas_qto_list_organization_invitations(
+  p_organization_id uuid,p_after_invitation_id uuid default null,p_page_size integer default 100
+) returns table(id uuid,normalized_email text,role text,library_access boolean,
+  expires_at timestamptz,accepted_at timestamptz,revoked_at timestamptz,created_at timestamptz)
+language plpgsql stable security definer set search_path='' as $$
+begin
+  if not private.lukas_qto_organization_manager(p_organization_id) then raise exception using errcode='P7A04',message='Organization invitation list authority denied'; end if;
+  if p_page_size not between 1 and 100 then raise exception using errcode='P7A05',message='Organization invitation page is invalid'; end if;
+  return query select i.id,i.normalized_email,i.role,i.library_access,i.expires_at,i.accepted_at,i.revoked_at,i.created_at
+    from public.lukas_qto_organization_invitations i
+    where i.organization_id=p_organization_id and (p_after_invitation_id is null or i.id>p_after_invitation_id)
+    order by i.id limit p_page_size;
+end;
+$$;
+
+create function public.lukas_qto_list_organization_projects(
+  p_organization_id uuid,p_after_project_id uuid default null,p_page_size integer default 100
+) returns table(id uuid,name text,organization_id uuid,archived_at timestamptz)
+language plpgsql stable security definer set search_path='' as $$
+begin
+  if not private.lukas_qto_organization_manager(p_organization_id) then raise exception using errcode='P7A04',message='Organization project list authority denied'; end if;
+  if p_page_size not between 1 and 100 then raise exception using errcode='P7A05',message='Organization project page is invalid'; end if;
+  return query select p.id,p.name,p.organization_id,p.archived_at
+    from public.lukas_qto_projects p
+    where p.organization_id=p_organization_id and p.archived_at is null
+      and (p_after_project_id is null or p.id>p_after_project_id)
+    order by p.id limit p_page_size;
+end;
+$$;
+
+create function public.lukas_qto_list_managed_organizations(
+  p_organization_id uuid,p_after_organization_id uuid default null,p_page_size integer default 100
+) returns table(id uuid,name text)
+language plpgsql stable security definer set search_path='' as $$
+declare v_actor uuid:=(select auth.uid()); v_staff boolean:=coalesce((select auth.jwt()->'app_metadata'->>'role')='hangil_staff',false);
+begin
+  if v_actor is null or not private.lukas_qto_organization_manager(p_organization_id) then raise exception using errcode='P7A04',message='Managed organization list authority denied'; end if;
+  if p_page_size not between 1 and 100 then raise exception using errcode='P7A05',message='Managed organization page is invalid'; end if;
+  return query select o.id,o.name from public.lukas_qto_organizations o
+    where o.id<>p_organization_id and (p_after_organization_id is null or o.id>p_after_organization_id)
+      and (v_staff or o.owner_id=v_actor or exists(select 1 from public.lukas_qto_organization_members m
+        where m.organization_id=o.id and m.user_id=v_actor and m.role in('owner','admin')))
+    order by o.id limit p_page_size;
+end;
+$$;
+
 create function public.lukas_qto_list_project_members(
   p_project_id uuid,p_after_user_id uuid default null,p_page_size integer default 100
 ) returns table(user_id uuid,email text,role text,created_at timestamptz)
@@ -665,7 +720,12 @@ begin
   end if;
   v_sha:=private.lukas_qto_admin_request_sha(pg_catalog.jsonb_build_array(p_organization_id,p_project_id,p_destination_organization_id,v_reason));
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_actor::text||p_request_id::text,0));
-  if private.lukas_qto_admin_retry_matches(v_actor,p_request_id,v_sha) then select * into v_project from public.lukas_qto_projects where id=p_project_id; return v_project; end if;
+  if private.lukas_qto_admin_retry_matches(v_actor,p_request_id,v_sha) then
+    select * into v_project from public.lukas_qto_projects p
+      where p.id=p_project_id and p.organization_id=p_destination_organization_id;
+    if not found then raise exception using errcode='P7A06',message='Stored project move is no longer current'; end if;
+    return v_project;
+  end if;
   select * into v_project from public.lukas_qto_projects p where p.id=p_project_id and p.organization_id=p_organization_id for update;
   if not found or v_project.archived_at is not null or v_project.deletion_requested_at is not null then
     raise exception using errcode='P7A05',message='Project move input is invalid or retained';
@@ -675,6 +735,17 @@ begin
     or exists(select 1 from public.lukas_qto_retention_events e where e.project_id=p_project_id)
     or exists(select 1 from public.lukas_qto_export_events e where e.project_id=p_project_id) then
     raise exception using errcode='P7A08',message='Project with retention or library imports cannot move organizations';
+  end if;
+  if exists(select 1 from public.lukas_drawing_revisions r where r.project_id=p_project_id and r.status in('approved','superseded'))
+    or exists(select 1 from public.lukas_drawing_revision_approvals a where a.project_id=p_project_id and a.decision='approved')
+    or exists(select 1 from public.lukas_qto_boq_versions b where b.project_id=p_project_id and b.status in('approved','superseded'))
+    or exists(select 1 from public.lukas_qto_boq_approvals a join public.lukas_qto_boq_versions b on b.id=a.version_id where b.project_id=p_project_id and a.decision='approved')
+    or exists(select 1 from public.lukas_drawing_quantity_links q where q.project_id=p_project_id)
+    or exists(select 1 from public.lukas_drawing_boq_links b where b.project_id=p_project_id)
+    or exists(select 1 from public.lukas_drawing_material_links m where m.project_id=p_project_id)
+    or exists(select 1 from public.lukas_qto_material_plans m where m.project_id=p_project_id)
+    or exists(select 1 from public.lukas_qto_material_transactions m where m.project_id=p_project_id) then
+    raise exception using errcode='P7A08',message='Project with approved drawing, BOQ, quantity, or material evidence cannot move organizations';
   end if;
   if exists(select 1 from public.lukas_qto_project_members pm where pm.project_id=p_project_id
     and not exists(select 1 from public.lukas_qto_organization_members om
@@ -865,6 +936,181 @@ alter policy "organization members read drawing library imports"
 on public.lukas_drawing_library_imports
 using((select private.lukas_qto_organization_library_access(organization_id)));
 
+alter function public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid,uuid)
+  rename to lukas_drawing_import_library_version_pre_entitlement;
+create function public.lukas_drawing_import_library_version(
+  p_organization_id uuid,p_version_id uuid,p_project_id uuid,p_revision_id uuid,
+  p_client_request_id uuid
+) returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  if not private.lukas_qto_organization_library_access(p_organization_id)
+    or not private.lukas_qto_project_feature_active(p_project_id,'organization_library') then
+    raise exception using errcode='P7A07',message='Organization library entitlement is unavailable';
+  end if;
+  return public.lukas_drawing_import_library_version_pre_entitlement(
+    p_organization_id,p_version_id,p_project_id,p_revision_id,p_client_request_id
+  );
+end;
+$$;
+
+create policy "P7 quantity lineage entitlement lukas_qto_price_books" on public.lukas_qto_price_books
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_price_resources" on public.lukas_qto_price_resources
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_drawing_quantity_links" on public.lukas_drawing_quantity_links
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_drawing_boq_links" on public.lukas_drawing_boq_links
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_drawing_material_links" on public.lukas_drawing_material_links
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_versions" on public.lukas_qto_boq_versions
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_sections" on public.lukas_qto_boq_sections
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_lines" on public.lukas_qto_boq_lines
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_wbs_nodes" on public.lukas_qto_boq_wbs_nodes
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_wbs_allocations" on public.lukas_qto_boq_wbs_allocations
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_quantity_mappings" on public.lukas_qto_boq_quantity_mappings
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_source_exclusions" on public.lukas_qto_boq_source_exclusions
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_rate_components" on public.lukas_qto_boq_rate_components
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(project_id,'quantity_lineage'));
+create policy "P7 quantity lineage entitlement lukas_qto_boq_approvals" on public.lukas_qto_boq_approvals
+as restrictive for all to authenticated using(private.lukas_qto_project_feature_active(
+  (select b.project_id from public.lukas_qto_boq_versions b where b.id=lukas_qto_boq_approvals.version_id),'quantity_lineage'))
+with check(private.lukas_qto_project_feature_active(
+  (select b.project_id from public.lukas_qto_boq_versions b where b.id=lukas_qto_boq_approvals.version_id),'quantity_lineage'));
+
+alter function public.lukas_drawing_put_boq_link(uuid,uuid,uuid,uuid,numeric,bigint)
+  rename to lukas_drawing_put_boq_link_pre_entitlement;
+create function public.lukas_drawing_put_boq_link(
+  p_id uuid,p_quantity_link_id uuid,p_boq_version_id uuid,p_boq_line_id uuid,
+  p_allocation_factor numeric,p_base_version bigint default null
+) returns public.lukas_drawing_boq_links language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_boq_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return public.lukas_drawing_put_boq_link_pre_entitlement(p_id,p_quantity_link_id,p_boq_version_id,p_boq_line_id,p_allocation_factor,p_base_version);
+end;
+$$;
+
+alter function public.lukas_drawing_delete_boq_link(uuid,bigint)
+  rename to lukas_drawing_delete_boq_link_pre_entitlement;
+create function public.lukas_drawing_delete_boq_link(p_id uuid,p_base_version bigint)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_drawing_boq_links b where b.id=p_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return public.lukas_drawing_delete_boq_link_pre_entitlement(p_id,p_base_version);
+end;
+$$;
+
+alter function public.lukas_qto_boq_v1_1_input(uuid)
+  rename to lukas_qto_boq_v1_1_input_pre_entitlement;
+create function public.lukas_qto_boq_v1_1_input(p_version_id uuid)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return public.lukas_qto_boq_v1_1_input_pre_entitlement(p_version_id);
+end;
+$$;
+
+alter function public.lukas_qto_decide_boq(uuid,text,text)
+  rename to lukas_qto_decide_boq_pre_entitlement;
+create function public.lukas_qto_decide_boq(p_version_id uuid,p_decision text,p_note text default '')
+returns void language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  perform public.lukas_qto_decide_boq_pre_entitlement(p_version_id,p_decision,p_note);
+end;
+$$;
+
+alter function public.lukas_qto_import_boq_structure(uuid,jsonb)
+  rename to lukas_qto_import_boq_structure_pre_entitlement;
+create function public.lukas_qto_import_boq_structure(p_version_id uuid,p_payload jsonb)
+returns void language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  perform public.lukas_qto_import_boq_structure_pre_entitlement(p_version_id,p_payload);
+end;
+$$;
+
+alter function private.lukas_drawing_insert_quantity_link(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text)
+  rename to lukas_drawing_insert_quantity_link_pre_entitlement;
+create function private.lukas_drawing_insert_quantity_link(
+  p_actor_id uuid,p_id uuid,p_revision_id uuid,p_object_id uuid,p_measurement_kind text,
+  p_snapshot_sha256 text,p_object_lineage_id uuid,p_object_version bigint,
+  p_object_fingerprint text,p_raw_quantity numeric,p_unit text,p_measurement_rule_version text
+) returns public.lukas_drawing_quantity_links language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select r.project_id into v_project_id from public.lukas_drawing_revisions r where r.id=p_revision_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return private.lukas_drawing_insert_quantity_link_pre_entitlement(
+    p_actor_id,p_id,p_revision_id,p_object_id,p_measurement_kind,p_snapshot_sha256,
+    p_object_lineage_id,p_object_version,p_object_fingerprint,p_raw_quantity,p_unit,p_measurement_rule_version
+  );
+end;
+$$;
+
+alter function private.lukas_qto_finalize_boq_v1_1(uuid,uuid,text,text,text,numeric,integer)
+  rename to lukas_qto_finalize_boq_v1_1_pre_entitlement;
+create function private.lukas_qto_finalize_boq_v1_1(
+  p_actor_id uuid,p_version_id uuid,p_input_state_sha256 text,p_result_sha256 text,
+  p_manifest_sha256 text,p_direct_cost_krw numeric,p_line_count integer
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return private.lukas_qto_finalize_boq_v1_1_pre_entitlement(
+    p_actor_id,p_version_id,p_input_state_sha256,p_result_sha256,p_manifest_sha256,p_direct_cost_krw,p_line_count
+  );
+end;
+$$;
+
+alter function private.lukas_drawing_insert_material_handoff(uuid,uuid,text,uuid,text,jsonb,jsonb)
+  rename to lukas_drawing_insert_material_handoff_pre_entitlement;
+create function private.lukas_drawing_insert_material_handoff(
+  p_actor_id uuid,p_boq_version_id uuid,p_result_sha256 text,p_manifest_file_id uuid,
+  p_manifest_file_sha256 text,p_material_plan_rows jsonb,p_material_link_rows jsonb
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_project_id uuid;
+begin
+  select b.project_id into v_project_id from public.lukas_qto_boq_versions b where b.id=p_boq_version_id;
+  if not private.lukas_qto_project_feature_active(v_project_id,'quantity_lineage') then raise exception using errcode='P7A07',message='Quantity lineage entitlement is unavailable'; end if;
+  return private.lukas_drawing_insert_material_handoff_pre_entitlement(
+    p_actor_id,p_boq_version_id,p_result_sha256,p_manifest_file_id,p_manifest_file_sha256,
+    p_material_plan_rows,p_material_link_rows
+  );
+end;
+$$;
+
 revoke all on function
   private.lukas_qto_organization_admin_append_guard(),
   private.lukas_qto_organization_membership_guard(),
@@ -893,6 +1139,28 @@ revoke all on function
   private.lukas_drawing_collaboration_service_bootstrap_pre_entitlement(uuid,uuid),
   private.lukas_drawing_collaboration_service_bootstrap(uuid,uuid)
 from public,anon,authenticated,service_role,lukas_drawing_collaboration;
+revoke all on function
+  public.lukas_drawing_import_library_version_pre_entitlement(uuid,uuid,uuid,uuid,uuid),
+  public.lukas_drawing_put_boq_link_pre_entitlement(uuid,uuid,uuid,uuid,numeric,bigint),
+  public.lukas_drawing_delete_boq_link_pre_entitlement(uuid,bigint),
+  public.lukas_qto_boq_v1_1_input_pre_entitlement(uuid),
+  public.lukas_qto_decide_boq_pre_entitlement(uuid,text,text),
+  public.lukas_qto_import_boq_structure_pre_entitlement(uuid,jsonb),
+  private.lukas_drawing_insert_quantity_link_pre_entitlement(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text),
+  private.lukas_qto_finalize_boq_v1_1_pre_entitlement(uuid,uuid,text,text,text,numeric,integer),
+  private.lukas_drawing_insert_material_handoff_pre_entitlement(uuid,uuid,text,uuid,text,jsonb,jsonb)
+from public,anon,authenticated,service_role;
+revoke all on function
+  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid,uuid),
+  public.lukas_drawing_put_boq_link(uuid,uuid,uuid,uuid,numeric,bigint),
+  public.lukas_drawing_delete_boq_link(uuid,bigint),
+  public.lukas_qto_boq_v1_1_input(uuid),
+  public.lukas_qto_decide_boq(uuid,text,text),
+  public.lukas_qto_import_boq_structure(uuid,jsonb),
+  private.lukas_drawing_insert_quantity_link(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text),
+  private.lukas_qto_finalize_boq_v1_1(uuid,uuid,text,text,text,numeric,integer),
+  private.lukas_drawing_insert_material_handoff(uuid,uuid,text,uuid,text,jsonb,jsonb)
+from public,anon,authenticated,service_role;
 revoke all on function public.lukas_qto_organization_feature_enabled(uuid,text),
   public.lukas_qto_update_organization_settings(uuid,text,uuid),
   public.lukas_qto_invite_organization_member(uuid,text,text,boolean,integer,uuid),
@@ -902,6 +1170,9 @@ revoke all on function public.lukas_qto_organization_feature_enabled(uuid,text),
   public.lukas_qto_remove_organization_member(uuid,uuid,text,uuid),
   public.lukas_qto_set_organization_entitlement(uuid,text,integer,integer,integer,timestamptz,jsonb,text,uuid),
   public.lukas_qto_list_organization_members(uuid,uuid,integer),
+  public.lukas_qto_list_organization_invitations(uuid,uuid,integer),
+  public.lukas_qto_list_organization_projects(uuid,uuid,integer),
+  public.lukas_qto_list_managed_organizations(uuid,uuid,integer),
   public.lukas_qto_list_project_members(uuid,uuid,integer),
   public.lukas_qto_set_project_member(uuid,uuid,text,text,uuid),
   public.lukas_qto_remove_project_member(uuid,uuid,uuid,text,uuid),
@@ -915,12 +1186,28 @@ grant execute on function public.lukas_qto_organization_feature_enabled(uuid,tex
   public.lukas_qto_change_organization_member(uuid,uuid,text,boolean,uuid),
   public.lukas_qto_remove_organization_member(uuid,uuid,text,uuid),
   public.lukas_qto_list_organization_members(uuid,uuid,integer),
+  public.lukas_qto_list_organization_invitations(uuid,uuid,integer),
+  public.lukas_qto_list_organization_projects(uuid,uuid,integer),
+  public.lukas_qto_list_managed_organizations(uuid,uuid,integer),
   public.lukas_qto_list_project_members(uuid,uuid,integer),
   public.lukas_qto_set_project_member(uuid,uuid,text,text,uuid),
   public.lukas_qto_remove_project_member(uuid,uuid,uuid,text,uuid),
   public.lukas_qto_move_project(uuid,uuid,uuid,text,uuid)
 to authenticated,service_role;
+grant execute on function
+  private.lukas_drawing_insert_quantity_link(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text),
+  private.lukas_qto_finalize_boq_v1_1(uuid,uuid,text,text,text,numeric,integer),
+  private.lukas_drawing_insert_material_handoff(uuid,uuid,text,uuid,text,jsonb,jsonb)
+to service_role;
 grant execute on function public.lukas_qto_set_organization_entitlement(uuid,text,integer,integer,integer,timestamptz,jsonb,text,uuid)
+to authenticated,service_role;
+grant execute on function
+  public.lukas_drawing_import_library_version(uuid,uuid,uuid,uuid,uuid),
+  public.lukas_drawing_put_boq_link(uuid,uuid,uuid,uuid,numeric,bigint),
+  public.lukas_drawing_delete_boq_link(uuid,bigint),
+  public.lukas_qto_boq_v1_1_input(uuid),
+  public.lukas_qto_decide_boq(uuid,text,text),
+  public.lukas_qto_import_boq_structure(uuid,jsonb)
 to authenticated,service_role;
 grant execute on function
   private.lukas_drawing_workspace_capability(uuid)

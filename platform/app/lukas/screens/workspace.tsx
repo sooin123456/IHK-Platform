@@ -64,12 +64,27 @@ export async function loader({ request }: Route.LoaderArgs) {
       ? { data: [], error: null }
       : await client
           .from("lukas_qto_organizations")
-          .select("id,name")
+          .select("id,name,owner_id")
           .in("id", organizationIds)
           .order("name")
           .limit(100);
   if (organizationsError)
     throw new Response("회사 작업공간을 불러오지 못했습니다.", { status: 500 });
+  const organizationRoles = new Map(
+    (organizationMemberships ?? []).map((membership) => [
+      membership.organization_id,
+      membership.role,
+    ]),
+  );
+  const isStaff = user.app_metadata.role === "hangil_staff";
+  const visibleOrganizations = (organizations ?? []).map((organization) => ({
+    id: organization.id,
+    name: organization.name,
+    can_manage:
+      isStaff ||
+      organization.owner_id === user.id ||
+      ["owner", "admin"].includes(organizationRoles.get(organization.id) ?? ""),
+  }));
 
   const projectIds = (projects ?? []).map((project) => project.id);
   const [filesResult, reviewsResult, membersResult] =
@@ -181,8 +196,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     projectMetrics,
     activities,
     email: user.email ?? "",
-    isStaff: user.app_metadata.role === "hangil_staff",
-    organizations: organizations ?? [],
+    isStaff,
+    organizations: visibleOrganizations,
   };
 }
 

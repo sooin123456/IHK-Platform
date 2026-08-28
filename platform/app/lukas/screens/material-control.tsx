@@ -18,6 +18,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
 import { storageObjectPath } from "~/lukas/lib/storage-object-key.server";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import { MaterialBoqLineage } from "~/lukas/components/material-boq-lineage";
@@ -373,6 +374,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .single();
   if (!project)
     throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+  await assertProjectOrganizationFeature(
+    db as any,
+    project.id,
+    "quantity_lineage",
+  );
   const [
     { data: plans },
     { data: transactions },
@@ -574,6 +580,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       { error: "프로젝트 접근 권한이 없습니다." },
       { status: 403, headers },
     );
+  await assertProjectOrganizationFeature(
+    db as any,
+    projectId,
+    "quantity_lineage",
+  );
   const form = await request.formData();
   const values = formObject(form);
   try {

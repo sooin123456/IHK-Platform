@@ -49,6 +49,7 @@ import {
   selectVerifiedBoqVersion,
 } from "~/lukas/lib/verified-boq-approved-export.server";
 import { buildVerifiedBoqXlsx } from "~/lukas/lib/verified-boq-xlsx.server";
+import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
 import {
   compareVerifiedBoqApprovedStates,
   type ReplayableApprovedBoqState,
@@ -498,6 +499,11 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const context = await getContext(request, params.projectId!);
+  await assertProjectOrganizationFeature(
+    context.client as any,
+    context.project.id,
+    "quantity_lineage",
+  );
   const url = new URL(request.url);
   if (url.searchParams.get("download") === "pricebook-template") {
     const artifact = buildVerifiedBoqPriceBookTemplateCsv();
@@ -976,6 +982,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export async function action({ request, params }: Route.ActionArgs) {
   const context = await getContext(request, params.projectId!);
+  await assertProjectOrganizationFeature(
+    context.client as any,
+    context.project.id,
+    "quantity_lineage",
+  );
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const back = (versionId?: string) =>

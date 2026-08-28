@@ -217,6 +217,121 @@ test("organization administration is mounted and project membership no longer sc
   assert.match(members, /lukas_qto_set_project_member/);
   assert.match(members, /p_after_user_id/);
   assert.match(screen, /memberAfter/);
+  assert.match(screen, /invitationAfter/);
+  assert.match(screen, /projectAfter/);
+  assert.match(screen, /destinationAfter/);
+  assert.match(screen, /lukas_qto_list_organization_invitations/);
+  assert.match(screen, /lukas_qto_list_organization_projects/);
+  assert.match(screen, /lukas_qto_list_managed_organizations/);
+  assert.doesNotMatch(screen, /targetUserId|inviteUserByEmail/);
+  assert.match(screen, /deliverOrganizationInvitationEmail/);
+});
+
+test("registered and unregistered invitation delivery uses one neutral fail-closed provider path", async () => {
+  const { deliverOrganizationInvitationEmail } =
+    await import("../app/lukas/lib/organization-administration.server.ts");
+  const deliveries = [];
+  const input = {
+    email: "person@example.com",
+    invitationId: ids.invitation,
+    organizationName: "1HK",
+    origin: "https://example.com",
+  };
+  await deliverOrganizationInvitationEmail(input, {
+    apiKey: "test-key",
+    send: async (message) => {
+      deliveries.push(message);
+      return { error: null };
+    },
+  });
+  assert.equal(deliveries.length, 1);
+  assert.deepEqual(deliveries[0].to, [input.email]);
+  assert.match(deliveries[0].html, new RegExp(ids.invitation));
+  await assert.rejects(
+    deliverOrganizationInvitationEmail(input, {
+      apiKey: "",
+      send: async () => ({ error: null }),
+    }),
+    /delivery provider is unavailable/i,
+  );
+  await assert.rejects(
+    deliverOrganizationInvitationEmail(input, {
+      apiKey: "test-key",
+      send: async () => ({ error: { message: "provider failed" } }),
+    }),
+    /provider failed/i,
+  );
+});
+
+test("workspace dashboard hides organization administration from ordinary members", () => {
+  const workspace = readFileSync(
+    new URL("../app/lukas/screens/workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const dashboard = readFileSync(
+    new URL("../app/lukas/components/workspace-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(workspace, /owner_id/);
+  assert.match(workspace, /can_manage/);
+  assert.match(dashboard, /organization\.can_manage[\s\S]*회사 관리/);
+});
+
+test("organization invitations, projects, and destinations continue beyond 100 exact rows", async () => {
+  const { loadOrganizationAdminPage } =
+    await import("../app/lukas/lib/organization-administration.server.ts");
+  const configurations = [
+    {
+      rpc: "lukas_qto_list_organization_invitations",
+      cursorArgument: "p_after_invitation_id",
+    },
+    {
+      rpc: "lukas_qto_list_organization_projects",
+      cursorArgument: "p_after_project_id",
+    },
+    {
+      rpc: "lukas_qto_list_managed_organizations",
+      cursorArgument: "p_after_organization_id",
+    },
+  ];
+  const rows = Array.from({ length: 101 }, (_, index) => ({
+    id: `75000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  }));
+  for (const configuration of configurations) {
+    const calls = [];
+    const client = {
+      rpc(name, args) {
+        assert.equal(name, configuration.rpc);
+        calls.push(args);
+        const after = args[configuration.cursorArgument];
+        const offset =
+          after === null ? 0 : rows.findIndex(({ id }) => id === after) + 1;
+        return Promise.resolve({
+          data: rows.slice(offset, offset + args.p_page_size),
+          error: null,
+        });
+      },
+    };
+    const first = await loadOrganizationAdminPage(
+      client,
+      configuration.rpc,
+      ids.organization,
+      null,
+    );
+    const second = await loadOrganizationAdminPage(
+      client,
+      configuration.rpc,
+      ids.organization,
+      first.next,
+    );
+    assert.equal(first.rows.length, 100);
+    assert.equal(second.rows.length, 1);
+    assert.deepEqual(
+      [...first.rows, ...second.rows].map(({ id }) => id),
+      rows.map(({ id }) => id),
+    );
+    assert.equal(calls[1][configuration.cursorArgument], rows[99].id);
+  }
 });
 
 test("IFC and quantity lineage feature flags are revalidated by route actions and loaders", () => {
@@ -235,6 +350,14 @@ test("IFC and quantity lineage feature flags are revalidated by route actions an
     new URL("../app/lukas/screens/ifc-browser.tsx", import.meta.url),
     "utf8",
   );
+  const verifiedBoq = readFileSync(
+    new URL("../app/lukas/screens/verified-boq.tsx", import.meta.url),
+    "utf8",
+  );
+  const materialControl = readFileSync(
+    new URL("../app/lukas/screens/material-control.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(administration, /assertProjectOrganizationFeature/);
   assert.match(administration, /lukas_qto_organization_feature_enabled/);
   assert.match(
@@ -250,4 +373,12 @@ test("IFC and quantity lineage feature flags are revalidated by route actions an
     /assertProjectOrganizationFeature[\s\S]*ifc_workspace/,
   );
   assert.match(ifc, /assertProjectOrganizationFeature[\s\S]*ifc_workspace/);
+  assert.match(
+    verifiedBoq,
+    /assertProjectOrganizationFeature[\s\S]*quantity_lineage/,
+  );
+  assert.match(
+    materialControl,
+    /assertProjectOrganizationFeature[\s\S]*quantity_lineage/,
+  );
 });

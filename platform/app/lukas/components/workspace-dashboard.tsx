@@ -71,7 +71,7 @@ type WorkspaceDashboardProps = {
   activities: WorkspaceActivity[];
   email: string;
   isStaff: boolean;
-  organizations?: Array<{ id: string; name: string }>;
+  organizations?: Array<{ id: string; name: string; can_manage: boolean }>;
   actionError?: string;
   previewMode?: boolean;
 };
@@ -326,12 +326,14 @@ export function WorkspaceDashboard({
           <div className="mt-auto space-y-2">
             {organizations.map((organization) => (
               <div key={organization.id}>
-                <Link
-                  className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
-                  to={linkTo(`/organizations/${organization.id}/settings`)}
-                >
-                  <Settings className="size-4" /> 회사 관리
-                </Link>
+                {organization.can_manage ? (
+                  <Link
+                    className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                    to={linkTo(`/organizations/${organization.id}/settings`)}
+                  >
+                    <Settings className="size-4" /> 회사 관리
+                  </Link>
+                ) : null}
                 <Link
                   className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
                   to={linkTo(
