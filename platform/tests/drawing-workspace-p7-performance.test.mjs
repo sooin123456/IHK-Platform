@@ -9,6 +9,7 @@ const evidenceModule =
   await import("../scripts/drawing-p7-performance-evidence.mjs").catch(
     () => ({}),
   );
+const runnerModule = await import("../scripts/run-drawing-p7-performance.mjs");
 
 const evidencePath = new URL(
   "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
@@ -50,7 +51,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   rawMutation.warm.rawSamples.selection[0].durationMs += 1;
   assert.throws(
     () => evidenceModule.validateDrawingP7PerformanceEvidence(rawMutation),
-    /capture checksum/,
+    /runner Playwright capture authority/,
   );
 
   const selectionMutation = structuredClone(runnerEvidence);
@@ -61,7 +62,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   assert.throws(
     () =>
       evidenceModule.validateDrawingP7PerformanceEvidence(selectionMutation),
-    /committed selection/,
+    /runner Playwright capture authority/,
   );
 
   const buildMutation = structuredClone(runnerEvidence);
@@ -70,7 +71,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
     evidenceModule.drawingP7CaptureSha256(buildMutation);
   assert.throws(
     () => evidenceModule.validateDrawingP7PerformanceEvidence(buildMutation),
-    /build provenance/,
+    /runner Playwright capture authority/,
   );
 });
 
@@ -99,6 +100,11 @@ test("P7 cannot promote fabricated one-millisecond timings without the runner Pl
     }
   }
   fabricated.pdfRaster.mountedAtMs = 1;
+  fabricated.coldCacheMiss.durationMs = 1;
+  for (const key of Object.keys(fabricated.coldCacheMiss.readiness))
+    fabricated.coldCacheMiss.readiness[key] =
+      key === "navigationStartMs" ? 0 : 1;
+  fabricated.coldCacheMiss.status = "MET";
   fabricated.firstUsable.durationMs = 1;
   for (const key of Object.keys(fabricated.firstUsable.readiness))
     fabricated.firstUsable.readiness[key] = key === "navigationStartMs" ? 0 : 1;
@@ -150,6 +156,34 @@ test("a later Playwright failure removes evidence written earlier in the run", (
   assert.equal(existsSync(capture), false);
 });
 
+test("the runner removes an early MET artifact when a later Playwright test exits nonzero", async () => {
+  const evidencePath = evidenceModule.P7_PERFORMANCE_EVIDENCE_PATH;
+  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
+  const savedEvidence = readFileSync(evidencePath);
+  const savedCapture = readFileSync(capturePath);
+  let temporaryCapturePath = "";
+  try {
+    const status = await runnerModule.runDrawingP7PerformanceGate(
+      [],
+      process.env,
+      async (argv, environment) => {
+        if (argv[0] === "npm") return 0;
+        temporaryCapturePath = environment.P7_PLAYWRIGHT_CAPTURE_PATH;
+        writeFileSync(evidencePath, '{"status":"MET"}\n');
+        writeFileSync(temporaryCapturePath, '{"firstUsableMs":1}\n');
+        return 1;
+      },
+    );
+    assert.equal(status, 1);
+    assert.equal(existsSync(evidencePath), false);
+    assert.equal(existsSync(capturePath), false);
+    assert.equal(existsSync(temporaryCapturePath), false);
+  } finally {
+    writeFileSync(evidencePath, savedEvidence);
+    writeFileSync(capturePath, savedCapture);
+  }
+});
+
 test("P7 requires a verified first-visible raster cache hit with real pixel authority", () => {
   assert.equal(runnerEvidence.pdfRaster.cacheStatus, "HIT");
   assert.equal(runnerEvidence.pdfRaster.authority, "SHA256_DERIVED_CACHE");
@@ -162,7 +196,7 @@ test("P7 requires a verified first-visible raster cache hit with real pixel auth
   miss.provenance.captureSha256 = evidenceModule.drawingP7CaptureSha256(miss);
   assert.throws(
     () => evidenceModule.validateDrawingP7PerformanceEvidence(miss),
-    /raster cache HIT/,
+    /runner Playwright capture authority/,
   );
 });
 
@@ -176,6 +210,19 @@ test("P7 derives readiness and p95 from raw samples instead of trusting summarie
       Number.isFinite(durationMs),
     ),
   );
+  const runnerCapture = JSON.parse(
+    readFileSync(evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH, "utf8"),
+  );
+  const derived =
+    evidenceModule.drawingP7EvidenceFromPlaywrightCapture(runnerCapture);
+  assert.equal(
+    derived.firstUsable.durationMs,
+    runnerCapture.firstUsable.readiness.usableFrameEndMs,
+  );
+  assert.equal(
+    derived.coldCacheMiss.durationMs,
+    runnerCapture.coldCacheMiss.readiness.usableFrameEndMs,
+  );
   const firstUsableMutation = structuredClone(runnerEvidence);
   firstUsableMutation.firstUsable.durationMs -= 1;
   firstUsableMutation.provenance.captureSha256 =
@@ -183,7 +230,7 @@ test("P7 derives readiness and p95 from raw samples instead of trusting summarie
   assert.throws(
     () =>
       evidenceModule.validateDrawingP7PerformanceEvidence(firstUsableMutation),
-    /first usable duration/,
+    /runner Playwright capture authority/,
   );
 
   const p95Mutation = structuredClone(runnerEvidence);
@@ -192,7 +239,7 @@ test("P7 derives readiness and p95 from raw samples instead of trusting summarie
     evidenceModule.drawingP7CaptureSha256(p95Mutation);
   assert.throws(
     () => evidenceModule.validateDrawingP7PerformanceEvidence(p95Mutation),
-    /selection p95/,
+    /runner Playwright capture authority/,
   );
 });
 
