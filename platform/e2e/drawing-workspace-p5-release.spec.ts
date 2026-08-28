@@ -194,6 +194,9 @@ test("offline unlink and undo survive reopen, acknowledge, and remain denied to 
   const path = `${canonicalPath}?p5ReleaseTest=1&realtimeTest=1`;
   const sourceBefore = await sourceByteEvidence(page);
   await ready(page, path);
+  await expect(
+    page.getByRole("region", { name: "도면 캔버스" }),
+  ).toHaveAttribute("data-edit-ready", "true");
   await page.getByRole("button", { name: "P5 연결 객체 선택" }).click();
   const before = await snapshot(page);
   expect(

@@ -1143,10 +1143,7 @@ export default function DrawingWorkspaceClient({
     persistenceFailed: persistenceState.failed,
   });
   const baseCanEdit =
-    outboxReady &&
-    !reviewPreparing &&
-    capabilityCanPersist &&
-    authorityCanWrite;
+    editReady && !reviewPreparing && capabilityCanPersist && authorityCanWrite;
   const authorizationProbe = useMemo(
     () =>
       deriveDrawingTransientState(drawingState, {
