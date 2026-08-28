@@ -5,6 +5,7 @@ import { Link, redirect } from "react-router";
 
 import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
 
 export const meta: Route.MetaFunction = ({ data }) => [
   {
@@ -28,6 +29,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .single();
   if (!project)
     throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+  await assertProjectOrganizationFeature(
+    client as any,
+    project.id,
+    "ifc_workspace",
+  );
 
   const { data: file } = await client
     .from("lukas_qto_files")

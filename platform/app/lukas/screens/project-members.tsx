@@ -1,7 +1,5 @@
 import type { Route } from "./+types/project-members";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "database.types";
 import { ArrowLeft, UserPlus } from "lucide-react";
 import { Form, Link, data, redirect } from "react-router";
 import { z } from "zod";
@@ -26,24 +24,6 @@ const roleLabels: Record<string, string> = {
   procurement: "구매·계산서",
   viewer: "조회 전용",
 };
-type MemberRow = {
-  project_id: string;
-  user_id: string;
-  role: string;
-  created_at: string;
-};
-type MemberDatabase = Omit<Database, "public"> & {
-  public: Omit<Database["public"], "Tables"> & {
-    Tables: Database["public"]["Tables"] & {
-      lukas_qto_project_members: {
-        Row: MemberRow;
-        Insert: Omit<MemberRow, "created_at"> & { created_at?: string };
-        Update: { role?: string };
-        Relationships: [];
-      };
-    };
-  };
-};
 
 async function context(request: Request, projectId: string) {
   const [client, headers] = makeServerClient(request);
@@ -53,134 +33,254 @@ async function context(request: Request, projectId: string) {
   if (!user || user.is_anonymous) throw redirect("/login");
   const { data: project } = await client
     .from("lukas_qto_projects")
-    .select("id, name, owner_id")
+    .select("id,name,owner_id,organization_id")
     .eq("id", projectId)
     .single();
-  if (!project) throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+  if (!project)
+    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+  const [{ data: organization }, { data: organizationMembership }] =
+    await Promise.all([
+      client
+        .from("lukas_qto_organizations")
+        .select("owner_id")
+        .eq("id", project.organization_id)
+        .maybeSingle(),
+      client
+        .from("lukas_qto_organization_members")
+        .select("role")
+        .eq("organization_id", project.organization_id)
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
   const mayManage =
-    project.owner_id === user.id || user.app_metadata.role === "hangil_staff";
+    project.owner_id === user.id ||
+    organization?.owner_id === user.id ||
+    organizationMembership?.role === "owner" ||
+    organizationMembership?.role === "admin" ||
+    user.app_metadata.role === "hangil_staff";
   if (!mayManage)
-    throw new Response("프로젝트 소유자만 구성원을 관리할 수 있습니다.", {
-      status: 403,
-    });
-  return {
-    client: client as unknown as SupabaseClient<MemberDatabase>,
-    headers,
-    project,
-    user,
-  };
+    throw new Response(
+      "프로젝트 소유자 또는 회사 관리자만 구성원을 관리할 수 있습니다.",
+      {
+        status: 403,
+      },
+    );
+  return { client: client as any, headers, project };
 }
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
-  { title: page?.project ? `${page.project.name} 구성원 | 한길시스템` : "프로젝트 구성원" },
+  {
+    title: page?.project
+      ? `${page.project.name} 구성원 | 1HK Platform`
+      : "프로젝트 구성원",
+  },
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const { client, project } = await context(request, params.projectId!);
-  const { data: members, error } = await client
-    .from("lukas_qto_project_members")
-    .select("project_id, user_id, role, created_at")
-    .eq("project_id", project.id)
-    .order("created_at");
-  if (error) throw new Response("구성원을 불러오지 못했습니다.", { status: 500 });
-  const { default: adminClient } = await import("~/core/lib/supa-admin-client.server");
-  const { data: users, error: usersError } = await adminClient.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (usersError) throw new Response("구성원 이메일을 확인하지 못했습니다.", { status: 500 });
-  const emailById = new Map(users.users.map((user) => [user.id, user.email ?? "이메일 없음"]));
-  return {
-    project,
-    members: (members ?? []).map((member) => ({
-      ...member,
-      email: emailById.get(member.user_id) ?? "등록 사용자",
-    })),
-  };
+  const { client, headers, project } = await context(
+    request,
+    params.projectId!,
+  );
+  const cursor = z
+    .string()
+    .uuid()
+    .nullable()
+    .safeParse(new URL(request.url).searchParams.get("after"));
+  if (!cursor.success)
+    throw new Response("구성원 페이지 위치가 올바르지 않습니다.", {
+      status: 400,
+    });
+  const result: { data: any[] | null; error: { message: string } | null } =
+    await client.rpc("lukas_qto_list_project_members", {
+      p_project_id: project.id,
+      p_after_user_id: cursor.data,
+      p_page_size: 100,
+    });
+  if (result.error)
+    throw new Response("구성원을 불러오지 못했습니다.", { status: 500 });
+  const members = result.data ?? [];
+  return data(
+    {
+      project,
+      members,
+      next: members.length === 100 ? members.at(-1).user_id : null,
+      requestIds: {
+        add: crypto.randomUUID(),
+        remove: Object.fromEntries(
+          members.map((member) => [member.user_id, crypto.randomUUID()]),
+        ),
+      },
+    },
+    { headers },
+  );
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const { client, headers, project } = await context(request, params.projectId!);
+  const { client, headers, project } = await context(
+    request,
+    params.projectId!,
+  );
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   try {
-    if (intent === "add") {
+    if (intent === "set") {
+      const unexpected = [...form.keys()].find(
+        (key) => !["intent", "email", "role", "request_id"].includes(key),
+      );
+      if (unexpected) throw new Error(`허용되지 않은 필드: ${unexpected}`);
       const parsed = z
         .object({
-          email: z.string().trim().email().transform((value) => value.toLowerCase()),
+          email: z
+            .string()
+            .trim()
+            .email()
+            .transform((value) => value.toLowerCase()),
           role: z.enum(assignableRoles),
+          request_id: z.string().uuid(),
         })
-        .parse({ email: form.get("email"), role: form.get("role") });
-      const { default: adminClient } = await import("~/core/lib/supa-admin-client.server");
-      const { data: users, error: usersError } = await adminClient.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000,
+        .parse(Object.fromEntries(form));
+      const { error } = await client.rpc("lukas_qto_set_project_member", {
+        p_organization_id: project.organization_id,
+        p_project_id: project.id,
+        p_email: parsed.email,
+        p_role: parsed.role,
+        p_request_id: parsed.request_id,
       });
-      if (usersError) throw usersError;
-      const target = users.users.find(
-        (user) => user.email?.toLowerCase() === parsed.email,
-      );
-      if (!target || target.is_anonymous)
-        throw new Error("먼저 해당 이메일로 Lukas QTO에 가입해야 합니다.");
-      if (target.id === project.owner_id)
-        throw new Error("프로젝트 소유자의 역할은 변경할 수 없습니다.");
-      const { error } = await client.from("lukas_qto_project_members").upsert(
-        { project_id: project.id, user_id: target.id, role: parsed.role },
-        { onConflict: "project_id,user_id" },
-      );
       if (error) throw error;
     } else if (intent === "remove") {
-      const userId = z.string().uuid().parse(form.get("user_id"));
-      if (userId === project.owner_id)
-        throw new Error("프로젝트 소유자는 제거할 수 없습니다.");
-      const { error } = await client
-        .from("lukas_qto_project_members")
-        .delete()
-        .eq("project_id", project.id)
-        .eq("user_id", userId);
+      const unexpected = [...form.keys()].find(
+        (key) => !["intent", "user_id", "reason", "request_id"].includes(key),
+      );
+      if (unexpected) throw new Error(`허용되지 않은 필드: ${unexpected}`);
+      const parsed = z
+        .object({
+          user_id: z.string().uuid(),
+          reason: z.string().trim().min(1).max(1000),
+          request_id: z.string().uuid(),
+        })
+        .parse(Object.fromEntries(form));
+      const { error } = await client.rpc("lukas_qto_remove_project_member", {
+        p_organization_id: project.organization_id,
+        p_project_id: project.id,
+        p_user_id: parsed.user_id,
+        p_reason: parsed.reason,
+        p_request_id: parsed.request_id,
+      });
       if (error) throw error;
     } else throw new Error("지원하지 않는 작업입니다.");
     return redirect(`/projects/${project.id}/members`, { headers });
   } catch (error) {
     return data(
-      { error: error instanceof Error ? error.message : "구성원을 저장하지 못했습니다." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "구성원을 저장하지 못했습니다.",
+      },
       { status: 400, headers },
     );
   }
 }
 
-export default function ProjectMembers({ loaderData, actionData }: Route.ComponentProps) {
+function Hidden({ name, value }: { name: string; value: string }) {
+  return <input name={name} type="hidden" value={value} />;
+}
+
+export default function ProjectMembers({
+  loaderData,
+  actionData,
+}: Route.ComponentProps) {
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
-      <Link className="inline-flex items-center gap-1 text-sm text-muted-foreground underline underline-offset-4" to={`/projects/${loaderData.project.id}`}>
+      <Link
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground underline underline-offset-4"
+        to={`/projects/${loaderData.project.id}`}
+      >
         <ArrowLeft className="size-4" /> 프로젝트로 돌아가기
       </Link>
       <header className="mt-5 border-b pb-8">
-        <p className="text-sm font-bold text-primary">ROLE SEPARATION</p>
-        <h1 className="mt-2 text-3xl font-bold">{loaderData.project.name} 구성원</h1>
+        <p className="text-sm font-bold text-primary">역할 분리</p>
+        <h1 className="mt-2 text-3xl font-bold">
+          {loaderData.project.name} 구성원
+        </h1>
         <p className="mt-3 text-muted-foreground">
-          적산은 계획을 만들고, 검토자는 승인하며, 현장은 입고·설치·반품·폐기를,
-          구매 담당은 발주·계산서·EPD를 기록합니다.
+          회사에 참여한 정확한 이메일만 프로젝트 역할에 배정합니다.
         </p>
       </header>
-      {actionData?.error ? <p className="mt-5 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{actionData.error}</p> : null}
+      {actionData?.error ? (
+        <p className="mt-5 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
+          {actionData.error}
+        </p>
+      ) : null}
       <section className="mt-8 rounded-2xl border bg-card p-6">
-        <h2 className="font-semibold">가입한 사용자 초대</h2>
-        <Form className="mt-4 grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end" method="post">
-          <input name="intent" type="hidden" value="add" />
-          <div className="grid gap-2"><Label htmlFor="member-email">이메일</Label><Input id="member-email" name="email" required type="email" /></div>
-          <div className="grid gap-2"><Label htmlFor="member-role">역할</Label><select className="h-10 rounded-md border bg-background px-3 text-sm" id="member-role" name="role">{assignableRoles.map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></div>
-          <Button type="submit"><UserPlus className="size-4" /> 추가·변경</Button>
+        <h2 className="font-semibold">회사 구성원 배정</h2>
+        <Form
+          className="mt-4 grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
+          method="post"
+        >
+          <Hidden name="intent" value="set" />
+          <Hidden name="request_id" value={loaderData.requestIds.add} />
+          <div className="grid gap-2">
+            <Label htmlFor="member-email">이메일</Label>
+            <Input id="member-email" name="email" required type="email" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="member-role">역할</Label>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              id="member-role"
+              name="role"
+            >
+              {assignableRoles.map((role) => (
+                <option key={role} value={role}>
+                  {roleLabels[role]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button type="submit">
+            <UserPlus className="size-4" /> 추가·변경
+          </Button>
         </Form>
       </section>
       <ul className="mt-6 grid gap-3">
-        {loaderData.members.map((member) => (
-          <li className="flex flex-col gap-3 rounded-2xl border bg-card p-5 sm:flex-row sm:items-center sm:justify-between" key={member.user_id}>
-            <div><p className="font-medium">{member.email}</p><p className="mt-1 text-sm text-muted-foreground">{roleLabels[member.role] ?? member.role}</p></div>
-            {member.role !== "owner" ? <Form method="post"><input name="intent" type="hidden" value="remove" /><input name="user_id" type="hidden" value={member.user_id} /><Button size="sm" type="submit" variant="outline">제거</Button></Form> : null}
+        {loaderData.members.map((member: any) => (
+          <li
+            className="flex flex-col gap-3 rounded-2xl border bg-card p-5 sm:flex-row sm:items-center sm:justify-between"
+            key={member.user_id}
+          >
+            <div>
+              <p className="font-medium">{member.email}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {roleLabels[member.role] ?? member.role}
+              </p>
+            </div>
+            {member.role !== "owner" ? (
+              <Form method="post">
+                <Hidden name="intent" value="remove" />
+                <Hidden name="user_id" value={member.user_id} />
+                <Hidden name="reason" value="프로젝트 역할 해제" />
+                <Hidden
+                  name="request_id"
+                  value={loaderData.requestIds.remove[member.user_id]}
+                />
+                <Button size="sm" type="submit" variant="outline">
+                  제거
+                </Button>
+              </Form>
+            ) : null}
           </li>
         ))}
       </ul>
+      {loaderData.next ? (
+        <Button asChild className="mt-4" size="sm" variant="outline">
+          <Link
+            to={`/projects/${loaderData.project.id}/members?after=${loaderData.next}`}
+          >
+            다음 구성원
+          </Link>
+        </Button>
+      ) : null}
     </main>
   );
 }

@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Plus,
   Search,
+  Settings,
   UserRound,
   Users,
 } from "lucide-react";
@@ -325,6 +326,12 @@ export function WorkspaceDashboard({
           <div className="mt-auto space-y-2">
             {organizations.map((organization) => (
               <div key={organization.id}>
+                <Link
+                  className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                  to={linkTo(`/organizations/${organization.id}/settings`)}
+                >
+                  <Settings className="size-4" /> 회사 관리
+                </Link>
                 <Link
                   className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
                   to={linkTo(

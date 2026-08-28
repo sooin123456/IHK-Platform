@@ -39,6 +39,7 @@ import {
   resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
+import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type {
   DrawingWorkspaceCapability,
@@ -60,6 +61,11 @@ function canEdit(capability: DrawingWorkspaceCapability) {
 async function workspaceContext(request: Request, projectId: string) {
   const context = await drawingContext(request, projectId);
   const client = context.client as unknown as DrawingWorkspaceDatabaseClient;
+  await assertProjectOrganizationFeature(
+    client as any,
+    context.project.id,
+    "drawing_workspace",
+  );
   const capability = await loadDrawingWorkspaceCapability(
     client,
     context.project.id,
@@ -87,6 +93,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       status: 400,
     });
   }
+  if (lineageSearch.objectId || lineageSearch.boqVersionId)
+    await assertProjectOrganizationFeature(
+      client as any,
+      project.id,
+      "quantity_lineage",
+    );
   if (lineageSearch.boqVersionId && lineageSearch.boqLineId) {
     try {
       if (!lineageSearch.evidenceFileId)
@@ -125,6 +137,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       status: 400,
     });
   }
+  if (viewState.view !== "2d")
+    await assertProjectOrganizationFeature(
+      client as any,
+      project.id,
+      "ifc_workspace",
+    );
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
@@ -274,6 +292,11 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
   const intent = form.get("intent");
   if (intent === "create_drawing_quantity_link") {
+    await assertProjectOrganizationFeature(
+      client as any,
+      project.id,
+      "quantity_lineage",
+    );
     const stableLinkId = form.get("link_id");
     try {
       const mutation = parseDrawingQuantityLinkForm(form);

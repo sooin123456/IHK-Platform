@@ -57,6 +57,14 @@ export default [
         "/organizations/:organizationId/retention",
         "lukas/screens/organization-retention.tsx",
       ),
+      route(
+        "/organizations/:organizationId/settings",
+        "lukas/screens/organization-settings.tsx",
+      ),
+      route(
+        "/organization-invitations/:invitationId/accept",
+        "lukas/screens/organization-invitation-accept.tsx",
+      ),
       route("/notifications", "lukas/screens/drawing-notifications.tsx"),
       route("/staff/inquiries", "lukas/screens/staff-inquiries.tsx"),
       route("/projects/:projectId", "lukas/screens/project.tsx"),
