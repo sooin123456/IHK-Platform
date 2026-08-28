@@ -1,0 +1,86 @@
+diff --git a/IfcPlusPlus/CMakeLists.txt b/IfcPlusPlus/CMakeLists.txt
+--- a/IfcPlusPlus/CMakeLists.txt
++++ b/IfcPlusPlus/CMakeLists.txt
+@@ -36,1 +35,0 @@
+-    src/ifcpp/writer/WriterSTEP.cpp
+@@ -38,37 +36,0 @@
+-	src/ifcpp/geometry/CSG_Adapter.cpp
+-	src/ifcpp/geometry/CurveConverter.cpp
+-	src/ifcpp/geometry/GeometryInputData.cpp
+-	src/ifcpp/geometry/MeshOps.cpp
+-	src/ifcpp/geometry/MeshSimplifier.cpp
+-	src/ifcpp/geometry/SolidModelConverter.cpp
+-	src/external/Carve/src/lib/aabb.cpp
+-	src/external/Carve/src/lib/carve.cpp
+-	src/external/Carve/src/lib/convex_hull.cpp
+-	src/external/Carve/src/lib/csg.cpp
+-	src/external/Carve/src/lib/csg_collector.cpp
+-	src/external/Carve/src/lib/edge.cpp
+-	src/external/Carve/src/lib/face.cpp
+-	src/external/Carve/src/lib/geom.cpp
+-	src/external/Carve/src/lib/geom2d.cpp
+-	src/external/Carve/src/lib/geom3d.cpp
+-	src/external/Carve/src/lib/intersect.cpp
+-	src/external/Carve/src/lib/intersect_classify_edge.cpp
+-	src/external/Carve/src/lib/intersect_classify_group.cpp
+-	src/external/Carve/src/lib/intersect_debug.cpp
+-	src/external/Carve/src/lib/intersect_face_division.cpp
+-	src/external/Carve/src/lib/intersect_group.cpp
+-	src/external/Carve/src/lib/intersect_half_classify_group.cpp
+-	src/external/Carve/src/lib/intersection.cpp
+-	src/external/Carve/src/lib/math.cpp
+-	src/external/Carve/src/lib/mesh.cpp
+-	src/external/Carve/src/lib/octree.cpp
+-	src/external/Carve/src/lib/pointset.cpp
+-	src/external/Carve/src/lib/polyhedron.cpp
+-	src/external/Carve/src/lib/polyline.cpp
+-	src/external/Carve/src/lib/shewchuk_predicates.cpp
+-	src/external/Carve/src/lib/tag.cpp
+-	src/external/Carve/src/lib/timing.cpp
+-	src/external/Carve/src/lib/triangle_intersection.cpp
+-	src/external/Carve/src/lib/triangulator.cpp
+-	src/external/Carve/src/common/geometry.cpp
+-	src/external/zip-master/zip.c
+diff --git a/IfcPlusPlus/src/ifcpp/reader/ReaderSTEP.cpp b/IfcPlusPlus/src/ifcpp/reader/ReaderSTEP.cpp
+--- a/IfcPlusPlus/src/ifcpp/reader/ReaderSTEP.cpp
++++ b/IfcPlusPlus/src/ifcpp/reader/ReaderSTEP.cpp
+@@ -62,2 +61,0 @@
+-#include <external/zippy/zippy.hpp>
+-
+@@ -89,36 +86,0 @@
+-	else if (std_iequal(ext, ".ifcZIP") || std_iequal(ext, ".zip"))
+-	{
+-		std::stringstream buffer;
+-		buffer.seekp(0, std::ios::end);
+-		std::stringstream::pos_type buffer_size = buffer.tellp();
+-
+-		uncompressedFileName = filePath + "_uncompressed77334.ifc";
+-
+-		std::shared_ptr<Zippy::ZipArchive> archive(new Zippy::ZipArchive());
+-		archive->Open(filePath.c_str());
+-
+-		std::vector<std::string> entryNames = archive->GetEntryNames();
+-		if (entryNames.size() == 0)
+-		{
+-			return;
+-		}
+-
+-		std::string zipcontent = archive->GetEntry(entryNames[0]).GetDataAsString();
+-		std::ofstream zipFileUncompressed(uncompressedFileName, std::ofstream::out);
+-		zipFileUncompressed << zipcontent;
+-		zipFileUncompressed.close();
+-
+-		std::ifstream infile;
+-		infile.open(uncompressedFileName.c_str(), std::ifstream::in);
+-
+-		if (!infile.is_open())
+-		{
+-			std::stringstream strs;
+-			strs << "Could not unzip file: " << filePath;
+-			messageCallback(strs.str(), StatusCallback::MESSAGE_TYPE_ERROR, __FUNC__);
+-			return;
+-		}
+-
+-
+-		filePathRead = uncompressedFileName;
+-	}
