@@ -2,9 +2,9 @@
 
 Date: 2026-08-28
 
-Authority: current source implementation and the final local audit are bound to `8155fa3db98d1fd1ef3a02ed11a4088fdfbfd087`. The source-bound 10k capture identifies this authority-source commit independently from later evidence-only commits.
+Authority: current source implementation and the final local audit are bound to `88dbc7b03d0c11ec70e3a20543b67916abf1f47e`. The source-bound 10k capture identifies this authority-source commit independently from later evidence-only commits.
 
-Overall release status: **NOT_MET**. The fail-closed ledger has **35 PASS, 1 NOT_MET, and 11 UNEXECUTED** requirements. Local implementation is not promoted to production authority.
+Overall release status: **NOT_MET**. The fail-closed ledger has **35 PASS, 1 NOT_MET, and 12 UNEXECUTED** requirements. Local implementation is not promoted to production authority.
 
 ## P0–P7 scope
 
@@ -38,14 +38,14 @@ Overall release status: **NOT_MET**. The fail-closed ledger has **35 PASS, 1 NOT
 
 | Gate | Status | Evidence or missing authority |
 | --- | --- | --- |
-| 10,000 objects, desktop 60fps / warm p95 <=16.7ms | PASS | zoom 0.2ms, pan 0.3ms, selection 9.0ms p95 |
-| First usable <=2.5s | PASS for warm reopen; **NOT_MET for cold/cache miss** | warm 2290.4ms; cold 2713.4ms |
-| Collaboration p95 <=500ms | UNEXECUTED production | signed provider telemetry endpoint/token and hosted sessions absent |
+| 10,000 objects, desktop 60fps / warm p95 <=16.7ms | PASS | zoom 0.2ms, pan 0.3ms, selection 8.3ms p95 |
+| First usable <=2.5s | PASS for warm reopen; **NOT_MET for cold/cache miss** | warm 2284.6ms; cold 2843.8ms |
+| Collaboration p95 <=500ms | UNEXECUTED production | trusted provider-domain signed/immutable nonce receipt and hosted sessions absent |
 | Disconnect/reconnect loss 0 | PASS local; UNEXECUTED production | outbox/Yjs crash-recovery regressions pass; real hosted three-user flow absent |
 | Cross-organization RLS counterexamples | PASS PGlite; UNEXECUTED real PostgreSQL | `DRAWING_P7_REAL_DATABASE_URL` and `P7_REAL_POSTGRES_DATABASE_URL` absent |
 | Approved revision direct update/delete denied | PASS PGlite; UNEXECUTED real PostgreSQL | trigger/RPC tests pass; real role/JWT session authority absent |
-| Three users perform open -> author -> comment -> revise -> review -> approve -> export | UNEXECUTED | actual hosted identities and mounted production fixture IDs absent; fixture/example users are rejected |
-| Existing IFC/PDF, collaboration, quantity, approval, Revit and material flows regress cleanly | PASS local | complete Drawing Workspace 831 total, 825 pass, 0 fail, 6 authority skips |
+| Three users perform open -> author -> comment -> revise -> review -> approve -> export | UNEXECUTED | actual hosted identities and mounted production fixture IDs absent; fixture/example users are rejected; reviewer and approver authority are separately verified |
+| Existing IFC/PDF, collaboration, quantity, approval, Revit and material flows regress cleanly | PASS local | complete Drawing Workspace 841 total, 835 pass, 0 fail, 6 authority skips |
 
 ## P7 invariant audit
 
@@ -66,10 +66,11 @@ Overall release status: **NOT_MET**. The fail-closed ledger has **35 PASS, 1 NOT
 | 13 | No second state manager/CRDT/server/microfrontend/Redis/queue/AI dependency | PASS |
 | 14 | No wholesale Penpot/Excalidraw/tldraw/Rayon transplant; narrow OSS only | PASS; license closure 7/7 |
 | 15 | Three mounted real production users complete the complete workflow | UNEXECUTED |
+| 16 | Reviewer recommendation and independent Approver final approval are separate authorities | PASS local/PGlite; real PostgreSQL and hosted three-user proof UNEXECUTED |
 
 ## Exact unresolved production inputs
 
-Hosted application and users require `P7_E2E_BASE_URL`, managed Supabase URL/anon/service keys, real PostgreSQL URL, hosted collaboration WSS URL, provider telemetry URL/token, exact deployed commit/deployment/region/run identity, exact project/document/revision/file/layer UUIDs, and three distinct real author/commenter/approver UUID/email pairs. The authority rejects localhost, `.test`, example, fixture, local, dummy and test identities.
+Hosted application and users require `P7_E2E_BASE_URL`, managed Supabase URL/anon/service keys, both `DRAWING_P7_REAL_DATABASE_URL` and `P7_REAL_POSTGRES_DATABASE_URL`, hosted collaboration WSS URL, a trusted provider-domain signed/immutable nonce telemetry receipt, exact deployed commit/deployment/region/run identity, exact project/document/revision/file/layer UUIDs, and three distinct real author/reviewer/approver UUID/email pairs. The authority rejects localhost, `.test`, example, fixture, local, dummy and test identities.
 
 Managed restore additionally requires `P7_RESTORE_MANAGEMENT_ACCESS_TOKEN`, distinct source/target project refs, organization and request UUIDs, source commit, provider backup ID, source/target Supabase URLs and service keys, and source/target hosted PostgreSQL URLs.
 
@@ -80,6 +81,7 @@ No missing production input is represented as PASS. Payment/checkout and AI reco
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-release-evidence.json`
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json`
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json`
+- `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json`
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/`
 - desktop and tablet screenshots named `task-7-desktop-1280x720.png`, `task-7-tablet-portrait-768x1024.png`, and `task-7-tablet-landscape-1024x768.png`
 

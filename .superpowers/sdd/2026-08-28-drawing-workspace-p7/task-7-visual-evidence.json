@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "authority": "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
+  "commit": "88dbc7b03d0c11ec70e3a20543b67916abf1f47e",
+  "sourceTreeSha256": "75a91f0e54e0c6a841c859d9a9ca56e5a04e60914ae8d219821a892a6cd02aa2",
+  "buildManifest": {
+    "clientManifest": {
+      "path": "platform/build/client/assets/manifest-862143e7.js",
+      "sha256": "4f8c76352a00e475fadecae37f5e504a5ea0f5239237e9af24a20cf42c9cacc3"
+    },
+    "serverEntry": {
+      "path": "platform/build/server/index.js",
+      "sha256": "c312a2e46b7c572a552c515fe17510e1d168fe748122e187b198595bd185aa69"
+    }
+  },
+  "artifacts": [
+    {
+      "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-desktop-1280x720.png",
+      "width": 1280,
+      "height": 720,
+      "sha256": "c1deff3e56cd267d0680771fc363ffa77ea06d051d49466fe8c788c223013c3d"
+    },
+    {
+      "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-tablet-portrait-768x1024.png",
+      "width": 768,
+      "height": 1024,
+      "sha256": "b7b1539b98a275d0b0a2b761eb1f11204b3addeb63233d91c388a4ecfdc2c6ee"
+    },
+    {
+      "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-tablet-landscape-1024x768.png",
+      "width": 1024,
+      "height": 768,
+      "sha256": "60292c52200b4ebdd18599337cfea902a1a94d1a6da04536047fdca4ff5ac3c4"
+    }
+  ],
+  "recordedAt": "2026-08-28T10:36:49.448Z"
+}

@@ -1,15 +1,17 @@
-✔ drawing editor dependencies are permissive and noticed (2.789292ms)
-✔ drawing export uses the exact unmodified MIT pdf-lib dependency (16.1065ms)
-✔ drawing collaboration pins its MIT protocol closure without direct transport or state packages (20.8275ms)
-✔ viewer delegates PDF.js primitives to the shared renderer (0.526375ms)
-✔ document replacement cancels an active renderer before destruction (0.390417ms)
-✔ PDF pages use the shared client renderer (0.526292ms)
-✔ shared PDF opening stops before starting an aborted load (0.260125ms)
-ℹ tests 7
+✔ drawing editor dependencies are permissive and noticed (2.818375ms)
+✔ drawing export uses the exact unmodified MIT pdf-lib dependency (17.112ms)
+✔ drawing collaboration pins its MIT protocol closure without direct transport or state packages (21.442167ms)
+✔ viewer delegates PDF.js primitives to the shared renderer (0.566791ms)
+✔ document replacement cancels an active renderer before destruction (0.449292ms)
+✔ PDF pages use the shared client renderer (0.517875ms)
+✔ shared PDF opening stops before starting an aborted load (0.277584ms)
+✔ P7 release inspects the actual drawing dependency closure and notices (3.884ms)
+✔ 1HK product source and public assets contain no Rayon name or asset (69.340958ms)
+ℹ tests 9
 ℹ suites 0
-ℹ pass 7
+ℹ pass 9
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 88.83275
+ℹ duration_ms 163.732292

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "commit": "8155fa3db98d1fd1ef3a02ed11a4088fdfbfd087",
-  "sourceTreeSha256": "4401f79236b2b0ac3f471769e343e7a5e3bca973b50160e8220dcffafa916c56",
-  "generatedAt": "2026-08-28T09:51:11.086Z",
+  "commit": "88dbc7b03d0c11ec70e3a20543b67916abf1f47e",
+  "sourceTreeSha256": "75a91f0e54e0c6a841c859d9a9ca56e5a04e60914ae8d219821a892a6cd02aa2",
+  "generatedAt": "2026-08-28T10:38:08.369Z",
   "runner": {
     "name": "P7_FAIL_CLOSED_RELEASE_RUNNER_V1",
-    "sha256": "03994d6d573ebbced3d1987fe36007cd9ba16fdbac9eaa49dfb480a6fed1bbf1",
-    "invocationId": "72b1010d-d14e-4faa-916c-5f4d61d7e728"
+    "sha256": "5464789d9169ababfdbc7c5f7dd4a4bf65f4c8a696c901cccca7e31cf4ab28e6",
+    "invocationId": "d29b45ca-8331-465f-b452-7c4718086529"
   },
   "requirements": [
     {
@@ -16,7 +16,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -26,7 +26,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -36,7 +36,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -46,7 +46,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -56,7 +56,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -66,7 +66,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -76,7 +76,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -86,7 +86,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -96,7 +96,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -106,7 +106,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -116,7 +116,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -133,7 +133,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -143,7 +143,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -153,7 +153,7 @@
       "authority": "collaboration.service",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/collaboration.service.log",
-        "sha256": "758dae13f2216764e58e9b22b78272efef953ea4760ec80d0772c4a9114b8acb"
+        "sha256": "d681cb1b70bb7759665692903f5995db1b0b226824c59a5fa08632059bc65664"
       }
     },
     {
@@ -163,7 +163,7 @@
       "authority": "collaboration.service",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/collaboration.service.log",
-        "sha256": "758dae13f2216764e58e9b22b78272efef953ea4760ec80d0772c4a9114b8acb"
+        "sha256": "d681cb1b70bb7759665692903f5995db1b0b226824c59a5fa08632059bc65664"
       }
     },
     {
@@ -180,7 +180,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -190,7 +190,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -200,7 +200,7 @@
       "authority": "source.pdf_ifc",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/source.pdf_ifc.log",
-        "sha256": "2d988f07c29213d774687f5d53f4204973338bad45a916e97d3ff8fb7b486c0e"
+        "sha256": "9ab2e092bc4a0827124a23911dbbdcf469b25e7969f927c024da5ad387fd4e9a"
       }
     },
     {
@@ -210,7 +210,7 @@
       "authority": "source.pdf_ifc",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/source.pdf_ifc.log",
-        "sha256": "2d988f07c29213d774687f5d53f4204973338bad45a916e97d3ff8fb7b486c0e"
+        "sha256": "9ab2e092bc4a0827124a23911dbbdcf469b25e7969f927c024da5ad387fd4e9a"
       }
     },
     {
@@ -220,7 +220,7 @@
       "authority": "lineage.boq_material",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/lineage.boq_material.log",
-        "sha256": "f78eacd14fe2eac35eea5c980de93d2b34853b9635677d63cf6e3dbd3d823ce2"
+        "sha256": "553fc15f75718680b54bd4005600cec2b08228aa13a8cd110c598a6bdd18c021"
       }
     },
     {
@@ -230,7 +230,7 @@
       "authority": "lineage.boq_material",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/lineage.boq_material.log",
-        "sha256": "f78eacd14fe2eac35eea5c980de93d2b34853b9635677d63cf6e3dbd3d823ce2"
+        "sha256": "553fc15f75718680b54bd4005600cec2b08228aa13a8cd110c598a6bdd18c021"
       }
     },
     {
@@ -239,8 +239,8 @@
       "status": "PASS",
       "authority": "browser.desktop_tablet",
       "receipt": {
-        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
-        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json",
+        "sha256": "ef7d2342bb50718ab3fae1f636bcb56de6af159ac0f108a7e5d709eb7940f570"
       }
     },
     {
@@ -249,8 +249,8 @@
       "status": "PASS",
       "authority": "browser.desktop_tablet",
       "receipt": {
-        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
-        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json",
+        "sha256": "ef7d2342bb50718ab3fae1f636bcb56de6af159ac0f108a7e5d709eb7940f570"
       }
     },
     {
@@ -259,8 +259,8 @@
       "status": "PASS",
       "authority": "browser.desktop_tablet",
       "receipt": {
-        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
-        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json",
+        "sha256": "ef7d2342bb50718ab3fae1f636bcb56de6af159ac0f108a7e5d709eb7940f570"
       }
     },
     {
@@ -269,8 +269,8 @@
       "status": "PASS",
       "authority": "browser.desktop_tablet",
       "receipt": {
-        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
-        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json",
+        "sha256": "ef7d2342bb50718ab3fae1f636bcb56de6af159ac0f108a7e5d709eb7940f570"
       }
     },
     {
@@ -280,7 +280,7 @@
       "authority": "organization.rls_entitlements",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/organization.rls_entitlements.log",
-        "sha256": "c5be2cf463f47d275f05b87383cd382d42ae33676156c9db4c5c77fbb6a683ec"
+        "sha256": "08e02c2e030a4d75b234d66fd8be79383a06fa73605f7c9960ffb0cf619ad88d"
       }
     },
     {
@@ -290,7 +290,7 @@
       "authority": "retention.restore",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/retention.restore.log",
-        "sha256": "18590a808a62d33b50740a111a1b768facf4973a2bbda2d678133f87a65a479e"
+        "sha256": "bae158773e7d8e415f76f6909adce77f7b468595cd21a1a05e93a3c178adcc73"
       }
     },
     {
@@ -300,7 +300,7 @@
       "authority": "organization.rls_entitlements",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/organization.rls_entitlements.log",
-        "sha256": "c5be2cf463f47d275f05b87383cd382d42ae33676156c9db4c5c77fbb6a683ec"
+        "sha256": "08e02c2e030a4d75b234d66fd8be79383a06fa73605f7c9960ffb0cf619ad88d"
       }
     },
     {
@@ -312,6 +312,13 @@
     },
     {
       "id": "security.approved_revision_immutable",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "security.reviewer_approver_separation",
       "scope": "production",
       "status": "UNEXECUTED",
       "authority": "production authority not supplied",
@@ -331,7 +338,7 @@
       "authority": "performance.source_bound",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
-        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+        "sha256": "cb07a4b3dbf4c4945fef3df87fab37b67eddd66a9b992a56af8d4997954df174"
       }
     },
     {
@@ -341,7 +348,7 @@
       "authority": "performance.source_bound",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
-        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+        "sha256": "cb07a4b3dbf4c4945fef3df87fab37b67eddd66a9b992a56af8d4997954df174"
       }
     },
     {
@@ -351,7 +358,7 @@
       "authority": "performance.source_bound",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
-        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+        "sha256": "cb07a4b3dbf4c4945fef3df87fab37b67eddd66a9b992a56af8d4997954df174"
       }
     },
     {
@@ -361,7 +368,7 @@
       "authority": "source-bound P7 production-build Chromium cold cache-miss",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
-        "sha256": "d0d39cc923a91ffc85dd64d661da583f97453ca58cba4a4af115c73606008d30"
+        "sha256": "791d1801bcdaa1f01cb55538756f6f6e932aa523f954134e677625da9e42d14b"
       }
     },
     {
@@ -413,7 +420,7 @@
       "authority": "node.p0_p7",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
-        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+        "sha256": "9f619f6aa7920eb8fa5270e92ac48ad8afe0417b0bd06cc847e244ea5a3b6550"
       }
     },
     {
@@ -433,7 +440,7 @@
       "authority": "license.closure",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/license.closure.log",
-        "sha256": "62f93dd176ce24b1486a0876b0765fc149e15e53e67bcaf24333fd7b1d9c1e5a"
+        "sha256": "9d694046e3b74fa6a6b2cd488c233733f4c2a82da534fe5aee5581c412ad17ed"
       }
     },
     {
@@ -443,15 +450,15 @@
       "authority": "license.closure",
       "receipt": {
         "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/license.closure.log",
-        "sha256": "62f93dd176ce24b1486a0876b0765fc149e15e53e67bcaf24333fd7b1d9c1e5a"
+        "sha256": "9d694046e3b74fa6a6b2cd488c233733f4c2a82da534fe5aee5581c412ad17ed"
       }
     }
   ],
   "summary": {
     "PASS": 35,
     "NOT_MET": 1,
-    "UNEXECUTED": 11
+    "UNEXECUTED": 12
   },
   "overall": "NOT_MET",
-  "externalInputs": 12
+  "externalInputs": 13
 }

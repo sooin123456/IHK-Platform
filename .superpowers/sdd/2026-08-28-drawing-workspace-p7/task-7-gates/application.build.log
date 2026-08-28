@@ -32,7 +32,7 @@ build/client/.vite/manifest.json                                      50.73 kB �
 build/client/assets/pdf.worker.min-CHFwMXne.mjs                    1,262.40 kB
 build/client/assets/web-ifc-DaBphSR1.wasm                          1,303.94 kB │ gzip: 474.02 kB
 build/client/assets/nprogress-BgDCIyLK.css                             1.09 kB │ gzip:   0.44 kB
-build/client/assets/root-CJJJJB50.css                                117.26 kB │ gzip:  20.15 kB
+build/client/assets/root-OOrAQoIF.css                                117.35 kB │ gzip:  20.17 kB
 build/client/assets/robots-l0sNRNKZ.js                                 0.00 kB │ gzip:   0.02 kB
 build/client/assets/sitemap-l0sNRNKZ.js                                0.00 kB │ gzip:   0.02 kB
 build/client/assets/resend-l0sNRNKZ.js                                 0.00 kB │ gzip:   0.02 kB
@@ -106,7 +106,7 @@ build/client/assets/workspace-preview-uweBZ1DR.js                      2.36 kB �
 build/client/assets/dialog-Clrjyw8K.js                                 2.39 kB │ gzip:   0.91 kB
 build/client/assets/staff-inquiries-BRMrF4lc.js                        2.80 kB │ gzip:   1.38 kB
 build/client/assets/post--Tfw5K_t.js                                   2.97 kB │ gzip:   1.43 kB
-build/client/assets/project-members-DkaDMncF.js                        3.54 kB │ gzip:   1.57 kB
+build/client/assets/project-members-CgCTQxan.js                        3.58 kB │ gzip:   1.59 kB
 build/client/assets/index-7OC5HNn7.js                                  3.61 kB │ gzip:   1.58 kB
 build/client/assets/index-BlmoVNc0.js                                  3.64 kB │ gzip:   1.66 kB
 build/client/assets/drawing-notifications-CxqIFVbP.js                  3.69 kB │ gzip:   1.71 kB
@@ -122,13 +122,13 @@ build/client/assets/sheet-DcWVaQMC.js                                  5.65 kB �
 build/client/assets/inquiry-C6rHNV1w.js                                6.24 kB │ gzip:   2.55 kB
 build/client/assets/preflight-artifact-CXSDgl9p.js                     6.61 kB │ gzip:   2.37 kB
 build/client/assets/organization-retention-DLRsOqCy.js                 6.99 kB │ gzip:   2.23 kB
-build/client/assets/drawing-workspace-CGyhG92F.js                      7.08 kB │ gzip:   2.90 kB
+build/client/assets/drawing-workspace-Cyev-uyG.js                      7.08 kB │ gzip:   2.90 kB
 build/client/assets/pdf-drawing-viewer.client-BqpioaU_.js              7.54 kB │ gzip:   3.17 kB
 build/client/assets/takeoff-artifact-uSx3jTR6.js                       7.56 kB │ gzip:   2.62 kB
 build/client/assets/download-TzBP0FDz.js                               8.24 kB │ gzip:   3.25 kB
 build/client/assets/organization-drawing-library-CgjckDcH.js           8.42 kB │ gzip:   2.73 kB
 build/client/assets/organization-settings-BJKh1WFQ.js                 11.36 kB │ gzip:   3.24 kB
-build/client/assets/local-drawing-workspace-preview-KN8LaZXg.js       13.35 kB │ gzip:   4.38 kB
+build/client/assets/local-drawing-workspace-preview-DpflT35q.js       13.35 kB │ gzip:   4.38 kB
 build/client/assets/home-D61T7xuV.js                                  14.75 kB │ gzip:   5.12 kB
 build/client/assets/ifc-property-browser.client-B_5eApEe.js           18.63 kB │ gzip:   6.93 kB
 build/client/assets/material-control-Du2GE8Mn.js                      20.37 kB │ gzip:   6.64 kB
@@ -136,18 +136,18 @@ build/client/assets/workspace-dashboard-iDyLnY8o.js                   20.85 kB �
 build/client/assets/workspace-preview-room.client-OVssBpV8.js         23.02 kB │ gzip:   7.14 kB
 build/client/assets/drawing-room--aqZF3iN.js                          26.12 kB │ gzip:   7.09 kB
 build/client/assets/utils-DCADjnpI.js                                 27.55 kB │ gzip:   8.66 kB
-build/client/assets/hocuspocus-provider.esm-Smcd2BhT.js               28.78 kB │ gzip:   7.72 kB
+build/client/assets/hocuspocus-provider.esm-CQtcop81.js               28.78 kB │ gzip:   7.72 kB
 build/client/assets/index-FYbnjuKp.js                                 35.75 kB │ gzip:  12.29 kB
 build/client/assets/verified-boq-t5tuV8Lz.js                          35.87 kB │ gzip:   8.72 kB
-build/client/assets/root-DyWcpS50.js                                  44.46 kB │ gzip:  13.94 kB
+build/client/assets/root-sZifmycY.js                                  44.46 kB │ gzip:  13.94 kB
 build/client/assets/project-files-D72quzqc.js                         45.23 kB │ gzip:  10.73 kB
 build/client/assets/types-c9dv9BKM.js                                 55.29 kB │ gzip:  12.65 kB
 build/client/assets/navigation.layout-DxySAZp6.js                     57.84 kB │ gzip:  21.00 kB
 build/client/assets/chunk-62JRHF6Z-XWVL3R9i.js                       131.93 kB │ gzip:  44.37 kB
 build/client/assets/index-CFgkW6tL.js                                229.72 kB │ gzip:  61.61 kB
 build/client/assets/entry.client-CF_9j_Qt.js                         235.70 kB │ gzip:  73.53 kB
-build/client/assets/drawing-canvas.client-BadkTHku.js                370.51 kB │ gzip: 113.70 kB
-build/client/assets/drawing-workspace-llQvuy1C.js                    423.20 kB │ gzip: 120.10 kB
+build/client/assets/drawing-canvas.client-DUcbvsph.js                370.51 kB │ gzip: 113.71 kB
+build/client/assets/drawing-workspace-Zkvcy7lZ.js                    423.37 kB │ gzip: 120.15 kB
 build/client/assets/pdf-DMRcuM1e.js                                  434.00 kB │ gzip: 128.93 kB
 build/client/assets/index-DXJ7c5kv.js                                434.84 kB │ gzip: 180.12 kB
 build/client/assets/ifc-model-viewer.client-Dw5ecojG.js              539.53 kB │ gzip: 135.89 kB
@@ -157,7 +157,7 @@ build/client/assets/web-ifc-api-BfIplH-s.js                        3,522.14 kB �
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 6.87s
+✓ built in 6.80s
   ⚠️  Future Flag Warning: Route middleware support is changing in React Router v8.
      You can use the `future.v8_middleware` flag to opt in early.
      -> https://reactrouter.com/v7/upgrading/future#futurev8_middleware
@@ -185,23 +185,23 @@ rendering chunks...
 
 build/server/.vite/manifest.json                                   2.34 kB
 build/server/assets/nprogress-BgDCIyLK.css                         1.09 kB
-build/server/assets/server-build-CJJJJB50.css                    117.26 kB
+build/server/assets/server-build-OOrAQoIF.css                    117.35 kB
 build/server/assets/drawing-canvas.client-lD_WUNU2.js              0.06 kB
 build/server/assets/workspace-preview-room.client-9CyKfGv2.js      0.07 kB
 build/server/assets/pdf-page-renderer.client-CuLmpHpX.js           0.13 kB
 build/server/assets/resend-client.server-DUz3qED0.js               0.13 kB
 build/server/assets/supa-admin-client.server-B_ddS2Pj.js           0.20 kB
-build/server/index.js                                          1,932.56 kB
+build/server/index.js                                          1,933.26 kB
 
 ✓ 2 assets cleaned from React Router server build.
 build/client/assets/nprogress-BgDCIyLK.css
-build/server/assets/server-build-CJJJJB50.css
+build/server/assets/server-build-OOrAQoIF.css
 
 The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
-(node:12933) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(node:23893) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
 Prerender (data): /sitemap.xml -> build/client/sitemap.xml.data
 Prerender (resource): /sitemap.xml -> build/client/sitemap.xml
 Prerender (data): /robots.txt -> build/client/robots.txt.data
 Prerender (resource): /robots.txt -> build/client/robots.txt
-✓ built in 1.28s
+✓ built in 1.27s

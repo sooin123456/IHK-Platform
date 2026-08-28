@@ -1,68 +1,68 @@
 Approved BOQ material handoff failed {
-  requestId: '8410bb68-50ae-4ec4-9efe-a5a2fee50d18',
+  requestId: 'a93367d3-52bf-4bc2-bd1d-d7733b9f8751',
   code: 'P6O01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000121'
 }
 Approved BOQ material handoff failed {
-  requestId: '5f4f713b-b49d-489a-9cc4-a5484bc76d07',
+  requestId: '4aca7aa6-c1a7-4889-aa27-f44b0931e191',
   code: 'P6O01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000119'
 }
 Approved BOQ material handoff failed {
-  requestId: 'c651b209-8870-49a6-ad97-bc153b8ee62c',
+  requestId: '835796f0-d6dd-42e5-882e-b64c1b2b549a',
   code: 'P6M01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000121'
 }
 Approved BOQ material handoff failed {
-  requestId: 'b7e0c974-ffaa-496c-a292-f21147764e92',
+  requestId: '0726157b-67ac-47b9-b51a-19548a4d7287',
   code: 'P6M01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000121'
 }
 Approved BOQ material handoff failed {
-  requestId: 'ad51c2b9-35b8-43c4-b300-371f652359ec',
+  requestId: '040c58f0-f423-4f63-8b62-867977e7b7cb',
   code: 'P6M01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000121'
 }
 Approved BOQ material handoff failed {
-  requestId: 'd221a85b-7b2e-4436-96ae-13a16e4016df',
+  requestId: 'f7ea65a0-448e-4252-864c-1aa0ecaacf37',
   code: 'P6M01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000121'
 }
 Approved BOQ material handoff failed {
-  requestId: '39005c69-749f-4eb3-9298-adf988cf612c',
+  requestId: 'faac3865-1437-47ae-b434-73e988b06869',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000151'
 }
 Approved BOQ material handoff failed {
-  requestId: '262da0c8-9bb4-48c9-99ee-c952e6bb7718',
+  requestId: 'b1c5b853-e94f-4c22-aa58-2f4f315122b3',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000151'
 }
 Approved BOQ material handoff failed {
-  requestId: '521608e8-683e-4147-b5f6-e34ad5ba9f03',
+  requestId: 'de32b8c2-e345-494a-ba49-4f9797dcba84',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000103',
   boqVersionId: '00000000-0000-4000-8000-000000000104',
   operationId: '00000000-0000-4000-8000-000000000151'
 }
 Drawing quantity authority failed {
-  requestId: '97054c84-0d19-42ae-b1a7-f55d37b3fbb9',
+  requestId: '3576dae3-04d4-4fb3-8c36-d563b8b8bb65',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000011',
   revisionId: '00000000-0000-4000-8000-000000000013',
@@ -70,7 +70,7 @@ Drawing quantity authority failed {
   linkId: '00000000-0000-4000-8000-000000000015'
 }
 Drawing quantity authority failed {
-  requestId: 'fe56dbdb-188f-4e65-a461-2a55f3f142d3',
+  requestId: 'ec12dceb-55ec-49be-ad67-b3552cffd096',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000011',
   revisionId: '00000000-0000-4000-8000-000000000013',
@@ -78,7 +78,7 @@ Drawing quantity authority failed {
   linkId: '00000000-0000-4000-8000-000000000015'
 }
 Drawing quantity authority failed {
-  requestId: '6fec03da-14df-4ae2-b03d-8ca6d7ed482e',
+  requestId: 'c58730ec-8a37-4c5b-981f-bd86e9d86349',
   code: 'P6A01',
   projectId: '00000000-0000-4000-8000-000000000011',
   revisionId: '00000000-0000-4000-8000-000000000013',
@@ -86,7 +86,7 @@ Drawing quantity authority failed {
   linkId: '00000000-0000-4000-8000-000000000015'
 }
 Drawing quantity authority failed {
-  requestId: 'a7ecee61-e144-47b6-a615-16efb1faddae',
+  requestId: 'ba0b9be3-c5b5-4f4c-873f-d3d967cd188e',
   code: 'P6Q03',
   projectId: '00000000-0000-4000-8000-000000000016',
   revisionId: '00000000-0000-4000-8000-000000000018',
@@ -94,7 +94,7 @@ Drawing quantity authority failed {
   linkId: '00000000-0000-4000-8000-000000000020'
 }
 Drawing quantity authority failed {
-  requestId: '73dd715c-ca88-4e8d-a711-5f8bd28ec3e6',
+  requestId: 'dcfd3200-9670-425b-a0ed-2cefce88d137',
   code: 'P6Q03',
   projectId: '00000000-0000-4000-8000-000000000016',
   revisionId: '00000000-0000-4000-8000-000000000018',
@@ -102,103 +102,103 @@ Drawing quantity authority failed {
   linkId: '00000000-0000-4000-8000-000000000020'
 }
 Drawing quantity authority failed {
-  requestId: '354964ad-b8b5-425f-8236-f19dd789eafa',
+  requestId: '4858b5e3-0ccd-4352-a5c7-be19a5f30bfc',
   code: 'P6Q03',
   projectId: '00000000-0000-4000-8000-000000000016',
   revisionId: '00000000-0000-4000-8000-000000000018',
   objectId: '00000000-0000-4000-8000-000000000019',
   linkId: '00000000-0000-4000-8000-000000000020'
 }
-✔ bounded BOQ material reads remain complete under an API cap of one (1.060083ms)
-✔ approved BOQ material handoff persists only selected authoritative material components (5.004583ms)
-✔ material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components (0.540459ms)
-✔ BOQ manifest storage path accepts only canonical UUIDs and lowercase file digests (0.126333ms)
-✔ material lineage traverses approved BOQ through plan, transactions, carbon, and file digests (1.831584ms)
-✔ material lineage cursor returns every link once across bounded pages (1.118125ms)
-✔ procurement and site roles gain no BOQ material handoff write authority (0.386708ms)
-✔ trusted quantity creation forwards only server-derived evidence (3.028834ms)
-✔ quantity creation rejects anonymous and read-only roles before database access (0.300042ms)
-✔ owner, estimator, and verified staff reach trusted authority with server identity (0.299375ms)
-✔ lineage pages by created_at and id with a hard 200 row bound (1.905791ms)
-✔ exact BOQ evidence is included even when its quantity is older than the first page (1.391041ms)
-✔ workspace resolution returns exact evidence route and never falls back (0.371458ms)
-✔ 1.1 RPC input parser keeps fixed authoritative fields and rejects injection (1.036125ms)
-✔ BOQ link put accepts only IDs factor and OCC version, supports partial and exact retry (0.247792ms)
-✔ BOQ link put/delete bounds allocation, unit, authorization, project, and OCC failures (0.283833ms)
-✔ verified BOQ Drawing source loader caps sources and links at 200 (2.315375ms)
-✔ verified BOQ Drawing links resolve exact immutable workspace ancestry in bulk (0.390583ms)
-✔ verified BOQ Drawing source fallback is bound to the exact revision and object (0.155917ms)
-✔ PDF document entry keeps its pathname while IFC evidence opens exact split focus (0.184083ms)
-✔ bulk evidence resolution fetches the complete bounded entry and anchor file union (7.077833ms)
-✔ verified BOQ Drawing source loader always includes old mapped sources before filling the 200 row page (1.678208ms)
-✔ verified BOQ Drawing source loader fails closed for cross-project RLS denial (0.097958ms)
-✔ 1.1 submission calculates trusted input then compare-and-freezes exact hashes (1.314042ms)
-✔ 1.1 submission fails closed on uncalculated input and finalize race (0.480167ms)
-✔ 1.1 decision reruns frozen hashes, requires an independent reviewer, and forwards no hashes (1.028375ms)
-✔ approved export reloads authoritative input and denies non-approved or stale snapshots before bytes (8.005541ms)
-✔ approved export pages every WBS row instead of accepting a PostgREST-capped workbook (27.2715ms)
-✔ approved export continues WBS pagination below the requested page size (17.744833ms)
-✔ approved export batches the complete immutable evidence-file union (10.964417ms)
-✔ approved export binds source anchor IDs to the frozen database input (0.201834ms)
-✔ P6 converts P4 length, area, and count exactly (1.04925ms)
-✔ P6 rejects unavailable, wrong-rule, and volume measurements (0.268625ms)
-✔ P6 conversion rejects quantities outside the approved numeric(29,12) contract (0.13675ms)
-✔ P6 fingerprints the existing canonical P4 object fingerprint (0.47275ms)
-✔ P6 derives exact material quantities with six-place half-away rounding (0.317542ms)
-✔ P6 material handoff rejects incompatible, duplicate, negative, and overflowing components (0.255166ms)
-✔ P6 rejects conflicting material identities in either input order (0.120333ms)
-✔ P6 material plans are bytewise sorted and byte-identical across 100 runs (2.094375ms)
-✔ 1.1 mixes legacy and Drawing sources with exact quantities (3.873792ms)
-✔ 1.1 canonical input byte-sorts every source and normalizes decimals (0.4765ms)
-✔ 1.1 canonical business ordering ignores anti-correlated database IDs (1.492166ms)
-✔ split legacy allocations require one identical immutable source (0.753167ms)
-✔ engine dispatch preserves 1.0 and rejects unavailable versions (0.420792ms)
-✔ 1.1 fails closed on split, unit, ID, volume, adjusted, and review errors (0.865583ms)
-✔ calculation and approval manifests bind canonical lineage and evidence (1.196625ms)
-✔ manifest builders reject stale result and approval hashes (0.467125ms)
-✔ download version selection never substitutes another revision for an explicit unknown ID (0.0895ms)
-✔ approved XLSX strips invalid XML controls and chunks manifest cells below Excel limits (14.29575ms)
-✔ approved XLSX chunks large legacy element-ID evidence into ordered rows (14.497916ms)
-✔ approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas (13.807542ms)
-✔ 1.1 result and manifests are independent of order, locale, time, and random (18.65325ms)
-✔ verified BOQ 1.1 renders four distinct quantity columns and Drawing mapping UI (3.845ms)
-✔ approved comparison UI renders every cause state and closure without a primary cause (0.383542ms)
-✔ approved 1.1 comparison attributes each exact waterfall category (4.693167ms)
-✔ comparison keeps multiple visible causes and closes their exact row totals (0.764ms)
-✔ zero-amount semantic changes remain visible in their declared cause (2.995333ms)
-✔ comparison reports added and removed rows without inventing a sixth cause (1.301916ms)
-✔ a brand-new source and row enters RAW before mapping and price (0.918875ms)
-✔ comparison ignores regenerated database IDs and byte-sorts business item codes (0.888125ms)
-✔ 1.0 to 1.1 replay exposes the engine switch only as FORMULA (0.464708ms)
-✔ comparison fails closed for unavailable engines ambiguous rows and invalid counterfactuals (0.462625ms)
-✔ comparison rejects non-approved or tampered historical results (0.381291ms)
-✔ stored approved hashes must match the exact historical replay (0.155833ms)
-✔ verified BOQ closes the 10m3 direct-cost golden vector with source evidence (2.198333ms)
-✔ Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen (6.774166ms)
-✔ general and EMS policies use their documented rounding order (0.313875ms)
-✔ exact decimal multiplication and half-away/truncate never use Number (0.077042ms)
-✔ duplicate allocation, unit mismatch and missing adjustment reason fail closed (0.38625ms)
-✔ split mappings close at 100 percent and exclusions remain in the result hash (0.35425ms)
-✔ one source row can independently supply volume and area quantities (0.136667ms)
-✔ incomplete lines stay review and CSV neutralizes spreadsheet formulas (0.1185ms)
-✔ Excel export contains five evidence sheets and stores user text as inline strings (2.054ms)
-✔ revision comparison classifies changes and closes the total amount delta (0.39025ms)
-✔ revision comparison accounts for added and removed rows without hiding deltas (0.147833ms)
-✔ verified BOQ migration separates immutable sources, drafts and approvals (0.456625ms)
-✔ verified BOQ RPCs reject anonymous execution and use the hardened project-role helper (0.257292ms)
-✔ QTO mapping values are derived from immutable CSV rows instead of form input (0.46275ms)
-✔ every positive source row needs a mapping or an explicit exclusion (0.36675ms)
-✔ element ledger mapping requires an explicit computed measurement basis (0.281375ms)
-✔ tampered QTO metadata is rejected even when its file hash is registered (0.077833ms)
-✔ an invalid unselected QTO row invalidates the whole evidence file (0.106334ms)
-✔ BOQ mapping action never accepts quantity, unit, or element IDs from the browser form (0.243042ms)
-✔ BOQ evidence opens the confirmed IFC GlobalId instead of assuming Revit and IFC IDs match (0.246791ms)
-✔ customer-owned price resources import from strict UTF-8 CSV (0.2315ms)
-✔ customer-owned price resources import from a formula-free XLSX first sheet (0.950542ms)
-✔ price-book import rejects duplicate resource codes and negative prices (0.114125ms)
-✔ price-book XLSX import rejects formula cells even with cached values (0.24825ms)
-✔ CBS WBS and item structure imports from one strict customer-owned table (0.263833ms)
-✔ structure import rejects orphan WBS and unreasoned quantity adjustment (0.125917ms)
+✔ bounded BOQ material reads remain complete under an API cap of one (1.261333ms)
+✔ approved BOQ material handoff persists only selected authoritative material components (5.446166ms)
+✔ material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components (0.743209ms)
+✔ BOQ manifest storage path accepts only canonical UUIDs and lowercase file digests (0.166ms)
+✔ material lineage traverses approved BOQ through plan, transactions, carbon, and file digests (1.954125ms)
+✔ material lineage cursor returns every link once across bounded pages (1.585542ms)
+✔ procurement and site roles gain no BOQ material handoff write authority (0.362625ms)
+✔ trusted quantity creation forwards only server-derived evidence (2.59025ms)
+✔ quantity creation rejects anonymous and read-only roles before database access (0.343375ms)
+✔ owner, estimator, and verified staff reach trusted authority with server identity (0.3065ms)
+✔ lineage pages by created_at and id with a hard 200 row bound (2.071167ms)
+✔ exact BOQ evidence is included even when its quantity is older than the first page (1.545208ms)
+✔ workspace resolution returns exact evidence route and never falls back (0.422709ms)
+✔ 1.1 RPC input parser keeps fixed authoritative fields and rejects injection (1.387167ms)
+✔ BOQ link put accepts only IDs factor and OCC version, supports partial and exact retry (0.307583ms)
+✔ BOQ link put/delete bounds allocation, unit, authorization, project, and OCC failures (0.310542ms)
+✔ verified BOQ Drawing source loader caps sources and links at 200 (2.251875ms)
+✔ verified BOQ Drawing links resolve exact immutable workspace ancestry in bulk (0.420292ms)
+✔ verified BOQ Drawing source fallback is bound to the exact revision and object (0.161292ms)
+✔ PDF document entry keeps its pathname while IFC evidence opens exact split focus (0.17475ms)
+✔ bulk evidence resolution fetches the complete bounded entry and anchor file union (7.994042ms)
+✔ verified BOQ Drawing source loader always includes old mapped sources before filling the 200 row page (0.831834ms)
+✔ verified BOQ Drawing source loader fails closed for cross-project RLS denial (0.080667ms)
+✔ 1.1 submission calculates trusted input then compare-and-freezes exact hashes (1.30375ms)
+✔ 1.1 submission fails closed on uncalculated input and finalize race (0.476041ms)
+✔ 1.1 decision reruns frozen hashes, requires an independent reviewer, and forwards no hashes (0.999ms)
+✔ approved export reloads authoritative input and denies non-approved or stale snapshots before bytes (8.05925ms)
+✔ approved export pages every WBS row instead of accepting a PostgREST-capped workbook (28.208583ms)
+✔ approved export continues WBS pagination below the requested page size (17.042084ms)
+✔ approved export batches the complete immutable evidence-file union (11.08625ms)
+✔ approved export binds source anchor IDs to the frozen database input (0.202708ms)
+✔ P6 converts P4 length, area, and count exactly (1.05275ms)
+✔ P6 rejects unavailable, wrong-rule, and volume measurements (0.259417ms)
+✔ P6 conversion rejects quantities outside the approved numeric(29,12) contract (0.129375ms)
+✔ P6 fingerprints the existing canonical P4 object fingerprint (0.450833ms)
+✔ P6 derives exact material quantities with six-place half-away rounding (0.327125ms)
+✔ P6 material handoff rejects incompatible, duplicate, negative, and overflowing components (0.19125ms)
+✔ P6 rejects conflicting material identities in either input order (0.122166ms)
+✔ P6 material plans are bytewise sorted and byte-identical across 100 runs (1.785291ms)
+✔ 1.1 mixes legacy and Drawing sources with exact quantities (3.768625ms)
+✔ 1.1 canonical input byte-sorts every source and normalizes decimals (0.400209ms)
+✔ 1.1 canonical business ordering ignores anti-correlated database IDs (1.526458ms)
+✔ split legacy allocations require one identical immutable source (0.840834ms)
+✔ engine dispatch preserves 1.0 and rejects unavailable versions (0.38875ms)
+✔ 1.1 fails closed on split, unit, ID, volume, adjusted, and review errors (0.817709ms)
+✔ calculation and approval manifests bind canonical lineage and evidence (1.151875ms)
+✔ manifest builders reject stale result and approval hashes (0.458583ms)
+✔ download version selection never substitutes another revision for an explicit unknown ID (0.100917ms)
+✔ approved XLSX strips invalid XML controls and chunks manifest cells below Excel limits (14.232791ms)
+✔ approved XLSX chunks large legacy element-ID evidence into ordered rows (14.740459ms)
+✔ approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas (14.125167ms)
+✔ 1.1 result and manifests are independent of order, locale, time, and random (18.852334ms)
+✔ verified BOQ 1.1 renders four distinct quantity columns and Drawing mapping UI (3.77525ms)
+✔ approved comparison UI renders every cause state and closure without a primary cause (0.38375ms)
+✔ approved 1.1 comparison attributes each exact waterfall category (4.731334ms)
+✔ comparison keeps multiple visible causes and closes their exact row totals (0.988167ms)
+✔ zero-amount semantic changes remain visible in their declared cause (2.984917ms)
+✔ comparison reports added and removed rows without inventing a sixth cause (1.318333ms)
+✔ a brand-new source and row enters RAW before mapping and price (0.901459ms)
+✔ comparison ignores regenerated database IDs and byte-sorts business item codes (0.875167ms)
+✔ 1.0 to 1.1 replay exposes the engine switch only as FORMULA (0.467084ms)
+✔ comparison fails closed for unavailable engines ambiguous rows and invalid counterfactuals (0.457708ms)
+✔ comparison rejects non-approved or tampered historical results (0.358625ms)
+✔ stored approved hashes must match the exact historical replay (0.139167ms)
+✔ verified BOQ closes the 10m3 direct-cost golden vector with source evidence (2.019333ms)
+✔ Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen (5.892292ms)
+✔ general and EMS policies use their documented rounding order (0.335208ms)
+✔ exact decimal multiplication and half-away/truncate never use Number (0.084ms)
+✔ duplicate allocation, unit mismatch and missing adjustment reason fail closed (0.38725ms)
+✔ split mappings close at 100 percent and exclusions remain in the result hash (0.372792ms)
+✔ one source row can independently supply volume and area quantities (0.140625ms)
+✔ incomplete lines stay review and CSV neutralizes spreadsheet formulas (0.12225ms)
+✔ Excel export contains five evidence sheets and stores user text as inline strings (1.981291ms)
+✔ revision comparison classifies changes and closes the total amount delta (0.401541ms)
+✔ revision comparison accounts for added and removed rows without hiding deltas (0.143958ms)
+✔ verified BOQ migration separates immutable sources, drafts and approvals (0.419959ms)
+✔ verified BOQ RPCs reject anonymous execution and use the hardened project-role helper (0.452375ms)
+✔ QTO mapping values are derived from immutable CSV rows instead of form input (0.460417ms)
+✔ every positive source row needs a mapping or an explicit exclusion (0.354834ms)
+✔ element ledger mapping requires an explicit computed measurement basis (0.280209ms)
+✔ tampered QTO metadata is rejected even when its file hash is registered (0.075958ms)
+✔ an invalid unselected QTO row invalidates the whole evidence file (0.093333ms)
+✔ BOQ mapping action never accepts quantity, unit, or element IDs from the browser form (0.22375ms)
+✔ BOQ evidence opens the confirmed IFC GlobalId instead of assuming Revit and IFC IDs match (0.216792ms)
+✔ customer-owned price resources import from strict UTF-8 CSV (0.226709ms)
+✔ customer-owned price resources import from a formula-free XLSX first sheet (0.888833ms)
+✔ price-book import rejects duplicate resource codes and negative prices (0.103541ms)
+✔ price-book XLSX import rejects formula cells even with cached values (0.234542ms)
+✔ CBS WBS and item structure imports from one strict customer-owned table (0.243083ms)
+✔ structure import rejects orphan WBS and unreasoned quantity adjustment (0.119416ms)
 ℹ tests 90
 ℹ suites 0
 ℹ pass 90
@@ -206,4 +206,4 @@ Drawing quantity authority failed {
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 222.738292
+ℹ duration_ms 227.124833
