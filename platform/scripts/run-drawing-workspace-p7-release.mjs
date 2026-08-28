@@ -139,7 +139,10 @@ function manifest() {
     },
     { id: "application.build", argv: ["npm", "run", "build"] },
     { id: "collaboration.build", argv: ["npm", "run", "build:collaboration"] },
-    { id: "diff.check", argv: ["git", "--no-pager", "diff", "--check"] },
+    {
+      id: "diff.check",
+      argv: ["git", "--no-pager", "diff", "--check", "--", "."],
+    },
     {
       id: "performance.source_bound",
       argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
