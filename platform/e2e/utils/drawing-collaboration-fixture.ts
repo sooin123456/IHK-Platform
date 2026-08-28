@@ -58,6 +58,7 @@ async function cleanupDrawingResources(
   users: TestUser[],
 ) {
   const cleanupErrors: Error[] = [];
+  let storagePurge: { eventId: string; manifestSha256: string } | undefined;
   const attempt = async (
     label: string,
     operation: () => Promise<{ error: unknown }>,
@@ -112,7 +113,13 @@ async function cleanupDrawingResources(
           p_request_id: randomUUID(),
           p_reason: "Disposable E2E fixture cleanup",
         });
-        return result.error || result.data?.status !== "PURGED"
+        if (result.data?.status === "STORAGE_REQUIRED")
+          storagePurge = {
+            eventId: result.data.eventId,
+            manifestSha256: result.data.manifestSha256,
+          };
+        return result.error ||
+          !["PURGED", "STORAGE_REQUIRED"].includes(result.data?.status)
           ? {
               error:
                 result.error ??
@@ -125,6 +132,19 @@ async function cleanupDrawingResources(
   if (storagePaths.length > 0) {
     await attempt("storage cleanup", () =>
       admin.storage.from("lukas-qto").remove(storagePaths),
+    );
+  }
+  if (projectId && organizationId && storagePurge) {
+    const ready = storagePurge;
+    await attempt("trusted project purge finalization", async () =>
+      admin.rpc("lukas_qto_finalize_project_purge", {
+        p_organization_id: organizationId,
+        p_project_id: projectId,
+        p_ready_event_id: ready.eventId,
+        p_manifest_sha256: ready.manifestSha256,
+        p_request_id: randomUUID(),
+        p_reason: "Disposable E2E fixture Storage cleanup confirmed",
+      }),
     );
   }
   for (const user of users) {

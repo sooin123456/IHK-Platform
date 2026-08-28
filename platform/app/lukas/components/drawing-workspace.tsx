@@ -3547,6 +3547,9 @@ export default function DrawingWorkspaceClient({
           <DrawingExportDialog
             createdAt={drawingDocument.created_at}
             documentState={drawingState}
+            fileId={file.id}
+            projectId={projectId}
+            revisionId={revision.id}
             sourceUrl={primarySourceUrl}
             title={drawingDocument.title}
           />

@@ -92,12 +92,25 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
   const calls = [];
   const admin = {
     async rpc(name, args) {
-      assert.equal(name, "lukas_qto_purge_project");
-      calls.push(["purge", args.p_project_id]);
-      return {
-        data: { status: "HELD", reason: "project cleanup failed" },
-        error: null,
-      };
+      if (name === "lukas_qto_purge_project") {
+        calls.push(["purge", args.p_project_id]);
+        return {
+          data: {
+            status: "STORAGE_REQUIRED",
+            eventId: "ready-event",
+            manifestSha256: "a".repeat(64),
+          },
+          error: null,
+        };
+      }
+      assert.equal(name, "lukas_qto_finalize_project_purge");
+      calls.push([
+        "finalize",
+        args.p_project_id,
+        args.p_ready_event_id,
+        args.p_manifest_sha256,
+      ]);
+      return { data: null, error: new Error("project cleanup failed") };
     },
     storage: {
       from() {
@@ -194,6 +207,7 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
       "uploaded-report.csv",
       "uploaded-manifest.csv",
     ],
+    ["finalize", "project-1", "ready-event", "a".repeat(64)],
     ["user", "owner"],
     ["user", "editor"],
     ["user", "reviewer"],

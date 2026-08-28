@@ -76,6 +76,10 @@ export default [
         "/projects/:projectId/drawings/:fileId/workspace/operation",
         "lukas/screens/drawing-workspace-operation.ts",
       ),
+      route(
+        "/projects/:projectId/drawings/:fileId/workspace/export",
+        "lukas/screens/drawing-workspace-export.ts",
+      ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(
         "/projects/:projectId/quantities",

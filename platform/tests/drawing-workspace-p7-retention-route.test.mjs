@@ -132,7 +132,18 @@ test("retention administration is mounted and archived projects leave the active
     new URL("../app/lukas/screens/workspace.tsx", import.meta.url),
     "utf8",
   );
+  const retention = readFileSync(
+    new URL("../app/lukas/screens/organization-retention.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(routes, /organizations\/:organizationId\/retention/);
   assert.match(dashboard, /retention/);
   assert.match(workspace, /archived_at/);
+  assert.match(retention, /rpc\("lukas_qto_list_retention_projects"/);
+  assert.match(retention, /rpc\("lukas_qto_list_active_legal_holds"/);
+  assert.doesNotMatch(retention, /const activeHolds = events\.filter/);
+  assert.doesNotMatch(
+    retention,
+    /from\("lukas_qto_projects"\)[\s\S]{0,240}organization_id/,
+  );
 });

@@ -94,6 +94,13 @@ export function requireManagedRestoreAuthority(environment = process.env) {
   const sourceCommit = required(environment, "P7_RESTORE_COMMIT");
   if (!/^[0-9a-f]{40}$/.test(sourceCommit))
     throw new Error("UNEXECUTED: invalid P7_RESTORE_COMMIT");
+  const requestId = required(environment, "P7_RESTORE_REQUEST_ID");
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      requestId,
+    )
+  )
+    throw new Error("UNEXECUTED: invalid P7_RESTORE_REQUEST_ID");
   const sourceSupabaseUrl = required(
     environment,
     "P7_RESTORE_SOURCE_SUPABASE_URL",
@@ -133,6 +140,7 @@ export function requireManagedRestoreAuthority(environment = process.env) {
       "P7_RESTORE_TARGET_SERVICE_ROLE_KEY",
     ),
     sourceCommit,
+    requestId,
   };
 }
 
@@ -238,6 +246,7 @@ export async function runManagedRestoreComparison(authority, adapters) {
     schemaVersion: 1,
     status: providerPass && comparison.status === "PASS" ? "PASS" : "NOT MET",
     sourceCommit: authority.sourceCommit,
+    requestId: authority.requestId,
     organizationId: authority.organizationId,
     provider: {
       status: providerPass ? "VERIFIED" : "NOT MET",
@@ -299,10 +308,20 @@ async function captureDatabaseUrl(url) {
       select kind,identity,definition from (
         select 'column' kind,
           n.nspname||'.'||c.relname||'.'||a.attname identity,
-          pg_catalog.format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull::text definition
+          pg_catalog.format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull::text||':'||
+          coalesce(pg_catalog.pg_get_expr(d.adbin,d.adrelid),'')||':'||a.attidentity||':'||
+          a.attgenerated||':'||coalesce(coll.collname,'') definition
         from pg_catalog.pg_attribute a join pg_catalog.pg_class c on c.oid=a.attrelid
         join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        left join pg_catalog.pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum
+        left join pg_catalog.pg_collation coll on coll.oid=a.attcollation
         where n.nspname in('public','private') and a.attnum>0 and not a.attisdropped
+        union all
+        select 'relation',n.nspname||'.'||c.relname,
+          c.relkind||':'||c.relrowsecurity::text||':'||c.relforcerowsecurity::text||':'||
+          coalesce(c.relacl::text,'')
+        from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        where n.nspname in('public','private') and c.relkind in('r','p','v','m','S')
         union all
         select 'constraint',n.nspname||'.'||c.relname||'.'||con.conname,
           pg_catalog.pg_get_constraintdef(con.oid,true)
@@ -312,13 +331,40 @@ async function captureDatabaseUrl(url) {
         union all
         select 'function',n.nspname||'.'||p.proname||'('||
           pg_catalog.pg_get_function_identity_arguments(p.oid)||')',
-          pg_catalog.pg_get_functiondef(p.oid)
+          pg_catalog.pg_get_functiondef(p.oid)||':'||coalesce(p.proacl::text,'')
         from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
-        where n.nspname in('public','private') and p.prokind='f'
+        where n.nspname in('public','private') and p.prokind in('f','p')
         union all
         select 'policy',schemaname||'.'||tablename||'.'||policyname,
-          coalesce(cmd,'')||':'||coalesce(qual,'')||':'||coalesce(with_check,'')
+          permissive||':'||coalesce(roles::text,'')||':'||coalesce(cmd,'')||':'||
+          coalesce(qual,'')||':'||coalesce(with_check,'')
         from pg_catalog.pg_policies where schemaname in('public','private')
+        union all
+        select 'trigger',n.nspname||'.'||c.relname||'.'||t.tgname,
+          pg_catalog.pg_get_triggerdef(t.oid,true)||':'||t.tgenabled
+        from pg_catalog.pg_trigger t join pg_catalog.pg_class c on c.oid=t.tgrelid
+        join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        where n.nspname in('public','private') and not t.tgisinternal
+        union all
+        select 'index',n.nspname||'.'||c.relname||'.'||i.relname,
+          pg_catalog.pg_get_indexdef(i.oid)
+        from pg_catalog.pg_index x join pg_catalog.pg_class i on i.oid=x.indexrelid
+        join pg_catalog.pg_class c on c.oid=x.indrelid
+        join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        where n.nspname in('public','private')
+        union all
+        select 'type',n.nspname||'.'||t.typname,
+          t.typtype||':'||t.typcategory||':'||coalesce(t.typacl::text,'')||':'||
+          coalesce((select pg_catalog.string_agg(e.enumlabel,',' order by e.enumsortorder)
+            from pg_catalog.pg_enum e where e.enumtypid=t.oid),'')
+        from pg_catalog.pg_type t join pg_catalog.pg_namespace n on n.oid=t.typnamespace
+        where n.nspname in('public','private') and t.typtype in('e','d')
+        union all
+        select 'view',schemaname||'.'||viewname,definition
+        from pg_catalog.pg_views where schemaname in('public','private')
+        union all
+        select 'extension',e.extname,e.extversion||':'||n.nspname
+        from pg_catalog.pg_extension e join pg_catalog.pg_namespace n on n.oid=e.extnamespace
       ) catalog order by kind,identity`;
     const applicationTables = await sql`
       select tablename from pg_catalog.pg_tables
@@ -436,6 +482,7 @@ async function recordEvidence(evidence, authority) {
         p_rpo_seconds: evidence.rpoSeconds,
         p_rto_seconds: evidence.rtoSeconds,
         p_status: evidence.status,
+        p_request_id: authority.requestId,
       }),
     },
   );

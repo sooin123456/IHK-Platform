@@ -113,18 +113,29 @@ library migration. Ordinary project DELETE is no longer an application operation
 Organization owners/admins and Hangil staff use
 `/organizations/<organization-id>/retention` to append a policy version, archive a
 project, request deletion, or place/release a legal hold. Approved revisions,
-approvals, quantity/BOQ/material lineage, published library provenance, and
-immutable files cause the trusted purge RPC to return `HELD`; do not bypass that
-result with direct SQL. The scheduled purge worker must use a narrowly held
-Supabase service-role secret and call `lukas_qto_purge_project` with a fresh UUID.
-Interactive users have neither project DELETE nor purge EXECUTE privilege.
+approvals, quantity/BOQ/material lineage, and published library provenance cause
+the trusted purge RPC to return `HELD`; do not bypass that result with direct SQL.
+When immutable files remain, `lukas_qto_purge_project` instead returns
+`STORAGE_REQUIRED` with an append-only path/SHA/byte-size manifest. Delete exactly
+those `lukas-qto` Storage paths, then call `lukas_qto_finalize_project_purge` with
+the returned event and manifest SHA. Finalization rechecks holds/dependencies and
+the manifest, proves those paths are absent from `storage.objects`, then deletes
+file metadata and the project while retaining the manifest events. Never delete
+DB metadata before Storage confirmation. Both calls require fresh request UUIDs;
+reuse a UUID only to retry the exact same payload. Interactive users have neither
+project DELETE nor purge EXECUTE privilege.
+
+Drawing, approved/legacy BOQ, and material exports append organization/project,
+actor, artifact type, server-computed SHA-256, byte size, and time before response
+bytes are released. A failed audit must fail the download. Revit release downloads
+continue to use their existing server-side release SHA audit.
 
 Run the optional real PostgreSQL contract before promotion. Missing authority is
 not a pass:
 
 ```sh
 P7_REAL_POSTGRES_REQUIRED=1 \
-P7_REAL_POSTGRES_DATABASE_URL='<operator-read-url>' \
+P7_REAL_POSTGRES_DATABASE_URL='<operator-audit-url-with-set-role>' \
 node --test tests/drawing-workspace-p7-retention-database.test.mjs
 ```
 
@@ -155,11 +166,14 @@ P7_RESTORE_TARGET_SUPABASE_URL='https://<isolated-ref>.supabase.co' \
 P7_RESTORE_SOURCE_SERVICE_ROLE_KEY='<source-service-role-key>' \
 P7_RESTORE_TARGET_SERVICE_ROLE_KEY='<isolated-service-role-key>' \
 P7_RESTORE_COMMIT='<40-char-release-commit>' \
+P7_RESTORE_REQUEST_ID='<new-uuid; reuse only for an exact retry>' \
 npm run release:drawing-workspace-p7:restore
 ```
 
 The runner verifies the backup and isolated project identities through the
-Supabase Management API, then compares schema, retained database rows, immutable
+Supabase Management API, then compares schema (including RLS flags, ACLs, triggers,
+indexes, types, views, extensions, functions, policies, constraints, and columns),
+retained database rows, immutable
 Storage bytes and their recorded SHA-256, accepted Yjs state, approvals, and
 quantity/BOQ/material lineage. It records a `PASS` or `NOT MET` run through the
 service-only append boundary. Missing credentials, unreachable provider

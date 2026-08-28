@@ -41,6 +41,7 @@ test("retention migration replaces project deletion with guarded archive authori
   assert.match(sql, /before update or delete on public\.lukas_qto_projects/i);
   assert.match(sql, /lukas_qto_archive_project/i);
   assert.match(sql, /lukas_qto_request_project_deletion/i);
+  assert.match(sql, /lukas_qto_list_retention_projects/i);
 });
 
 test("policy, hold, lifecycle, and restore evidence are append-only organization records", async () => {
@@ -118,6 +119,22 @@ test("trusted purge is service-only and proves expiry, holds, and protected depe
   );
   assert.match(
     sql,
+    /create unique index[^;]*retention_events_service_request[^;]*where actor_id is null/i,
+  );
+  assert.match(
+    sql,
+    /lukas_qto_place_legal_hold[\s\S]*pg_advisory_xact_lock[\s\S]*request_sha256<>v_sha/i,
+  );
+  assert.match(
+    sql,
+    /lukas_qto_release_legal_hold[\s\S]*pg_advisory_xact_lock[\s\S]*request_sha256<>v_sha/i,
+  );
+  assert.match(
+    sql,
+    /lukas_qto_purge_project[\s\S]*pg_advisory_xact_lock[\s\S]*actor_id is null[\s\S]*request_sha256<>v_sha/i,
+  );
+  assert.match(
+    sql,
     /grant execute on function public\.lukas_qto_purge_project[\s\S]*to service_role/i,
   );
   assert.doesNotMatch(
@@ -165,6 +182,15 @@ const runtimeIds = Object.freeze({
   releaseRequest: "73000000-0000-4000-8000-00000000000a",
   purgeHeldRequest: "73000000-0000-4000-8000-00000000000b",
   purgeRequest: "73000000-0000-4000-8000-00000000000c",
+  organizationOnlyProject: "73000000-0000-4000-8000-00000000000d",
+  storageProject: "73000000-0000-4000-8000-00000000000e",
+  storageFile: "73000000-0000-4000-8000-00000000000f",
+  storageDeleteRequest: "73000000-0000-4000-8000-000000000010",
+  storageReadyRequest: "73000000-0000-4000-8000-000000000011",
+  storageFinalizeRequest: "73000000-0000-4000-8000-000000000012",
+  exportRequest: "73000000-0000-4000-8000-000000000013",
+  restoreRequest: "73000000-0000-4000-8000-000000000014",
+  restoreRehearsal: "73000000-0000-4000-8000-000000000015",
 });
 
 async function runtimeDatabase() {
@@ -230,8 +256,15 @@ async function runtimeDatabase() {
   );
   await db.query(
     `insert into public.lukas_qto_projects(id,owner_id,name,description,organization_id)
-      values($1,$2,'Empty','purge fixture',$3)`,
-    [runtimeIds.emptyProject, p6Ids.owner, runtimeIds.organization],
+      values($1,$2,'Empty','purge fixture',$3),
+        ($4,$5,'Organization only','not a project membership',$3)`,
+    [
+      runtimeIds.emptyProject,
+      p6Ids.owner,
+      runtimeIds.organization,
+      runtimeIds.organizationOnlyProject,
+      p6Ids.otherOwner,
+    ],
   );
   return db;
 }
@@ -240,6 +273,15 @@ test("PGlite archives and holds approved project evidence through exact organiza
   const db = await runtimeDatabase();
   context.after(() => db.close());
   await p6SetSession(db, null, p6Ids.owner);
+  const { rows: organizationProjects } = await db.query(
+    `select id from public.lukas_qto_list_retention_projects($1)`,
+    [runtimeIds.organization],
+  );
+  assert.ok(
+    organizationProjects.some(
+      (project) => project.id === runtimeIds.organizationOnlyProject,
+    ),
+  );
   await db.query(
     `select (public.lukas_qto_set_retention_policy($1,0,2555,'company policy',$2)).id`,
     [runtimeIds.organization, runtimeIds.policyRequest],
@@ -292,6 +334,191 @@ test("PGlite archives and holds approved project evidence through exact organiza
     ]),
     /authority denied/i,
   );
+  await assert.rejects(
+    db.query(`select * from public.lukas_qto_list_retention_projects($1)`, [
+      runtimeIds.organization,
+    ]),
+    /authority denied/i,
+  );
+});
+
+test("PGlite preserves immutable manifest until Storage deletion is proven", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  await db.exec(`
+    create schema if not exists storage;
+    create table storage.objects(bucket_id text not null,name text not null);
+    alter table public.lukas_qto_files drop constraint lukas_qto_files_project_id_fkey;
+    alter table public.lukas_qto_files add constraint lukas_qto_files_project_id_fkey
+      foreign key(project_id) references public.lukas_qto_projects(id) on delete cascade;
+  `);
+  await db.query(
+    `insert into public.lukas_qto_projects(id,owner_id,name,description,organization_id)
+      values($1,$2,'Storage purge','two phase fixture',$3)`,
+    [runtimeIds.storageProject, p6Ids.owner, runtimeIds.organization],
+  );
+  const path = "storage-purge/source.pdf";
+  const sha = "7".repeat(64);
+  await db.query(
+    `insert into public.lukas_qto_files(id,project_id,uploaded_by,kind,storage_path,
+      original_filename,content_type,byte_size,sha256,immutable)
+      values($1,$2,$3,'pdf',$4,'source.pdf','application/pdf',42,$5,true)`,
+    [runtimeIds.storageFile, runtimeIds.storageProject, p6Ids.owner, path, sha],
+  );
+  await db.query(
+    `insert into storage.objects(bucket_id,name) values('lukas-qto',$1)`,
+    [path],
+  );
+  await p6SetSession(db, null, p6Ids.owner);
+  await db.query(
+    `select public.lukas_qto_set_retention_policy($1,0,2555,'storage cleanup',$2)`,
+    [runtimeIds.organization, crypto.randomUUID()],
+  );
+  await db.query(
+    `select public.lukas_qto_request_project_deletion($1,$2,'storage fixture',$3)`,
+    [
+      runtimeIds.organization,
+      runtimeIds.storageProject,
+      runtimeIds.storageDeleteRequest,
+    ],
+  );
+  await db.exec(
+    `select pg_catalog.set_config('request.jwt.claims','{"role":"service_role"}',false)`,
+  );
+  const {
+    rows: [ready],
+  } = await db.query(
+    `select public.lukas_qto_purge_project($1,$2,$3,'two phase purge') result`,
+    [
+      runtimeIds.organization,
+      runtimeIds.storageProject,
+      runtimeIds.storageReadyRequest,
+    ],
+  );
+  assert.equal(ready.result.status, "STORAGE_REQUIRED");
+  assert.deepEqual(ready.result.files, [{ path, sha256: sha, byteSize: 42 }]);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_finalize_project_purge($1,$2,$3,$4,$5,'storage confirmed')`,
+      [
+        runtimeIds.organization,
+        runtimeIds.storageProject,
+        ready.result.eventId,
+        ready.result.manifestSha256,
+        runtimeIds.storageFinalizeRequest,
+      ],
+    ),
+    /Storage deletion is incomplete/i,
+  );
+  await db.query(
+    `delete from storage.objects where bucket_id='lukas-qto' and name=$1`,
+    [path],
+  );
+  const {
+    rows: [purged],
+  } = await db.query(
+    `select public.lukas_qto_finalize_project_purge($1,$2,$3,$4,$5,'storage confirmed') result`,
+    [
+      runtimeIds.organization,
+      runtimeIds.storageProject,
+      ready.result.eventId,
+      ready.result.manifestSha256,
+      runtimeIds.storageFinalizeRequest,
+    ],
+  );
+  assert.equal(purged.result.status, "PURGED");
+  const {
+    rows: [evidence],
+  } = await db.query(
+    `select evidence from public.lukas_qto_retention_events where id=$1`,
+    [ready.result.eventId],
+  );
+  assert.deepEqual(evidence.evidence.files, [
+    { path, sha256: sha, byteSize: 42 },
+  ]);
+});
+
+test("PGlite export evidence is exact, idempotent, append-only, and cross-org denied", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  const sha = "8".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  const {
+    rows: [first],
+  } = await db.query(
+    `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
+    [p6Ids.project, sha, runtimeIds.exportRequest],
+  );
+  const {
+    rows: [retry],
+  } = await db.query(
+    `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
+    [p6Ids.project, sha, runtimeIds.exportRequest],
+  );
+  assert.deepEqual(retry, first);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,129,$3)`,
+      [p6Ids.project, sha, runtimeIds.exportRequest],
+    ),
+    /identity was reused/i,
+  );
+  await assert.rejects(
+    db.query(`delete from public.lukas_qto_export_events where request_id=$1`, [
+      runtimeIds.exportRequest,
+    ]),
+    /append-only/i,
+  );
+  await p6SetSession(db, null, p6Ids.otherOwner);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
+      [p6Ids.project, sha, crypto.randomUUID()],
+    ),
+    /authority denied/i,
+  );
+});
+
+test("PGlite restore recording retries one request and permits a new rehearsal", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  await db.exec(
+    `select pg_catalog.set_config('request.jwt.claims','{"role":"service_role"}',false)`,
+  );
+  const args = [
+    runtimeIds.organization,
+    "a".repeat(20),
+    "backup-one",
+    "2026-08-28T01:00:00Z",
+    "b".repeat(20),
+    "2026-08-28T01:05:00Z",
+    "c".repeat(40),
+    ...Array.from({ length: 7 }, (_, index) => String(index + 1).repeat(64)),
+    300,
+    600,
+    "PASS",
+  ];
+  const call = (requestId, status = args[16]) =>
+    db.query(
+      `select (public.lukas_qto_record_restore_run(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)).id id`,
+      [...args.slice(0, 16), status, requestId],
+    );
+  const {
+    rows: [first],
+  } = await call(runtimeIds.restoreRequest);
+  const {
+    rows: [retry],
+  } = await call(runtimeIds.restoreRequest);
+  assert.deepEqual(retry, first);
+  await assert.rejects(
+    call(runtimeIds.restoreRequest, "NOT MET"),
+    /identity was reused/i,
+  );
+  const {
+    rows: [rehearsal],
+  } = await call(runtimeIds.restoreRehearsal);
+  assert.notEqual(rehearsal.id, first.id);
 });
 
 test("PGlite legal hold blocks trusted purge until release and empty dependency proof", async (context) => {
@@ -310,7 +537,9 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
       runtimeIds.emptyDeleteRequest,
     ],
   );
-  await db.query(
+  const {
+    rows: [firstHold],
+  } = await db.query(
     `select public.lukas_qto_place_legal_hold($1,$2,$3,'investigation',$4)`,
     [
       runtimeIds.organization,
@@ -318,6 +547,64 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
       runtimeIds.hold,
       runtimeIds.holdRequest,
     ],
+  );
+  const {
+    rows: [retriedHold],
+  } = await db.query(
+    `select public.lukas_qto_place_legal_hold($1,$2,$3,'investigation',$4)`,
+    [
+      runtimeIds.organization,
+      runtimeIds.emptyProject,
+      runtimeIds.hold,
+      runtimeIds.holdRequest,
+    ],
+  );
+  assert.deepEqual(retriedHold, firstHold);
+  const {
+    rows: [{ id: placedEventId }],
+  } = await db.query(
+    `select id
+       from public.lukas_qto_retention_events
+      where request_id = $1`,
+    [runtimeIds.holdRequest],
+  );
+  await db.query(
+    `insert into public.lukas_qto_retention_events(organization_id,project_id,
+      event_type,request_id,request_sha256,reason,evidence,actor_id,created_at)
+      select $1,$2,'purge_denied',gen_random_uuid(),repeat('a',64),'feed filler',
+        '{"status":"retention_not_expired"}'::jsonb,$3,
+        now()+pg_catalog.make_interval(secs=>g)
+      from generate_series(1,101) g`,
+    [runtimeIds.organization, runtimeIds.emptyProject, p6Ids.owner],
+  );
+  const { rows: feed } = await db.query(
+    `select id from public.lukas_qto_retention_events
+      where organization_id=$1 order by created_at desc,id desc limit 100`,
+    [runtimeIds.organization],
+  );
+  assert.equal(
+    feed.some((event) => event.id === placedEventId),
+    false,
+  );
+  const { rows: activeHolds } = await db.query(
+    `select id from public.lukas_qto_list_active_legal_holds($1)`,
+    [runtimeIds.organization],
+  );
+  assert.equal(
+    activeHolds.some((event) => event.id === placedEventId),
+    true,
+  );
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_place_legal_hold($1,$2,$3,'different',$4)`,
+      [
+        runtimeIds.organization,
+        runtimeIds.emptyProject,
+        runtimeIds.hold,
+        runtimeIds.holdRequest,
+      ],
+    ),
+    /identity was reused/i,
   );
   await db.exec(
     `select pg_catalog.set_config('request.jwt.claims','{"role":"service_role"}',false)`,
@@ -333,8 +620,32 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
     ],
   );
   assert.equal(held.result.reason, "legal_hold_active");
+  const {
+    rows: [heldRetry],
+  } = await db.query(
+    `select public.lukas_qto_purge_project($1,$2,$3,'scheduled purge') result`,
+    [
+      runtimeIds.organization,
+      runtimeIds.emptyProject,
+      runtimeIds.purgeHeldRequest,
+    ],
+  );
+  assert.deepEqual(heldRetry.result, held.result);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_purge_project($1,$2,$3,'different purge')`,
+      [
+        runtimeIds.organization,
+        runtimeIds.emptyProject,
+        runtimeIds.purgeHeldRequest,
+      ],
+    ),
+    /identity was reused/i,
+  );
   await p6SetSession(db, null, p6Ids.owner);
-  await db.query(
+  const {
+    rows: [firstRelease],
+  } = await db.query(
     `select public.lukas_qto_release_legal_hold($1,$2,$3,'hold cleared',$4)`,
     [
       runtimeIds.organization,
@@ -343,6 +654,18 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
       runtimeIds.releaseRequest,
     ],
   );
+  const {
+    rows: [retriedRelease],
+  } = await db.query(
+    `select public.lukas_qto_release_legal_hold($1,$2,$3,'hold cleared',$4)`,
+    [
+      runtimeIds.organization,
+      runtimeIds.emptyProject,
+      runtimeIds.hold,
+      runtimeIds.releaseRequest,
+    ],
+  );
+  assert.deepEqual(retriedRelease, firstRelease);
   await db.exec(
     `select pg_catalog.set_config('request.jwt.claims','{"role":"service_role"}',false)`,
   );
@@ -353,6 +676,13 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
     [runtimeIds.organization, runtimeIds.emptyProject, runtimeIds.purgeRequest],
   );
   assert.equal(purged.result.status, "PURGED");
+  const {
+    rows: [purgedRetry],
+  } = await db.query(
+    `select public.lukas_qto_purge_project($1,$2,$3,'scheduled purge') result`,
+    [runtimeIds.organization, runtimeIds.emptyProject, runtimeIds.purgeRequest],
+  );
+  assert.deepEqual(purgedRetry.result, purged.result);
   const {
     rows: [remaining],
   } = await db.query(
@@ -384,8 +714,8 @@ if (!realPostgresUrl) {
         from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
         where n.nspname='public' and c.relname in (
           'lukas_qto_retention_policy_versions','lukas_qto_retention_events',
-          'lukas_qto_restore_runs') order by c.relname`;
-      assert.equal(tables.length, 3);
+          'lukas_qto_restore_runs','lukas_qto_export_events') order by c.relname`;
+      assert.equal(tables.length, 4);
       for (const row of tables) {
         assert.equal(row.relrowsecurity, true, row.relname);
         assert.equal(row.can_select, true, row.relname);
@@ -404,9 +734,9 @@ if (!realPostgresUrl) {
           pg_catalog.has_function_privilege('service_role',
             'public.lukas_qto_purge_project(uuid,uuid,uuid,text)','EXECUTE') service_purge,
           pg_catalog.has_function_privilege('authenticated',
-            'public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text)','EXECUTE') authenticated_restore,
+            'public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)','EXECUTE') authenticated_restore,
           pg_catalog.has_function_privilege('service_role',
-            'public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text)','EXECUTE') service_restore`;
+            'public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)','EXECUTE') service_restore`;
       assert.deepEqual(functions, {
         authenticated_purge: false,
         service_purge: true,
@@ -418,10 +748,68 @@ if (!realPostgresUrl) {
         join pg_catalog.pg_proc p on p.oid=t.tgfoid
         where t.tgname in('lukas_qto_retention_policy_versions_append_only',
           'lukas_qto_retention_events_append_only','lukas_qto_restore_runs_append_only',
-          'lukas_qto_projects_retention_guard')`;
-      assert.equal(triggers.length, 4);
+          'lukas_qto_export_events_append_only','lukas_qto_projects_retention_guard')`;
+      assert.equal(triggers.length, 5);
       for (const trigger of triggers)
         assert.equal(trigger.security_definer, false);
+
+      const [scope] = await sql`
+        select p.id project_id,p.organization_id,o.owner_id
+        from public.lukas_qto_projects p
+        join public.lukas_qto_organizations o on o.id=p.organization_id
+        order by p.created_at,p.id limit 1`;
+      assert.ok(
+        scope,
+        "real PostgreSQL execution gate needs one retained project",
+      );
+      const outsider = crypto.randomUUID();
+      const claims = (role, sub) =>
+        JSON.stringify({ role, sub, is_anonymous: false, app_metadata: {} });
+      const asRole = (role, jwt, operation) =>
+        sql.begin(async (transaction) => {
+          await transaction.unsafe(`set local role ${role}`);
+          await transaction`select pg_catalog.set_config('request.jwt.claims',${jwt},true)`;
+          return operation(transaction);
+        });
+      const hidden = await asRole(
+        "authenticated",
+        claims("authenticated", outsider),
+        (transaction) => transaction`
+          select id from public.lukas_qto_projects where id=${scope.project_id}`,
+      );
+      assert.equal(
+        hidden.length,
+        0,
+        "cross-org project SELECT must be hidden by RLS",
+      );
+      await assert.rejects(
+        asRole(
+          "authenticated",
+          claims("authenticated", outsider),
+          (transaction) =>
+            transaction`select * from public.lukas_qto_list_retention_projects(${scope.organization_id})`,
+        ),
+        /authority denied/i,
+      );
+      await assert.rejects(
+        asRole(
+          "authenticated",
+          claims("authenticated", scope.owner_id),
+          (transaction) => transaction`
+            delete from public.lukas_qto_projects where id=${scope.project_id}`,
+        ),
+        /permission denied|must be archived and purged/i,
+      );
+      await assert.rejects(
+        asRole(
+          "service_role",
+          claims("service_role", outsider),
+          (transaction) => transaction`
+            select public.lukas_qto_purge_project(
+              ${crypto.randomUUID()},${scope.project_id},${crypto.randomUUID()},'cross org execution gate')`,
+        ),
+        /target is unavailable/i,
+      );
     } finally {
       await sql.end();
     }

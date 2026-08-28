@@ -63,45 +63,51 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.organizationId!,
   );
-  const [projectsResult, policiesResult, eventsResult, restoresResult] =
-    await Promise.all([
-      client
-        .from("lukas_qto_projects")
-        .select(
-          "id,name,archived_at,deletion_requested_at,purge_after,updated_at",
-        )
-        .eq("organization_id", organization.id)
-        .order("updated_at", { ascending: false })
-        .limit(100),
-      client
-        .from("lukas_qto_retention_policy_versions")
-        .select(
-          "id,version_no,archive_retention_days,approved_retention_days,reason,created_at",
-        )
-        .eq("organization_id", organization.id)
-        .order("version_no", { ascending: false })
-        .limit(20),
-      client
-        .from("lukas_qto_retention_events")
-        .select(
-          "id,project_id,event_type,hold_id,releases_event_id,purge_after,reason,evidence,created_at",
-        )
-        .eq("organization_id", organization.id)
-        .order("created_at", { ascending: false })
-        .limit(100),
-      client
-        .from("lukas_qto_restore_runs")
-        .select(
-          "id,provider_backup_id,provider_restore_project_ref,source_commit,rpo_seconds,rto_seconds,status,recorded_at",
-        )
-        .eq("organization_id", organization.id)
-        .order("recorded_at", { ascending: false })
-        .limit(20),
-    ]);
+  const [
+    projectsResult,
+    policiesResult,
+    eventsResult,
+    activeHoldsResult,
+    restoresResult,
+  ] = await Promise.all([
+    mayManage
+      ? client.rpc("lukas_qto_list_retention_projects", {
+          p_organization_id: organization.id,
+        })
+      : Promise.resolve({ data: [], error: null }),
+    client
+      .from("lukas_qto_retention_policy_versions")
+      .select(
+        "id,version_no,archive_retention_days,approved_retention_days,reason,created_at",
+      )
+      .eq("organization_id", organization.id)
+      .order("version_no", { ascending: false })
+      .limit(20),
+    client
+      .from("lukas_qto_retention_events")
+      .select(
+        "id,project_id,event_type,hold_id,releases_event_id,purge_after,reason,evidence,created_at",
+      )
+      .eq("organization_id", organization.id)
+      .order("created_at", { ascending: false })
+      .limit(100),
+    client.rpc("lukas_qto_list_active_legal_holds", {
+      p_organization_id: organization.id,
+    }),
+    client
+      .from("lukas_qto_restore_runs")
+      .select(
+        "id,provider_backup_id,provider_restore_project_ref,source_commit,rpo_seconds,rto_seconds,status,recorded_at",
+      )
+      .eq("organization_id", organization.id)
+      .order("recorded_at", { ascending: false })
+      .limit(20),
+  ]);
   const failed = [
     projectsResult,
     policiesResult,
     eventsResult,
+    activeHoldsResult,
     restoresResult,
   ].find((result) => result.error);
   if (failed?.error)
@@ -113,13 +119,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     );
   const projects = projectsResult.data ?? [];
   const events = eventsResult.data ?? [];
-  const activeHolds = events.filter(
-    (event: any) =>
-      event.event_type === "legal_hold_placed" &&
-      !events.some(
-        (candidate: any) => candidate.releases_event_id === event.id,
-      ),
-  );
+  const activeHolds = activeHoldsResult.data ?? [];
   return data(
     {
       organization,

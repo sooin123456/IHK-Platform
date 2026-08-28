@@ -18,6 +18,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { recordProjectExport } from "~/lukas/lib/project-export-audit.server";
 import { VerifiedBoqDrawingSources } from "~/lukas/components/verified-boq-drawing-sources";
 import { VerifiedBoqComparison } from "~/lukas/components/verified-boq-comparison";
 import {
@@ -556,13 +557,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!(["csv", "xlsx", "manifest"] as string[]).includes(download))
       throw new Response("지원하지 않는 내보내기 형식입니다.", { status: 400 });
     try {
+      const format = download as "csv" | "xlsx" | "manifest";
+      const exported = await loadApprovedVerifiedBoqExport(
+        context.client,
+        context.user.id,
+        version.id,
+      );
+      const artifact =
+        format === "csv"
+          ? exported.csv
+          : format === "xlsx"
+            ? exported.xlsx
+            : exported.manifestJson;
+      await recordProjectExport(
+        context.client,
+        context.project.id,
+        format === "manifest" ? "boq_manifest" : `boq_${format}`,
+        artifact,
+      );
       return approvedVerifiedBoqDownloadResponse(
-        await loadApprovedVerifiedBoqExport(
-          context.client,
-          context.user.id,
-          version.id,
-        ),
-        download as "csv" | "xlsx" | "manifest",
+        exported,
+        format,
         version.version_no,
       );
     } catch (error) {
@@ -886,6 +901,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           })),
         },
       });
+      await recordProjectExport(
+        context.client,
+        context.project.id,
+        "boq_xlsx",
+        workbook,
+      );
       return new Response(workbook, {
         headers: {
           "Content-Type":
@@ -897,7 +918,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }
     if (download !== "csv")
       throw new Response("지원하지 않는 내보내기 형식입니다.", { status: 400 });
-    return new Response(buildVerifiedBoqCsv(result), {
+    const csv = buildVerifiedBoqCsv(result);
+    await recordProjectExport(
+      context.client,
+      context.project.id,
+      "boq_csv",
+      csv,
+    );
+    return new Response(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="verified-boq-v${version.version_no}.csv"`,

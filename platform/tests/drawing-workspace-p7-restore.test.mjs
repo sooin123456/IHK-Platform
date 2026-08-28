@@ -20,6 +20,7 @@ function authority() {
     sourceServiceKey: "source-service-role-key-with-authority",
     targetServiceKey: "target-service-role-key-with-authority",
     sourceCommit: "c".repeat(40),
+    requestId: "74000000-0000-4000-8000-000000000009",
   };
 }
 
@@ -40,6 +41,18 @@ test("restore inventory names the existing approval, BOQ, and material lineage t
   assert.match(source, /from pg_catalog\.pg_tables/);
   assert.doesNotMatch(source, /const PUBLIC_TABLES/);
   assert.match(source, /pg_catalog\.pg_control_system\(\)/);
+  for (const authority of [
+    "relrowsecurity",
+    "relforcerowsecurity",
+    "relacl",
+    "pg_get_triggerdef",
+    "pg_get_indexdef",
+    "pg_type",
+    "pg_views",
+    "pg_extension",
+    "proacl",
+  ])
+    assert.match(source, new RegExp(authority), authority);
   assert.match(source, /response\.status === 404/);
   assert.doesNotMatch(source, /NOT MET: storage download/);
   for (const table of [
@@ -88,6 +101,12 @@ test("source and isolated restore must match every retained evidence domain", as
   assert.deepEqual(compareRestoreSnapshots(corrupt, corrupt), {
     status: "NOT MET",
     mismatches: ["storage"],
+  });
+  const schemaDrift = snapshot();
+  schemaDrift.schema.digest = sha("8");
+  assert.deepEqual(compareRestoreSnapshots(snapshot(), schemaDrift), {
+    status: "NOT MET",
+    mismatches: ["schema"],
   });
 });
 

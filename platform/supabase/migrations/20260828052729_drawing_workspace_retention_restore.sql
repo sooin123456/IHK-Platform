@@ -19,6 +19,9 @@ begin
   if pg_catalog.to_regprocedure('private.lukas_qto_organization_role(uuid)') is null then
     raise exception using errcode='P7R01',message='P7 organization authority is missing';
   end if;
+  if pg_catalog.to_regprocedure('private.lukas_qto_project_role(uuid)') is null then
+    raise exception using errcode='P7R01',message='P7 project authority is missing';
+  end if;
 end;
 $$;
 
@@ -62,7 +65,7 @@ create table public.lukas_qto_retention_events (
   project_id uuid not null,
   event_type text not null check(event_type in(
     'project_archived','deletion_requested','legal_hold_placed',
-    'legal_hold_released','purge_denied','project_purged'
+    'legal_hold_released','purge_denied','purge_storage_ready','project_purged'
   )),
   request_id uuid not null,
   request_sha256 text not null check(request_sha256 ~ '^[0-9a-f]{64}$'),
@@ -88,6 +91,8 @@ alter table public.lukas_qto_projects
 
 create table public.lukas_qto_restore_runs (
   id uuid primary key default gen_random_uuid(),
+  request_id uuid not null,
+  request_sha256 text not null check(request_sha256 ~ '^[0-9a-f]{64}$'),
   organization_id uuid not null references public.lukas_qto_organizations(id) on delete restrict,
   source_project_ref text not null check(source_project_ref ~ '^[a-z0-9]{20}$'),
   provider_backup_id text not null check(char_length(trim(provider_backup_id)) between 1 and 160),
@@ -107,7 +112,24 @@ create table public.lukas_qto_restore_runs (
   status text not null check(status in('PASS','NOT MET')),
   recorded_by uuid references auth.users(id) on delete restrict,
   recorded_at timestamptz not null default pg_catalog.now(),
-  unique(source_project_ref,provider_backup_id,provider_restore_project_ref)
+  unique(request_id)
+);
+
+create table public.lukas_qto_export_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.lukas_qto_organizations(id) on delete restrict,
+  project_id uuid not null,
+  artifact_type text not null check(artifact_type in(
+    'drawing_pdf','drawing_png','drawing_svg','boq_csv','boq_xlsx',
+    'boq_manifest','material_csv'
+  )),
+  artifact_sha256 text not null check(artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  artifact_byte_size bigint not null check(artifact_byte_size>0),
+  request_id uuid not null,
+  request_sha256 text not null check(request_sha256 ~ '^[0-9a-f]{64}$'),
+  actor_id uuid not null references auth.users(id) on delete restrict,
+  created_at timestamptz not null default pg_catalog.now(),
+  unique(actor_id,request_id)
 );
 
 create index lukas_qto_retention_policy_versions_org_idx
@@ -117,10 +139,14 @@ create index lukas_qto_retention_events_project_idx
 create index lukas_qto_retention_events_active_hold_idx
   on public.lukas_qto_retention_events(project_id,hold_id,created_at desc)
   where event_type in('legal_hold_placed','legal_hold_released');
+create unique index lukas_qto_retention_events_service_request_idx
+  on public.lukas_qto_retention_events(request_id) where actor_id is null;
 create index lukas_qto_restore_runs_org_idx
   on public.lukas_qto_restore_runs(organization_id,recorded_at desc,id desc);
 create index lukas_qto_projects_active_idx
   on public.lukas_qto_projects(organization_id,updated_at desc) where archived_at is null;
+create index lukas_qto_export_events_org_idx
+  on public.lukas_qto_export_events(organization_id,created_at desc,id desc);
 
 create function private.lukas_qto_retention_append_guard()
 returns trigger language plpgsql security invoker set search_path='' as $$
@@ -137,6 +163,9 @@ before update or delete on public.lukas_qto_retention_events
 for each row execute function private.lukas_qto_retention_append_guard();
 create trigger lukas_qto_restore_runs_append_only
 before update or delete on public.lukas_qto_restore_runs
+for each row execute function private.lukas_qto_retention_append_guard();
+create trigger lukas_qto_export_events_append_only
+before update or delete on public.lukas_qto_export_events
 for each row execute function private.lukas_qto_retention_append_guard();
 
 create function private.lukas_qto_project_retention_guard()
@@ -205,6 +234,76 @@ returns jsonb language sql stable security definer set search_path='' as $$
     'immutableFiles',(select pg_catalog.count(*) from public.lukas_qto_files f
       where f.project_id=p_project_id and f.immutable)
   )
+$$;
+
+create function public.lukas_qto_list_retention_projects(p_organization_id uuid)
+returns table(
+  id uuid,name text,archived_at timestamptz,deletion_requested_at timestamptz,
+  purge_after timestamptz,updated_at timestamptz
+) language plpgsql stable security definer set search_path='' as $$
+begin
+  if not private.lukas_qto_retention_manager(p_organization_id) then
+    raise exception using errcode='P7R04',message='Retention project list authority denied';
+  end if;
+  return query select p.id,p.name,p.archived_at,p.deletion_requested_at,
+    p.purge_after,p.updated_at from public.lukas_qto_projects p
+    where p.organization_id=p_organization_id
+    order by p.updated_at desc,p.id desc limit 100;
+end;
+$$;
+
+create function public.lukas_qto_list_active_legal_holds(p_organization_id uuid)
+returns setof public.lukas_qto_retention_events
+language plpgsql stable security definer set search_path='' as $$
+begin
+  if (select auth.uid()) is null
+    or private.lukas_qto_organization_role(p_organization_id) is null then
+    raise exception using errcode='P7R04',message='Active legal hold authority denied';
+  end if;
+  return query select p.* from public.lukas_qto_retention_events p
+    where p.organization_id=p_organization_id and p.event_type='legal_hold_placed'
+      and not exists(select 1 from public.lukas_qto_retention_events r
+        where r.event_type='legal_hold_released' and r.releases_event_id=p.id)
+    order by p.created_at desc,p.id desc;
+end;
+$$;
+
+create function public.lukas_qto_record_project_export(
+  p_project_id uuid,p_artifact_type text,p_artifact_sha256 text,
+  p_artifact_byte_size bigint,p_request_id uuid
+) returns public.lukas_qto_export_events
+language plpgsql security definer set search_path='' as $$
+declare v_actor uuid:=(select auth.uid()); v_organization_id uuid;
+declare v_sha text; v_event public.lukas_qto_export_events%rowtype;
+begin
+  select p.organization_id into v_organization_id from public.lukas_qto_projects p
+    where p.id=p_project_id;
+  if v_actor is null or v_organization_id is null
+    or private.lukas_qto_project_role(p_project_id) is null then
+    raise exception using errcode='P7R04',message='Project export authority denied';
+  end if;
+  if p_artifact_type not in('drawing_pdf','drawing_png','drawing_svg','boq_csv',
+      'boq_xlsx','boq_manifest','material_csv') or p_artifact_sha256 !~ '^[0-9a-f]{64}$'
+    or p_artifact_byte_size<=0 or p_request_id is null then
+    raise exception using errcode='P7R05',message='Project export evidence is invalid';
+  end if;
+  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(
+    pg_catalog.jsonb_build_array(v_organization_id,p_project_id,p_artifact_type,
+      p_artifact_sha256,p_artifact_byte_size)::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_event from public.lukas_qto_export_events
+    where actor_id=v_actor and request_id=p_request_id;
+  if found then
+    if v_event.request_sha256<>v_sha then
+      raise exception using errcode='P7R05',message='Export request identity was reused'; end if;
+    return v_event;
+  end if;
+  insert into public.lukas_qto_export_events(organization_id,project_id,
+    artifact_type,artifact_sha256,artifact_byte_size,request_id,request_sha256,actor_id)
+  values(v_organization_id,p_project_id,p_artifact_type,p_artifact_sha256,
+    p_artifact_byte_size,p_request_id,v_sha,v_actor) returning * into v_event;
+  return v_event;
+end;
 $$;
 
 create or replace function public.lukas_qto_set_retention_policy(
@@ -332,13 +431,24 @@ language plpgsql security definer set search_path='' as $$
 declare v_actor uuid:=(select auth.uid()); v_event public.lukas_qto_retention_events%rowtype; v_sha text;
 begin
   if not private.lukas_qto_retention_manager(p_organization_id) then raise exception using errcode='P7R04',message='Legal hold authority denied'; end if;
-  if not exists(select 1 from public.lukas_qto_projects p where p.id=p_project_id and p.organization_id=p_organization_id)
-    or p_hold_id is null or p_request_id is null or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
+  if p_hold_id is null or p_request_id is null
+    or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
     raise exception using errcode='P7R05',message='Legal hold input is invalid'; end if;
-  if exists(select 1 from public.lukas_qto_retention_events e where e.project_id=p_project_id and e.hold_id=p_hold_id) then
-    raise exception using errcode='P7R05',message='Legal hold identity already exists'; end if;
   v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
     'legal_hold_placed',p_organization_id,p_project_id,p_hold_id,pg_catalog.btrim(p_reason))::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_event from public.lukas_qto_retention_events
+    where actor_id=v_actor and request_id=p_request_id;
+  if found then
+    if v_event.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Retention request identity was reused'; end if;
+    return v_event;
+  end if;
+  if not exists(select 1 from public.lukas_qto_projects p
+      where p.id=p_project_id and p.organization_id=p_organization_id) then
+    raise exception using errcode='P7R05',message='Legal hold input is invalid'; end if;
+  if exists(select 1 from public.lukas_qto_retention_events e
+      where e.project_id=p_project_id and e.hold_id=p_hold_id) then
+    raise exception using errcode='P7R05',message='Legal hold identity already exists'; end if;
   insert into public.lukas_qto_retention_events(organization_id,project_id,event_type,
     request_id,request_sha256,hold_id,reason,actor_id)
   values(p_organization_id,p_project_id,'legal_hold_placed',p_request_id,v_sha,p_hold_id,
@@ -355,16 +465,24 @@ declare v_actor uuid:=(select auth.uid()); v_placed public.lukas_qto_retention_e
 declare v_event public.lukas_qto_retention_events%rowtype; v_sha text;
 begin
   if not private.lukas_qto_retention_manager(p_organization_id) then raise exception using errcode='P7R04',message='Legal hold authority denied'; end if;
+  if p_hold_id is null or p_request_id is null
+    or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
+    raise exception using errcode='P7R05',message='Legal hold release is invalid'; end if;
+  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
+    'legal_hold_released',p_organization_id,p_project_id,p_hold_id,pg_catalog.btrim(p_reason))::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_event from public.lukas_qto_retention_events
+    where actor_id=v_actor and request_id=p_request_id;
+  if found then
+    if v_event.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Retention request identity was reused'; end if;
+    return v_event;
+  end if;
   select * into v_placed from public.lukas_qto_retention_events e
     where e.organization_id=p_organization_id and e.project_id=p_project_id
       and e.event_type='legal_hold_placed' and e.hold_id=p_hold_id for share;
   if not found or exists(select 1 from public.lukas_qto_retention_events r
     where r.event_type='legal_hold_released' and r.releases_event_id=v_placed.id) then
     raise exception using errcode='P7R05',message='Active legal hold is unavailable'; end if;
-  if p_request_id is null or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
-    raise exception using errcode='P7R05',message='Legal hold release is invalid'; end if;
-  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
-    'legal_hold_released',p_organization_id,p_project_id,p_hold_id,pg_catalog.btrim(p_reason))::text,'UTF8'),'sha256'),'hex');
   insert into public.lukas_qto_retention_events(organization_id,project_id,event_type,
     request_id,request_sha256,hold_id,releases_event_id,reason,actor_id)
   values(p_organization_id,p_project_id,'legal_hold_released',p_request_id,v_sha,p_hold_id,
@@ -379,9 +497,30 @@ create or replace function public.lukas_qto_purge_project(
 declare v_project public.lukas_qto_projects%rowtype; v_dependencies jsonb;
 declare v_request public.lukas_qto_retention_events%rowtype; v_event public.lukas_qto_retention_events%rowtype;
 declare v_active_holds bigint; v_protected bigint; v_sha text; v_status text;
+declare v_files jsonb; v_manifest_sha text;
 begin
   if coalesce((select auth.jwt()->>'role'),'')<>'service_role' then
     raise exception using errcode='P7R07',message='Trusted purge requires service authority'; end if;
+  if p_request_id is null or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
+    raise exception using errcode='P7R05',message='Purge request is invalid'; end if;
+  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
+    'purge',p_organization_id,p_project_id,pg_catalog.btrim(p_reason))::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_event from public.lukas_qto_retention_events
+    where actor_id is null and request_id=p_request_id;
+  if found then
+    if v_event.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Retention request identity was reused'; end if;
+    if v_event.event_type='project_purged' then
+      return pg_catalog.jsonb_build_object('status','PURGED','eventId',v_event.id,
+        'dependencies',v_event.evidence->'dependencies');
+    elsif v_event.event_type='purge_storage_ready' then
+      return pg_catalog.jsonb_build_object('status','STORAGE_REQUIRED','eventId',v_event.id,
+        'manifestSha256',v_event.evidence->>'manifestSha256','files',v_event.evidence->'files',
+        'dependencies',v_event.evidence->'dependencies');
+    end if;
+    return pg_catalog.jsonb_build_object('status','HELD','reason',v_event.evidence->>'status',
+      'eventId',v_event.id,'dependencies',v_event.evidence->'dependencies');
+  end if;
   select * into v_project from public.lukas_qto_projects
     where id=p_project_id and organization_id=p_organization_id for update;
   if not found then raise exception using errcode='P7R06',message='Project retention target is unavailable'; end if;
@@ -396,6 +535,12 @@ begin
         where r.event_type='legal_hold_released' and r.releases_event_id=p.id
       );
   v_dependencies:=private.lukas_qto_project_retention_dependencies(p_project_id);
+  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'path',f.storage_path,'sha256',f.sha256,'byteSize',f.byte_size)
+      order by f.storage_path,f.id),'[]'::jsonb) into v_files
+    from public.lukas_qto_files f where f.project_id=p_project_id and f.immutable;
+  v_manifest_sha:=pg_catalog.encode(extensions.digest(
+    pg_catalog.convert_to(v_files::text,'UTF8'),'sha256'),'hex');
   v_protected:=(v_dependencies->>'approvedDrawingRevisions')::bigint
     +(v_dependencies->>'drawingRevisionApprovals')::bigint
     +(v_dependencies->>'drawingIssueApprovals')::bigint
@@ -410,23 +555,103 @@ begin
     when pg_catalog.now()<v_request.purge_after then 'retention_not_expired'
     when v_active_holds>0 then 'legal_hold_active'
     when v_protected>0 then 'protected_dependencies'
+    when (v_dependencies->>'immutableFiles')::bigint>0 then 'storage_deletion_required'
     else 'purged' end;
-  if p_request_id is null or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
-    raise exception using errcode='P7R05',message='Purge request is invalid'; end if;
-  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
-    v_status,p_organization_id,p_project_id,v_request.id,pg_catalog.btrim(p_reason),v_dependencies)::text,'UTF8'),'sha256'),'hex');
   insert into public.lukas_qto_retention_events(organization_id,project_id,event_type,
     request_id,request_sha256,reason,evidence,actor_id)
-  values(p_organization_id,p_project_id,case when v_status='purged' then 'project_purged' else 'purge_denied' end,
+  values(p_organization_id,p_project_id,case when v_status='purged' then 'project_purged'
+      when v_status='storage_deletion_required' then 'purge_storage_ready' else 'purge_denied' end,
     p_request_id,v_sha,pg_catalog.btrim(p_reason),pg_catalog.jsonb_build_object(
       'status',v_status,'requestEventId',v_request.id,'purgeAfter',v_request.purge_after,
-      'activeLegalHolds',v_active_holds,'dependencies',v_dependencies),null)
+      'activeLegalHolds',v_active_holds,'dependencies',v_dependencies,
+      'manifestSha256',v_manifest_sha,'files',v_files),null)
   returning * into v_event;
+  if v_status='storage_deletion_required' then
+    return pg_catalog.jsonb_build_object('status','STORAGE_REQUIRED','eventId',v_event.id,
+      'manifestSha256',v_manifest_sha,'files',v_files,'dependencies',v_dependencies); end if;
   if v_status<>'purged' then return pg_catalog.jsonb_build_object('status','HELD','reason',v_status,
     'eventId',v_event.id,'dependencies',v_dependencies); end if;
   perform pg_catalog.set_config('app.lukas_retention_purge_project',p_project_id::text,true);
   delete from public.lukas_qto_projects where id=p_project_id and organization_id=p_organization_id;
   return pg_catalog.jsonb_build_object('status','PURGED','eventId',v_event.id,'dependencies',v_dependencies);
+end;
+$$;
+
+create or replace function public.lukas_qto_finalize_project_purge(
+  p_organization_id uuid,p_project_id uuid,p_ready_event_id uuid,
+  p_manifest_sha256 text,p_request_id uuid,p_reason text
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_project public.lukas_qto_projects%rowtype; v_ready public.lukas_qto_retention_events%rowtype;
+declare v_event public.lukas_qto_retention_events%rowtype; v_dependencies jsonb;
+declare v_files jsonb; v_paths text[]; v_sha text; v_storage_exists boolean;
+begin
+  if coalesce((select auth.jwt()->>'role'),'')<>'service_role' then
+    raise exception using errcode='P7R07',message='Trusted purge requires service authority'; end if;
+  if p_ready_event_id is null or p_request_id is null
+    or p_manifest_sha256 !~ '^[0-9a-f]{64}$'
+    or pg_catalog.char_length(pg_catalog.btrim(p_reason)) not between 1 and 2000 then
+    raise exception using errcode='P7R05',message='Purge finalization request is invalid'; end if;
+  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
+    'finalize_purge',p_organization_id,p_project_id,p_ready_event_id,p_manifest_sha256,
+    pg_catalog.btrim(p_reason))::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_event from public.lukas_qto_retention_events
+    where actor_id is null and request_id=p_request_id;
+  if found then
+    if v_event.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Retention request identity was reused'; end if;
+    return pg_catalog.jsonb_build_object('status','PURGED','eventId',v_event.id,
+      'dependencies',v_event.evidence->'dependencies');
+  end if;
+  select * into v_project from public.lukas_qto_projects
+    where id=p_project_id and organization_id=p_organization_id for update;
+  if not found then raise exception using errcode='P7R06',message='Project retention target is unavailable'; end if;
+  select * into v_ready from public.lukas_qto_retention_events e
+    where e.id=p_ready_event_id and e.organization_id=p_organization_id
+      and e.project_id=p_project_id and e.event_type='purge_storage_ready';
+  if not found or v_ready.evidence->>'manifestSha256'<>p_manifest_sha256 then
+    raise exception using errcode='P7R05',message='Purge storage manifest is unavailable'; end if;
+  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'path',f.storage_path,'sha256',f.sha256,'byteSize',f.byte_size)
+      order by f.storage_path,f.id),'[]'::jsonb),
+    coalesce(pg_catalog.array_agg(f.storage_path order by f.storage_path,f.id),array[]::text[])
+    into v_files,v_paths from public.lukas_qto_files f
+    where f.project_id=p_project_id and f.immutable;
+  if pg_catalog.encode(extensions.digest(pg_catalog.convert_to(v_files::text,'UTF8'),'sha256'),'hex')
+      <>p_manifest_sha256 then
+    raise exception using errcode='P7R05',message='Purge storage manifest changed'; end if;
+  v_dependencies:=private.lukas_qto_project_retention_dependencies(p_project_id);
+  if ((v_dependencies->>'approvedDrawingRevisions')::bigint
+      +(v_dependencies->>'drawingRevisionApprovals')::bigint
+      +(v_dependencies->>'drawingIssueApprovals')::bigint
+      +(v_dependencies->>'approvedBoqVersions')::bigint
+      +(v_dependencies->>'drawingQuantityLinks')::bigint
+      +(v_dependencies->>'drawingBoqLinks')::bigint
+      +(v_dependencies->>'drawingMaterialLinks')::bigint
+      +(v_dependencies->>'materialTransactions')::bigint
+      +(v_dependencies->>'publishedLibraryVersions')::bigint
+      +(v_dependencies->>'libraryImports')::bigint)>0
+    or exists(select 1 from public.lukas_qto_retention_events p
+      where p.organization_id=p_organization_id and p.project_id=p_project_id
+        and p.event_type='legal_hold_placed' and not exists(select 1
+          from public.lukas_qto_retention_events r where r.event_type='legal_hold_released'
+            and r.releases_event_id=p.id)) then
+    raise exception using errcode='P7R08',message='Project purge dependencies changed'; end if;
+  if pg_catalog.to_regclass('storage.objects') is null then
+    raise exception using errcode='P7R09',message='Storage deletion confirmation authority unavailable'; end if;
+  execute 'select exists(select 1 from storage.objects where bucket_id=''lukas-qto'' and name=any($1))'
+    into v_storage_exists using v_paths;
+  if v_storage_exists then
+    raise exception using errcode='P7R09',message='Immutable Storage deletion is incomplete'; end if;
+  insert into public.lukas_qto_retention_events(organization_id,project_id,event_type,
+    request_id,request_sha256,reason,evidence,actor_id)
+  values(p_organization_id,p_project_id,'project_purged',p_request_id,v_sha,
+    pg_catalog.btrim(p_reason),pg_catalog.jsonb_build_object('status','purged',
+      'readyEventId',v_ready.id,'manifestSha256',p_manifest_sha256,'files',v_files,
+      'dependencies',v_dependencies),null) returning * into v_event;
+  perform pg_catalog.set_config('app.lukas_retention_purge_project',p_project_id::text,true);
+  delete from public.lukas_qto_projects where id=p_project_id and organization_id=p_organization_id;
+  return pg_catalog.jsonb_build_object('status','PURGED','eventId',v_event.id,
+    'dependencies',v_dependencies);
 end;
 $$;
 
@@ -436,10 +661,10 @@ create or replace function public.lukas_qto_record_restore_run(
   p_provider_restore_created_at timestamptz,p_source_commit text,p_schema_sha256 text,
   p_database_sha256 text,p_storage_sha256 text,p_yjs_sha256 text,
   p_approval_sha256 text,p_lineage_sha256 text,p_evidence_sha256 text,
-  p_rpo_seconds bigint,p_rto_seconds bigint,p_status text
+  p_rpo_seconds bigint,p_rto_seconds bigint,p_status text,p_request_id uuid
 ) returns public.lukas_qto_restore_runs
 language plpgsql security definer set search_path='' as $$
-declare v_row public.lukas_qto_restore_runs%rowtype;
+declare v_row public.lukas_qto_restore_runs%rowtype; v_sha text;
 begin
   if coalesce((select auth.jwt()->>'role'),'')<>'service_role' then
     raise exception using errcode='P7R07',message='Restore evidence requires service authority'; end if;
@@ -448,14 +673,26 @@ begin
     or p_schema_sha256 !~ '^[0-9a-f]{64}$' or p_database_sha256 !~ '^[0-9a-f]{64}$'
     or p_storage_sha256 !~ '^[0-9a-f]{64}$' or p_yjs_sha256 !~ '^[0-9a-f]{64}$'
     or p_approval_sha256 !~ '^[0-9a-f]{64}$' or p_lineage_sha256 !~ '^[0-9a-f]{64}$'
-    or p_evidence_sha256 !~ '^[0-9a-f]{64}$' or p_rpo_seconds<0 or p_rto_seconds<0 then
+    or p_evidence_sha256 !~ '^[0-9a-f]{64}$' or p_rpo_seconds<0 or p_rto_seconds<0
+    or p_request_id is null then
     raise exception using errcode='P7R05',message='Restore evidence is invalid'; end if;
-  insert into public.lukas_qto_restore_runs(organization_id,source_project_ref,
+  v_sha:=pg_catalog.encode(extensions.digest(pg_catalog.convert_to(pg_catalog.jsonb_build_array(
+    p_organization_id,p_source_project_ref,p_provider_backup_id,p_provider_backup_created_at,
+    p_provider_restore_project_ref,p_provider_restore_created_at,p_source_commit,p_schema_sha256,
+    p_database_sha256,p_storage_sha256,p_yjs_sha256,p_approval_sha256,p_lineage_sha256,
+    p_evidence_sha256,p_rpo_seconds,p_rto_seconds,p_status)::text,'UTF8'),'sha256'),'hex');
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_request_id::text,0));
+  select * into v_row from public.lukas_qto_restore_runs where request_id=p_request_id;
+  if found then
+    if v_row.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Restore request identity was reused'; end if;
+    return v_row;
+  end if;
+  insert into public.lukas_qto_restore_runs(request_id,request_sha256,organization_id,source_project_ref,
     provider_backup_id,provider_backup_created_at,provider_restore_project_ref,
     provider_restore_created_at,source_commit,schema_sha256,database_sha256,
     storage_sha256,yjs_sha256,approval_sha256,lineage_sha256,evidence_sha256,
     rpo_seconds,rto_seconds,status,recorded_by)
-  values(p_organization_id,p_source_project_ref,p_provider_backup_id,
+  values(p_request_id,v_sha,p_organization_id,p_source_project_ref,p_provider_backup_id,
     p_provider_backup_created_at,p_provider_restore_project_ref,p_provider_restore_created_at,
     p_source_commit,p_schema_sha256,p_database_sha256,p_storage_sha256,p_yjs_sha256,
     p_approval_sha256,p_lineage_sha256,p_evidence_sha256,p_rpo_seconds,p_rto_seconds,
@@ -467,13 +704,16 @@ $$;
 alter table public.lukas_qto_retention_policy_versions enable row level security;
 alter table public.lukas_qto_retention_events enable row level security;
 alter table public.lukas_qto_restore_runs enable row level security;
+alter table public.lukas_qto_export_events enable row level security;
 
 revoke all on table public.lukas_qto_retention_policy_versions from anon,authenticated,service_role;
 revoke all on table public.lukas_qto_retention_events from anon,authenticated,service_role;
 revoke all on table public.lukas_qto_restore_runs from anon,authenticated,service_role;
+revoke all on table public.lukas_qto_export_events from anon,authenticated,service_role;
 grant select on table public.lukas_qto_retention_policy_versions to authenticated,service_role;
 grant select on table public.lukas_qto_retention_events to authenticated,service_role;
 grant select on table public.lukas_qto_restore_runs to authenticated,service_role;
+grant select on table public.lukas_qto_export_events to authenticated,service_role;
 
 create policy "organization members read retention policies"
 on public.lukas_qto_retention_policy_versions for select to authenticated
@@ -483,6 +723,9 @@ on public.lukas_qto_retention_events for select to authenticated
 using(private.lukas_qto_organization_role(organization_id) is not null);
 create policy "organization members read restore evidence"
 on public.lukas_qto_restore_runs for select to authenticated
+using(private.lukas_qto_organization_role(organization_id) is not null);
+create policy "organization members read export evidence"
+on public.lukas_qto_export_events for select to authenticated
 using(private.lukas_qto_organization_role(organization_id) is not null);
 
 drop policy if exists "project owners delete projects" on public.lukas_qto_projects;
@@ -498,16 +741,24 @@ revoke all on function public.lukas_qto_set_retention_policy(uuid,integer,intege
   public.lukas_qto_place_legal_hold(uuid,uuid,uuid,text,uuid),
   public.lukas_qto_release_legal_hold(uuid,uuid,uuid,text,uuid),
   public.lukas_qto_purge_project(uuid,uuid,uuid,text),
-  public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text)
+  public.lukas_qto_finalize_project_purge(uuid,uuid,uuid,text,uuid,text),
+  public.lukas_qto_list_retention_projects(uuid),
+  public.lukas_qto_list_active_legal_holds(uuid),
+  public.lukas_qto_record_project_export(uuid,text,text,bigint,uuid),
+  public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)
   from public,anon,authenticated,service_role;
 grant execute on function public.lukas_qto_set_retention_policy(uuid,integer,integer,text,uuid),
   public.lukas_qto_archive_project(uuid,uuid,text,uuid),
   public.lukas_qto_request_project_deletion(uuid,uuid,text,uuid),
   public.lukas_qto_place_legal_hold(uuid,uuid,uuid,text,uuid),
-  public.lukas_qto_release_legal_hold(uuid,uuid,uuid,text,uuid) to authenticated;
-grant execute on function public.lukas_qto_purge_project(uuid,uuid,uuid,text)
+  public.lukas_qto_release_legal_hold(uuid,uuid,uuid,text,uuid),
+  public.lukas_qto_list_retention_projects(uuid),
+  public.lukas_qto_list_active_legal_holds(uuid),
+  public.lukas_qto_record_project_export(uuid,text,text,bigint,uuid) to authenticated;
+grant execute on function public.lukas_qto_purge_project(uuid,uuid,uuid,text),
+  public.lukas_qto_finalize_project_purge(uuid,uuid,uuid,text,uuid,text)
   to service_role;
-grant execute on function public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text)
+grant execute on function public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)
   to service_role;
 
 commit;

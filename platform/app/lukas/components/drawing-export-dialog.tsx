@@ -31,6 +31,9 @@ type ExportStatus =
 type DrawingExportDialogProps = {
   createdAt: string;
   documentState: DrawingDocumentSnapshot;
+  fileId: string;
+  projectId: string;
+  revisionId: string;
   sourceUrl: string | null;
   title: string;
 };
@@ -250,6 +253,29 @@ export function downloadDrawingExport(blob: Blob, filename: string) {
   }
 }
 
+export async function auditDrawingExport(
+  blob: Blob,
+  filename: string,
+  fileId: string,
+  projectId: string,
+  revisionId: string,
+) {
+  const extension = filename.split(".").at(-1)?.toLowerCase();
+  if (!extension || !["pdf", "png", "svg"].includes(extension))
+    throw new Error("지원하지 않는 도면 내보내기 형식입니다.");
+  const path = `/projects/${encodeURIComponent(projectId)}/drawings/${encodeURIComponent(fileId)}/workspace/export`;
+  const form = new FormData();
+  form.set("artifact", blob, filename);
+  form.set("artifact_type", `drawing_${extension}`);
+  form.set("filename", filename);
+  form.set("request_id", crypto.randomUUID());
+  form.set("revision_id", revisionId);
+  const response = await fetch(path, { body: form, method: "POST" });
+  if (!response.ok)
+    throw new Error(`도면 내보내기 감사 기록 실패 (${response.status})`);
+  downloadDrawingExport(await response.blob(), filename);
+}
+
 export async function pdfBackground(
   canvas: DrawingCanvas,
   sourceUrl: string | null,
@@ -309,6 +335,9 @@ export async function pdfBackground(
 export function DrawingExportDialog({
   createdAt,
   documentState,
+  fileId,
+  projectId,
+  revisionId,
   sourceUrl,
   title,
 }: DrawingExportDialogProps) {
@@ -340,7 +369,8 @@ export function DrawingExportDialog({
     }
     await runDrawingExportLifecycle<DrawingExportDownload>({
       activeOperationRef,
-      download: ({ blob, filename }) => downloadDrawingExport(blob, filename),
+      download: ({ blob, filename }) =>
+        auditDrawingExport(blob, filename, fileId, projectId, revisionId),
       execute: async ({ registerDisposer, signal }) => {
         const baseName = safeFilename(title);
         if (format === "svg") {
