@@ -98,7 +98,9 @@ export function validateDrawingP5ReleaseEvidence(
     "P5 evidence must contain exactly 2,000 source links",
   );
   assert.deepEqual(evidence.lifecycle, {
-    ifcFetches: 1,
+    manifestFetches: 1,
+    geometryFetches: 1,
+    rawIfcFetches: 0,
     ifcCanvasesAfterUnmount: 0,
     ifcOwnedDisposals: 1,
     ifcContextLossRequests: 1,

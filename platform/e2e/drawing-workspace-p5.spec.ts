@@ -540,16 +540,22 @@ test("mounted PDF inspector uses operation commands for exact link and unlink", 
   expect(createHash("sha256").update(source).digest("hex")).toBe(hash);
 });
 
-test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries WebGL without refetch", async ({
+test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries cached GLB without refetch", async ({
   page,
 }) => {
-  let ifcFetches = 0;
+  let manifestFetches = 0;
+  let glbFetches = 0;
+  let rawIfcFetches = 0;
   page.on("request", (request) => {
-    if (request.url().endsWith("/examples/example.ifc")) ifcFetches += 1;
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith(".ifc.manifest.json")) manifestFetches += 1;
+    if (pathname.endsWith("/examples/example.ifc.glb")) glbFetches += 1;
+    if (pathname.endsWith(".ifc")) rawIfcFetches += 1;
   });
   await openP5Preview(page);
   await expect(page.getByLabel("도면 캔버스")).toBeVisible();
-  expect(ifcFetches).toBe(0);
+  expect(manifestFetches).toBe(0);
+  expect(glbFetches).toBe(0);
 
   await page.getByRole("button", { name: "IFC 3D" }).click();
   await expect(page).toHaveURL(/view=3d/);
@@ -567,10 +573,10 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
   // Keep this trace exact: a cold Vite optimizer reload invalidates a dev run,
   // so warm the server and rerun instead of filtering real duplicate fetches.
   await expect
-    .poll(() => ifcFetches, {
-      message: "the mounted viewer must fetch one IFC source exactly once",
+    .poll(() => ({ manifestFetches, glbFetches }), {
+      message: "the mounted viewer must fetch each verified derivative once",
     })
-    .toBe(1);
+    .toEqual({ manifestFetches: 1, glbFetches: 1 });
   const canvas = page.locator('canvas[aria-label="IFC 3D 모델"]');
   const mountedCanvas = await canvas.evaluate((element) =>
     element.getAttribute("data-ifc-viewer-instance"),
@@ -584,7 +590,11 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
   await expect(
     page.getByRole("img", { name: "IFC 3D 모델 화면" }),
   ).toBeVisible();
-  expect(ifcFetches).toBe(1);
+  expect({ manifestFetches, glbFetches }).toEqual({
+    manifestFetches: 1,
+    glbFetches: 1,
+  });
+  expect(rawIfcFetches).toBe(0);
   await expect(canvas).toHaveAttribute(
     "data-ifc-viewer-instance",
     mountedCanvas ?? "",
@@ -596,12 +606,18 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
   ).toBeVisible();
   await page.getByRole("button", { name: "3D 화면 다시 시도" }).click();
   await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(1);
-  expect(ifcFetches).toBe(1);
+  expect({ manifestFetches, glbFetches }).toEqual({
+    manifestFetches: 1,
+    glbFetches: 1,
+  });
 
   await page
     .getByRole("combobox", { name: "IFC 원본 선택" })
     .selectOption("00000000-0000-4000-8000-0000000000a2");
-  await expect.poll(() => ifcFetches).toBe(2);
+  await expect
+    .poll(() => ({ manifestFetches, glbFetches }))
+    .toEqual({ manifestFetches: 2, glbFetches: 2 });
+  expect(rawIfcFetches).toBe(0);
   await expect(canvas).not.toHaveAttribute(
     "data-ifc-viewer-instance",
     mountedCanvas ?? "",
@@ -628,34 +644,35 @@ test("cold split paints the fitted IFC model without a manual fit", async ({
     .toBeGreaterThan(0.18);
 });
 
-test("a source swap during the pending web-ifc import commits only the latest generation", async ({
+test("a source swap during a pending verified manifest load commits only the latest generation", async ({
   page,
 }) => {
-  let releaseImport!: () => void;
-  let reportImport!: () => void;
-  const importReleased = new Promise<void>((resolve) => {
-    releaseImport = resolve;
+  let releaseManifest!: () => void;
+  let reportManifest!: () => void;
+  const manifestReleased = new Promise<void>((resolve) => {
+    releaseManifest = resolve;
   });
-  const importStarted = new Promise<void>((resolve) => {
-    reportImport = resolve;
+  const manifestStarted = new Promise<void>((resolve) => {
+    reportManifest = resolve;
   });
-  await page.route(
-    /\/node_modules\/\.vite\/deps\/web-ifc\.js/,
-    async (route) => {
-      reportImport();
-      await importReleased;
-      await route.continue();
-    },
-  );
+  await page.route("**/examples/example.ifc.manifest.json", async (route) => {
+    reportManifest();
+    await manifestReleased;
+    await route.continue();
+  });
   await openP5Preview(page);
   await page.getByRole("button", { name: "IFC 3D" }).click();
-  await importStarted;
+  await manifestStarted;
   await page
     .getByRole("combobox", { name: "IFC 원본 선택" })
     .selectOption("00000000-0000-4000-8000-0000000000a2");
-  releaseImport();
+  releaseManifest();
 
   await expect(page).toHaveURL(/ifc=00000000-0000-4000-8000-0000000000a2/);
+  await expect(page.getByTitle("example-copy.ifc")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/3D 요소 115개를 표시했습니다/)).toBeVisible();
   await expect(page.locator('canvas[aria-label="IFC 3D 모델"]')).toHaveCount(
     1,
     {

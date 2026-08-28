@@ -62,10 +62,10 @@ test("P5 operation resource routes reuse the authenticated actions and notices c
   );
   assert.match(notice, /\| pdfjs-dist\s+\| 6\.2\.108\s+\|.*Apache-2\.0/);
   assert.match(notice, /\| three\s+\| 0\.185\.1\s+\|.*MIT/);
-  assert.match(notice, /\| web-ifc\s+\| 0\.0\.77\s+\|.*MPL-2\.0/);
+  assert.doesNotMatch(notice, /web-ifc|MPL-2\.0/i);
 });
 
-test("P5 browser scripts use installed Playwright and isolate Vite-only import lifecycle", async () => {
+test("P5 browser scripts use installed Playwright and isolate pending manifest lifecycle", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
@@ -244,7 +244,9 @@ test("P5 evidence validates exact workload, lifecycle, immutable hashes, and hon
       activeComparePages: 1,
     },
     lifecycle: {
-      ifcFetches: 1,
+      manifestFetches: 1,
+      geometryFetches: 1,
+      rawIfcFetches: 0,
       ifcCanvasesAfterUnmount: 0,
       ifcOwnedDisposals: 1,
       ifcContextLossRequests: 1,

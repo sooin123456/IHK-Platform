@@ -80,10 +80,12 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
   page.on("console", (message) => {
     if (message.type() === "error") renderingErrors.push(message.text());
   });
-  let ifcFetches = 0;
+  const ifcFetches = { manifest: 0, geometry: 0, raw: 0 };
   page.on("request", (request) => {
-    if (new URL(request.url()).pathname.endsWith("/examples/example.ifc"))
-      ifcFetches += 1;
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith(".ifc.manifest.json")) ifcFetches.manifest += 1;
+    else if (pathname.endsWith(".ifc.glb")) ifcFetches.geometry += 1;
+    else if (pathname.endsWith(".ifc")) ifcFetches.raw += 1;
   });
 
   const sourceBefore = await sourceByteEvidence(page);
@@ -106,7 +108,7 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
     page.getByRole("region", { name: "P5 mounted command controls" }),
   ).toHaveCount(0);
   await expect(page.getByText(/"selectedIds"/)).toHaveCount(0);
-  expect(ifcFetches).toBe(0);
+  expect(ifcFetches).toEqual({ manifest: 0, geometry: 0, raw: 0 });
 
   await page.getByRole("button", { name: "겹쳐 보기" }).click();
   await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
@@ -140,12 +142,14 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
       "이 IFC에는 브라우저에 표시할 3D 형상이 없습니다. 요소와 속성만 확인할 수 있습니다.",
     ),
   ).toHaveCount(0);
-  await expect.poll(() => ifcFetches).toBe(1);
+  await expect
+    .poll(() => ({ ...ifcFetches }))
+    .toEqual({ manifest: 1, geometry: 1, raw: 0 });
 
   await page.getByRole("button", { name: "2D 도면" }).click();
   await page.getByRole("button", { name: "분할 보기" }).click();
   await expect(page).toHaveURL(/view=split/);
-  expect(ifcFetches).toBe(1);
+  expect(ifcFetches).toEqual({ manifest: 1, geometry: 1, raw: 0 });
   await page.waitForTimeout(100);
   expect(
     renderingErrors.filter((message) => message.includes("InvalidStateError")),
@@ -286,10 +290,12 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   expect(mutationWorkflowEvidence).toBeDefined();
-  let ifcFetches = 0;
+  const ifcFetches = { manifest: 0, geometry: 0, raw: 0 };
   page.on("request", (request) => {
-    if (new URL(request.url()).pathname.endsWith("/examples/example.ifc"))
-      ifcFetches += 1;
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith(".ifc.manifest.json")) ifcFetches.manifest += 1;
+    else if (pathname.endsWith(".ifc.glb")) ifcFetches.geometry += 1;
+    else if (pathname.endsWith(".ifc")) ifcFetches.raw += 1;
   });
   await ready(page, `${canonicalPath}?p5BaselineTest=1&view=split`);
   const surface = page.getByLabel(/도면 화면/);
@@ -304,7 +310,9 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   await expect(page.getByLabel("P5 baseline source link count")).toHaveText(
     "2000",
   );
-  await expect.poll(() => ifcFetches).toBe(1);
+  await expect
+    .poll(() => ({ ...ifcFetches }))
+    .toEqual({ manifest: 1, geometry: 1, raw: 0 });
   await expect(page.getByText("3D 요소 115개를 표시했습니다.")).toBeVisible({
     timeout: 60_000,
   });
@@ -355,7 +363,9 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
       activeComparePages: 1,
     },
     lifecycle: {
-      ifcFetches,
+      manifestFetches: ifcFetches.manifest,
+      geometryFetches: ifcFetches.geometry,
+      rawIfcFetches: ifcFetches.raw,
       ifcCanvasesAfterUnmount,
       ifcOwnedDisposals: ifcLifecycleEvidence.ownedDisposals,
       ifcContextLossRequests: ifcLifecycleEvidence.contextLossRequests,
