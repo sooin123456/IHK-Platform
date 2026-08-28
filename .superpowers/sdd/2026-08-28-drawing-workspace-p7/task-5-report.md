@@ -5,7 +5,8 @@
 - Initial implementation commit: `74b5dceffa8f93ceaf8c58fbe0f04f3d2b2c64a0`.
 - Provider/checkout/purge hardening commit: `bf76204c16fb35fef56b5464378462f5716a069b`.
 - Review hardening and export-audit implementation: `43464cf9507e51459834066a72b11695884a7ddf`.
-- Latest source/build-bound performance refresh: `289a4b9` (capture is bound to `43464cf`).
+- Concurrent legal-hold release fence: `8213917f44566e3c9db5c8648d76bcb5bf41fb01`.
+- Latest source/build-bound performance refresh: `fda9338` (capture is bound to `8213917`).
 - Local DB, server, route, restore-runner, typecheck, build, and complete Drawing Workspace regressions: **PASS**.
 - Real PostgreSQL catalog/RLS counterexamples: **UNEXECUTED** (`P7_REAL_POSTGRES_DATABASE_URL` unavailable).
 - Managed Supabase backup -> isolated restore: **UNEXECUTED** (Management API, backup, restored-project, hosted DB, and Storage authorities unavailable).
@@ -52,7 +53,7 @@ PGlite executes archive/delete-request, append-only guards, cross-organization d
 ## Restore authority evidence
 
 ```text
-P7_RESTORE_COMMIT=43464cf9507e51459834066a72b11695884a7ddf \
+P7_RESTORE_COMMIT=8213917f44566e3c9db5c8648d76bcb5bf41fb01 \
   P7_RESTORE_REQUEST_ID=2d484f7a-ec51-4b41-9c08-0aca9e5c0aa0 \
   npm run release:drawing-workspace-p7:restore
 UNEXECUTED: missing P7_RESTORE_MANAGEMENT_ACCESS_TOKEN
@@ -63,12 +64,12 @@ The resulting evidence is commit-bound and reports provider/comparison `UNEXECUT
 
 ## Performance evidence refreshed after Task 5
 
-The Task 4 source-tree digest intentionally covers application, scripts, and tests, so the review hardening invalidated the previous capture. The old JSON was not manually rebound. The exact production-build Playwright runner rebuilt the application and executed all three browser gates against `43464cf` before evidence commit `289a4b9`:
+The Task 4 source-tree digest intentionally covers application, scripts, and tests, so the final concurrency fence invalidated the previous capture. The old JSON was not manually rebound. The exact production-build Playwright runner rebuilt the application and executed all three browser gates against `8213917`:
 
 - exact Playwright gates: `3/3 PASS`;
-- warm reopen first usable: `2208.1 ms — MET` (`<= 2500 ms`);
-- cold/cache-miss baseline: `2854.2 ms — NOT MET`;
-- warm p95: zoom `0.2 ms`, pan `0.2 ms`, selection `8.6 ms` — all `MET` (`<= 16.7 ms`);
+- warm reopen first usable: `2266.9 ms — MET` (`<= 2500 ms`);
+- cold/cache-miss baseline: `2798.2 ms — NOT MET`;
+- warm p95: zoom `0.2 ms`, pan `0.2 ms`, selection `7.9 ms` — all `MET` (`<= 16.7 ms`);
 - hosted production: `UNEXECUTED`.
 
 ## Final verification
