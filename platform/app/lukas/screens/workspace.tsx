@@ -42,6 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     client
       .from("lukas_qto_projects")
       .select("id, name, description, workflow_status, created_at, updated_at")
+      .is("archived_at", null)
       .order("updated_at", { ascending: false }),
     client
       .from("lukas_qto_organization_members")

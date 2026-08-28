@@ -53,6 +53,10 @@ export default [
         "/organizations/:organizationId/drawing-library",
         "lukas/screens/organization-drawing-library.tsx",
       ),
+      route(
+        "/organizations/:organizationId/retention",
+        "lukas/screens/organization-retention.tsx",
+      ),
       route("/notifications", "lukas/screens/drawing-notifications.tsx"),
       route("/staff/inquiries", "lukas/screens/staff-inquiries.tsx"),
       route("/projects/:projectId", "lukas/screens/project.tsx"),

@@ -106,6 +106,66 @@ Do not mark the drawing room complete from build output alone. Production maker,
 reviewer, viewer, and non-member behavior must be verified by database enforcement,
 and two real users must complete the field flow.
 
+## Drawing Workspace P7 retention and managed restore
+
+Apply `20260828052729_drawing_workspace_retention_restore.sql` once after the P7
+library migration. Ordinary project DELETE is no longer an application operation.
+Organization owners/admins and Hangil staff use
+`/organizations/<organization-id>/retention` to append a policy version, archive a
+project, request deletion, or place/release a legal hold. Approved revisions,
+approvals, quantity/BOQ/material lineage, published library provenance, and
+immutable files cause the trusted purge RPC to return `HELD`; do not bypass that
+result with direct SQL. The scheduled purge worker must use a narrowly held
+Supabase service-role secret and call `lukas_qto_purge_project` with a fresh UUID.
+Interactive users have neither project DELETE nor purge EXECUTE privilege.
+
+Run the optional real PostgreSQL contract before promotion. Missing authority is
+not a pass:
+
+```sh
+P7_REAL_POSTGRES_REQUIRED=1 \
+P7_REAL_POSTGRES_DATABASE_URL='<operator-read-url>' \
+node --test tests/drawing-workspace-p7-retention-database.test.mjs
+```
+
+At least once per release, select a provider-issued managed backup in the Supabase
+dashboard/API and restore or clone it into a new, isolated Supabase project. A
+managed database restore does not restore Storage objects, so copy the source
+`lukas-qto` bucket to the isolated project through the approved backup procedure
+before comparison. Never point the target variables at production. Record the
+actual restore start/completion instants; the runner calculates RPO from the
+provider backup creation time and RTO from those instants.
+
+Set all authorities out of band and run:
+
+```sh
+P7_RESTORE_ORGANIZATION_ID='<organization-uuid>' \
+P7_RESTORE_SOURCE_PROJECT_REF='<20-char-source-ref>' \
+P7_RESTORE_TARGET_PROJECT_REF='<20-char-isolated-ref>' \
+P7_RESTORE_BACKUP_ID='<provider-backup-id>' \
+P7_RESTORE_MANAGEMENT_ACCESS_TOKEN='<supabase-management-token>' \
+P7_RESTORE_SOURCE_POSTGRES_URL='<source-postgres-url>' \
+P7_RESTORE_TARGET_POSTGRES_URL='<isolated-postgres-url>' \
+P7_RESTORE_SOURCE_SUPABASE_URL='https://<source-ref>.supabase.co' \
+P7_RESTORE_TARGET_SUPABASE_URL='https://<isolated-ref>.supabase.co' \
+P7_RESTORE_SOURCE_SERVICE_ROLE_KEY='<source-service-role-key>' \
+P7_RESTORE_TARGET_SERVICE_ROLE_KEY='<isolated-service-role-key>' \
+P7_RESTORE_COMMIT='<40-char-release-commit>' \
+P7_RESTORE_STARTED_AT='<ISO-8601>' \
+P7_RESTORE_COMPLETED_AT='<ISO-8601>' \
+npm run release:drawing-workspace-p7:restore
+```
+
+The runner verifies the backup and isolated project identities through the
+Supabase Management API, then compares schema, retained database rows, immutable
+Storage bytes and their recorded SHA-256, accepted Yjs state, approvals, and
+quantity/BOQ/material lineage. It records a `PASS` or `NOT MET` run through the
+service-only append boundary. Missing credentials, unreachable provider
+authority, or an unverifiable backup writes `UNEXECUTED` evidence and exits 2;
+any mismatch exits 1. Only an executed, provider-verified comparison may exit 0.
+After evidence capture, revoke the temporary target credentials and remove the
+isolated restore project according to the organization disposal policy.
+
 ## Drawing Workspace P3 collaboration database
 
 The P3 state migration creates `lukas_drawing_collaboration` as a

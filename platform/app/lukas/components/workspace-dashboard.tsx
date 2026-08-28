@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  ArchiveRestore,
   Bell,
   BookOpen,
   Box,
@@ -323,13 +324,22 @@ export function WorkspaceDashboard({
           </div>
           <div className="mt-auto space-y-2">
             {organizations.map((organization) => (
-              <Link
-                className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
-                key={organization.id}
-                to={linkTo(`/organizations/${organization.id}/drawing-library`)}
-              >
-                <BookOpen className="size-4" /> {organization.name} 라이브러리
-              </Link>
+              <div key={organization.id}>
+                <Link
+                  className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                  to={linkTo(
+                    `/organizations/${organization.id}/drawing-library`,
+                  )}
+                >
+                  <BookOpen className="size-4" /> {organization.name} 라이브러리
+                </Link>
+                <Link
+                  className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                  to={linkTo(`/organizations/${organization.id}/retention`)}
+                >
+                  <ArchiveRestore className="size-4" /> 보존 관리
+                </Link>
+              </div>
             ))}
             <Link
               className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-black/5 hover:text-foreground"
