@@ -620,9 +620,10 @@ test("the mounted IFC component rearms first paint when only the workspace lifec
 }) => {
   test.setTimeout(3 * 60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/workspace-preview/drawing-workspace?ifcLifecycleTest=1", {
-    waitUntil: "domcontentloaded",
-  });
+  await page.goto(
+    "/workspace-preview/drawing-workspace?ifcLifecycleTest=1&view=split",
+    { waitUntil: "domcontentloaded" },
+  );
   const lifecycle = page.getByLabel("P7 IFC first-paint lifecycle");
   await expect(lifecycle).toHaveText(/^initial:/, { timeout: 60_000 });
   const initialKey = (await lifecycle.textContent())!.slice("initial:".length);
