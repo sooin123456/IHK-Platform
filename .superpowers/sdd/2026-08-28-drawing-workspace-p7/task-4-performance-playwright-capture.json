@@ -1,20 +1,16 @@
 {
-  "schemaVersion": 4,
-  "status": "MET",
-  "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "af53f9cfa160fcb65c6ffb83e69696a9e48876e9",
-  "provenance": {
-    "runner": "P7_PLAYWRIGHT_PRODUCTION_BUILD_V3",
-    "runId": "dc60e5fa-d85a-4113-8c9d-bdd4cc9bb3b5",
-    "sourceTreeSha256": "4b3483c4dc4f66b185c1ea243db9a7a649114170ef9554d828b359381012051e",
+  "schemaVersion": 1,
+  "authority": "P7_PLAYWRIGHT_RAW_CAPTURE_V1",
+  "runId": "dc60e5fa-d85a-4113-8c9d-bdd4cc9bb3b5",
+  "source": {
+    "commitSha": "af53f9cfa160fcb65c6ffb83e69696a9e48876e9",
+    "treeSha256": "4b3483c4dc4f66b185c1ea243db9a7a649114170ef9554d828b359381012051e",
     "runnerSha256": "319c29dbe07f6ba20dbe77f6a43e6c208692d0e8ff9cb1016c83a2f846d66d29",
     "configSha256": "05b08b871eb320a47c28f9eccc9391c5dbf140f6d24c5604c2c7bf59185cf5f5",
     "build": {
       "serverSha256": "e0df175132d2d5dfc0cc33bc50b38c0e2d1882cf9c899dd017e36aaeea022402",
       "clientSha256": "e2144d91549d92498e9dfeba1680de4eb1f167d7152cb0f779196e8e9616c9ab"
-    },
-    "playwrightCaptureSha256": "6dc2a121f3bf83b8ef2632b6fc9894c1d10b15abe973e1f84b627ca545ed6a3b",
-    "captureSha256": "4234d1ebd7a4a7053549fd55683a778f49c3b05e0007ed30e1789f85a96d5c89"
+    }
   },
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
@@ -55,9 +51,6 @@
   },
   "coldCacheMiss": {
     "cacheStatus": "MISS",
-    "durationMs": 3039.099999964237,
-    "targetMs": 2500,
-    "status": "NOT MET",
     "readiness": {
       "navigationStartMs": 0,
       "hydrationEndMs": 1213.199999988079,
@@ -130,9 +123,6 @@
     }
   },
   "firstUsable": {
-    "durationMs": 2255.899999976158,
-    "targetMs": 2500,
-    "status": "MET",
     "readiness": {
       "navigationStartMs": 0,
       "hydrationEndMs": 839.3000000119209,
@@ -145,16 +135,6 @@
     }
   },
   "warm": {
-    "samples": {
-      "zoom": 30,
-      "pan": 31,
-      "selection": 30
-    },
-    "p95Ms": {
-      "zoom": 0.19999998807907104,
-      "pan": 0.30000001192092896,
-      "selection": 7.900000035762787
-    },
     "rawSamples": {
       "zoomMs": [
         0.10000002384185791,
@@ -373,9 +353,7 @@
           "committedObjectName": "P4 selection 2"
         }
       ]
-    },
-    "targetMs": 16.7,
-    "status": "MET"
+    }
   },
   "determinism": {
     "runs": 100,
@@ -685,9 +663,5 @@
       "41a922cd1303904150c91afab6bacb6d4288a6e6e6b781a58b329380e7a75543",
       "41a922cd1303904150c91afab6bacb6d4288a6e6e6b781a58b329380e7a75543"
     ]
-  },
-  "gates": {
-    "local": "MET",
-    "productionRuntime": "UNEXECUTED"
   }
 }
