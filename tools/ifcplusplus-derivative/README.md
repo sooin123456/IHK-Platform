@@ -33,6 +33,8 @@ install it or modify the global `PATH`.
 
 ```sh
 CMAKE_BIN=/private/tmp/.../CMake.app/Contents/bin/cmake \
+  CMAKE_ARCHIVE=/private/tmp/.../cmake-4.4.3-macos-universal.tar.gz \
+  CMAKE_SHA256_FILE=/private/tmp/.../cmake-4.4.3-SHA-256.txt \
   IFCPP_BUILD_DIR=/private/tmp/1hk-ifcplusplus-build \
   ./build.sh
 
@@ -41,12 +43,24 @@ node ./license-sbom.mjs \
   /private/tmp/1hk-ifcplusplus-build/vendor/ifcplusplus
 
 IFCPP_DERIVATIVE_BIN=/private/tmp/1hk-ifcplusplus-build/native/ifcplusplus-derivative \
+  GLTF_VALIDATOR_MODULE=/private/tmp/.../node_modules/gltf-validator/index.js \
   node --test ./tests/contract.test.mjs
 ```
+
+The contract suite uses the official Khronos `gltf-validator` npm module pinned
+to `2.0.0-dev.3.10` from a task-local `/private/tmp` install. It is a test-only
+Apache-2.0 dependency and is not linked into the converter.
 
 CLI:
 
 ```sh
 ifcplusplus-derivative source.ifc manifest.json geometry.glb \
-  --source-file-id FILE_ID --max-input-bytes 536870912
+  --source-file-id FILE_ID --max-input-bytes 536870912 \
+  --max-entities 2000000 --max-vertices 10000000 \
+  --max-indices 30000000 --max-output-bytes 1000000000
 ```
+
+The GLB is installed first and the manifest last. The manifest is therefore the
+readiness/commit marker. This is not filesystem-transactional across both
+files: a process or host crash may leave an unreferenced GLB, which must be
+garbage-collected; it must never be treated as committed without its manifest.

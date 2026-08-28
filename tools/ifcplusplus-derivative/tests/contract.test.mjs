@@ -8,6 +8,9 @@ import test from "node:test";
 
 const binary = process.env.IFCPP_DERIVATIVE_BIN;
 assert.ok(binary, "set IFCPP_DERIVATIVE_BIN to the compiled converter");
+const validatorModule = process.env.GLTF_VALIDATOR_MODULE;
+assert.ok(validatorModule, "set GLTF_VALIDATOR_MODULE to the official Khronos gltf-validator module");
+const { validateBytes } = await import(validatorModule);
 const fixtures = new URL("./fixtures/", import.meta.url);
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -33,7 +36,7 @@ function run(source, extra = []) {
   return { dir, manifest, glb, result };
 }
 
-test("enumerates proxy and wall with stable item/property IDs and canonical contract", () => {
+test("enumerates proxy and wall with stable item/property IDs and canonical contract", async () => {
   const first = run(new URL("multi-product.ifc", fixtures).pathname);
   assert.equal(first.result.status, 0, first.result.stderr);
   const manifest = JSON.parse(readFileSync(first.manifest, "utf8"));
@@ -57,6 +60,9 @@ test("enumerates proxy and wall with stable item/property IDs and canonical cont
   assert.equal(parsed.document.meshes.length, 2);
   assert.equal(parsed.binary.readFloatLE(4), 0, "first triangle y coordinate");
   assert.equal(parsed.binary.readFloatLE(12), 1, "1000 mm must become 1 m");
+  const validation = await validateBytes(new Uint8Array(glb));
+  assert.equal(validation.issues.numErrors, 0, JSON.stringify(validation.issues.messages, null, 2));
+  assert.equal(validation.issues.numWarnings, 0, JSON.stringify(validation.issues.messages, null, 2));
 
   const second = run(new URL("multi-product.ifc", fixtures).pathname);
   assert.equal(second.result.status, 0, second.result.stderr);
@@ -86,4 +92,36 @@ test("pre-stat input limit rejects before parser allocation", () => {
   assert.match(output.result.stderr, /input exceeds --max-input-bytes/);
   assert.throws(() => statSync(output.manifest));
   assert.throws(() => statSync(output.glb));
+});
+
+test("rejects finite IFC coordinates that overflow float after unit scaling", () => {
+  const output = run(new URL("overflow.ifc", fixtures).pathname);
+  assert.notEqual(output.result.status, 0);
+  assert.match(output.result.stderr, /scaled coordinate is outside finite float range/);
+  assert.throws(() => statSync(output.manifest));
+  assert.throws(() => statSync(output.glb));
+});
+
+test("fails closed on unsupported property definitions", () => {
+  const output = run(new URL("unsupported-quantity.ifc", fixtures).pathname);
+  assert.notEqual(output.result.status, 0);
+  assert.match(output.result.stderr, /unsupported property definition #7 IFCELEMENTQUANTITY/);
+  assert.throws(() => statSync(output.manifest));
+  assert.throws(() => statSync(output.glb));
+});
+
+test("enforces cumulative parser and derivative amplification caps", () => {
+  const source = new URL("multi-product.ifc", fixtures).pathname;
+  for (const [option, limit, message] of [
+    ["--max-entities", "1", /entity count exceeds/],
+    ["--max-vertices", "6", /vertex count exceeds/],
+    ["--max-indices", "8", /index count exceeds/],
+    ["--max-output-bytes", "64", /output exceeds/],
+  ]) {
+    const output = run(source, [option, limit]);
+    assert.notEqual(output.result.status, 0, option);
+    assert.match(output.result.stderr, message);
+    assert.throws(() => statSync(output.manifest));
+    assert.throws(() => statSync(output.glb));
+  }
 });

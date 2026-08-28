@@ -10,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -83,12 +84,38 @@ struct Property { int groupId; int propertyId; std::string group,name,value,unit
 struct Mesh { int expressId; std::string nodeId; std::vector<float> positions; std::vector<uint32_t> indices; };
 struct Element { int expressId; std::string globalId,type,name; std::vector<Mesh> meshes; std::vector<Property> properties; };
 struct BufferRef { size_t positionOffset,positionBytes,indexOffset,indexBytes; uint32_t count; std::array<float,3> min,max; };
+struct Limits {
+  uint64_t entities = 2'000'000;
+  uint64_t vertices = 10'000'000;
+  uint64_t indices = 30'000'000;
+  uint64_t outputBytes = 1'000'000'000;
+};
+
+static size_t checked_add(size_t left,size_t right,size_t limit,const char* message){
+  if(right>limit||left>limit-right)throw std::runtime_error(message);
+  return left+right;
+}
+static size_t checked_mul(size_t left,size_t right,size_t limit,const char* message){
+  if(left&&right>limit/left)throw std::runtime_error(message);
+  return left*right;
+}
+static uint32_t checked_u32(size_t value,const char* message){if(value>std::numeric_limits<uint32_t>::max())throw std::runtime_error(message);return uint32_t(value);}
+
+static uint64_t count_step_entities(const std::string& raw,uint64_t limit){
+  uint64_t count=0;
+  for(size_t i=0;i<raw.size();++i){
+    if(raw[i]!='#')continue;size_t p=i+1;if(p>=raw.size()||!std::isdigit(static_cast<unsigned char>(raw[p])))continue;while(p<raw.size()&&std::isdigit(static_cast<unsigned char>(raw[p])))++p;while(p<raw.size()&&std::isspace(static_cast<unsigned char>(raw[p])))++p;if(p<raw.size()&&raw[p]=='='){if(count==limit)throw std::runtime_error("entity count exceeds --max-entities");++count;}
+  }
+  return count;
+}
 
 static std::vector<Property> properties(const shared_ptr<IfcProduct>& product){
   std::vector<Property> result;
   for(const auto& weak:product->m_IsDefinedBy_inverse){
     auto rel=weak.lock(); if(!rel)continue;
-    auto set=dynamic_pointer_cast<IfcPropertySet>(rel->m_RelatingPropertyDefinition); if(!set)continue;
+    auto definition=rel->m_RelatingPropertyDefinition;
+    auto set=dynamic_pointer_cast<IfcPropertySet>(definition);
+    if(!set){auto entity=dynamic_pointer_cast<BuildingEntity>(definition);throw std::runtime_error("unsupported property definition #"+std::to_string(entity?entity->m_tag:0)+" "+(entity?upper(EntityFactory::getStringForClassID(entity->classID())):"UNKNOWN"));}
     for(const auto& raw:set->m_HasProperties){
       auto value=dynamic_pointer_cast<IfcPropertySingleValue>(raw); if(!value) throw std::runtime_error("unsupported property #"+std::to_string(raw->m_tag)+" "+upper(EntityFactory::getStringForClassID(raw->classID())));
       result.push_back({set->m_tag,value->m_tag,set->m_Name?set->m_Name->m_value:"",value->m_Name?value->m_Name->m_value:"",step(value->m_NominalValue),step(value->m_Unit)});
@@ -98,8 +125,9 @@ static std::vector<Property> properties(const shared_ptr<IfcProduct>& product){
   return result;
 }
 
-static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,double factor){
+static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,double factor,const Limits& limits){
   std::vector<Element> elements;
+  size_t totalVertices=0,totalIndices=0;
   for(const auto& [id,entity]:model->getMapIfcEntities()){
     auto product=dynamic_pointer_cast<IfcProduct>(entity); if(!product||!product->m_Representation)continue;
     if(product->m_ObjectPlacement) throw std::runtime_error("unsupported object placement on product #"+std::to_string(id));
@@ -110,8 +138,12 @@ static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,doubl
         auto face=dynamic_pointer_cast<IfcTriangulatedFaceSet>(raw);
         if(!face)throw std::runtime_error("unsupported representation item #"+std::to_string(raw->m_tag)+" "+upper(EntityFactory::getStringForClassID(raw->classID())));
         auto points=face->m_Coordinates; if(!points)throw std::runtime_error("missing coordinates on item #"+std::to_string(raw->m_tag));
+        totalVertices=checked_add(totalVertices,points->m_CoordList.size(),size_t(limits.vertices),"vertex count exceeds --max-vertices");
+        size_t itemIndices=checked_mul(face->m_CoordIndex.size(),size_t(3),size_t(limits.indices),"index count exceeds --max-indices");
+        totalIndices=checked_add(totalIndices,itemIndices,size_t(limits.indices),"index count exceeds --max-indices");
         Mesh mesh{raw->m_tag,"ifc:"+std::to_string(id)+":item:"+std::to_string(raw->m_tag)};
-        for(const auto& p:points->m_CoordList){ if(p.size()!=3||!p[0]||!p[1]||!p[2])throw std::runtime_error("invalid 3D coordinate on item #"+std::to_string(raw->m_tag)); for(const auto& n:p)mesh.positions.push_back(float(n->m_value*factor)); }
+        size_t componentLimit=checked_mul(size_t(limits.vertices),size_t(3),std::numeric_limits<size_t>::max(),"vertex component limit overflow");mesh.positions.reserve(checked_mul(points->m_CoordList.size(),size_t(3),componentLimit,"vertex component count overflow"));mesh.indices.reserve(itemIndices);
+        for(const auto& p:points->m_CoordList){ if(p.size()!=3||!p[0]||!p[1]||!p[2])throw std::runtime_error("invalid 3D coordinate on item #"+std::to_string(raw->m_tag)); for(const auto& n:p){double scaled=n->m_value*factor;if(!std::isfinite(n->m_value)||!std::isfinite(scaled)||scaled>std::numeric_limits<float>::max()||scaled<-std::numeric_limits<float>::max())throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));float value=static_cast<float>(scaled);if(!std::isfinite(value))throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));mesh.positions.push_back(value);} }
         for(const auto& tri:face->m_CoordIndex){ if(tri.size()!=3)throw std::runtime_error("non-triangle index on item #"+std::to_string(raw->m_tag)); for(const auto& n:tri){ if(!n||n->m_value<1||size_t(n->m_value)>points->m_CoordList.size())throw std::runtime_error("invalid index on item #"+std::to_string(raw->m_tag)); mesh.indices.push_back(uint32_t(n->m_value-1)); } }
         if(mesh.indices.empty())throw std::runtime_error("empty triangulation on item #"+std::to_string(raw->m_tag));
         e.meshes.push_back(std::move(mesh));
@@ -124,16 +156,20 @@ static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,doubl
   return elements;
 }
 
-static std::vector<uint8_t> make_glb(const std::vector<Element>& elements){
+static std::vector<uint8_t> make_glb(const std::vector<Element>& elements,size_t outputLimit){
   std::vector<uint8_t> bin; std::vector<BufferRef> refs;
+  size_t binaryBytes=0,meshCount=0;
+  for(const auto& e:elements)for(const auto& mesh:e.meshes){binaryBytes=checked_add(binaryBytes,3,size_t(outputLimit),"output exceeds --max-output-bytes");binaryBytes-=binaryBytes%4;binaryBytes=checked_add(binaryBytes,checked_mul(mesh.positions.size(),sizeof(float),size_t(outputLimit),"output exceeds --max-output-bytes"),size_t(outputLimit),"output exceeds --max-output-bytes");binaryBytes=checked_add(binaryBytes,3,size_t(outputLimit),"output exceeds --max-output-bytes");binaryBytes-=binaryBytes%4;binaryBytes=checked_add(binaryBytes,checked_mul(mesh.indices.size(),sizeof(uint32_t),size_t(outputLimit),"output exceeds --max-output-bytes"),size_t(outputLimit),"output exceeds --max-output-bytes");meshCount=checked_add(meshCount,1,std::numeric_limits<uint32_t>::max(),"mesh count exceeds GLB uint32 range");}
+  bin.reserve(binaryBytes);refs.reserve(meshCount);
   for(const auto& e:elements)for(const auto& mesh:e.meshes){
-    align4(bin); BufferRef r{}; r.positionOffset=bin.size(); r.positionBytes=mesh.positions.size()*sizeof(float); r.count=uint32_t(mesh.positions.size()/3); r.min={std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()}; r.max={-r.min[0],-r.min[1],-r.min[2]};
+    align4(bin); BufferRef r{}; r.positionOffset=bin.size(); r.positionBytes=checked_mul(mesh.positions.size(),sizeof(float),outputLimit,"output exceeds --max-output-bytes"); r.count=checked_u32(mesh.positions.size()/3,"vertex count exceeds GLB uint32 range"); r.min={std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()}; r.max={-r.min[0],-r.min[1],-r.min[2]};
     for(size_t i=0;i<mesh.positions.size();i++){ append(bin,mesh.positions[i]); r.min[i%3]=std::min(r.min[i%3],mesh.positions[i]); r.max[i%3]=std::max(r.max[i%3],mesh.positions[i]); }
-    align4(bin); r.indexOffset=bin.size(); r.indexBytes=mesh.indices.size()*sizeof(uint32_t); for(auto x:mesh.indices)append(bin,x); refs.push_back(r);
+    align4(bin); r.indexOffset=bin.size(); r.indexBytes=checked_mul(mesh.indices.size(),sizeof(uint32_t),outputLimit,"output exceeds --max-output-bytes"); for(auto x:mesh.indices)append(bin,x); refs.push_back(r);
   }
-  std::ostringstream j; j<<"{\"accessors\":["; size_t ri=0; for(const auto&r:refs){if(ri)j<<','; j<<"{\"bufferView\":"<<ri*2<<",\"componentType\":5126,\"count\":"<<r.count<<",\"max\":["<<r.max[0]<<','<<r.max[1]<<','<<r.max[2]<<"],\"min\":["<<r.min[0]<<','<<r.min[1]<<','<<r.min[2]<<"],\"type\":\"VEC3\"},{\"bufferView\":"<<ri*2+1<<",\"componentType\":5125,\"count\":"<<r.indexBytes/4<<",\"type\":\"SCALAR\"}";ri++;} j<<"],\"asset\":{\"generator\":\"1HK IfcPlusPlus derivative\",\"version\":\"2.0\"},\"bufferViews\":["; for(size_t i=0;i<refs.size();i++){if(i)j<<',';const auto&r=refs[i];j<<"{\"buffer\":0,\"byteLength\":"<<r.positionBytes<<",\"byteOffset\":"<<r.positionOffset<<",\"target\":34962},{\"buffer\":0,\"byteLength\":"<<r.indexBytes<<",\"byteOffset\":"<<r.indexOffset<<",\"target\":34963}";} j<<"],\"buffers\":[{\"byteLength\":"<<bin.size()<<"}],\"meshes\":["; ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"primitives\":[{\"attributes\":{\"POSITION\":"<<ri*2<<"},\"indices\":"<<ri*2+1<<",\"mode\":4}]}";ri++;}j<<"],\"nodes\":[";ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"extras\":{\"expressId\":"<<e.expressId<<",\"nodeId\":"<<json(m.nodeId)<<"},\"mesh\":"<<ri<<",\"name\":"<<json(m.nodeId)<<"}";ri++;}j<<"],\"scene\":0,\"scenes\":[{\"nodes\":[";for(size_t i=0;i<ri;i++){if(i)j<<',';j<<i;}j<<"]}]}";
+  std::ostringstream j;j<<std::setprecision(std::numeric_limits<float>::max_digits10); j<<"{\"accessors\":["; size_t ri=0; for(const auto&r:refs){if(ri)j<<','; j<<"{\"bufferView\":"<<ri*2<<",\"componentType\":5126,\"count\":"<<r.count<<",\"max\":["<<r.max[0]<<','<<r.max[1]<<','<<r.max[2]<<"],\"min\":["<<r.min[0]<<','<<r.min[1]<<','<<r.min[2]<<"],\"type\":\"VEC3\"},{\"bufferView\":"<<ri*2+1<<",\"componentType\":5125,\"count\":"<<r.indexBytes/4<<",\"type\":\"SCALAR\"}";ri++;} j<<"],\"asset\":{\"generator\":\"1HK IfcPlusPlus derivative\",\"version\":\"2.0\"},\"bufferViews\":["; for(size_t i=0;i<refs.size();i++){if(i)j<<',';const auto&r=refs[i];j<<"{\"buffer\":0,\"byteLength\":"<<r.positionBytes<<",\"byteOffset\":"<<r.positionOffset<<",\"target\":34962},{\"buffer\":0,\"byteLength\":"<<r.indexBytes<<",\"byteOffset\":"<<r.indexOffset<<",\"target\":34963}";} j<<"],\"buffers\":[{\"byteLength\":"<<bin.size()<<"}],\"meshes\":["; ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"primitives\":[{\"attributes\":{\"POSITION\":"<<ri*2<<"},\"indices\":"<<ri*2+1<<",\"mode\":4}]}";ri++;}j<<"],\"nodes\":[";ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"extras\":{\"expressId\":"<<e.expressId<<",\"nodeId\":"<<json(m.nodeId)<<"},\"mesh\":"<<ri<<",\"name\":"<<json(m.nodeId)<<"}";ri++;}j<<"],\"scene\":0,\"scenes\":[{\"nodes\":[";for(size_t i=0;i<ri;i++){if(i)j<<',';j<<i;}j<<"]}]}";
   std::string js=j.str(); while(js.size()%4)js.push_back(' '); align4(bin);
-  std::vector<uint8_t> out; append_u32(out,0x46546c67);append_u32(out,2);append_u32(out,uint32_t(12+8+js.size()+8+bin.size()));append_u32(out,uint32_t(js.size()));append_u32(out,0x4e4f534a);out.insert(out.end(),js.begin(),js.end());append_u32(out,uint32_t(bin.size()));append_u32(out,0x004e4942);out.insert(out.end(),bin.begin(),bin.end());return out;
+  size_t total=12;total=checked_add(total,8,outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,js.size(),outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,8,outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,bin.size(),outputLimit,"output exceeds --max-output-bytes");checked_u32(total,"GLB exceeds uint32 chunk range");
+  std::vector<uint8_t> out;out.reserve(total); append_u32(out,0x46546c67);append_u32(out,2);append_u32(out,checked_u32(total,"GLB exceeds uint32 chunk range"));append_u32(out,checked_u32(js.size(),"GLB JSON chunk exceeds uint32 range"));append_u32(out,0x4e4f534a);out.insert(out.end(),js.begin(),js.end());append_u32(out,checked_u32(bin.size(),"GLB BIN chunk exceeds uint32 range"));append_u32(out,0x004e4942);out.insert(out.end(),bin.begin(),bin.end());return out;
 }
 
 static std::string manifest(const std::string& fileId,const std::string& sourceHash,const std::string& geometryHash,double factor,const std::vector<Element>& elements){
@@ -146,14 +182,14 @@ static void publish(const fs::path& path,const std::vector<uint8_t>& data){ std:
 int main(int argc,char**argv){
   try{
     if(argc<6)throw std::runtime_error("usage: converter source.ifc manifest.json geometry.glb --source-file-id ID [--max-input-bytes N]");
-    fs::path source=argv[1],manifestPath=argv[2],glbPath=argv[3];std::string fileId;uintmax_t limit=512ull*1024*1024;
-    for(int i=4;i<argc;i++){std::string a=argv[i];if(a=="--source-file-id"&&i+1<argc)fileId=argv[++i];else if(a=="--max-input-bytes"&&i+1<argc)limit=std::stoull(argv[++i]);else throw std::runtime_error("unknown or incomplete option: "+a);}
+    fs::path source=argv[1],manifestPath=argv[2],glbPath=argv[3];std::string fileId;uintmax_t limit=512ull*1024*1024;Limits limits;
+    for(int i=4;i<argc;i++){std::string a=argv[i];if(a=="--source-file-id"&&i+1<argc)fileId=argv[++i];else if(a=="--max-input-bytes"&&i+1<argc)limit=std::stoull(argv[++i]);else if(a=="--max-entities"&&i+1<argc)limits.entities=std::stoull(argv[++i]);else if(a=="--max-vertices"&&i+1<argc)limits.vertices=std::stoull(argv[++i]);else if(a=="--max-indices"&&i+1<argc)limits.indices=std::stoull(argv[++i]);else if(a=="--max-output-bytes"&&i+1<argc)limits.outputBytes=std::stoull(argv[++i]);else throw std::runtime_error("unknown or incomplete option: "+a);}
     if(fileId.empty())throw std::runtime_error("--source-file-id is required");
     if(normalized(source)==normalized(manifestPath)||normalized(source)==normalized(glbPath)||normalized(manifestPath)==normalized(glbPath))throw std::runtime_error("source and target paths must differ");
     auto size=fs::file_size(source);if(size>limit)throw std::runtime_error("input exceeds --max-input-bytes");
-    std::ifstream in(source,std::ios::binary);if(!in)throw std::runtime_error("cannot open source");std::string raw((std::istreambuf_iterator<char>(in)),{});if(raw.size()!=size)throw std::runtime_error("source changed while reading");
+    std::ifstream in(source,std::ios::binary);if(!in)throw std::runtime_error("cannot open source");std::string raw((std::istreambuf_iterator<char>(in)),{});if(raw.size()!=size)throw std::runtime_error("source changed while reading");count_step_entities(raw,limits.entities);
     auto model=make_shared<BuildingModel>();ReaderSTEP reader;std::vector<std::string> errors;reader.setMessageCallBack([&](shared_ptr<StatusCallback::Message> m){if(m&&m->m_message_type>=StatusCallback::MESSAGE_TYPE_ERROR)errors.push_back(m->m_message_text);});std::istringstream stream(raw);reader.loadModelFromStream(stream,std::streampos(raw.size()),model);if(!errors.empty())throw std::runtime_error("IFC parse failed: "+errors.front());
-    double factor=model->getUnitConverter()->getLengthInMeterFactor();auto elements=extract(model,factor);if(elements.empty())throw std::runtime_error("no represented products");auto glb=make_glb(elements);auto text=manifest(fileId,sha256(raw),sha256(glb),factor,elements);std::vector<uint8_t> manifestBytes(text.begin(),text.end());
+    if(model->getMapIfcEntities().size()>limits.entities)throw std::runtime_error("entity count exceeds --max-entities");double factor=model->getUnitConverter()->getLengthInMeterFactor();if(!std::isfinite(factor)||factor<=0)throw std::runtime_error("invalid model length unit factor");auto elements=extract(model,factor,limits);if(elements.empty())throw std::runtime_error("no represented products");auto glb=make_glb(elements,size_t(limits.outputBytes));auto text=manifest(fileId,sha256(raw),sha256(glb),factor,elements);if(text.size()>limits.outputBytes)throw std::runtime_error("output exceeds --max-output-bytes");std::vector<uint8_t> manifestBytes(text.begin(),text.end());
     publish(glbPath,glb);try{publish(manifestPath,manifestBytes);}catch(...){fs::remove(glbPath);throw;}
     return 0;
   }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}

@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 const build = resolve(process.argv[2] ?? "build/native");
 const source = resolve(process.argv[3] ?? "build/vendor/ifcplusplus");
 const commands = JSON.parse(readFileSync(join(build, "compile_commands.json"), "utf8"));
-const forbidden = /\/external\/(?:zippy|nowide|zip-master)\//;
+const forbidden = /\/external\/(?:Carve|zippy|nowide|zip-master)\//;
 const records = [];
 
 for (const command of commands) {
@@ -29,7 +29,7 @@ const external = [...new Set(records.flatMap((record) => record.bundledIncludes)
   .filter((file) => file.includes("/external/"))
   .map((file) => file.match(/external\/([^/]+)/)?.[1])
   .filter(Boolean))].sort();
-const licenses = { Carve: "MIT", earcut: "ISC", glm: "MIT" };
+const licenses = { earcut: "ISC", glm: "MIT" };
 for (const dependency of external) assert.ok(licenses[dependency], `unreviewed bundled dependency: ${dependency}`);
 
 const sbom = {
