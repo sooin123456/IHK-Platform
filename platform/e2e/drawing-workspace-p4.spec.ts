@@ -728,7 +728,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   const beforeWallMove = await mountedSnapshot(page);
   const wallBefore = beforeWallMove.objects[wallId].geometry;
   const openingBefore = beforeWallMove.objects[openingId].geometry;
-  await clickWorld(page, { x: 1380, y: 400 });
+  await surface.focus();
   await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
   await expect
@@ -791,6 +791,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     )
     .toBe(offsetAfterOpeningMove);
 
+  await page.getByRole("button", { name: "속성 검사기 숨기기" }).click();
   await clickWorld(page, { x: 1390, y: 410 });
   const validWallGeometry = structuredClone(
     (await mountedSnapshot(page)).objects[wallId].geometry,

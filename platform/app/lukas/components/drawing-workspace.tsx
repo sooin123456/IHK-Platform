@@ -1209,18 +1209,9 @@ export default function DrawingWorkspaceClient({
     [transientSelectedIdsKey],
   );
   useEffect(() => {
-    if (!inspectorOpen) return;
-    if (
-      tabletLayout ||
-      (inspectorOpenOverride === null && transient.selectedIds.length > 0)
-    )
-      setLeftDockOpen(false);
-  }, [
-    inspectorOpen,
-    inspectorOpenOverride,
-    tabletLayout,
-    transient.selectedIds.length,
-  ]);
+    if (!tabletLayout || !inspectorOpen) return;
+    setLeftDockOpen(false);
+  }, [inspectorOpen, tabletLayout]);
   const focusCanvas = useCallback(() => {
     window.requestAnimationFrame(() => canvasRef.current?.focus());
   }, []);
