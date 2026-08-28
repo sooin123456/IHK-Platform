@@ -373,8 +373,7 @@ function restoreCompactedObjectHistory(
   const undo = lineage.at(-1);
   if (
     !undo ||
-    originalStatus.authoritativeSequence >=
-      undo.status.authoritativeSequence ||
+    originalStatus.authoritativeSequence >= undo.status.authoritativeSequence ||
     undo.operation.type !== "delete_objects" ||
     undo.operation.historyAction !== "undo" ||
     undo.operation.actorId !== pending.actorId ||
@@ -487,7 +486,11 @@ export function createDrawingDraftAdapter(
         operation: ledger.operations[operationId],
       }));
 
-    let state = structuredClone(authoritativeState);
+    const freshEmptyLedger =
+      ledger.operationOrder.length === 0 && statuses.size === 0;
+    let state = freshEmptyLedger
+      ? authoritativeState
+      : structuredClone(authoritativeState);
     for (const item of acknowledged)
       state = replay(state, item.operation, item.status.resultVersions);
     const provisionalConflictOperationIds: string[] = [];
@@ -515,8 +518,10 @@ export function createDrawingDraftAdapter(
         provisionalConflictOperationIds.push(item.operationId);
       }
     }
-    state = preserveCanonicalStructureMaps(state);
-    validateState(state);
+    if (!freshEmptyLedger) {
+      state = preserveCanonicalStructureMaps(state);
+      validateState(state);
+    }
     const idsWith = (wanted: "conflicted" | "rejected") =>
       ledger.operationOrder.filter(
         (operationId) => statuses.get(operationId)?.status === wanted,
@@ -540,7 +545,7 @@ export function createDrawingDraftAdapter(
     snapshot = project(document);
   } catch (error) {
     snapshot = {
-      state: structuredClone(authoritativeState),
+      state: authoritativeState,
       pendingOperationIds: [],
       conflictOperationIds: [],
       rejectedOperationIds: [],
@@ -670,12 +675,12 @@ export function createDrawingDraftAdapter(
     },
     replaceAuthoritative(state, next = {}) {
       if (disposed) return;
-      validateState(state);
       if (state.revisionId !== authoritativeState.revisionId)
         throw new Error(
           "Authoritative drawing revision cannot change in-place.",
         );
       authoritativeState = structuredClone(state);
+      validateState(authoritativeState);
       if (next.baseOperationSequence !== undefined)
         baseOperationSequence = next.baseOperationSequence;
       reproject();

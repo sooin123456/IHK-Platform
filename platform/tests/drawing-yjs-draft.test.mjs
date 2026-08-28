@@ -278,6 +278,73 @@ function create(doc = initializedDoc(), options = {}) {
   });
 }
 
+function countAuthoritativeGraphClones(run) {
+  const clone = globalThis.structuredClone;
+  let count = 0;
+  globalThis.structuredClone = (value, options) => {
+    if (
+      value?.revisionId === ids.revision &&
+      value?.objects &&
+      value?.layers &&
+      Array.isArray(value?.operations)
+    )
+      count += 1;
+    return clone(value, options);
+  };
+  try {
+    run();
+    return count;
+  } finally {
+    globalThis.structuredClone = clone;
+  }
+}
+
+test("a fresh empty ledger clones its validated authoritative graph only once", () => {
+  let adapter;
+  const clones = countAuthoritativeGraphClones(() => {
+    adapter = create();
+  });
+
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  assert.equal(clones, 1);
+  adapter.dispose();
+});
+
+test("an offline ledger keeps the replay clone and full projection validation path", () => {
+  const doc = initializedDoc();
+  const operation = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Offline" } }],
+    },
+    ids.operationA,
+  );
+  append(doc, operation.envelope);
+  let adapter;
+  const clones = countAuthoritativeGraphClones(() => {
+    adapter = create(doc);
+  });
+
+  assert.ok(clones >= 2);
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "Offline",
+  );
+  adapter.dispose();
+});
+
+test("a malformed authoritative base cannot enter the trusted projection path", () => {
+  const malformed = baseState();
+  malformed.objects[ids.objectA].geometry.width = 0;
+
+  assert.throws(() =>
+    create(initializedDoc(), { authoritativeState: malformed }),
+  );
+});
+
 test("structured projections preserve canonical object and layer map identity", () => {
   let published = null;
   const adapter = create(initializedDoc(), {
@@ -752,7 +819,11 @@ test("compacted acknowledged add and undo authorize a pending redo over a fresh 
   const initial = baseState([]);
   const added = applyDrawingCommand(
     initial,
-    { type: "add_objects", actorId: ids.actorA, objects: [object(ids.objectA)] },
+    {
+      type: "add_objects",
+      actorId: ids.actorA,
+      objects: [object(ids.objectA)],
+    },
     { createId: () => ids.operationA, now: () => "2026-08-27T03:00:00.000Z" },
   );
   const undone = undoDrawingCommand(added.state, ids.actorA, {
@@ -791,14 +862,20 @@ test("compacted acknowledged add and undo authorize a pending redo over a fresh 
   assert.equal(snapshot.quarantine, null);
   assert.deepEqual(snapshot.provisionalConflictOperationIds, []);
   assert.equal(snapshot.state.objects[ids.objectA].version, 3);
-  assert.deepEqual(snapshot.state.undoStackByActor[ids.actorA], [ids.operationA]);
+  assert.deepEqual(snapshot.state.undoStackByActor[ids.actorA], [
+    ids.operationA,
+  ]);
 });
 
 test("compacted redo stays provisional when its acknowledged result lineage is wrong", () => {
   const initial = baseState([]);
   const added = applyDrawingCommand(
     initial,
-    { type: "add_objects", actorId: ids.actorA, objects: [object(ids.objectA)] },
+    {
+      type: "add_objects",
+      actorId: ids.actorA,
+      objects: [object(ids.objectA)],
+    },
     { createId: () => ids.operationA, now: () => "2026-08-27T03:10:00.000Z" },
   );
   const undone = undoDrawingCommand(added.state, ids.actorA, {

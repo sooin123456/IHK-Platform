@@ -67,6 +67,127 @@ export function drawingLocalEditReady(input: {
   return input.outboxReady && input.bridgeReady && !input.persistenceFailed;
 }
 
+export function drawingAuthoritativeSnapshotKey(input: {
+  revisionId: string;
+  revisionVersion: number;
+  sourceSha256?: string;
+  bootstrap?: {
+    sha256: string;
+    operationSequence: number;
+    recentOutcomesKey?: string;
+  };
+}) {
+  return input.bootstrap
+    ? `${input.revisionId}\0${input.bootstrap.sha256}\0${input.bootstrap.operationSequence}\0${input.bootstrap.recentOutcomesKey ?? ""}`
+    : `${input.revisionId}\0revision\0${input.revisionVersion}\0${input.sourceSha256 ?? ""}`;
+}
+
+type DrawingLocalInitializationScheduler = {
+  requestAnimationFrame(callback: FrameRequestCallback): number;
+  cancelAnimationFrame(handle: number): void;
+  requestIdleCallback?(
+    callback: IdleRequestCallback,
+    options?: IdleRequestOptions,
+  ): number;
+  cancelIdleCallback?(handle: number): void;
+  setTimeout(callback: () => void, delay: number): number;
+  clearTimeout(handle: number): void;
+};
+
+/** Starts local durability work after the shell has painted, independently of source frames. */
+export function scheduleDrawingLocalInitialization({
+  initialize,
+  scheduler = window,
+}: {
+  initialize: () => void;
+  scheduler?: DrawingLocalInitializationScheduler;
+}) {
+  let active = true;
+  let started = false;
+  let frameHandle: number | null = null;
+  let idleHandle: number | null = null;
+  let immediateHandle: number | null = null;
+  let fallbackHandle: number | null = null;
+  const start = () => {
+    if (!active || started) return;
+    started = true;
+    if (immediateHandle !== null) scheduler.clearTimeout(immediateHandle);
+    if (fallbackHandle !== null) scheduler.clearTimeout(fallbackHandle);
+    initialize();
+  };
+  frameHandle = scheduler.requestAnimationFrame(() => {
+    frameHandle = null;
+    if (!active || started) return;
+    if (scheduler.requestIdleCallback) {
+      idleHandle = scheduler.requestIdleCallback(
+        () => {
+          idleHandle = null;
+          start();
+        },
+        { timeout: 250 },
+      );
+    } else immediateHandle = scheduler.setTimeout(start, 0);
+  });
+  fallbackHandle = scheduler.setTimeout(start, 5_000);
+  return () => {
+    if (!active) return;
+    active = false;
+    if (frameHandle !== null) scheduler.cancelAnimationFrame(frameHandle);
+    if (idleHandle !== null) scheduler.cancelIdleCallback?.(idleHandle);
+    if (immediateHandle !== null) scheduler.clearTimeout(immediateHandle);
+    if (fallbackHandle !== null) scheduler.clearTimeout(fallbackHandle);
+  };
+}
+
+type DrawingSourceReadyScheduler = Pick<
+  DrawingLocalInitializationScheduler,
+  | "requestAnimationFrame"
+  | "cancelAnimationFrame"
+  | "setTimeout"
+  | "clearTimeout"
+>;
+
+/** Connects collaboration only after every source required by the current view has painted. */
+export function scheduleDrawingSourceReadyConnection({
+  isReady,
+  connect,
+  scheduler = window,
+  fallbackMs = 5_000,
+}: {
+  isReady: () => boolean;
+  connect: (sourceReady: boolean) => void;
+  scheduler?: DrawingSourceReadyScheduler;
+  fallbackMs?: number;
+}) {
+  let active = true;
+  let frameHandle: number | null = null;
+  let fallbackHandle: number | null = null;
+  const start = (sourceReady: boolean) => {
+    if (!active) return;
+    active = false;
+    if (frameHandle !== null) scheduler.cancelAnimationFrame(frameHandle);
+    if (fallbackHandle !== null) scheduler.clearTimeout(fallbackHandle);
+    connect(sourceReady);
+  };
+  const check = () => {
+    frameHandle = null;
+    if (!active) return;
+    if (isReady()) {
+      start(true);
+      return;
+    }
+    frameHandle = scheduler.requestAnimationFrame(check);
+  };
+  frameHandle = scheduler.requestAnimationFrame(check);
+  fallbackHandle = scheduler.setTimeout(() => start(false), fallbackMs);
+  return () => {
+    if (!active) return;
+    active = false;
+    if (frameHandle !== null) scheduler.cancelAnimationFrame(frameHandle);
+    if (fallbackHandle !== null) scheduler.clearTimeout(fallbackHandle);
+  };
+}
+
 type PerformanceMarker = Pick<Performance, "getEntriesByName" | "mark">;
 
 function drawingFirstPaintMarkName(kind: "pdf" | "ifc", lifecycleKey?: string) {

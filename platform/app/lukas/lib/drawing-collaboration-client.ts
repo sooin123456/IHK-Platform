@@ -323,6 +323,44 @@ export function drawingCollaborationLifecycleKey(
   return `${userId}\u0000${projectId}\u0000${revisionId}`;
 }
 
+export function drawingCollaborationProviderReady(input: {
+  sourceReady: boolean;
+  checkpointInstalled: boolean;
+}) {
+  return input.sourceReady && input.checkpointInstalled;
+}
+
+/** Catches an adapter up to the latest coherent route checkpoint before it is exposed. */
+export async function synchronizeDrawingCollaborationCheckpoint<
+  Checkpoint extends { key: string },
+>({
+  appliedKey,
+  getCurrentCheckpoint,
+  applyCheckpoint,
+  maxAttempts = 4,
+}: {
+  appliedKey: string;
+  getCurrentCheckpoint(): Checkpoint;
+  applyCheckpoint(checkpoint: Checkpoint): Promise<void>;
+  maxAttempts?: number;
+}) {
+  if (maxAttempts < 1)
+    throw new Error("Drawing checkpoint convergence bounds are invalid.");
+  let currentKey = appliedKey;
+  let attempts = 0;
+  while (true) {
+    const checkpoint = getCurrentCheckpoint();
+    if (checkpoint.key === currentKey) return currentKey;
+    if (attempts >= maxAttempts)
+      throw new Error(
+        "Drawing authoritative checkpoint did not converge within its startup bound.",
+      );
+    attempts += 1;
+    await applyCheckpoint(checkpoint);
+    currentKey = checkpoint.key;
+  }
+}
+
 /** The only local mutation order: validate, durable outbox, Yjs, provider. */
 export function createDrawingCollaborationCommandBridge({
   adapter,

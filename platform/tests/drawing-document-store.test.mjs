@@ -12,6 +12,9 @@ import {
 } from "../app/lukas/lib/drawing-document-store.ts";
 import { createDrawingStyleResolutionCache } from "../app/lukas/lib/drawing-style-resolution.ts";
 
+const documentStoreModule =
+  await import("../app/lukas/lib/drawing-document-store.ts");
+
 const ids = {
   revision: "00000000-0000-4000-8000-000000000101",
   page: "00000000-0000-4000-8000-000000000102",
@@ -306,6 +309,22 @@ test("store leaves the prior snapshot intact when a structure batch conflicts", 
 
   assert.strictEqual(store.getSnapshot(), before);
   assert.ok(store.getSnapshot().structure.canvases[ids.model]);
+});
+
+test("post-validation nested mutation cannot bypass document replacement validation", () => {
+  const initial = createDrawingDocumentState({
+    revisionId: ids.revision,
+    structure: structure(),
+  });
+  const store = createDrawingDocumentStore(initial);
+  const next = structuredClone(initial);
+  documentStoreModule.validateAndSealDrawingDocumentState?.(next);
+  next.objects[ids.object].layerId = ids.actor;
+
+  const replace =
+    store.replaceValidated?.bind(store) ?? store.replace.bind(store);
+  assert.throws(() => replace(next));
+  assert.strictEqual(store.getSnapshot().objects[ids.object].layerId, ids.work);
 });
 
 test("hydration fails closed on a malformed P2 row", () => {

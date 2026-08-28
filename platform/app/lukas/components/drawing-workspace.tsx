@@ -104,10 +104,12 @@ import {
   createDrawingCollaborationCommandBridge,
   drawingCollaborationAuthority,
   drawingCollaborationLifecycleKey,
+  drawingCollaborationProviderReady,
   initializeDrawingCollaborationDocument,
   openDrawingCollaborationLocalAttempt,
   openDrawingCollaborationConnection,
   reconcileDrawingCollaborationDraft,
+  synchronizeDrawingCollaborationCheckpoint,
   type DrawingCollaborationConnection,
 } from "~/lukas/lib/drawing-collaboration-client";
 import {
@@ -181,7 +183,10 @@ import {
   type DrawingWorkspaceRealtimeAdapter,
 } from "~/lukas/lib/drawing-workspace-realtime";
 import {
+  drawingAuthoritativeSnapshotKey,
   drawingLocalEditReady,
+  scheduleDrawingLocalInitialization,
+  scheduleDrawingSourceReadyConnection,
   drawingWorkspaceFirstPaintReady,
   startDrawingWorkspaceStage,
 } from "~/lukas/lib/drawing-runtime";
@@ -456,17 +461,20 @@ export function duplicateDrawingWorkspaceSelection(
 
 export function replaceDrawingWorkspaceGraphForLifecycle({
   documentStore,
+  hasLocalOperations,
   lifecycleKey,
   previousLifecycleKey,
   recoveredState,
 }: {
   documentStore: DrawingDocumentStore;
+  hasLocalOperations: boolean;
   lifecycleKey: string;
   previousLifecycleKey: string | null;
   recoveredState: DrawingDocumentState;
 }) {
   if (previousLifecycleKey === lifecycleKey) return previousLifecycleKey;
-  documentStore.replace(recoveredState);
+  if (previousLifecycleKey !== null || hasLocalOperations)
+    documentStore.replace(recoveredState);
   return lifecycleKey;
 }
 
@@ -1010,11 +1018,9 @@ export default function DrawingWorkspaceClient({
           operationCheckpoint: collaborationBootstrap.operationSequence,
         }
       : null;
-  const collaborationBootstrapRef = useRef(collaborationBootstrap);
   const capabilityRef = useRef(effectiveCapability);
   const revisionStatusRef = useRef(effectiveRevisionStatus);
   const authorityCanWriteRef = useRef(authorityCanWrite);
-  collaborationBootstrapRef.current = collaborationBootstrap;
   capabilityRef.current = effectiveCapability;
   revisionStatusRef.current = effectiveRevisionStatus;
   authorityCanWriteRef.current = authorityCanWrite;
@@ -1031,18 +1037,50 @@ export default function DrawingWorkspaceClient({
     userId: currentUserId,
     onInvalidate: previewHarness?.onInvalidate,
   });
-  const documentStoreRef = useRef<DrawingDocumentStore | null>(null);
-  if (!documentStoreRef.current) {
-    documentStoreRef.current = createDrawingDocumentStore(
+  const authoritativeSnapshotKey = drawingAuthoritativeSnapshotKey({
+    revisionId: revision.id,
+    revisionVersion: revision.version,
+    sourceSha256: file.sha256,
+    ...(collaborationBootstrap
+      ? {
+          bootstrap: {
+            sha256: collaborationBootstrap.sha256,
+            operationSequence: collaborationBootstrap.operationSequence,
+            recentOutcomesKey: collaborationBootstrap.recentOutcomes
+              .map(
+                (outcome) => `${outcome.clientOperationId}:${outcome.sequence}`,
+              )
+              .join(","),
+          },
+        }
+      : {}),
+  });
+  const authoritativeBase = useMemo(
+    () =>
       collaborationBootstrap
         ? drawingStateFromBootstrap(collaborationBootstrap)
         : drawingStateFromRevision(revision),
-      {
-        activePageId: revision.activePageId,
-        activeCanvasId: revision.activeCanvasId,
-        revisionStatus: effectiveRevisionStatus,
-      },
-    );
+    [authoritativeSnapshotKey],
+  );
+  const authoritativeCheckpoint = useMemo(
+    () => ({
+      key: authoritativeSnapshotKey,
+      state: authoritativeBase,
+      baseSnapshotSha256: collaborationBootstrap?.sha256 ?? file.sha256,
+      operationSequence: collaborationBootstrap?.operationSequence ?? 0,
+      recentOutcomes: collaborationBootstrap?.recentOutcomes ?? [],
+    }),
+    [authoritativeSnapshotKey, authoritativeBase, file.sha256],
+  );
+  const authoritativeCheckpointRef = useRef(authoritativeCheckpoint);
+  authoritativeCheckpointRef.current = authoritativeCheckpoint;
+  const documentStoreRef = useRef<DrawingDocumentStore | null>(null);
+  if (!documentStoreRef.current) {
+    documentStoreRef.current = createDrawingDocumentStore(authoritativeBase, {
+      activePageId: revision.activePageId,
+      activeCanvasId: revision.activeCanvasId,
+      revisionStatus: effectiveRevisionStatus,
+    });
   }
   const documentStore = documentStoreRef.current;
   const collaborationAdapterRef = useRef<DrawingDraftAdapter | null>(null);
@@ -1099,6 +1137,9 @@ export default function DrawingWorkspaceClient({
   >(null);
   const [verticalTestStatus, setVerticalTestStatus] = useState("준비됨");
   const initializedPersistenceLifecycleKeyRef = useRef<string | null>(null);
+  const installedAuthoritativeCheckpointKeyRef = useRef<string | null>(null);
+  const collaborationSourceReadyRef = useRef(false);
+  const connectCollaborationRef = useRef<() => void>(() => undefined);
   const drawingState = useSyncExternalStore(
     documentStore.subscribe,
     documentStore.getSnapshot,
@@ -1595,10 +1636,8 @@ export default function DrawingWorkspaceClient({
     let awarenessExpiryTimer: number | null = null;
     let connecting: Promise<void> | null = null;
     let initializing: Promise<void> | null = null;
-    let initializationFrame: number | null = null;
-    let initializationIdle: number | null = null;
-    let initializationFallback: number | null = null;
-    let initialInitializationRequested = false;
+    let attemptReadyForProvider = false;
+    let cancelInitialization: (() => void) | null = null;
     const clearAwareness = () => {
       unsubscribeAwareness?.();
       unsubscribeAwareness = null;
@@ -1670,7 +1709,16 @@ export default function DrawingWorkspaceClient({
     persistenceRef.current = persistence;
 
     const runConnect = async () => {
-      if (!active || !attempt || connection) return;
+      if (
+        !active ||
+        !drawingCollaborationProviderReady({
+          sourceReady: collaborationSourceReadyRef.current,
+          checkpointInstalled: attemptReadyForProvider,
+        }) ||
+        !attempt ||
+        connection
+      )
+        return;
       try {
         const opened = await collaborationConnectionFactory({
           document: attempt.document,
@@ -1725,12 +1773,12 @@ export default function DrawingWorkspaceClient({
         });
       return connecting;
     };
+    const requestConnection = () => void connect();
+    connectCollaborationRef.current = requestConnection;
     const runInitialize = async () => {
-      const bootstrap = collaborationBootstrapRef.current;
-      const base = bootstrap
-        ? drawingStateFromBootstrap(bootstrap)
-        : drawingStateFromRevision(revision);
+      const capturedCheckpoint = authoritativeCheckpointRef.current;
       try {
+        attemptReadyForProvider = false;
         setLocalEditBridgeReady(false);
         if (!previewMode) setOutboxReady(false);
         collaborationAdapterRef.current = null;
@@ -1739,7 +1787,9 @@ export default function DrawingWorkspaceClient({
         connection?.dispose();
         connection = null;
         collaborationConnectionRef.current = null;
-        await attempt?.dispose();
+        const previousAttempt = attempt;
+        attempt = null;
+        await previousAttempt?.dispose();
         let localBaseMeta:
           ReturnType<typeof initializeDrawingCollaborationDocument> | undefined;
         attempt = await openDrawingCollaborationLocalAttempt({
@@ -1749,8 +1799,8 @@ export default function DrawingWorkspaceClient({
               document,
               projectId: revision.project_id,
               revisionId: revision.id,
-              baseSnapshotSha256: bootstrap?.sha256 ?? file.sha256,
-              baseOperationSequence: bootstrap?.operationSequence ?? 0,
+              baseSnapshotSha256: capturedCheckpoint.baseSnapshotSha256,
+              baseOperationSequence: capturedCheckpoint.operationSequence,
             });
             return document;
           },
@@ -1767,11 +1817,11 @@ export default function DrawingWorkspaceClient({
             return createDrawingDraftAdapter({
               document,
               localBaseMeta,
-              authoritativeState: base,
+              authoritativeState: capturedCheckpoint.state,
               actorId: currentUserId,
               authorization: capabilityRef.current,
               frozen: revisionStatusRef.current !== "draft",
-              baseOperationSequence: bootstrap?.operationSequence ?? 0,
+              baseOperationSequence: capturedCheckpoint.operationSequence,
               replaceProjection: (state) => documentStore.replace(state),
             });
           },
@@ -1780,7 +1830,7 @@ export default function DrawingWorkspaceClient({
               actorId: currentUserId,
               adapter,
               outbox,
-              recentOutcomes: bootstrap?.recentOutcomes ?? [],
+              recentOutcomes: capturedCheckpoint.recentOutcomes,
             }),
         });
         if (!active) {
@@ -1792,6 +1842,28 @@ export default function DrawingWorkspaceClient({
           await attempt?.persistence?.flush();
         };
         const draft = attempt.adapter;
+        const installedCheckpointKey =
+          await synchronizeDrawingCollaborationCheckpoint({
+            appliedKey: capturedCheckpoint.key,
+            getCurrentCheckpoint: () => authoritativeCheckpointRef.current,
+            applyCheckpoint: async (checkpoint) => {
+              draft.replaceAuthoritative(checkpoint.state, {
+                baseOperationSequence: checkpoint.operationSequence,
+              });
+              await reconcileDrawingCollaborationDraft({
+                actorId: currentUserId,
+                adapter: draft,
+                outbox,
+                recentOutcomes: checkpoint.recentOutcomes,
+              });
+            },
+          });
+        if (!active) {
+          await attempt.dispose();
+          attempt = null;
+          return;
+        }
+        installedAuthoritativeCheckpointKeyRef.current = installedCheckpointKey;
         collaborationAdapterRef.current = attempt.adapter;
         collaborationCommandRef.current =
           createDrawingCollaborationCommandBridge({
@@ -1805,6 +1877,7 @@ export default function DrawingWorkspaceClient({
         initializedPersistenceLifecycleKeyRef.current =
           replaceDrawingWorkspaceGraphForLifecycle({
             documentStore,
+            hasLocalOperations: draft.operations().length > 0,
             lifecycleKey: persistenceLifecycleKey,
             previousLifecycleKey: initializedPersistenceLifecycleKeyRef.current,
             recoveredState: draft.getSnapshot().state,
@@ -1815,10 +1888,13 @@ export default function DrawingWorkspaceClient({
         setPersistenceState({ failed: false, volatileCount: 0 });
         setSaveState((current) => ({ ...current, storageError: false }));
         await refresh();
-        await connect();
+        attemptReadyForProvider = true;
+        if (collaborationSourceReadyRef.current) await connect();
         await flush();
       } catch {
         if (active) {
+          attemptReadyForProvider = false;
+          setCollaborationPhase("degraded");
           setLocalEditBridgeReady(false);
           markStorageFailed();
           setSaveState((current) => ({ ...current, flushing: false }));
@@ -1831,39 +1907,6 @@ export default function DrawingWorkspaceClient({
           initializing = null;
         });
       return initializing;
-    };
-    const initializeWhenIdle = () => {
-      if (!active || initialInitializationRequested) return;
-      initialInitializationRequested = true;
-      const requestIdle = (
-        window as Window & {
-          requestIdleCallback?: Window["requestIdleCallback"];
-        }
-      ).requestIdleCallback;
-      if (requestIdle)
-        initializationIdle = requestIdle.call(window, () => void initialize(), {
-          timeout: 250,
-        });
-      else globalThis.setTimeout(() => void initialize(), 0);
-    };
-    const initializeAfterFirstPaint = () => {
-      if (!active) return;
-      if (
-        !drawingWorkspaceFirstPaintReady(
-          {
-            requiresPdf: surface.background.kind === "pdf",
-            requiresIfc: Boolean(selectedIfcChoice && viewMode !== "2d"),
-          },
-          performance,
-          firstPaintLifecycleKey,
-        )
-      ) {
-        initializationFrame = window.requestAnimationFrame(
-          initializeAfterFirstPaint,
-        );
-        return;
-      }
-      initializationFrame = window.requestAnimationFrame(initializeWhenIdle);
     };
     retryStorageRef.current = () => void initialize();
     const online = () => {
@@ -1884,16 +1927,13 @@ export default function DrawingWorkspaceClient({
     setSelectedIds([]);
     clipboardRef.current = { items: [] };
     blockClipboardRef.current = null;
-    initializeAfterFirstPaint();
-    initializationFallback = window.setTimeout(initializeWhenIdle, 5_000);
+    cancelInitialization = scheduleDrawingLocalInitialization({
+      initialize: () => void initialize(),
+    });
     return () => {
       active = false;
-      if (initializationFrame !== null)
-        window.cancelAnimationFrame(initializationFrame);
-      if (initializationIdle !== null && "cancelIdleCallback" in window)
-        window.cancelIdleCallback(initializationIdle);
-      if (initializationFallback !== null)
-        window.clearTimeout(initializationFallback);
+      attemptReadyForProvider = false;
+      cancelInitialization?.();
       persistence.dispose();
       outbox.dispose();
       clearAwareness();
@@ -1902,15 +1942,43 @@ export default function DrawingWorkspaceClient({
       collaborationAdapterRef.current = null;
       collaborationCommandRef.current = null;
       collaborationConnectionRef.current = null;
+      installedAuthoritativeCheckpointKeyRef.current = null;
       if (persistenceRef.current === persistence) persistenceRef.current = null;
       if (legacyOutboxRef.current === outbox) legacyOutboxRef.current = null;
       if (flushOutboxRef.current === flush) flushOutboxRef.current = null;
       localDraftFlushRef.current = async () => {};
       retryStorageRef.current = () => {};
+      if (connectCollaborationRef.current === requestConnection)
+        connectCollaborationRef.current = () => undefined;
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, [documentStore, firstPaintLifecycleKey, persistenceLifecycleKey]);
+  }, [documentStore, persistenceLifecycleKey]);
+
+  useEffect(() => {
+    collaborationSourceReadyRef.current = false;
+    return scheduleDrawingSourceReadyConnection({
+      isReady: () =>
+        drawingWorkspaceFirstPaintReady(
+          {
+            requiresPdf: surface.background.kind === "pdf",
+            requiresIfc: Boolean(selectedIfcChoice && viewMode !== "2d"),
+          },
+          performance,
+          firstPaintLifecycleKey,
+        ),
+      connect: (sourceReady) => {
+        collaborationSourceReadyRef.current = true;
+        if (!sourceReady) setCollaborationPhase("degraded");
+        connectCollaborationRef.current();
+      },
+    });
+  }, [
+    firstPaintLifecycleKey,
+    selectedIfcChoice?.id,
+    surface.background.kind,
+    viewMode,
+  ]);
 
   useEffect(() => {
     awarenessCursorRef.current = null;
@@ -1956,11 +2024,6 @@ export default function DrawingWorkspaceClient({
     if (!adapter) return;
     adapter.setAuthorization(effectiveCapability);
     adapter.setFrozen(effectiveRevisionStatus !== "draft");
-    if (collaborationBootstrap)
-      adapter.replaceAuthoritative(
-        drawingStateFromBootstrap(collaborationBootstrap),
-        { baseOperationSequence: collaborationBootstrap.operationSequence },
-      );
     if (!authorityCanWrite) {
       setAwarenessSoftLock(null);
       awarenessPublicationRef.current?.clear();
@@ -1972,12 +2035,33 @@ export default function DrawingWorkspaceClient({
     } else publishAwareness({});
   }, [
     authorityCanWrite,
-    collaborationBootstrap,
     effectiveCapability,
     effectiveRevisionStatus,
     publishAwareness,
     setAwarenessSoftLock,
   ]);
+
+  useEffect(() => {
+    const adapter = collaborationAdapterRef.current;
+    const outbox = legacyOutboxRef.current;
+    const checkpoint = authoritativeCheckpointRef.current;
+    if (
+      !adapter ||
+      !outbox ||
+      installedAuthoritativeCheckpointKeyRef.current === checkpoint.key
+    )
+      return;
+    adapter.replaceAuthoritative(checkpoint.state, {
+      baseOperationSequence: checkpoint.operationSequence,
+    });
+    installedAuthoritativeCheckpointKeyRef.current = checkpoint.key;
+    void reconcileDrawingCollaborationDraft({
+      actorId: currentUserId,
+      adapter,
+      outbox,
+      recentOutcomes: checkpoint.recentOutcomes,
+    }).catch(markStorageFailed);
+  }, [authoritativeSnapshotKey]);
 
   useEffect(() => {
     const refresh = () =>

@@ -6,10 +6,13 @@ import * as drawingRuntime from "../app/lukas/lib/drawing-runtime.ts";
 const {
   createVisibilityRenderGate,
   drawingLocalEditReady,
+  drawingAuthoritativeSnapshotKey,
   drawingWorkspaceFirstPaintReady,
   drawingRealtimeState,
   drawingRealtimeTransition,
   markDrawingFirstUsable,
+  scheduleDrawingLocalInitialization,
+  scheduleDrawingSourceReadyConnection,
 } = drawingRuntime;
 
 test("local editing is ready only with an outbox, a command bridge, and healthy persistence", () => {
@@ -27,6 +30,257 @@ test("local editing is ready only with an outbox, a command bridge, and healthy 
     { outboxReady: true, bridgeReady: true, persistenceFailed: true },
   ])
     assert.equal(drawingLocalEditReady(input), false);
+});
+
+test("local initialization starts exactly once after the first shell frame becomes idle", () => {
+  const frames = [];
+  const idles = [];
+  const timers = [];
+  let starts = 0;
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelAnimationFrame() {},
+    requestIdleCallback(callback) {
+      idles.push(callback);
+      return idles.length;
+    },
+    cancelIdleCallback() {},
+    setTimeout(callback) {
+      timers.push(callback);
+      return timers.length;
+    },
+    clearTimeout() {},
+  };
+
+  assert.equal(typeof scheduleDrawingLocalInitialization, "function");
+  scheduleDrawingLocalInitialization({
+    initialize: () => {
+      starts += 1;
+    },
+    scheduler,
+  });
+
+  assert.equal(starts, 0);
+  assert.equal(frames.length, 1);
+  assert.equal(idles.length, 0);
+  frames[0](0);
+  assert.equal(starts, 0);
+  assert.equal(idles.length, 1);
+  idles[0]({ didTimeout: false, timeRemaining: () => 10 });
+  assert.equal(starts, 1);
+  timers[0]();
+  assert.equal(starts, 1);
+});
+
+test("cancelling local initialization prevents queued shell work from starting", () => {
+  const frames = [];
+  const cancelledFrames = [];
+  const clearedTimers = [];
+  let starts = 0;
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return 41;
+    },
+    cancelAnimationFrame(handle) {
+      cancelledFrames.push(handle);
+    },
+    requestIdleCallback() {
+      throw new Error("cancelled frame must not queue idle work");
+    },
+    cancelIdleCallback() {},
+    setTimeout() {
+      return 42;
+    },
+    clearTimeout(handle) {
+      clearedTimers.push(handle);
+    },
+  };
+
+  const cancel = scheduleDrawingLocalInitialization({
+    initialize: () => {
+      starts += 1;
+    },
+    scheduler,
+  });
+  assert.equal(typeof cancel, "function");
+  cancel();
+  frames[0](0);
+
+  assert.equal(starts, 0);
+  assert.deepEqual(cancelledFrames, [41]);
+  assert.deepEqual(clearedTimers, [42]);
+});
+
+test("StrictMode cancellation and the fallback start only the live local initializer", () => {
+  const frames = [];
+  const timers = [];
+  let starts = 0;
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelAnimationFrame() {},
+    requestIdleCallback() {
+      throw new Error("the fallback wins before the idle callback is queued");
+    },
+    cancelIdleCallback() {},
+    setTimeout(callback) {
+      timers.push(callback);
+      return timers.length;
+    },
+    clearTimeout() {},
+  };
+
+  const cancelDiscardedMount = scheduleDrawingLocalInitialization({
+    initialize: () => {
+      starts += 1;
+    },
+    scheduler,
+  });
+  cancelDiscardedMount();
+  scheduleDrawingLocalInitialization({
+    initialize: () => {
+      starts += 1;
+    },
+    scheduler,
+  });
+
+  timers[0]();
+  timers[1]();
+  frames[0](0);
+  assert.equal(starts, 1);
+});
+
+test("provider connection waits for source readiness and is cancelled with its mount", () => {
+  const frames = [];
+  let ready = false;
+  let connections = 0;
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelAnimationFrame() {},
+    setTimeout() {
+      return 99;
+    },
+    clearTimeout() {},
+  };
+
+  assert.equal(typeof scheduleDrawingSourceReadyConnection, "function");
+  const cancel = scheduleDrawingSourceReadyConnection({
+    isReady: () => ready,
+    connect: (sourceReady) => {
+      assert.equal(sourceReady, true);
+      connections += 1;
+    },
+    scheduler,
+  });
+  frames.shift()(0);
+  assert.equal(connections, 0);
+  ready = true;
+  frames.shift()(0);
+  assert.equal(connections, 1);
+  cancel();
+  assert.equal(connections, 1);
+});
+
+test("provider fallback connects degraded when source readiness never arrives", () => {
+  const frames = [];
+  const timers = [];
+  const connections = [];
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelAnimationFrame() {},
+    setTimeout(callback) {
+      timers.push(callback);
+      return timers.length;
+    },
+    clearTimeout() {},
+  };
+
+  scheduleDrawingSourceReadyConnection({
+    isReady: () => false,
+    connect: (sourceReady) => connections.push(sourceReady),
+    scheduler,
+  });
+  frames.shift()(0);
+  assert.deepEqual(connections, []);
+  timers[0]();
+  assert.deepEqual(connections, [false]);
+});
+
+test("cancelling source readiness clears polling and fallback without connecting", () => {
+  const frames = [];
+  const timers = [];
+  const cancelledFrames = [];
+  const clearedTimers = [];
+  let connections = 0;
+  const scheduler = {
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return 7;
+    },
+    cancelAnimationFrame(handle) {
+      cancelledFrames.push(handle);
+    },
+    setTimeout(callback) {
+      timers.push(callback);
+      return 8;
+    },
+    clearTimeout(handle) {
+      clearedTimers.push(handle);
+    },
+  };
+  const cancel = scheduleDrawingSourceReadyConnection({
+    isReady: () => false,
+    connect: () => {
+      connections += 1;
+    },
+    scheduler,
+  });
+
+  cancel();
+  frames[0](0);
+  timers[0]();
+  assert.equal(connections, 0);
+  assert.deepEqual(cancelledFrames, [7]);
+  assert.deepEqual(clearedTimers, [8]);
+});
+
+test("authoritative snapshot identity ignores loader object churn but follows checkpoint evidence", () => {
+  const input = {
+    revisionId: "revision-1",
+    revisionVersion: 7,
+    bootstrap: { sha256: "a".repeat(64), operationSequence: 41 },
+  };
+  assert.equal(typeof drawingAuthoritativeSnapshotKey, "function");
+  assert.equal(
+    drawingAuthoritativeSnapshotKey(structuredClone(input)),
+    drawingAuthoritativeSnapshotKey(input),
+  );
+  assert.notEqual(
+    drawingAuthoritativeSnapshotKey({
+      ...input,
+      bootstrap: { ...input.bootstrap, operationSequence: 42 },
+    }),
+    drawingAuthoritativeSnapshotKey(input),
+  );
+  assert.notEqual(
+    drawingAuthoritativeSnapshotKey({
+      ...input,
+      bootstrap: { ...input.bootstrap, sha256: "b".repeat(64) },
+    }),
+    drawingAuthoritativeSnapshotKey(input),
+  );
 });
 
 test("collaboration waits only for the visible source frames required by the workspace", () => {

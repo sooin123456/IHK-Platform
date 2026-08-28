@@ -7,8 +7,10 @@ import {
   drawingCollaborationAuthority,
   drawingCollaborationLifecycleKey,
   drawingCollaborationPhaseForProviderStatus,
+  drawingCollaborationProviderReady,
   openDrawingCollaborationLocalAttempt,
   reconcileDrawingCollaborationDraft,
+  synchronizeDrawingCollaborationCheckpoint,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
 import {
   applyDrawingCommand,
@@ -390,6 +392,164 @@ test("failed local initialization disposes each partial resource and a retry lea
   assert.deepEqual(live, { documents: 1, persistence: 1, adapters: 1 });
   await recovered.dispose();
   assert.deepEqual(live, { documents: 0, persistence: 0, adapters: 0 });
+});
+
+test("deferred local persistence installs one coherent checkpoint before edit and provider readiness", async () => {
+  let releasePersistence;
+  const persistenceSynced = new Promise((resolve) => {
+    releasePersistence = resolve;
+  });
+  const oldCheckpoint = {
+    key: "old",
+    state: { name: "old graph" },
+    sha256: "a".repeat(64),
+    operationSequence: 3,
+    recentOutcomes: ["old outcome"],
+  };
+  const newCheckpoint = {
+    key: "new",
+    state: { name: "new graph" },
+    sha256: "b".repeat(64),
+    operationSequence: 4,
+    recentOutcomes: ["new outcome"],
+  };
+  const captured = oldCheckpoint;
+  let latest = oldCheckpoint;
+  const evidence = {
+    adapterBases: [],
+    localMeta: [],
+    reconciled: [],
+    replacements: [],
+    editReady: false,
+    providerConnected: false,
+  };
+
+  const opening = openDrawingCollaborationLocalAttempt({
+    createDocument() {
+      evidence.localMeta.push({
+        sha256: captured.sha256,
+        operationSequence: captured.operationSequence,
+      });
+      return { destroy() {} };
+    },
+    async openPersistence() {
+      return {
+        whenSynced: () => persistenceSynced,
+        async dispose() {},
+      };
+    },
+    createAdapter() {
+      evidence.adapterBases.push(captured.state.name);
+      return {
+        replaceAuthoritative(state, options) {
+          evidence.replacements.push({
+            name: state.name,
+            operationSequence: options.baseOperationSequence,
+          });
+        },
+        dispose() {},
+      };
+    },
+    async reconcile() {
+      evidence.reconciled.push(...captured.recentOutcomes);
+    },
+  });
+
+  latest = newCheckpoint;
+  assert.equal(evidence.editReady, false);
+  assert.equal(evidence.providerConnected, false);
+  releasePersistence();
+  const attempt = await opening;
+  const installedKey = await synchronizeDrawingCollaborationCheckpoint({
+    appliedKey: captured.key,
+    getCurrentCheckpoint: () => latest,
+    applyCheckpoint: async (checkpoint) => {
+      attempt.adapter.replaceAuthoritative(checkpoint.state, {
+        baseOperationSequence: checkpoint.operationSequence,
+      });
+      evidence.reconciled.push(...checkpoint.recentOutcomes);
+    },
+  });
+  evidence.editReady = true;
+  evidence.providerConnected = true;
+
+  assert.equal(installedKey, "new");
+  assert.deepEqual(evidence.localMeta, [
+    { sha256: "a".repeat(64), operationSequence: 3 },
+  ]);
+  assert.deepEqual(evidence.adapterBases, ["old graph"]);
+  assert.deepEqual(evidence.replacements, [
+    { name: "new graph", operationSequence: 4 },
+  ]);
+  assert.deepEqual(evidence.reconciled, ["old outcome", "new outcome"]);
+  assert.equal(evidence.editReady, true);
+  assert.equal(evidence.providerConnected, true);
+});
+
+test("a source mark during deferred checkpoint sync cannot connect the provider", () => {
+  let sourceReady = false;
+  let checkpointInstalled = false;
+  let providerConnections = 0;
+  const connect = () => {
+    if (
+      drawingCollaborationProviderReady({
+        sourceReady,
+        checkpointInstalled,
+      })
+    )
+      providerConnections += 1;
+  };
+
+  sourceReady = true;
+  connect();
+  assert.equal(providerConnections, 0);
+  checkpointInstalled = true;
+  connect();
+  assert.equal(providerConnections, 1);
+});
+
+test("continuously advancing checkpoints terminate bounded and fail closed", async () => {
+  let sequence = 0;
+  let applies = 0;
+  let providerConnections = 0;
+  await assert.rejects(
+    synchronizeDrawingCollaborationCheckpoint({
+      appliedKey: "checkpoint-0",
+      getCurrentCheckpoint: () => ({ key: `checkpoint-${++sequence}` }),
+      applyCheckpoint: async () => {
+        applies += 1;
+        if (applies > 5) throw new Error("test detected an unbounded loop");
+      },
+      maxAttempts: 3,
+    }),
+    /checkpoint.*converge|convergence/i,
+  );
+  assert.equal(applies, 3);
+  assert.equal(providerConnections, 0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(applies, 3, "failed convergence cannot leave late apply work");
+});
+
+test("a slow checkpoint apply completes atomically before readiness", async () => {
+  let current = { key: "checkpoint-1" };
+  const mutations = [];
+  const installed = await synchronizeDrawingCollaborationCheckpoint({
+    appliedKey: "checkpoint-0",
+    getCurrentCheckpoint: () => current,
+    applyCheckpoint: async (checkpoint) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      mutations.push(checkpoint.key);
+      current = checkpoint;
+    },
+    maxAttempts: 4,
+  });
+
+  assert.equal(installed, "checkpoint-1");
+  assert.deepEqual(
+    mutations,
+    ["checkpoint-1"],
+    "readiness waits for the one atomic apply instead of timing it out",
+  );
 });
 
 test("adapter construction failure closes the already-open persistence and document", async () => {
