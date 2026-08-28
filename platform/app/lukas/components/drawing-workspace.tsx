@@ -177,6 +177,7 @@ import {
 } from "~/lukas/lib/drawing-pdf-transform";
 import { geometryBounds } from "~/lukas/lib/drawing-geometry";
 import { resolveDrawingPdfRasterSource } from "~/lukas/lib/drawing-pdf-raster-identity";
+import type { IfcRenderBundleDescriptor } from "~/lukas/lib/ifc-render-model.client";
 import {
   useDrawingWorkspaceRealtime,
   type DrawingWorkspaceRealtimeAdapter,
@@ -499,18 +500,18 @@ export function createDrawingWorkspaceBlockMutationAdapter({
   const selectionKind = drawingSelectionEntityKind(state, selectedIds);
   const canMutate = Boolean(
     canEdit &&
-    activeCanvasId &&
-    selectionKind === "block_instance" &&
-    selectedIds.length > 0 &&
-    selectedIds.every((id) => {
-      const instance = state.structure?.blockInstances[id];
-      const layer = instance ? state.layers[instance.layerId] : undefined;
-      return (
-        instance &&
-        layer?.canvasId === activeCanvasId &&
-        isEditableDrawingLayer(layer)
-      );
-    }),
+      activeCanvasId &&
+      selectionKind === "block_instance" &&
+      selectedIds.length > 0 &&
+      selectedIds.every((id) => {
+        const instance = state.structure?.blockInstances[id];
+        const layer = instance ? state.layers[instance.layerId] : undefined;
+        return (
+          instance &&
+          layer?.canvasId === activeCanvasId &&
+          isEditableDrawingLayer(layer)
+        );
+      }),
   );
   return {
     canMutate,
@@ -824,6 +825,24 @@ type PdfCompareActionData =
       kind: "pdf_compare_cancelled";
       error: null;
     };
+
+function drawingIfcRenderBundle(
+  source: DrawingWorkspaceSourceDescriptor | null | undefined,
+): IfcRenderBundleDescriptor | undefined {
+  const derivative = (
+    source as
+      | (DrawingWorkspaceSourceDescriptor & {
+          derivative?: IfcRenderBundleDescriptor["derivative"];
+        })
+      | null
+      | undefined
+  )?.derivative;
+  if (!source || derivative?.status !== "ready") return undefined;
+  return {
+    source: { fileId: source.id, sha256: source.sha256 },
+    derivative,
+  };
+}
 
 export default function DrawingWorkspaceClient({
   actionError,
@@ -1519,6 +1538,7 @@ export default function DrawingWorkspaceClient({
     status: effectiveRevisionStatus,
   });
   const loadedIfc = sourceBundle?.ifc ?? null;
+  const loadedIfcRenderBundle = drawingIfcRenderBundle(loadedIfc);
   const selectedIfcChoice =
     sourceBundle?.catalog.find(
       (item) => item.kind === "ifc" && item.id === selectedIfcFileId,
@@ -1529,6 +1549,9 @@ export default function DrawingWorkspaceClient({
     sourceBundle?.pdf?.sha256 ?? "no-pdf-sha",
     selectedIfcChoice?.id ?? "no-ifc",
     selectedIfcChoice?.sha256 ?? "no-ifc-sha",
+    loadedIfcRenderBundle?.derivative.version ?? "no-ifc-revision",
+    loadedIfcRenderBundle?.derivative.manifestSha256 ?? "no-ifc-manifest",
+    loadedIfcRenderBundle?.derivative.geometrySha256 ?? "no-ifc-glb",
   ].join(":");
   const [retainedIfc, setRetainedIfc] = useState(loadedIfc);
   useEffect(() => {
@@ -1551,6 +1574,7 @@ export default function DrawingWorkspaceClient({
     retainedIfc.sha256 === selectedIfcChoice.sha256
       ? retainedIfc
       : null);
+  const selectedIfcRenderBundle = drawingIfcRenderBundle(selectedIfc);
   const primarySourceUrl =
     sourceBundle?.pdf?.signedUrl ??
     (workspace.file.kind === "ifc" ? selectedIfc?.signedUrl : null) ??
@@ -1795,7 +1819,8 @@ export default function DrawingWorkspaceClient({
         attempt = null;
         await previousAttempt?.dispose();
         let localBaseMeta:
-          ReturnType<typeof initializeDrawingCollaborationDocument> | undefined;
+          | ReturnType<typeof initializeDrawingCollaborationDocument>
+          | undefined;
         attempt = await openDrawingCollaborationLocalAttempt({
           createDocument() {
             const document = new Y.Doc();
@@ -3071,17 +3096,17 @@ export default function DrawingWorkspaceClient({
     : false;
   const canLinkIfcSelection = Boolean(
     baseCanEdit &&
-    selectedIfc &&
-    ifcSelection?.origin === "user" &&
-    ifcSelection.ifcGlobalId &&
-    ifcMatch.status === "no_match" &&
-    selectedDrawingObjectId &&
-    !selectedObjectAlreadyLinked &&
-    canMutateDrawingObjectSources({
-      capability: effectiveCapability,
-      revisionStatus: effectiveRevisionStatus,
-      frozen: reviewPreparing,
-    }),
+      selectedIfc &&
+      ifcSelection?.origin === "user" &&
+      ifcSelection.ifcGlobalId &&
+      ifcMatch.status === "no_match" &&
+      selectedDrawingObjectId &&
+      !selectedObjectAlreadyLinked &&
+      canMutateDrawingObjectSources({
+        capability: effectiveCapability,
+        revisionStatus: effectiveRevisionStatus,
+        frozen: reviewPreparing,
+      }),
   );
   const linkIfcSelection = useCallback(() => {
     if (
@@ -3128,12 +3153,12 @@ export default function DrawingWorkspaceClient({
     }) && baseCanEdit;
   const selectedObjectHasCurrentPdf = Boolean(
     sourceBundle?.pdf &&
-    selectedObjectSources.some(
-      (source) =>
-        source.sourceKind === "pdf_region" &&
-        source.sourceFileId === sourceBundle.pdf?.id &&
-        source.sourceSha256 === sourceBundle.pdf.sha256,
-    ),
+      selectedObjectSources.some(
+        (source) =>
+          source.sourceKind === "pdf_region" &&
+          source.sourceFileId === sourceBundle.pdf?.id &&
+          source.sourceSha256 === sourceBundle.pdf.sha256,
+      ),
   );
   const linkSelectedObjectPdfRegion = useCallback(() => {
     const state = drawingStateRef.current;
@@ -4953,8 +4978,15 @@ export default function DrawingWorkspaceClient({
                       onElementSelection={handleIfcElementSelection}
                       onViewerDispose={previewHarness?.onIfcViewerDispose}
                       remoteGlobalIds={remoteIfcGlobalIds}
-                      signedUrl={selectedIfc.signedUrl}
-                      sourceKey={`${selectedIfc.id}:${selectedIfc.sha256}`}
+                      renderBundle={selectedIfcRenderBundle}
+                      sourceKey={[
+                        selectedIfc.id,
+                        selectedIfc.sha256,
+                        selectedIfcRenderBundle?.derivative.manifestSha256 ??
+                          "no-manifest",
+                        selectedIfcRenderBundle?.derivative.geometrySha256 ??
+                          "no-glb",
+                      ].join(":")}
                       visible={ifcVisible}
                     />
                   </div>

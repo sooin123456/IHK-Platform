@@ -1,16 +1,16 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-import type { FlatMesh, IfcAPI, PlacedGeometry } from "web-ifc";
-
 import {
   canonicalIfcCameraState,
   type IfcCameraState,
 } from "~/lukas/lib/ifc-anchor";
+export { applyIfcControlledView } from "~/lukas/lib/ifc-anchor";
 import {
   createVisibilityRenderGate,
   markDrawingFirstUsable,
 } from "~/lukas/lib/drawing-runtime";
+import type { OwnedIfcRenderModel } from "~/lukas/lib/ifc-render-model.client";
 
 export type IfcModelViewerStatus = {
   phase: "loading" | "ready" | "error" | "disposed";
@@ -28,9 +28,9 @@ export type IfcModelViewerDisposeEvidence = {
 
 export type CreateIfcModelViewerOptions = {
   container: HTMLElement;
-  api: IfcAPI;
-  modelId: number;
+  model: OwnedIfcRenderModel;
   firstPaintLifecycleKey: string;
+  initialVisible?: boolean;
   onSelect?: (expressId: number) => void;
   onStatus?: (message: string, status: IfcModelViewerStatus) => void;
   onContextLost?: () => void;
@@ -50,61 +50,14 @@ export type IfcModelViewer = {
   readonly renderedElementCount: number;
 };
 
-type RenderedIfcMesh = THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
+type RenderedIfcMesh = THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.Material | THREE.Material[]
+>;
 
 const HIGHLIGHT_COLOR = 0x6d5dfc;
 const REMOTE_HIGHLIGHT_COLOR = 0x22d3ee;
 let viewerInstanceSequence = 0;
-
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
-
-function materialKey(color: PlacedGeometry["color"]) {
-  return [color.x, color.y, color.z, color.w]
-    .map((value) => value.toFixed(4))
-    .join(":");
-}
-
-function createGeometry(api: IfcAPI, modelId: number, geometryId: number) {
-  const ifcGeometry = api.GetGeometry(modelId, geometryId);
-  try {
-    const rawVertices = new Float32Array(
-      api.GetVertexArray(
-        ifcGeometry.GetVertexData(),
-        ifcGeometry.GetVertexDataSize(),
-      ),
-    );
-    const rawIndices = new Uint32Array(
-      api.GetIndexArray(
-        ifcGeometry.GetIndexData(),
-        ifcGeometry.GetIndexDataSize(),
-      ),
-    );
-    const vertexCount = Math.floor(rawVertices.length / 6);
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-
-    for (let source = 0, target = 0; source < vertexCount * 6; source += 6) {
-      positions[target] = rawVertices[source];
-      normals[target++] = rawVertices[source + 3];
-      positions[target] = rawVertices[source + 1];
-      normals[target++] = rawVertices[source + 4];
-      positions[target] = rawVertices[source + 2];
-      normals[target++] = rawVertices[source + 5];
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-    geometry.setIndex(new THREE.BufferAttribute(rawIndices, 1));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    return geometry;
-  } finally {
-    ifcGeometry.delete();
-  }
-}
 
 function boundsForObjects(objects: THREE.Object3D[]) {
   const bounds = new THREE.Box3();
@@ -144,25 +97,26 @@ export function createIfcInitialFitOnce(fit: () => void) {
 
 export function createIfcModelViewer({
   container,
-  api,
-  modelId,
+  model,
   firstPaintLifecycleKey,
+  initialVisible = true,
   onSelect,
   onStatus,
   onContextLost,
   onDispose,
 }: CreateIfcModelViewerOptions): IfcModelViewer {
   let disposed = false;
-  let visible = true;
+  let visible = initialVisible;
   let selectedExpressId: number | null = null;
   let remoteExpressIds = new Set<number>();
   let pointerDown: { x: number; y: number } | null = null;
   let modelReady = false;
+  let fittedViewReady = false;
   let initialFitFrame: number | null = null;
 
   const scene = new THREE.Scene();
-  const modelRoot = new THREE.Group();
-  modelRoot.name = `IFC model ${modelId}`;
+  const modelRoot = model.root;
+  modelRoot.name ||= "IFC immutable GLB model";
   scene.add(modelRoot);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 10_000);
@@ -201,9 +155,14 @@ export function createIfcModelViewer({
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-  const elementMeshes = new Map<number, RenderedIfcMesh[]>();
-  const geometryCache = new Map<number, THREE.BufferGeometry>();
-  const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+  const elementMeshes = new Map<number, RenderedIfcMesh[]>(
+    [...model.elementMeshes].map(([expressId, meshes]) => [
+      expressId,
+      [...meshes] as RenderedIfcMesh[],
+    ]),
+  );
+  for (const meshes of elementMeshes.values())
+    for (const mesh of meshes) mesh.userData.originalMaterial = mesh.material;
   let activeFirstPaintLifecycleKey = firstPaintLifecycleKey;
   let firstUsableFrameMarked = false;
   const highlightMaterial = new THREE.MeshStandardMaterial({
@@ -238,7 +197,11 @@ export function createIfcModelViewer({
     render: () => {
       if (!disposed) {
         renderer.render(scene, camera);
-        if (!firstUsableFrameMarked && elementMeshes.size > 0) {
+        if (
+          !firstUsableFrameMarked &&
+          fittedViewReady &&
+          elementMeshes.size > 0
+        ) {
           firstUsableFrameMarked = true;
           markDrawingFirstUsable(
             "ifc",
@@ -301,12 +264,14 @@ export function createIfcModelViewer({
 
   function fitModel() {
     fitInitialModel.cancel();
+    fittedViewReady = true;
     frameObjects([modelRoot]);
   }
 
-  const fitInitialModel = createIfcInitialFitOnce(() =>
-    frameObjects([modelRoot]),
-  );
+  const fitInitialModel = createIfcInitialFitOnce(() => {
+    fittedViewReady = true;
+    frameObjects([modelRoot]);
+  });
 
   function selectElement(expressId: number | null) {
     if (disposed || selectedExpressId === expressId) return;
@@ -363,6 +328,7 @@ export function createIfcModelViewer({
     const meshes = elementMeshes.get(expressId);
     if (!meshes?.length) return;
     fitInitialModel.cancel();
+    fittedViewReady = true;
     selectElement(expressId);
     frameObjects(meshes, 1.8);
   }
@@ -377,53 +343,13 @@ export function createIfcModelViewer({
   function restoreViewState(state: IfcCameraState) {
     if (disposed) return;
     fitInitialModel.cancel();
+    fittedViewReady = true;
     const canonical = canonicalIfcCameraState(state);
     camera.position.fromArray(canonical.position);
     controls.target.fromArray(canonical.target);
     camera.updateProjectionMatrix();
     controls.update();
     render();
-  }
-
-  function materialFor(placed: PlacedGeometry) {
-    const key = materialKey(placed.color);
-    let material = materialCache.get(key);
-    if (!material) {
-      const opacity = clamp01(placed.color.w);
-      material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(
-          clamp01(placed.color.x),
-          clamp01(placed.color.y),
-          clamp01(placed.color.z),
-        ),
-        metalness: 0,
-        opacity,
-        roughness: 0.82,
-        side: THREE.DoubleSide,
-        transparent: opacity < 0.999,
-        depthWrite: opacity >= 0.999,
-      });
-      materialCache.set(key, material);
-    }
-    return material;
-  }
-
-  function addPlacedGeometry(flatMesh: FlatMesh, placed: PlacedGeometry) {
-    let geometry = geometryCache.get(placed.geometryExpressID);
-    if (!geometry) {
-      geometry = createGeometry(api, modelId, placed.geometryExpressID);
-      geometryCache.set(placed.geometryExpressID, geometry);
-    }
-    const originalMaterial = materialFor(placed);
-    const mesh: RenderedIfcMesh = new THREE.Mesh(geometry, originalMaterial);
-    mesh.matrix.fromArray(placed.flatTransformation);
-    mesh.matrixAutoUpdate = false;
-    mesh.userData = { expressId: flatMesh.expressID, originalMaterial };
-    modelRoot.add(mesh);
-
-    const siblings = elementMeshes.get(flatMesh.expressID);
-    if (siblings) siblings.push(mesh);
-    else elementMeshes.set(flatMesh.expressID, [mesh]);
   }
 
   function handlePointerDown(event: PointerEvent) {
@@ -485,28 +411,6 @@ export function createIfcModelViewer({
       total: 0,
       progress: 0,
     });
-    api.StreamAllMeshes(modelId, (flatMesh, index, total) => {
-      for (
-        let geometryIndex = 0;
-        geometryIndex < flatMesh.geometries.size();
-        geometryIndex += 1
-      ) {
-        addPlacedGeometry(flatMesh, flatMesh.geometries.get(geometryIndex));
-      }
-
-      const loaded = Math.min(index + 1, total);
-      const reportStep = Math.max(1, Math.floor(total / 100));
-      if (loaded === 1 || loaded === total || loaded % reportStep === 0) {
-        report({
-          phase: "loading",
-          message: `IFC 3D 형상을 불러오는 중입니다. ${loaded.toLocaleString("ko-KR")}/${total.toLocaleString("ko-KR")}`,
-          loaded,
-          total,
-          progress: total > 0 ? clamp01(loaded / total) : 0,
-        });
-      }
-    });
-
     modelReady = true;
     resize();
     initialFitFrame = requestAnimationFrame(() => {
@@ -552,17 +456,14 @@ export function createIfcModelViewer({
     );
     controls.removeEventListener("change", render);
     controls.dispose();
-    for (const geometry of geometryCache.values()) geometry.dispose();
-    for (const material of materialCache.values()) material.dispose();
     highlightMaterial.dispose();
     remoteHighlightMaterial.dispose();
+    model.dispose();
     renderer.renderLists.dispose();
     renderer.dispose();
     renderer.forceContextLoss();
     renderer.domElement.remove();
     elementMeshes.clear();
-    geometryCache.clear();
-    materialCache.clear();
     onDispose?.({
       phase: "disposed",
       contextLossRequested: true,

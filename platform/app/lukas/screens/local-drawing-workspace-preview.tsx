@@ -101,21 +101,26 @@ const previewIfcSha256 =
   "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
 const previewIfcUrl =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
-const previewIfcManifestSha256 = "c".repeat(64);
-const previewIfcGeometrySha256 = "d".repeat(64);
-const previewIfcManifestByteSize = 1;
-const previewIfcGeometryByteSize = 1;
-const previewIfcDerivative = (sourceSha256: string) => ({
-  status: "ready" as const,
-  version: 1,
-  sourceSha256,
-  manifestByteSize: previewIfcManifestByteSize,
-  geometryByteSize: previewIfcGeometryByteSize,
-  manifestSha256: previewIfcManifestSha256,
-  geometrySha256: previewIfcGeometrySha256,
-  manifestSignedUrl: "/__p5-ifc-derivative.json",
-  geometrySignedUrl: "/__p5-ifc-geometry.glb",
-});
+const previewIfcGeometrySha256 =
+  "cb450586de90c234831a6a206c0cb83078d65eca1870ac642680df5b5056270f";
+export function previewIfcDerivative(fileId: string, sourceSha256: string) {
+  const alternate = fileId === previewAlternateIfcFileId;
+  return {
+    status: "ready" as const,
+    version: 1,
+    sourceSha256,
+    geometrySha256: previewIfcGeometrySha256,
+    geometryByteSize: 16_196,
+    geometrySignedUrl: "/examples/synthetic-ifc-mapping.glb",
+    manifestSha256: alternate
+      ? "5c417a92f4e3feb6e61d19204e94eca0a131e89bc00c93c7aa5d1b5978147b82"
+      : "65dc191d9089409f37d4757707e4a191bb7774ac4a64ac191384a67e3e85a17c",
+    manifestByteSize: 84_033,
+    manifestSignedUrl: alternate
+      ? "/examples/synthetic-ifc-mapping-copy.manifest.json"
+      : "/examples/synthetic-ifc-mapping.manifest.json",
+  };
+}
 const previewNotApplicableDerivative = {
   status: "not_applicable" as const,
   version: null,
@@ -1090,7 +1095,10 @@ export function localDrawingWorkspacePreviewFixture(options?: {
               : {
                   ...selectedIfc,
                   signedUrl: activeIfcUrl,
-                  derivative: previewIfcDerivative(selectedIfc.sha256),
+                  derivative: previewIfcDerivative(
+                    selectedIfc.id,
+                    selectedIfc.sha256,
+                  ),
                 },
         }
       : options?.p5PdfTest
@@ -1105,7 +1113,10 @@ export function localDrawingWorkspacePreviewFixture(options?: {
                   : {
                       ...selectedIfc,
                       signedUrl: activeIfcUrl,
-                      derivative: previewIfcDerivative(selectedIfc.sha256),
+                      derivative: previewIfcDerivative(
+                        selectedIfc.id,
+                        selectedIfc.sha256,
+                      ),
                     },
               previousPdf: null,
               revisionEdge: null,

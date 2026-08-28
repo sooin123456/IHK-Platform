@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import * as THREE from "three";
@@ -20,20 +21,27 @@ const sha = {
   source: "a".repeat(64),
   glb: "b".repeat(64),
 };
+const sourceFileId = "10000000-0000-4000-8000-000000000001";
+const previewSourceFileId = "00000000-0000-4000-8000-0000000000a1";
 
 function manifest(overrides = {}) {
   return {
     schemaVersion: 1,
-    sourceIfcSha256: sha.source,
-    glbSha256: sha.glb,
+    source: { fileId: sourceFileId, sha256: sha.source },
+    geometry: { sha256: sha.glb },
     elements: [
       {
         expressId: 42,
         globalId: "3ABCdefghijklmnopqrstu",
         typeName: "IfcWall",
         name: "Wall 42",
-        properties: [{ key: "Pset_WallCommon · IsExternal", value: "true" }],
-        nodeRefs: ["node-wall-a", "node-wall-b"],
+        properties: [
+          { group: "Pset_WallCommon", name: "IsExternal", value: true },
+        ],
+        meshes: [
+          { nodeId: "node-wall-a", primitiveIndices: [0] },
+          { nodeId: "node-wall-b", primitiveIndices: [0] },
+        ],
       },
     ],
     ...overrides,
@@ -57,22 +65,46 @@ function encodeGlbJson(json) {
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+function descriptor({ manifestSha256, geometrySha256 }) {
+  return {
+    source: { fileId: sourceFileId, sha256: sha.source },
+    derivative: {
+      status: "ready",
+      version: 1,
+      sourceSha256: sha.source,
+      manifestSha256,
+      geometrySha256,
+      manifestSignedUrl: "https://storage.test/manifest.json",
+      geometrySignedUrl: "https://storage.test/model.glb",
+    },
+  };
+}
+
 test("manifest validation binds one strict element index to the selected IFC and GLB hashes", () => {
   const valid = renderModel.validateIfcRenderManifest(manifest(), {
-    sourceIfcSha256: sha.source,
-    glbSha256: sha.glb,
+    source: { fileId: sourceFileId, sha256: sha.source },
+    geometrySha256: sha.glb,
   });
   assert.equal(valid.elements[0].expressId, 42);
-  assert.equal(valid.elements[0].properties[0].value, "true");
+  assert.deepEqual(valid.elements[0].properties[0], {
+    group: "Pset_WallCommon",
+    name: "IsExternal",
+    value: true,
+  });
 
   for (const invalid of [
-    manifest({ sourceIfcSha256: "c".repeat(64) }),
-    manifest({ glbSha256: "d".repeat(64) }),
+    manifest({ elements: [{ ...manifest().elements[0], meshes: [] }] }),
+    manifest({ extra: true }),
+    manifest({ source: { fileId: sourceFileId, sha256: "c".repeat(64) } }),
+    manifest({ geometry: { sha256: "d".repeat(64) } }),
     manifest({ schemaVersion: 2 }),
     manifest({
       elements: [
         manifest().elements[0],
-        { ...manifest().elements[0], nodeRefs: ["node-wall-c"] },
+        {
+          ...manifest().elements[0],
+          meshes: [{ nodeId: "node-wall-c", primitiveIndices: [0] }],
+        },
       ],
     }),
     manifest({
@@ -81,7 +113,7 @@ test("manifest validation binds one strict element index to the selected IFC and
         {
           ...manifest().elements[0],
           expressId: 43,
-          nodeRefs: ["node-wall-a"],
+          meshes: [{ nodeId: "node-wall-a", primitiveIndices: [1] }],
         },
       ],
     }),
@@ -92,8 +124,8 @@ test("manifest validation binds one strict element index to the selected IFC and
     assert.throws(
       () =>
         renderModel.validateIfcRenderManifest(invalid, {
-          sourceIfcSha256: sha.source,
-          glbSha256: sha.glb,
+          source: { fileId: sourceFileId, sha256: sha.source },
+          geometrySha256: sha.glb,
         }),
       /manifest/i,
     );
@@ -105,13 +137,21 @@ test("scene mapping requires stable node refs and matching express IDs while ret
     new THREE.BoxGeometry(1, 1, 1),
     new THREE.MeshBasicMaterial(),
   );
-  first.userData = { ifcNodeRef: "node-wall-a", ifcExpressId: 42 };
+  first.userData = {
+    nodeId: "node-wall-a",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
   const nested = new THREE.Group();
-  const second = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    [new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial()],
-  );
-  second.userData = { ifcNodeRef: "node-wall-b", ifcExpressId: 42 };
+  const second = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [
+    new THREE.MeshBasicMaterial(),
+    new THREE.MeshBasicMaterial(),
+  ]);
+  second.userData = {
+    nodeId: "node-wall-b",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
   nested.add(second);
   root.add(first, nested);
 
@@ -120,16 +160,16 @@ test("scene mapping requires stable node refs and matching express IDs while ret
   assert.equal(first.userData.expressId, 42);
   assert.equal(second.userData.expressId, 42);
 
-  second.userData.ifcExpressId = 99;
+  second.userData.expressId = 99;
   assert.throws(
     () => renderModel.mapIfcRenderScene(root, manifest()),
     /expressId/i,
   );
-  second.userData.ifcExpressId = 42;
-  second.userData.ifcNodeRef = "unknown-node";
+  second.userData.expressId = 42;
+  second.userData.nodeId = "unknown-node";
   assert.throws(
     () => renderModel.mapIfcRenderScene(root, manifest()),
-    /node ref/i,
+    /node.*primitive/i,
   );
 });
 
@@ -141,14 +181,30 @@ test("owned render-model disposal releases shared geometry, material arrays, and
   const secondMaterial = new THREE.MeshBasicMaterial({ map: texture });
   const first = new THREE.Mesh(geometry, [firstMaterial, secondMaterial]);
   const second = new THREE.Mesh(geometry, firstMaterial);
-  first.userData = { ifcNodeRef: "node-wall-a", ifcExpressId: 42 };
-  second.userData = { ifcNodeRef: "node-wall-b", ifcExpressId: 42 };
+  first.userData = {
+    nodeId: "node-wall-a",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  second.userData = {
+    nodeId: "node-wall-b",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
   root.add(first, second);
 
-  const counts = { geometry: 0, firstMaterial: 0, secondMaterial: 0, texture: 0 };
+  const counts = {
+    geometry: 0,
+    firstMaterial: 0,
+    secondMaterial: 0,
+    texture: 0,
+  };
   geometry.addEventListener("dispose", () => (counts.geometry += 1));
   firstMaterial.addEventListener("dispose", () => (counts.firstMaterial += 1));
-  secondMaterial.addEventListener("dispose", () => (counts.secondMaterial += 1));
+  secondMaterial.addEventListener(
+    "dispose",
+    () => (counts.secondMaterial += 1),
+  );
   texture.addEventListener("dispose", () => (counts.texture += 1));
 
   const owned = renderModel.createOwnedIfcRenderModel(root, manifest());
@@ -160,6 +216,39 @@ test("owned render-model disposal releases shared geometry, material arrays, and
     secondMaterial: 1,
     texture: 1,
   });
+});
+
+test("owned model disposal retains ownership of original resources after viewer highlighting", () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const original = new THREE.MeshBasicMaterial();
+  const highlight = new THREE.MeshBasicMaterial();
+  const mesh = new THREE.Mesh(geometry, original);
+  mesh.userData = {
+    nodeId: "node-wall-a",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  const sibling = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  sibling.userData = {
+    nodeId: "node-wall-b",
+    expressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  root.add(mesh, sibling);
+  let originalDisposals = 0;
+  let highlightDisposals = 0;
+  original.addEventListener("dispose", () => (originalDisposals += 1));
+  highlight.addEventListener("dispose", () => (highlightDisposals += 1));
+
+  const owned = renderModel.createOwnedIfcRenderModel(root, manifest());
+  mesh.material = highlight;
+  owned.dispose();
+  assert.equal(originalDisposals, 1);
+  assert.equal(highlightDisposals, 0);
 });
 
 test("self-contained GLB validation rejects external buffer and image capabilities", () => {
@@ -187,7 +276,7 @@ test("immutable bundle loader verifies manifest and GLB bytes before returning t
   const manifestBytes = new TextEncoder().encode(
     JSON.stringify(
       manifest({
-        glbSha256,
+        geometry: { sha256: glbSha256 },
         elements: [],
       }),
     ),
@@ -196,24 +285,13 @@ test("immutable bundle loader verifies manifest and GLB bytes before returning t
   const requests = [];
   const fetcher = async (url) => {
     requests.push(url);
-    return new Response(url.endsWith("manifest.json") ? manifestBytes : glbBytes);
+    return new Response(
+      url.endsWith("manifest.json") ? manifestBytes : glbBytes,
+    );
   };
 
   const loaded = await renderModel.loadVerifiedIfcRenderBundle(
-    {
-      sourceIfcSha256: sha.source,
-      manifest: {
-        signedUrl: "https://storage.test/manifest.json",
-        sha256: manifestSha256,
-        byteSize: manifestBytes.byteLength,
-        schemaVersion: 1,
-      },
-      glb: {
-        signedUrl: "https://storage.test/model.glb",
-        sha256: glbSha256,
-        byteSize: glbBytes.byteLength,
-      },
-    },
+    descriptor({ manifestSha256, geometrySha256: glbSha256 }),
     { fetcher },
   );
   assert.deepEqual(requests, [
@@ -221,31 +299,28 @@ test("immutable bundle loader verifies manifest and GLB bytes before returning t
     "https://storage.test/model.glb",
   ]);
   assert.equal(loaded.skipped, false);
-  assert.deepEqual(loaded.glbBytes, glbBytes);
+  assert.deepEqual(loaded.geometryBytes, glbBytes);
   assert.deepEqual(loaded.manifest.elements, []);
+  assert.equal(Object.isFrozen(loaded.manifest), true);
+  assert.equal(Object.isFrozen(loaded.manifest.source), true);
+  loaded.geometryBytes[0] ^= 0xff;
+  await assert.rejects(
+    renderModel.instantiateVerifiedIfcRenderModel(loaded),
+    /SHA-256 changed/i,
+  );
 });
 
-test("immutable bundle loader rejects byte mismatches and skips oversized GLB network work", async () => {
+test("immutable bundle loader rejects byte mismatches and skips oversized GLB buffering", async () => {
   const glbBytes = encodeGlbJson({ asset: { version: "2.0" } });
   const glbSha256 = digest(glbBytes);
   const manifestBytes = new TextEncoder().encode(
-    JSON.stringify(manifest({ glbSha256, elements: [] })),
+    JSON.stringify(manifest({ geometry: { sha256: glbSha256 }, elements: [] })),
   );
   const manifestSha256 = digest(manifestBytes);
-  const descriptors = {
-    sourceIfcSha256: sha.source,
-    manifest: {
-      signedUrl: "https://storage.test/manifest.json",
-      sha256: manifestSha256,
-      byteSize: manifestBytes.byteLength,
-      schemaVersion: 1,
-    },
-    glb: {
-      signedUrl: "https://storage.test/model.glb",
-      sha256: glbSha256,
-      byteSize: glbBytes.byteLength,
-    },
-  };
+  const descriptors = descriptor({
+    manifestSha256,
+    geometrySha256: glbSha256,
+  });
 
   await assert.rejects(
     renderModel.loadVerifiedIfcRenderBundle(descriptors, {
@@ -258,24 +333,35 @@ test("immutable bundle loader rejects byte mismatches and skips oversized GLB ne
     }),
     /SHA-256/i,
   );
+  await assert.rejects(
+    renderModel.loadVerifiedIfcRenderBundle(
+      {
+        ...descriptors,
+        derivative: { ...descriptors.derivative, sourceSha256: "f".repeat(64) },
+      },
+      { fetcher: async () => new Response(manifestBytes) },
+    ),
+    /source identity/i,
+  );
 
   const requests = [];
-  const skipped = await renderModel.loadVerifiedIfcRenderBundle(
-    {
-      ...descriptors,
-      glb: { ...descriptors.glb, byteSize: 80 * 1024 * 1024 },
+  const skipped = await renderModel.loadVerifiedIfcRenderBundle(descriptors, {
+    maxGeometryBytes: 75 * 1024 * 1024,
+    fetcher: async (url) => {
+      requests.push(url);
+      return url.endsWith("manifest.json")
+        ? new Response(manifestBytes)
+        : new Response(null, {
+            headers: { "content-length": String(80 * 1024 * 1024) },
+          });
     },
-    {
-      maxGlbBytes: 75 * 1024 * 1024,
-      fetcher: async (url) => {
-        requests.push(url);
-        return new Response(manifestBytes);
-      },
-    },
-  );
+  });
   assert.equal(skipped.skipped, true);
-  assert.equal(skipped.glbBytes, null);
-  assert.deepEqual(requests, ["https://storage.test/manifest.json"]);
+  assert.equal(skipped.geometryBytes, null);
+  assert.deepEqual(requests, [
+    "https://storage.test/manifest.json",
+    "https://storage.test/model.glb",
+  ]);
 });
 
 test("verified self-contained GLB bytes instantiate a fresh owned model for every viewer mount", async () => {
@@ -287,10 +373,13 @@ test("verified self-contained GLB bytes instantiate a fresh owned model for ever
   });
   const bundle = {
     manifest: renderModel.validateIfcRenderManifest(
-      manifest({ glbSha256: digest(glbBytes), elements: [] }),
-      { sourceIfcSha256: sha.source, glbSha256: digest(glbBytes) },
+      manifest({ geometry: { sha256: digest(glbBytes) }, elements: [] }),
+      {
+        source: { fileId: sourceFileId, sha256: sha.source },
+        geometrySha256: digest(glbBytes),
+      },
     ),
-    glbBytes,
+    geometryBytes: glbBytes,
     skipped: false,
   };
 
@@ -305,9 +394,65 @@ test("verified self-contained GLB bytes instantiate a fresh owned model for ever
   await assert.rejects(
     renderModel.instantiateVerifiedIfcRenderModel({
       ...bundle,
-      glbBytes: null,
+      geometryBytes: null,
       skipped: true,
     }),
     /skipped/i,
   );
+});
+
+test("bundle loading forwards source cancellation to immutable fetch work", async () => {
+  const controller = new AbortController();
+  const seenSignals = [];
+  const pending = renderModel.loadVerifiedIfcRenderBundle(
+    descriptor({ manifestSha256: "c".repeat(64), geometrySha256: sha.glb }),
+    {
+      signal: controller.signal,
+      fetcher: async (_url, init) => {
+        seenSignals.push(init?.signal);
+        if (!init?.signal)
+          throw new Error("source cancellation signal missing");
+        return await new Promise((_resolve, reject) =>
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          ),
+        );
+      },
+    },
+  );
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.deepEqual(seenSignals, [controller.signal]);
+});
+
+test("pinned canonical fixture maps 115 GLB primitives to manifest express IDs", async () => {
+  const geometryBytes = new Uint8Array(
+    await readFile(
+      new URL("../public/examples/example.ifc.glb", import.meta.url),
+    ),
+  );
+  const manifestInput = JSON.parse(
+    await readFile(
+      new URL("../public/examples/example.ifc.manifest.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const geometrySha256 = digest(geometryBytes);
+  const canonical = renderModel.validateIfcRenderManifest(manifestInput, {
+    source: {
+      fileId: previewSourceFileId,
+      sha256: manifestInput.source.sha256,
+    },
+    geometrySha256,
+  });
+  const owned = await renderModel.instantiateVerifiedIfcRenderModel({
+    manifest: canonical,
+    geometryBytes,
+    skipped: false,
+  });
+  assert.equal(owned.renderedElementCount, 115);
+  assert.equal(owned.elementMeshes.get(2863)?.length, 1);
+  owned.dispose();
 });

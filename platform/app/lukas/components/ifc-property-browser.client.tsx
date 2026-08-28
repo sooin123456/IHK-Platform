@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { IfcAPI, Properties as IfcProperties } from "web-ifc";
 import {
   AlertCircle,
   Box,
@@ -13,21 +12,23 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import wasmUrl from "web-ifc/web-ifc.wasm?url";
 
 import type {
   IfcModelViewer,
   IfcModelViewerDisposeEvidence,
 } from "./ifc-model-viewer.client";
-import type { IfcCameraState } from "~/lukas/lib/ifc-anchor";
+import {
+  applyIfcControlledView,
+  type IfcCameraState,
+} from "~/lukas/lib/ifc-anchor";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
-
-type IfcElement = {
-  expressId: number;
-  typeName: string;
-  name: string;
-  globalId: string;
-};
+import {
+  instantiateVerifiedIfcRenderModel,
+  loadVerifiedIfcRenderBundle,
+  type IfcRenderBundleDescriptor,
+  type IfcRenderElement,
+  type VerifiedIfcRenderBundle,
+} from "~/lukas/lib/ifc-render-model.client";
 
 export type IfcFocusRequest = {
   requestId: string;
@@ -44,19 +45,22 @@ export type IfcElementSelection = {
 };
 
 type DisplayProperty = { key: string; value: string };
-type IfcRuntime = {
-  api: IfcAPI;
-  properties: IfcProperties;
+type IfcElement = Omit<IfcRenderElement, "name" | "properties"> & {
+  name: string;
+  properties: DisplayProperty[];
 };
 
 type Props = {
-  byteSize: number;
+  /** Legacy metadata retained while server callers migrate to renderBundle. */
+  byteSize?: number;
   compact?: boolean;
   fileName: string;
   sourceKey: string;
   firstPaintLifecycleKey?: string;
   initialGlobalId?: string | null;
-  signedUrl: string;
+  renderBundle?: IfcRenderBundleDescriptor;
+  /** Raw IFC capabilities are intentionally never fetched by this client. */
+  signedUrl?: string;
   visible?: boolean;
   focusRequest?: IfcFocusRequest | null;
   remoteGlobalIds?: readonly string[];
@@ -75,34 +79,37 @@ type Props = {
 
 type ViewerPhase = "loading" | "ready" | "skipped" | "empty" | "error";
 
-const maxBrowserGeometryBytes = 75 * 1024 * 1024;
-
 type IfcFetchEntry = {
   consumers: number;
   controller: AbortController;
-  promise: Promise<Uint8Array>;
+  promise: Promise<VerifiedIfcRenderBundle>;
   abortTimer: number | null;
 };
 
 const ifcFetches = new Map<string, IfcFetchEntry>();
 
-function acquireIfcBytes(sourceKey: string, signedUrl: string) {
-  let entry = ifcFetches.get(sourceKey);
+function acquireIfcRenderBundle(
+  sourceKey: string,
+  descriptor: IfcRenderBundleDescriptor,
+) {
+  const cacheKey = [
+    sourceKey,
+    descriptor.source.fileId,
+    descriptor.source.sha256,
+    descriptor.derivative.version,
+    descriptor.derivative.manifestSha256,
+    descriptor.derivative.geometrySha256,
+  ].join(":");
+  let entry = ifcFetches.get(cacheKey);
   if (!entry) {
     const controller = new AbortController();
-    const promise = fetch(signedUrl, { signal: controller.signal }).then(
-      async (response) => {
-        if (!response.ok)
-          throw new Error(
-            "원본 IFC 파일을 가져오지 못했습니다. 프로젝트 화면에서 다시 열어 주세요.",
-          );
-        return new Uint8Array(await response.arrayBuffer());
-      },
-    );
+    const promise = loadVerifiedIfcRenderBundle(descriptor, {
+      signal: controller.signal,
+    });
     entry = { consumers: 0, controller, promise, abortTimer: null };
-    ifcFetches.set(sourceKey, entry);
+    ifcFetches.set(cacheKey, entry);
     void promise.catch(() => {
-      if (ifcFetches.get(sourceKey) === entry) ifcFetches.delete(sourceKey);
+      if (ifcFetches.get(cacheKey) === entry) ifcFetches.delete(cacheKey);
     });
   }
   entry.consumers += 1;
@@ -121,74 +128,20 @@ function acquireIfcBytes(sourceKey: string, signedUrl: string) {
       entry!.abortTimer = window.setTimeout(() => {
         if (entry!.consumers > 0) return;
         entry!.controller.abort();
-        if (ifcFetches.get(sourceKey) === entry) ifcFetches.delete(sourceKey);
+        if (ifcFetches.get(cacheKey) === entry) ifcFetches.delete(cacheKey);
       });
     },
   };
 }
 
-function ifcValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  )
-    return String(value);
-  if (Array.isArray(value)) return value.map(ifcValue).join(", ");
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    if ("value" in record) return ifcValue(record.value);
-    if ("expressID" in record) return `#${record.expressID}`;
-    return JSON.stringify(record);
-  }
-  return String(value);
-}
-
-function propertiesFor(line: unknown): DisplayProperty[] {
-  if (!line || typeof line !== "object") return [];
-  return Object.entries(line as Record<string, unknown>)
-    .filter(([key]) => key !== "type")
-    .map(([key, value]) => ({ key, value: ifcValue(value) }))
-    .slice(0, 80);
-}
-
-function propertySetsFor(propertySets: unknown[]): DisplayProperty[] {
-  const result: DisplayProperty[] = [];
-  for (const set of propertySets) {
-    if (!set || typeof set !== "object") continue;
-    const record = set as Record<string, unknown>;
-    const setName =
-      ifcValue(record.Name) === "—" ? "PropertySet" : ifcValue(record.Name);
-    const properties = Array.isArray(record.HasProperties)
-      ? record.HasProperties
-      : [];
-    for (const property of properties) {
-      if (!property || typeof property !== "object") continue;
-      const item = property as Record<string, unknown>;
-      const name = ifcValue(item.Name);
-      const value =
-        item.NominalValue ??
-        item.ListValues ??
-        item.EnumerationValues ??
-        item.LengthValue ??
-        item.AreaValue ??
-        item.VolumeValue;
-      if (value !== undefined)
-        result.push({ key: `${setName} · ${name}`, value: ifcValue(value) });
-    }
-  }
-  return result;
-}
-
 export default function IfcPropertyBrowser({
-  byteSize,
+  byteSize = 0,
   compact = false,
   fileName,
-  sourceKey,
+  sourceKey: originalSourceKey,
   firstPaintLifecycleKey,
   initialGlobalId,
-  signedUrl,
+  renderBundle,
   activeAnchor = null,
   onAnchorSelected,
   visible = true,
@@ -197,6 +150,14 @@ export default function IfcPropertyBrowser({
   onElementSelection,
   onViewerDispose,
 }: Props) {
+  const sourceKey = [
+    originalSourceKey,
+    renderBundle?.source.fileId ?? "no-source-file",
+    renderBundle?.source.sha256 ?? "no-source-sha",
+    renderBundle?.derivative.version ?? "no-revision",
+    renderBundle?.derivative.manifestSha256 ?? "no-manifest",
+    renderBundle?.derivative.geometrySha256 ?? "no-glb",
+  ].join(":");
   const [elements, setElements] = useState<IfcElement[]>([]);
   const [elementsSourceKey, setElementsSourceKey] = useState<string | null>(
     null,
@@ -211,19 +172,15 @@ export default function IfcPropertyBrowser({
   const [viewerStatus, setViewerStatus] =
     useState("3D 화면을 준비하고 있습니다.");
   const [contextLost, setContextLost] = useState(false);
-  const apiRef = useRef<IfcRuntime | null>(null);
-  const modelRef = useRef<number | null>(null);
   const viewerRef = useRef<IfcModelViewer | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLElement>(null);
-  const selectionRequestRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
   const loadGenerationRef = useRef(0);
   const handledFocusSelectionRef = useRef<string | null>(null);
   const handledFocusCameraRef = useRef<string | null>(null);
   const loadedViewerInputRef = useRef<{
-    api: IfcAPI;
-    modelId: number;
+    bundle: VerifiedIfcRenderBundle;
     elements: IfcElement[];
     generation: number;
   } | null>(null);
@@ -232,41 +189,33 @@ export default function IfcPropertyBrowser({
   const onViewerDisposeRef = useRef(onViewerDispose);
   onViewerDisposeRef.current = onViewerDispose;
   const visibleRef = useRef(visible);
-  const firstPaintLifecycleKeyRef = useRef(
-    firstPaintLifecycleKey ?? sourceKey,
-  );
+  const firstPaintLifecycleKeyRef = useRef(firstPaintLifecycleKey ?? sourceKey);
   firstPaintLifecycleKeyRef.current = firstPaintLifecycleKey ?? sourceKey;
   visibleRef.current = visible;
-  const signedUrlRef = useRef(signedUrl);
-  signedUrlRef.current = signedUrl;
+  const renderBundleRef = useRef(renderBundle);
+  renderBundleRef.current = renderBundle;
 
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
     const finishIfcStage = startDrawingWorkspaceStage("ifc");
-    const sourceFetch = acquireIfcBytes(sourceKey, signedUrlRef.current);
+    const descriptor = renderBundleRef.current;
+    if (!descriptor) {
+      setElements([]);
+      setElementsSourceKey(null);
+      setViewerReady(false);
+      setViewerPhase("error");
+      setViewerStatus("검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.");
+      setError("검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.");
+      setStatus("읽기에 실패했습니다.");
+      finishIfcStage();
+      return;
+    }
+    const sourceFetch = acquireIfcRenderBundle(sourceKey, descriptor);
     let disposed = false;
-    let ownedApi: IfcAPI | null = null;
-    let ownedModelId: number | null = null;
-    let apiInitialized = false;
-    let disposalRequested = false;
-    let ownedDisposed = false;
     const isCurrentLoad = () =>
       !disposed && loadGenerationRef.current === generation;
-    function disposeOwnedIfc() {
-      disposalRequested = true;
-      if (!apiInitialized || !ownedApi || ownedDisposed) return;
-      ownedDisposed = true;
-      if (ownedModelId !== null && ownedModelId >= 0)
-        ownedApi.CloseModel(ownedModelId);
-      ownedApi.Dispose();
-      if (apiRef.current?.api === ownedApi) apiRef.current = null;
-      if (modelRef.current === ownedModelId) modelRef.current = null;
-    }
-    apiRef.current = null;
-    modelRef.current = null;
     viewerRef.current?.dispose();
     viewerRef.current = null;
-    selectionRequestRef.current += 1;
     selectedIdRef.current = null;
     setElements([]);
     setElementsSourceKey(null);
@@ -280,64 +229,17 @@ export default function IfcPropertyBrowser({
     async function load() {
       try {
         setError(null);
-        setStatus("IFC 원본을 브라우저에서 읽는 중입니다.");
-        const bytes = await sourceFetch.promise;
+        setStatus("검증된 IFC 요소 목록을 읽는 중입니다.");
+        const bundle = await sourceFetch.promise;
         if (!isCurrentLoad()) return;
-
-        const webIfc = await import("web-ifc");
-        if (!isCurrentLoad()) return;
-        ownedApi = new webIfc.IfcAPI();
-        try {
-          await ownedApi.Init(
-            (path) => (path.endsWith(".wasm") ? wasmUrl : path),
-            true,
-          );
-        } finally {
-          apiInitialized = true;
-          if (disposalRequested) disposeOwnedIfc();
-        }
-        if (!isCurrentLoad()) {
-          disposeOwnedIfc();
-          return;
-        }
-        const ifcApi = ownedApi;
-        const modelId = ifcApi.OpenModel(bytes, {
-          COORDINATE_TO_ORIGIN: true,
-        });
-        ownedModelId = modelId;
-        if (modelId < 0)
-          throw new Error(
-            "이 IFC 파일을 열 수 없습니다. IFC2X3 또는 IFC4 형식인지 확인해 주세요.",
-          );
-        if (!isCurrentLoad()) {
-          disposeOwnedIfc();
-          return;
-        }
-        apiRef.current = {
-          api: ifcApi,
-          properties: new webIfc.Properties(ifcApi),
-        };
-        modelRef.current = modelId;
-
-        const found: IfcElement[] = [];
-        for (const type of ifcApi.GetAllTypesOfModel(modelId)) {
-          if (!ifcApi.IsIfcElement(type.typeID)) continue;
-          const ids = ifcApi.GetLineIDsWithType(modelId, type.typeID, false);
-          for (let index = 0; index < ids.size(); index += 1) {
-            const expressId = ids.get(index);
-            const line = ifcApi.GetLine(modelId, expressId) as Record<
-              string,
-              unknown
-            >;
-            found.push({
-              expressId,
-              typeName: type.typeName,
-              name:
-                ifcValue(line.Name) === "—" ? "이름 없음" : ifcValue(line.Name),
-              globalId: ifcValue(line.GlobalId),
-            });
-          }
-        }
+        const found: IfcElement[] = bundle.manifest.elements.map((element) => ({
+          ...element,
+          name: element.name?.trim() || "이름 없음",
+          properties: element.properties.map((property) => ({
+            key: `${property.group} · ${property.name}`,
+            value: property.value === null ? "—" : String(property.value),
+          })),
+        }));
         found.sort(
           (a, b) =>
             a.typeName.localeCompare(b.typeName) ||
@@ -349,24 +251,22 @@ export default function IfcPropertyBrowser({
         setStatus(
           `요소 ${found.length.toLocaleString("ko-KR")}개를 찾았습니다.`,
         );
-        if (found[0]) await choose(found[0], "initial");
+        if (found[0]) choose(found[0], "initial");
         if (!isCurrentLoad()) return;
         loadedViewerInputRef.current = {
-          api: ifcApi,
-          modelId,
+          bundle,
           elements: found,
           generation,
         };
 
-        if (byteSize > maxBrowserGeometryBytes) {
+        if (bundle.skipped) {
           setViewerPhase("skipped");
           setViewerStatus(
-            "대형 IFC는 브라우저 메모리를 보호하기 위해 속성만 표시합니다.",
+            "대형 GLB는 브라우저 메모리를 보호하기 위해 속성만 표시합니다.",
           );
         } else if (viewerContainerRef.current) await mountViewer(generation);
         finishIfcStage();
       } catch (loadError) {
-        disposeOwnedIfc();
         if (isCurrentLoad()) {
           if (
             loadError instanceof DOMException &&
@@ -396,12 +296,10 @@ export default function IfcPropertyBrowser({
       sourceFetch.release();
       if (loadGenerationRef.current === generation)
         loadedViewerInputRef.current = null;
-      selectionRequestRef.current += 1;
       viewerRef.current?.dispose();
       viewerRef.current = null;
-      disposeOwnedIfc();
     };
-  }, [byteSize, sourceKey]);
+  }, [sourceKey]);
 
   async function mountViewer(generation = loadGenerationRef.current) {
     const input = loadedViewerInputRef.current;
@@ -427,8 +325,9 @@ export default function IfcPropertyBrowser({
         !viewerContainerRef.current
       )
         return;
-      const { createIfcModelViewer } =
-        await import("./ifc-model-viewer.client");
+      const { createIfcModelViewer } = await import(
+        "./ifc-model-viewer.client"
+      );
       if (
         generation !== loadGenerationRef.current ||
         !viewerContainerRef.current
@@ -437,30 +336,43 @@ export default function IfcPropertyBrowser({
       const byId = new Map(
         input.elements.map((element) => [element.expressId, element]),
       );
+      const model = await instantiateVerifiedIfcRenderModel(input.bundle);
+      if (
+        generation !== loadGenerationRef.current ||
+        !viewerContainerRef.current
+      ) {
+        model.dispose();
+        return;
+      }
       let viewer: IfcModelViewer;
-      viewer = createIfcModelViewer({
-        api: input.api,
-        container: viewerContainerRef.current,
-        modelId: input.modelId,
-        firstPaintLifecycleKey: firstPaintLifecycleKeyRef.current,
-        onSelect: (expressId) => {
-          const element = byId.get(expressId);
-          if (element) void choose(element, "viewer");
-        },
-        onStatus: (message) => {
-          if (generation === loadGenerationRef.current)
-            setViewerStatus(message);
-        },
-        onContextLost: () => {
-          if (generation !== loadGenerationRef.current) return;
-          viewer.dispose();
-          if (viewerRef.current === viewer) viewerRef.current = null;
-          setViewerReady(false);
-          setViewerPhase("error");
-          setContextLost(true);
-        },
-        onDispose: (evidence) => onViewerDisposeRef.current?.(evidence),
-      });
+      try {
+        viewer = createIfcModelViewer({
+          model,
+          container: viewerContainerRef.current,
+          firstPaintLifecycleKey: firstPaintLifecycleKeyRef.current,
+          initialVisible: visibleRef.current,
+          onSelect: (expressId) => {
+            const element = byId.get(expressId);
+            if (element) choose(element, "viewer");
+          },
+          onStatus: (message) => {
+            if (generation === loadGenerationRef.current)
+              setViewerStatus(message);
+          },
+          onContextLost: () => {
+            if (generation !== loadGenerationRef.current) return;
+            viewer.dispose();
+            if (viewerRef.current === viewer) viewerRef.current = null;
+            setViewerReady(false);
+            setViewerPhase("error");
+            setContextLost(true);
+          },
+          onDispose: (evidence) => onViewerDisposeRef.current?.(evidence),
+        });
+      } catch (error) {
+        model.dispose();
+        throw error;
+      }
       if (generation !== loadGenerationRef.current) {
         viewer.dispose();
         return;
@@ -513,15 +425,11 @@ export default function IfcPropertyBrowser({
       return;
     }
     if (selectedIdRef.current === element.expressId) return;
-    void choose(element, "deep-link");
+    choose(element, "deep-link");
   }, [elements, elementsSourceKey, initialGlobalId, sourceKey]);
 
   useEffect(() => {
-    if (
-      !activeAnchor ||
-      elementsSourceKey !== sourceKey ||
-      !viewerReady
-    )
+    if (!activeAnchor || elementsSourceKey !== sourceKey || !viewerReady)
       return;
     const expressId = Number(activeAnchor.elementId);
     const element = elements.find((item) => item.expressId === expressId);
@@ -532,7 +440,7 @@ export default function IfcPropertyBrowser({
       return;
     }
     viewerRef.current?.restoreViewState(activeAnchor.camera);
-    void choose(element, "anchor");
+    choose(element, "anchor");
   }, [activeAnchor, elements, elementsSourceKey, sourceKey, viewerReady]);
 
   useEffect(() => {
@@ -561,14 +469,14 @@ export default function IfcPropertyBrowser({
     }
     if (handledFocusSelectionRef.current !== focusLifecycleKey) {
       handledFocusSelectionRef.current = focusLifecycleKey;
-      void choose(element, "focus-request");
+      choose(element, "focus-request");
     }
     if (!viewerReady) return;
     if (handledFocusCameraRef.current === focusLifecycleKey) return;
     handledFocusCameraRef.current = focusLifecycleKey;
-    viewerRef.current?.focusElement(element.expressId);
-    if (focusRequest.camera)
-      viewerRef.current?.restoreViewState(focusRequest.camera);
+    const viewer = viewerRef.current;
+    if (viewer)
+      applyIfcControlledView(viewer, element.expressId, focusRequest.camera);
   }, [elements, elementsSourceKey, focusRequest, sourceKey, viewerReady]);
 
   useEffect(() => {
@@ -576,7 +484,9 @@ export default function IfcPropertyBrowser({
     const wanted = new Set(remoteGlobalIds);
     viewerRef.current?.setRemoteElements(
       elements.flatMap((element) =>
-        wanted.has(element.globalId) ? [element.expressId] : [],
+        element.globalId && wanted.has(element.globalId)
+          ? [element.expressId]
+          : [],
       ),
     );
   }, [elements, elementsSourceKey, remoteGlobalIds, sourceKey, viewerReady]);
@@ -591,7 +501,7 @@ export default function IfcPropertyBrowser({
     );
   }, [elements, query]);
 
-  async function choose(
+  function choose(
     element: IfcElement,
     source:
       | "initial"
@@ -601,38 +511,18 @@ export default function IfcPropertyBrowser({
       | "anchor"
       | "focus-request" = "list",
   ) {
-    const requestId = ++selectionRequestRef.current;
     selectedIdRef.current = element.expressId;
     setSelected(element);
     viewerRef.current?.selectElement(element.expressId);
     if (source === "list" || source === "deep-link")
       viewerRef.current?.focusElement(element.expressId);
-    const runtime = apiRef.current;
-    const modelId = modelRef.current;
-    if (!runtime || modelId === null) return;
-    const [line, propertySets] = await Promise.all([
-      Promise.resolve(runtime.api.GetLine(modelId, element.expressId)),
-      runtime.properties.getPropertySets(
-        modelId,
-        element.expressId,
-        true,
-        true,
-      ),
-    ]);
-    if (
-      modelRef.current !== modelId ||
-      selectionRequestRef.current !== requestId
-    )
-      return;
-    setProperties([...propertiesFor(line), ...propertySetsFor(propertySets)]);
+    setProperties(element.properties);
     setStatus(`선택한 요소: #${element.expressId} ${element.typeName}`);
     onElementSelectionRef.current?.({
       origin:
         source === "list" || source === "viewer" ? "user" : "programmatic",
       expressId: element.expressId,
-      ifcGlobalId: /^[0-9A-Za-z_$]{22}$/.test(element.globalId)
-        ? element.globalId
-        : null,
+      ifcGlobalId: element.globalId,
       camera: viewerRef.current?.getViewState() ?? null,
     });
     if (
@@ -709,8 +599,8 @@ export default function IfcPropertyBrowser({
                   </button>
                 ) : null}
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {byteSize > maxBrowserGeometryBytes
-                    ? "75MB 이하 IFC에서 3D 화면을 지원합니다. 아래 요소·속성 탐색은 계속 사용할 수 있습니다."
+                  {byteSize > 75 * 1024 * 1024
+                    ? "검증된 GLB가 75MB를 넘으면 요소·속성만 표시합니다."
                     : "3D가 열리지 않아도 아래 요소 목록과 원본 속성은 계속 사용할 수 있습니다."}
                 </p>
               </div>
@@ -849,9 +739,9 @@ export default function IfcPropertyBrowser({
                   <p className="text-xs text-muted-foreground">Global ID</p>
                   <p
                     className="mt-1 truncate font-mono text-xs"
-                    title={selected.globalId}
+                    title={selected.globalId ?? undefined}
                   >
-                    {selected.globalId}
+                    {selected.globalId ?? "—"}
                   </p>
                 </div>
               </div>
@@ -864,9 +754,7 @@ export default function IfcPropertyBrowser({
                     if (!viewer) return;
                     onAnchorSelected({
                       elementId: String(selected.expressId),
-                      ifcGlobalId: /^[0-9A-Za-z_$]{22}$/.test(selected.globalId)
-                        ? selected.globalId
-                        : null,
+                      ifcGlobalId: selected.globalId,
                       camera: viewer.getViewState(),
                     });
                   }}

@@ -193,57 +193,21 @@ test("remote Awareness drawing selections resolve to same-SHA IFC highlights wit
   );
 });
 
-test("controlled IFC focus frames the element before restoring its canonical camera", async () => {
-  const source = await readFile(
-    new URL(
-      "../app/lukas/components/ifc-property-browser.client.tsx",
-      import.meta.url,
-    ),
-    "utf8",
+test("controlled IFC focus frames the element before restoring its canonical camera", () => {
+  const calls = [];
+  const camera = { position: [1, 2, 3], target: [4, 5, 6] };
+  ifcViewer.applyIfcControlledView(
+    {
+      focusElement: (expressId) => calls.push(["focus", expressId]),
+      restoreViewState: (state) => calls.push(["restore", state]),
+    },
+    42,
+    camera,
   );
-  assert.match(
-    source,
-    /viewerRef\.current\?\.focusElement\(element\.expressId\);\s*if \(focusRequest\.camera\)\s*viewerRef\.current\?\.restoreViewState\(focusRequest\.camera\)/s,
-  );
-});
-
-test("controlled IFC focus selects semantic data before WebGL is ready and binds camera work to the current source", async () => {
-  const source = await readFile(
-    new URL(
-      "../app/lukas/components/ifc-property-browser.client.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  assert.match(source, /const \[elementsSourceKey, setElementsSourceKey\]/);
-  assert.match(
-    source,
-    /elementsSourceKey !== sourceKey[\s\S]*void choose\(element, "focus-request"\);[\s\S]*if \(!viewerReady\) return;[\s\S]*viewerRef\.current\?\.focusElement\(element\.expressId\)/,
-  );
-  assert.match(
-    source,
-    /const focusLifecycleKey = `\$\{sourceKey\}:\$\{focusRequest\.requestId\}`/,
-  );
-});
-
-test("IFC initialization is generation-fenced and stale loads dispose only owned resources", async () => {
-  const source = await readFile(
-    new URL(
-      "../app/lukas/components/ifc-property-browser.client.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  assert.match(source, /const isCurrentLoad = \(\) =>/);
-  assert.match(
-    source,
-    /const webIfc = await import\("web-ifc"\);\s*if \(!isCurrentLoad\(\)\) return;/s,
-  );
-  assert.match(source, /function disposeOwnedIfc\(\)/);
-  assert.match(
-    source,
-    /if \(!isCurrentLoad\(\)\) \{\s*disposeOwnedIfc\(\);\s*return;/s,
-  );
+  assert.deepEqual(calls, [
+    ["focus", 42],
+    ["restore", camera],
+  ]);
 });
 
 test("mounted reverse focus and already-linked checks include the selected IFC SHA", async () => {

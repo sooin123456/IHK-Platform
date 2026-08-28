@@ -4,7 +4,8 @@ export type IfcCameraState = {
 };
 
 function coordinate(value: number) {
-  if (!Number.isFinite(value)) throw new Error("IFC 카메라 좌표가 올바르지 않습니다.");
+  if (!Number.isFinite(value))
+    throw new Error("IFC 카메라 좌표가 올바르지 않습니다.");
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
@@ -13,4 +14,16 @@ export function canonicalIfcCameraState(state: IfcCameraState): IfcCameraState {
     position: state.position.map(coordinate) as [number, number, number],
     target: state.target.map(coordinate) as [number, number, number],
   };
+}
+
+export function applyIfcControlledView(
+  viewer: {
+    focusElement(expressId: number): void;
+    restoreViewState(state: IfcCameraState): void;
+  },
+  expressId: number,
+  camera: IfcCameraState | null | undefined,
+) {
+  viewer.focusElement(expressId);
+  if (camera) viewer.restoreViewState(camera);
 }

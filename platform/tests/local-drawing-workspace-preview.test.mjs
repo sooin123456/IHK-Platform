@@ -168,6 +168,18 @@ test("current canonical preview opens the integrated PDF and IFC split without q
     loaded.sourceBundle.ifc.id,
     "00000000-0000-4000-8000-0000000000a1",
   );
+  assert.deepEqual(loaded.sourceBundle.ifc.derivative, {
+    status: "ready",
+    version: 1,
+    sourceSha256:
+      "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
+    geometrySha256:
+      "0e78c44795e77591a49f05f3e050e7eec8390817b4d317b2014b3f71e4acb4c1",
+    geometrySignedUrl: "/examples/example.ifc.glb",
+    manifestSha256:
+      "b1323ce7bd1705fcd78458719730905d4cb3f759c3ce5c3e59e81be723d56c86",
+    manifestSignedUrl: "/examples/example.ifc.manifest.json",
+  });
   assert.ok(
     loaded.sourceBundle.catalog.some(
       (item) =>
