@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 const binary = process.env.IFCPP_DERIVATIVE_BIN;
 assert.ok(binary, "set IFCPP_DERIVATIVE_BIN to the compiled converter");
 const validatorModule = process.env.GLTF_VALIDATOR_MODULE;
 assert.ok(validatorModule, "set GLTF_VALIDATOR_MODULE to the official Khronos gltf-validator module");
+const validatorPackage = JSON.parse(readFileSync(join(dirname(validatorModule), "package.json"), "utf8"));
+assert.equal(validatorPackage.version, "2.0.0-dev.3.10", "the executed glTF validator must match the repository pin");
 const { validateBytes } = await import(validatorModule);
 const fixtures = new URL("./fixtures/", import.meta.url);
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -116,7 +118,8 @@ test("enforces cumulative parser and derivative amplification caps", () => {
     ["--max-entities", "1", /entity count exceeds/],
     ["--max-vertices", "6", /vertex count exceeds/],
     ["--max-indices", "8", /index count exceeds/],
-    ["--max-output-bytes", "64", /output exceeds/],
+    ["--max-output-bytes", "64", /exceeds --max-output-bytes/],
+    ["--max-properties", "1", /property count exceeds/],
   ]) {
     const output = run(source, [option, limit]);
     assert.notEqual(output.result.status, 0, option);
@@ -124,4 +127,21 @@ test("enforces cumulative parser and derivative amplification caps", () => {
     assert.throws(() => statSync(output.manifest));
     assert.throws(() => statSync(output.glb));
   }
+});
+
+test("STEP entity preflight ignores declaration-like markers in strings and comments", () => {
+  const output = run(new URL("lexical-markers.ifc", fixtures).pathname, ["--max-entities", "5"]);
+  assert.equal(output.result.status, 0, output.result.stderr);
+});
+
+test("bounds property text before manifest serialization can amplify memory", () => {
+  const source = readFileSync(new URL("multi-product.ifc", fixtures), "utf8").replace("P-01-duplicate", "X".repeat(8192));
+  const dir = mkdtempSync(join(tmpdir(), "1hk-property-amplification-"));
+  const path = join(dir, "amplified.ifc");
+  writeFileSync(path, source);
+  const output = run(path, ["--max-output-bytes", "4096"]);
+  assert.notEqual(output.result.status, 0);
+  assert.match(output.result.stderr, /metadata exceeds --max-output-bytes/);
+  assert.throws(() => statSync(output.manifest));
+  assert.throws(() => statSync(output.glb));
 });

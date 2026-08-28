@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
+test("pins the official validator version and npm integrity in-repo", () => {
+  const root = new URL("../", import.meta.url);
+  const packageJson = JSON.parse(readFileSync(new URL("package.json", root), "utf8"));
+  const lock = JSON.parse(readFileSync(new URL("package-lock.json", root), "utf8"));
+  assert.equal(packageJson.devDependencies["gltf-validator"], "2.0.0-dev.3.10");
+  const dependency = lock.packages["node_modules/gltf-validator"];
+  assert.equal(dependency.version, "2.0.0-dev.3.10");
+  assert.equal(dependency.license, "Apache-2.0");
+  assert.match(dependency.integrity, /^sha512-[A-Za-z0-9+/]+=*$/);
+});
 
 test("rejects a stale 46-TU closure containing Carve", () => {
   const root = mkdtempSync(join(tmpdir(), "1hk-stale-closure-"));

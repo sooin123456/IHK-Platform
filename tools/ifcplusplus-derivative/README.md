@@ -11,6 +11,11 @@ item is enumerated. Any other geometry, property kind, invalid index, or
 placement fails the entire conversion without a manifest. This is not yet a
 general IFC production converter.
 
+The committed fixtures are purpose-built minimal IFC contracts. No third-party
+exporter sample is included because this review did not identify a small sample
+with independently verifiable permissive redistribution terms. Production
+qualification therefore still requires a licensed multi-exporter corpus.
+
 The build patch compiles only the parser/model and STEP value-serialization
 translation units needed by this spike, removing the file writer, geometry
 stack, `zip.c`, and the `zippy`/`nowide`
@@ -28,12 +33,11 @@ official SHA-256 file records:
 0c5d65251c14cc884bfa16bdbed3c263ce5bffe2e21c0d0d00962cb0610464fa  cmake-4.4.3-macos-universal.tar.gz
 ```
 
-Keep the archive and extracted application in a task-local directory. Do not
-install it or modify the global `PATH`.
+Keep the archive in a task-local directory. The build extracts it under the
+selected build directory; do not install it or modify the global `PATH`.
 
 ```sh
-CMAKE_BIN=/private/tmp/.../CMake.app/Contents/bin/cmake \
-  CMAKE_ARCHIVE=/private/tmp/.../cmake-4.4.3-macos-universal.tar.gz \
+CMAKE_ARCHIVE=/private/tmp/.../cmake-4.4.3-macos-universal.tar.gz \
   CMAKE_SHA256_FILE=/private/tmp/.../cmake-4.4.3-SHA-256.txt \
   IFCPP_BUILD_DIR=/private/tmp/1hk-ifcplusplus-build \
   ./build.sh
@@ -48,8 +52,12 @@ IFCPP_DERIVATIVE_BIN=/private/tmp/1hk-ifcplusplus-build/native/ifcplusplus-deriv
 ```
 
 The contract suite uses the official Khronos `gltf-validator` npm module pinned
-to `2.0.0-dev.3.10` from a task-local `/private/tmp` install. It is a test-only
-Apache-2.0 dependency and is not linked into the converter.
+to exactly `2.0.0-dev.3.10` with its npm integrity in `package-lock.json`. It is
+a test-only Apache-2.0 dependency and is not linked into the converter.
+
+The build verifies the official archive digest, extracts CMake into the build
+directory, and verifies the exact executable member digest before invoking it.
+An unrelated executable in `/private/tmp` cannot be substituted.
 
 CLI:
 
@@ -57,6 +65,7 @@ CLI:
 ifcplusplus-derivative source.ifc manifest.json geometry.glb \
   --source-file-id FILE_ID --max-input-bytes 536870912 \
   --max-entities 2000000 --max-vertices 10000000 \
+  --max-properties 2000000 \
   --max-indices 30000000 --max-output-bytes 1000000000
 ```
 

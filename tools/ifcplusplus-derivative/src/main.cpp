@@ -2,6 +2,7 @@
 #include <array>
 #include <cctype>
 #include <cerrno>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -42,6 +43,7 @@ namespace fs = std::filesystem;
 using namespace IFC4X3;
 
 constexpr const char* kCommit = "7b80900197b1f17cdafe47e0548e8eec056a3c9c";
+const std::string kEmpty;
 
 struct Sha256 {
   std::array<uint32_t, 8> h{0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
@@ -72,9 +74,23 @@ struct Sha256 {
 
 static std::string sha256(const std::vector<uint8_t>& bytes){ Sha256 h; h.add(bytes.data(),bytes.size()); return h.finish(); }
 static std::string sha256(const std::string& s){ Sha256 h; h.add(reinterpret_cast<const uint8_t*>(s.data()),s.size()); return h.finish(); }
-static std::string json(const std::string& s){ std::ostringstream o; o<<'"'; for(unsigned char c:s){ switch(c){case '"':o<<"\\\"";break;case '\\':o<<"\\\\";break;case '\n':o<<"\\n";break;case '\r':o<<"\\r";break;case '\t':o<<"\\t";break;default: if(c<0x20)o<<"\\u"<<std::hex<<std::setw(4)<<std::setfill('0')<<int(c)<<std::dec; else o<<c;} } o<<'"'; return o.str(); }
 static std::string upper(std::string s){ std::transform(s.begin(),s.end(),s.begin(),[](unsigned char c){return char(std::toupper(c));}); return s; }
-static std::string step(const shared_ptr<BuildingObject>& x){ if(!x)return ""; std::stringstream s; x->getStepParameter(s,true,15); return s.str(); }
+
+class BoundedText {
+ public:
+  explicit BoundedText(size_t limit):limit_(limit){value_.reserve(std::min(limit,size_t(4096)));}
+  void append(std::string_view text){if(text.size()>limit_-value_.size())throw std::runtime_error("output exceeds --max-output-bytes");value_.append(text);}
+  void character(char value){if(value_.size()==limit_)throw std::runtime_error("output exceeds --max-output-bytes");value_.push_back(value);}
+  template<class T> void integer(T value){char buffer[32];auto result=std::to_chars(buffer,buffer+sizeof(buffer),value);if(result.ec!=std::errc())throw std::runtime_error("integer serialization failed");append({buffer,size_t(result.ptr-buffer)});}
+  void real(float value){char buffer[64];int count=std::snprintf(buffer,sizeof(buffer),"%.*g",std::numeric_limits<float>::max_digits10,double(value));if(count<0||size_t(count)>=sizeof(buffer))throw std::runtime_error("float serialization failed");append({buffer,size_t(count)});}
+  void real(double value){char buffer[64];int count=std::snprintf(buffer,sizeof(buffer),"%.*g",std::numeric_limits<double>::max_digits10,value);if(count<0||size_t(count)>=sizeof(buffer))throw std::runtime_error("double serialization failed");append({buffer,size_t(count)});}
+  void quoted(const std::string& text){character('"');for(unsigned char c:text){switch(c){case '"':append("\\\"");break;case '\\':append("\\\\");break;case '\n':append("\\n");break;case '\r':append("\\r");break;case '\t':append("\\t");break;default:if(c<0x20){char buffer[7];std::snprintf(buffer,sizeof(buffer),"\\u%04x",unsigned(c));append(buffer);}else character(char(c));}}character('"');}
+  void pad4(){while(value_.size()%4)character(' ');}
+  std::string take(){return std::move(value_);}
+ private:
+  size_t limit_;
+  std::string value_;
+};
 
 template<class T> static void append(std::vector<uint8_t>& out,const T& v){ const auto* p=reinterpret_cast<const uint8_t*>(&v); out.insert(out.end(),p,p+sizeof(T)); }
 static void append_u32(std::vector<uint8_t>& out,uint32_t v){ append(out,v); }
@@ -88,6 +104,7 @@ struct Limits {
   uint64_t entities = 2'000'000;
   uint64_t vertices = 10'000'000;
   uint64_t indices = 30'000'000;
+  uint64_t properties = 2'000'000;
   uint64_t outputBytes = 1'000'000'000;
 };
 
@@ -102,14 +119,24 @@ static size_t checked_mul(size_t left,size_t right,size_t limit,const char* mess
 static uint32_t checked_u32(size_t value,const char* message){if(value>std::numeric_limits<uint32_t>::max())throw std::runtime_error(message);return uint32_t(value);}
 
 static uint64_t count_step_entities(const std::string& raw,uint64_t limit){
-  uint64_t count=0;
+  enum class State{normal,string,comment};State state=State::normal;uint64_t count=0;
   for(size_t i=0;i<raw.size();++i){
+    if(state==State::string){if(raw[i]=='\''&&i+1<raw.size()&&raw[i+1]=='\''){++i;continue;}if(raw[i]=='\'')state=State::normal;continue;}
+    if(state==State::comment){if(raw[i]=='*'&&i+1<raw.size()&&raw[i+1]=='/'){++i;state=State::normal;}continue;}
+    if(raw[i]=='\''){state=State::string;continue;}if(raw[i]=='/'&&i+1<raw.size()&&raw[i+1]=='*'){++i;state=State::comment;continue;}
     if(raw[i]!='#')continue;size_t p=i+1;if(p>=raw.size()||!std::isdigit(static_cast<unsigned char>(raw[p])))continue;while(p<raw.size()&&std::isdigit(static_cast<unsigned char>(raw[p])))++p;while(p<raw.size()&&std::isspace(static_cast<unsigned char>(raw[p])))++p;if(p<raw.size()&&raw[p]=='='){if(count==limit)throw std::runtime_error("entity count exceeds --max-entities");++count;}
   }
   return count;
 }
 
-static std::vector<Property> properties(const shared_ptr<IfcProduct>& product){
+struct ExtractionBudget{size_t properties=0;size_t metadata=0;size_t retained=0;};
+static size_t json_character_size(unsigned char c){return c<0x20?6:((c=='"'||c=='\\')?2:1);}
+static size_t json_escaped_size(const std::string& text,size_t limit){size_t result=2;for(unsigned char c:text)result=checked_add(result,json_character_size(c),limit,"metadata exceeds --max-output-bytes");return result;}
+static void account_retained(ExtractionBudget& budget,size_t bytes,const Limits& limits){budget.retained=checked_add(budget.retained,bytes,size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes");}
+static void account_metadata(ExtractionBudget& budget,const std::string& text,const Limits& limits){size_t bytes=json_escaped_size(text,size_t(limits.outputBytes));budget.metadata=checked_add(budget.metadata,bytes,size_t(limits.outputBytes),"metadata exceeds --max-output-bytes");account_retained(budget,bytes,limits);}
+static std::string label_step(const shared_ptr<IfcLabel>& label,ExtractionBudget& budget,const Limits& limits){size_t rawSize=12,jsonSize=14;for(unsigned char c:label->m_value){rawSize=checked_add(rawSize,c=='\''?2:1,size_t(limits.outputBytes),"metadata exceeds --max-output-bytes");jsonSize=checked_add(jsonSize,json_character_size(c)*(c=='\''?2:1),size_t(limits.outputBytes),"metadata exceeds --max-output-bytes");}budget.metadata=checked_add(budget.metadata,jsonSize,size_t(limits.outputBytes),"metadata exceeds --max-output-bytes");account_retained(budget,jsonSize,limits);std::string value;value.reserve(rawSize);value="IFCLABEL('";for(char c:label->m_value){value.push_back(c);if(c=='\'')value.push_back('\'');}value.append("')");return value;}
+
+static std::vector<Property> properties(const shared_ptr<IfcProduct>& product,const Limits& limits,ExtractionBudget& budget){
   std::vector<Property> result;
   for(const auto& weak:product->m_IsDefinedBy_inverse){
     auto rel=weak.lock(); if(!rel)continue;
@@ -117,8 +144,11 @@ static std::vector<Property> properties(const shared_ptr<IfcProduct>& product){
     auto set=dynamic_pointer_cast<IfcPropertySet>(definition);
     if(!set){auto entity=dynamic_pointer_cast<BuildingEntity>(definition);throw std::runtime_error("unsupported property definition #"+std::to_string(entity?entity->m_tag:0)+" "+(entity?upper(EntityFactory::getStringForClassID(entity->classID())):"UNKNOWN"));}
     for(const auto& raw:set->m_HasProperties){
+      budget.properties=checked_add(budget.properties,1,size_t(limits.properties),"property count exceeds --max-properties");
+      account_retained(budget,sizeof(Property),limits);
       auto value=dynamic_pointer_cast<IfcPropertySingleValue>(raw); if(!value) throw std::runtime_error("unsupported property #"+std::to_string(raw->m_tag)+" "+upper(EntityFactory::getStringForClassID(raw->classID())));
-      result.push_back({set->m_tag,value->m_tag,set->m_Name?set->m_Name->m_value:"",value->m_Name?value->m_Name->m_value:"",step(value->m_NominalValue),step(value->m_Unit)});
+      auto label=dynamic_pointer_cast<IfcLabel>(value->m_NominalValue);if(!label)throw std::runtime_error("unsupported property value #"+std::to_string(raw->m_tag));if(value->m_Unit)throw std::runtime_error("unsupported property unit #"+std::to_string(raw->m_tag));
+      const std::string& groupSource=set->m_Name?set->m_Name->m_value:kEmpty;const std::string& nameSource=value->m_Name?value->m_Name->m_value:kEmpty;account_metadata(budget,groupSource,limits);account_metadata(budget,nameSource,limits);auto nominal=label_step(label,budget,limits);result.push_back({set->m_tag,value->m_tag,groupSource,nameSource,std::move(nominal),""});
     }
   }
   std::sort(result.begin(),result.end(),[](const auto&a,const auto&b){return std::tie(a.groupId,a.propertyId)<std::tie(b.groupId,b.propertyId);});
@@ -127,11 +157,11 @@ static std::vector<Property> properties(const shared_ptr<IfcProduct>& product){
 
 static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,double factor,const Limits& limits){
   std::vector<Element> elements;
-  size_t totalVertices=0,totalIndices=0;
+  size_t totalVertices=0,totalIndices=0;ExtractionBudget budget;
   for(const auto& [id,entity]:model->getMapIfcEntities()){
     auto product=dynamic_pointer_cast<IfcProduct>(entity); if(!product||!product->m_Representation)continue;
     if(product->m_ObjectPlacement) throw std::runtime_error("unsupported object placement on product #"+std::to_string(id));
-    Element e{id,product->m_GlobalId?product->m_GlobalId->m_value:"",upper(EntityFactory::getStringForClassID(product->classID())),product->m_Name?product->m_Name->m_value:"",{},properties(product)};
+    account_retained(budget,sizeof(Element),limits);const std::string& globalSource=product->m_GlobalId?product->m_GlobalId->m_value:kEmpty;const std::string& nameSource=product->m_Name?product->m_Name->m_value:kEmpty;account_metadata(budget,globalSource,limits);account_metadata(budget,nameSource,limits);std::string type=upper(EntityFactory::getStringForClassID(product->classID()));account_metadata(budget,type,limits);Element e{id,globalSource,std::move(type),nameSource,{},properties(product,limits,budget)};
     for(const auto& rep:product->m_Representation->m_Representations){
       if(!rep)throw std::runtime_error("null representation on product #"+std::to_string(id));
       for(const auto& raw:rep->m_Items){
@@ -141,8 +171,8 @@ static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,doubl
         totalVertices=checked_add(totalVertices,points->m_CoordList.size(),size_t(limits.vertices),"vertex count exceeds --max-vertices");
         size_t itemIndices=checked_mul(face->m_CoordIndex.size(),size_t(3),size_t(limits.indices),"index count exceeds --max-indices");
         totalIndices=checked_add(totalIndices,itemIndices,size_t(limits.indices),"index count exceeds --max-indices");
-        Mesh mesh{raw->m_tag,"ifc:"+std::to_string(id)+":item:"+std::to_string(raw->m_tag)};
-        size_t componentLimit=checked_mul(size_t(limits.vertices),size_t(3),std::numeric_limits<size_t>::max(),"vertex component limit overflow");mesh.positions.reserve(checked_mul(points->m_CoordList.size(),size_t(3),componentLimit,"vertex component count overflow"));mesh.indices.reserve(itemIndices);
+        account_retained(budget,sizeof(Mesh)+64,limits);size_t componentLimit=checked_mul(size_t(limits.vertices),size_t(3),std::numeric_limits<size_t>::max(),"vertex component limit overflow");size_t componentCount=checked_mul(points->m_CoordList.size(),size_t(3),componentLimit,"vertex component count overflow");size_t positionBytes=checked_mul(componentCount,sizeof(float),size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes");size_t indexBytes=checked_mul(itemIndices,sizeof(uint32_t),size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes");account_retained(budget,checked_add(positionBytes,indexBytes,size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes"),limits);Mesh mesh{raw->m_tag,"ifc:"+std::to_string(id)+":item:"+std::to_string(raw->m_tag)};
+        mesh.positions.reserve(componentCount);mesh.indices.reserve(itemIndices);
         for(const auto& p:points->m_CoordList){ if(p.size()!=3||!p[0]||!p[1]||!p[2])throw std::runtime_error("invalid 3D coordinate on item #"+std::to_string(raw->m_tag)); for(const auto& n:p){double scaled=n->m_value*factor;if(!std::isfinite(n->m_value)||!std::isfinite(scaled)||scaled>std::numeric_limits<float>::max()||scaled<-std::numeric_limits<float>::max())throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));float value=static_cast<float>(scaled);if(!std::isfinite(value))throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));mesh.positions.push_back(value);} }
         for(const auto& tri:face->m_CoordIndex){ if(tri.size()!=3)throw std::runtime_error("non-triangle index on item #"+std::to_string(raw->m_tag)); for(const auto& n:tri){ if(!n||n->m_value<1||size_t(n->m_value)>points->m_CoordList.size())throw std::runtime_error("invalid index on item #"+std::to_string(raw->m_tag)); mesh.indices.push_back(uint32_t(n->m_value-1)); } }
         if(mesh.indices.empty())throw std::runtime_error("empty triangulation on item #"+std::to_string(raw->m_tag));
@@ -166,14 +196,13 @@ static std::vector<uint8_t> make_glb(const std::vector<Element>& elements,size_t
     for(size_t i=0;i<mesh.positions.size();i++){ append(bin,mesh.positions[i]); r.min[i%3]=std::min(r.min[i%3],mesh.positions[i]); r.max[i%3]=std::max(r.max[i%3],mesh.positions[i]); }
     align4(bin); r.indexOffset=bin.size(); r.indexBytes=checked_mul(mesh.indices.size(),sizeof(uint32_t),outputLimit,"output exceeds --max-output-bytes"); for(auto x:mesh.indices)append(bin,x); refs.push_back(r);
   }
-  std::ostringstream j;j<<std::setprecision(std::numeric_limits<float>::max_digits10); j<<"{\"accessors\":["; size_t ri=0; for(const auto&r:refs){if(ri)j<<','; j<<"{\"bufferView\":"<<ri*2<<",\"componentType\":5126,\"count\":"<<r.count<<",\"max\":["<<r.max[0]<<','<<r.max[1]<<','<<r.max[2]<<"],\"min\":["<<r.min[0]<<','<<r.min[1]<<','<<r.min[2]<<"],\"type\":\"VEC3\"},{\"bufferView\":"<<ri*2+1<<",\"componentType\":5125,\"count\":"<<r.indexBytes/4<<",\"type\":\"SCALAR\"}";ri++;} j<<"],\"asset\":{\"generator\":\"1HK IfcPlusPlus derivative\",\"version\":\"2.0\"},\"bufferViews\":["; for(size_t i=0;i<refs.size();i++){if(i)j<<',';const auto&r=refs[i];j<<"{\"buffer\":0,\"byteLength\":"<<r.positionBytes<<",\"byteOffset\":"<<r.positionOffset<<",\"target\":34962},{\"buffer\":0,\"byteLength\":"<<r.indexBytes<<",\"byteOffset\":"<<r.indexOffset<<",\"target\":34963}";} j<<"],\"buffers\":[{\"byteLength\":"<<bin.size()<<"}],\"meshes\":["; ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"primitives\":[{\"attributes\":{\"POSITION\":"<<ri*2<<"},\"indices\":"<<ri*2+1<<",\"mode\":4}]}";ri++;}j<<"],\"nodes\":[";ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j<<',';j<<"{\"extras\":{\"expressId\":"<<e.expressId<<",\"nodeId\":"<<json(m.nodeId)<<"},\"mesh\":"<<ri<<",\"name\":"<<json(m.nodeId)<<"}";ri++;}j<<"],\"scene\":0,\"scenes\":[{\"nodes\":[";for(size_t i=0;i<ri;i++){if(i)j<<',';j<<i;}j<<"]}]}";
-  std::string js=j.str(); while(js.size()%4)js.push_back(' '); align4(bin);
+  size_t fixedBytes=checked_add(size_t(28),bin.size(),outputLimit,"output exceeds --max-output-bytes");BoundedText j(outputLimit-fixedBytes);j.append("{\"accessors\":[");size_t ri=0;for(const auto&r:refs){if(ri)j.character(',');j.append("{\"bufferView\":");j.integer(ri*2);j.append(",\"componentType\":5126,\"count\":");j.integer(r.count);j.append(",\"max\":[");j.real(r.max[0]);j.character(',');j.real(r.max[1]);j.character(',');j.real(r.max[2]);j.append("],\"min\":[");j.real(r.min[0]);j.character(',');j.real(r.min[1]);j.character(',');j.real(r.min[2]);j.append("],\"type\":\"VEC3\"},{\"bufferView\":");j.integer(ri*2+1);j.append(",\"componentType\":5125,\"count\":");j.integer(r.indexBytes/4);j.append(",\"type\":\"SCALAR\"}");++ri;}j.append("],\"asset\":{\"generator\":\"1HK IfcPlusPlus derivative\",\"version\":\"2.0\"},\"bufferViews\":[");for(size_t i=0;i<refs.size();++i){if(i)j.character(',');const auto&r=refs[i];j.append("{\"buffer\":0,\"byteLength\":");j.integer(r.positionBytes);j.append(",\"byteOffset\":");j.integer(r.positionOffset);j.append(",\"target\":34962},{\"buffer\":0,\"byteLength\":");j.integer(r.indexBytes);j.append(",\"byteOffset\":");j.integer(r.indexOffset);j.append(",\"target\":34963}");}j.append("],\"buffers\":[{\"byteLength\":");j.integer(bin.size());j.append("}],\"meshes\":[");ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j.character(',');j.append("{\"primitives\":[{\"attributes\":{\"POSITION\":");j.integer(ri*2);j.append("},\"indices\":");j.integer(ri*2+1);j.append(",\"mode\":4}]}");++ri;}j.append("],\"nodes\":[");ri=0;for(const auto&e:elements)for(const auto&m:e.meshes){if(ri)j.character(',');j.append("{\"extras\":{\"expressId\":");j.integer(e.expressId);j.append(",\"nodeId\":");j.quoted(m.nodeId);j.append("},\"mesh\":");j.integer(ri);j.append(",\"name\":");j.quoted(m.nodeId);j.character('}');++ri;}j.append("],\"scene\":0,\"scenes\":[{\"nodes\":[");for(size_t i=0;i<ri;++i){if(i)j.character(',');j.integer(i);}j.append("]}]}");j.pad4();std::string js=j.take();align4(bin);
   size_t total=12;total=checked_add(total,8,outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,js.size(),outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,8,outputLimit,"output exceeds --max-output-bytes");total=checked_add(total,bin.size(),outputLimit,"output exceeds --max-output-bytes");checked_u32(total,"GLB exceeds uint32 chunk range");
   std::vector<uint8_t> out;out.reserve(total); append_u32(out,0x46546c67);append_u32(out,2);append_u32(out,checked_u32(total,"GLB exceeds uint32 chunk range"));append_u32(out,checked_u32(js.size(),"GLB JSON chunk exceeds uint32 range"));append_u32(out,0x4e4f534a);out.insert(out.end(),js.begin(),js.end());append_u32(out,checked_u32(bin.size(),"GLB BIN chunk exceeds uint32 range"));append_u32(out,0x004e4942);out.insert(out.end(),bin.begin(),bin.end());return out;
 }
 
-static std::string manifest(const std::string& fileId,const std::string& sourceHash,const std::string& geometryHash,double factor,const std::vector<Element>& elements){
-  std::ostringstream o; o<<std::setprecision(15)<<"{\"elements\":[";for(size_t i=0;i<elements.size();i++){if(i)o<<',';const auto&e=elements[i];o<<"{\"expressId\":"<<e.expressId<<",\"globalId\":"<<json(e.globalId)<<",\"meshes\":[";for(size_t k=0;k<e.meshes.size();k++){if(k)o<<',';o<<"{\"itemId\":"<<e.meshes[k].expressId<<",\"nodeId\":"<<json(e.meshes[k].nodeId)<<",\"primitiveIndices\":[0]}";}o<<"],\"name\":"<<json(e.name)<<",\"properties\":[";for(size_t k=0;k<e.properties.size();k++){if(k)o<<',';const auto&p=e.properties[k];o<<"{\"group\":"<<json(p.group)<<",\"groupId\":"<<p.groupId<<",\"name\":"<<json(p.name)<<",\"propertyId\":"<<p.propertyId<<",\"unit\":"<<json(p.unit)<<",\"value\":"<<json(p.value)<<"}";}o<<"],\"type\":"<<json(e.type)<<"}";}o<<"],\"engine\":{\"commit\":"<<json(kCommit)<<",\"name\":\"IfcPlusPlus\"},\"geometry\":{\"sha256\":"<<json(geometryHash)<<"},\"schemaVersion\":1,\"source\":{\"fileId\":"<<json(fileId)<<",\"sha256\":"<<json(sourceHash)<<"},\"status\":\"complete\",\"units\":{\"lengthToMeters\":"<<factor<<"}}\n";return o.str();
+static std::string manifest(const std::string& fileId,const std::string& sourceHash,const std::string& geometryHash,double factor,const std::vector<Element>& elements,size_t outputLimit){
+  BoundedText o(outputLimit);o.append("{\"elements\":[");for(size_t i=0;i<elements.size();++i){if(i)o.character(',');const auto&e=elements[i];o.append("{\"expressId\":");o.integer(e.expressId);o.append(",\"globalId\":");o.quoted(e.globalId);o.append(",\"meshes\":[");for(size_t k=0;k<e.meshes.size();++k){if(k)o.character(',');o.append("{\"itemId\":");o.integer(e.meshes[k].expressId);o.append(",\"nodeId\":");o.quoted(e.meshes[k].nodeId);o.append(",\"primitiveIndices\":[0]}");}o.append("],\"name\":");o.quoted(e.name);o.append(",\"properties\":[");for(size_t k=0;k<e.properties.size();++k){if(k)o.character(',');const auto&p=e.properties[k];o.append("{\"group\":");o.quoted(p.group);o.append(",\"groupId\":");o.integer(p.groupId);o.append(",\"name\":");o.quoted(p.name);o.append(",\"propertyId\":");o.integer(p.propertyId);o.append(",\"unit\":");o.quoted(p.unit);o.append(",\"value\":");o.quoted(p.value);o.character('}');}o.append("],\"type\":");o.quoted(e.type);o.character('}');}o.append("],\"engine\":{\"commit\":");o.quoted(kCommit);o.append(",\"name\":\"IfcPlusPlus\"},\"geometry\":{\"sha256\":");o.quoted(geometryHash);o.append("},\"schemaVersion\":1,\"source\":{\"fileId\":");o.quoted(fileId);o.append(",\"sha256\":");o.quoted(sourceHash);o.append("},\"status\":\"complete\",\"units\":{\"lengthToMeters\":");o.real(factor);o.append("}}\n");return o.take();
 }
 
 static fs::path normalized(const fs::path& p){ return fs::weakly_canonical(p.parent_path())/p.filename(); }
@@ -181,15 +210,15 @@ static void publish(const fs::path& path,const std::vector<uint8_t>& data){ std:
 
 int main(int argc,char**argv){
   try{
-    if(argc<6)throw std::runtime_error("usage: converter source.ifc manifest.json geometry.glb --source-file-id ID [--max-input-bytes N]");
+    if(argc<6)throw std::runtime_error("usage: converter source.ifc manifest.json geometry.glb --source-file-id ID [--max-input-bytes N] [--max-properties N]");
     fs::path source=argv[1],manifestPath=argv[2],glbPath=argv[3];std::string fileId;uintmax_t limit=512ull*1024*1024;Limits limits;
-    for(int i=4;i<argc;i++){std::string a=argv[i];if(a=="--source-file-id"&&i+1<argc)fileId=argv[++i];else if(a=="--max-input-bytes"&&i+1<argc)limit=std::stoull(argv[++i]);else if(a=="--max-entities"&&i+1<argc)limits.entities=std::stoull(argv[++i]);else if(a=="--max-vertices"&&i+1<argc)limits.vertices=std::stoull(argv[++i]);else if(a=="--max-indices"&&i+1<argc)limits.indices=std::stoull(argv[++i]);else if(a=="--max-output-bytes"&&i+1<argc)limits.outputBytes=std::stoull(argv[++i]);else throw std::runtime_error("unknown or incomplete option: "+a);}
+    for(int i=4;i<argc;i++){std::string a=argv[i];if(a=="--source-file-id"&&i+1<argc)fileId=argv[++i];else if(a=="--max-input-bytes"&&i+1<argc)limit=std::stoull(argv[++i]);else if(a=="--max-entities"&&i+1<argc)limits.entities=std::stoull(argv[++i]);else if(a=="--max-vertices"&&i+1<argc)limits.vertices=std::stoull(argv[++i]);else if(a=="--max-indices"&&i+1<argc)limits.indices=std::stoull(argv[++i]);else if(a=="--max-properties"&&i+1<argc)limits.properties=std::stoull(argv[++i]);else if(a=="--max-output-bytes"&&i+1<argc)limits.outputBytes=std::stoull(argv[++i]);else throw std::runtime_error("unknown or incomplete option: "+a);}
     if(fileId.empty())throw std::runtime_error("--source-file-id is required");
     if(normalized(source)==normalized(manifestPath)||normalized(source)==normalized(glbPath)||normalized(manifestPath)==normalized(glbPath))throw std::runtime_error("source and target paths must differ");
     auto size=fs::file_size(source);if(size>limit)throw std::runtime_error("input exceeds --max-input-bytes");
     std::ifstream in(source,std::ios::binary);if(!in)throw std::runtime_error("cannot open source");std::string raw((std::istreambuf_iterator<char>(in)),{});if(raw.size()!=size)throw std::runtime_error("source changed while reading");count_step_entities(raw,limits.entities);
     auto model=make_shared<BuildingModel>();ReaderSTEP reader;std::vector<std::string> errors;reader.setMessageCallBack([&](shared_ptr<StatusCallback::Message> m){if(m&&m->m_message_type>=StatusCallback::MESSAGE_TYPE_ERROR)errors.push_back(m->m_message_text);});std::istringstream stream(raw);reader.loadModelFromStream(stream,std::streampos(raw.size()),model);if(!errors.empty())throw std::runtime_error("IFC parse failed: "+errors.front());
-    if(model->getMapIfcEntities().size()>limits.entities)throw std::runtime_error("entity count exceeds --max-entities");double factor=model->getUnitConverter()->getLengthInMeterFactor();if(!std::isfinite(factor)||factor<=0)throw std::runtime_error("invalid model length unit factor");auto elements=extract(model,factor,limits);if(elements.empty())throw std::runtime_error("no represented products");auto glb=make_glb(elements,size_t(limits.outputBytes));auto text=manifest(fileId,sha256(raw),sha256(glb),factor,elements);if(text.size()>limits.outputBytes)throw std::runtime_error("output exceeds --max-output-bytes");std::vector<uint8_t> manifestBytes(text.begin(),text.end());
+    if(model->getMapIfcEntities().size()>limits.entities)throw std::runtime_error("entity count exceeds --max-entities");double factor=model->getUnitConverter()->getLengthInMeterFactor();if(!std::isfinite(factor)||factor<=0)throw std::runtime_error("invalid model length unit factor");auto elements=extract(model,factor,limits);if(elements.empty())throw std::runtime_error("no represented products");auto glb=make_glb(elements,size_t(limits.outputBytes));auto text=manifest(fileId,sha256(raw),sha256(glb),factor,elements,size_t(limits.outputBytes));std::vector<uint8_t> manifestBytes(text.begin(),text.end());
     publish(glbPath,glb);try{publish(manifestPath,manifestBytes);}catch(...){fs::remove(glbPath);throw;}
     return 0;
   }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}
