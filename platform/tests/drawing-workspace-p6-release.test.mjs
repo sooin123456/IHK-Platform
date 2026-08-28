@@ -193,7 +193,7 @@ function performanceEvidence(overrides = {}) {
   };
 }
 
-test("P6 notice closes fflate without adding a second package or lock entry", async () => {
+test("P6 export and GLB validation dependencies remain inside the reviewed notice closure", async () => {
   const [notice, packageJson, lock] = await Promise.all([
     readFile(new URL("../THIRD_PARTY_NOTICES.md", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8").then(
@@ -207,17 +207,26 @@ test("P6 notice closes fflate without adding a second package or lock entry", as
     notice,
     /\| fflate\s+\| 0\.8\.3\s+\| https:\/\/github\.com\/101arrowz\/fflate\s+\| MIT\s+\| No\s+\| npm\s+\| Formula-free Verified BOQ XLSX ZIP generation\s+\|/,
   );
+  assert.match(
+    notice,
+    /\| gltf-validator\s+\| 2\.0\.0-dev\.3\.10\s+\| https:\/\/github\.com\/KhronosGroup\/glTF-Validator\s+\| Apache-2\.0\s+\| No\s+\| npm\s+\| Server-side GLB conformance validation\s+\|/,
+  );
   assert.equal(packageJson.dependencies.fflate, "^0.8.3");
+  assert.equal(packageJson.dependencies["gltf-validator"], "2.0.0-dev.3.10");
   assert.equal(lock.packages["node_modules/fflate"].version, "0.8.3");
+  assert.equal(
+    lock.packages["node_modules/gltf-validator"].version,
+    "2.0.0-dev.3.10",
+  );
   assert.equal(
     createHash("sha256")
       .update(JSON.stringify(packageJson.dependencies))
       .digest("hex"),
-    "40bfaf1bf96430a2f9e3141d89b56d6d9788e056e562978e117068a891ba44d9",
+    "8db29416bad8ea60410129f517ffbd51c2e5ab230b67d14780e8a0618f0dd5c3",
   );
   assert.equal(
     createHash("sha256").update(JSON.stringify(lock.packages)).digest("hex"),
-    "52f366ede478219b6aa7f5008f36cb5d6bde813f87b7e373b8fe13820b80900c",
+    "e84ae3cdc6cadf887dbb573da6b3a473f93c7cba4a102a001b8c4f5ca6e2fe4f",
   );
 });
 
@@ -332,8 +341,7 @@ test("P6 local manifest is ordered, complete, and fail-fast", async () => {
       {
         phase: "LOCAL",
         runner: async ({ label }) => (
-          visited.push(label),
-          label === "two" ? 9 : 0
+          visited.push(label), label === "two" ? 9 : 0
         ),
         log() {},
       },
