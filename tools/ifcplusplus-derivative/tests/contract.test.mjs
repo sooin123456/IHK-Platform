@@ -3,16 +3,20 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 
 const binary = process.env.IFCPP_DERIVATIVE_BIN;
 assert.ok(binary, "set IFCPP_DERIVATIVE_BIN to the compiled converter");
-const validatorModule = process.env.GLTF_VALIDATOR_MODULE;
-assert.ok(validatorModule, "set GLTF_VALIDATOR_MODULE to the official Khronos gltf-validator module");
-const validatorPackage = JSON.parse(readFileSync(join(dirname(validatorModule), "package.json"), "utf8"));
-assert.equal(validatorPackage.version, "2.0.0-dev.3.10", "the executed glTF validator must match the repository pin");
-const { validateBytes } = await import(validatorModule);
+const validatorRoot = new URL("../node_modules/gltf-validator/", import.meta.url);
+for (const [name, expected] of Object.entries({
+  "package.json": "3578d16153fa237c72784588da2e8fcccc9cd3c1c58ef34c7912f0732d2f5fa6",
+  "index.js": "78deff9ea85743e86461c2d14fae76e7fc3ca0432e652f62948066b55fa16f0d",
+  "gltf_validator.dart.js": "b73a7b2d455ac217567725138b46d826a13d7d1bb0c88c15f7c571bfb349298c",
+})) {
+  assert.equal(createHash("sha256").update(readFileSync(new URL(name, validatorRoot))).digest("hex"), expected, `unauthenticated glTF validator file: ${name}`);
+}
+const { validateBytes } = await import(new URL("index.js", validatorRoot));
 const fixtures = new URL("./fixtures/", import.meta.url);
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -127,6 +131,37 @@ test("enforces cumulative parser and derivative amplification caps", () => {
     assert.throws(() => statSync(output.manifest));
     assert.throws(() => statSync(output.glb));
   }
+});
+
+test("rejects CLI caps outside GLB uint32 format bounds before extraction", () => {
+  const source = new URL("multi-product.ifc", fixtures).pathname;
+  for (const option of ["--max-vertices", "--max-indices", "--max-output-bytes"]) {
+    const output = run(source, [option, "4294967296"]);
+    assert.notEqual(output.result.status, 0, option);
+    assert.match(output.result.stderr, new RegExp(`${option} exceeds GLB uint32 maximum`));
+    assert.throws(() => statSync(output.manifest));
+    assert.throws(() => statSync(output.glb));
+  }
+});
+
+test("never clobbers existing targets and removes an uncommitted new GLB", () => {
+  const source = new URL("multi-product.ifc", fixtures).pathname;
+  const dir = mkdtempSync(join(tmpdir(), "1hk-no-clobber-"));
+  const manifest = join(dir, "manifest.json");
+  const glb = join(dir, "geometry.glb");
+  writeFileSync(manifest, "existing-manifest");
+  let result = spawnSync(binary, [source, manifest, glb, "--source-file-id", "fixture-file"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /target already exists/);
+  assert.equal(readFileSync(manifest, "utf8"), "existing-manifest");
+  assert.throws(() => statSync(glb), "new GLB must be removed when manifest publication fails");
+
+  writeFileSync(glb, "existing-glb");
+  result = spawnSync(binary, [source, manifest, glb, "--source-file-id", "fixture-file"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /target already exists/);
+  assert.equal(readFileSync(manifest, "utf8"), "existing-manifest");
+  assert.equal(readFileSync(glb, "utf8"), "existing-glb");
 });
 
 test("STEP entity preflight ignores declaration-like markers in strings and comments", () => {

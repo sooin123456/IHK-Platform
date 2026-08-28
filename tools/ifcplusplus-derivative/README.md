@@ -46,14 +46,17 @@ node ./license-sbom.mjs \
   /private/tmp/1hk-ifcplusplus-build/native \
   /private/tmp/1hk-ifcplusplus-build/vendor/ifcplusplus
 
+npm ci --ignore-scripts
 IFCPP_DERIVATIVE_BIN=/private/tmp/1hk-ifcplusplus-build/native/ifcplusplus-derivative \
-  GLTF_VALIDATOR_MODULE=/private/tmp/.../node_modules/gltf-validator/index.js \
-  node --test ./tests/contract.test.mjs
+  node --test ./tests/contract.test.mjs ./tests/license-sbom.test.mjs
 ```
 
 The contract suite uses the official Khronos `gltf-validator` npm module pinned
 to exactly `2.0.0-dev.3.10` with its npm integrity in `package-lock.json`. It is
-a test-only Apache-2.0 dependency and is not linked into the converter.
+a test-only Apache-2.0 dependency and is not linked into the converter. Tests
+load it only from this package's fresh `npm ci` installation and authenticate
+the executed package metadata, entry point, and compiled validator hashes;
+there is no environment-variable module override.
 
 The build verifies the official archive digest, extracts CMake into the build
 directory, and verifies the exact executable member digest before invoking it.

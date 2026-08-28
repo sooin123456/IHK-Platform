@@ -13,7 +13,7 @@ test("pins the official validator version and npm integrity in-repo", () => {
   const dependency = lock.packages["node_modules/gltf-validator"];
   assert.equal(dependency.version, "2.0.0-dev.3.10");
   assert.equal(dependency.license, "Apache-2.0");
-  assert.match(dependency.integrity, /^sha512-[A-Za-z0-9+/]+=*$/);
+  assert.equal(dependency.integrity, "sha512-odJ4k0tRkGXiDGn78yDBg+fBbAIvBnXxh3RwAta0emSxGtyagFE8B4xELB1oYe3S5RD8Ci3uZAsZaascH2LAEQ==");
 });
 
 test("rejects a stale 46-TU closure containing Carve", () => {

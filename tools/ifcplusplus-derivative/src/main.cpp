@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -15,6 +16,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -174,7 +176,7 @@ static std::vector<Element> extract(const shared_ptr<BuildingModel>& model,doubl
         account_retained(budget,sizeof(Mesh)+64,limits);size_t componentLimit=checked_mul(size_t(limits.vertices),size_t(3),std::numeric_limits<size_t>::max(),"vertex component limit overflow");size_t componentCount=checked_mul(points->m_CoordList.size(),size_t(3),componentLimit,"vertex component count overflow");size_t positionBytes=checked_mul(componentCount,sizeof(float),size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes");size_t indexBytes=checked_mul(itemIndices,sizeof(uint32_t),size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes");account_retained(budget,checked_add(positionBytes,indexBytes,size_t(limits.outputBytes),"derivative allocation exceeds --max-output-bytes"),limits);Mesh mesh{raw->m_tag,"ifc:"+std::to_string(id)+":item:"+std::to_string(raw->m_tag)};
         mesh.positions.reserve(componentCount);mesh.indices.reserve(itemIndices);
         for(const auto& p:points->m_CoordList){ if(p.size()!=3||!p[0]||!p[1]||!p[2])throw std::runtime_error("invalid 3D coordinate on item #"+std::to_string(raw->m_tag)); for(const auto& n:p){double scaled=n->m_value*factor;if(!std::isfinite(n->m_value)||!std::isfinite(scaled)||scaled>std::numeric_limits<float>::max()||scaled<-std::numeric_limits<float>::max())throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));float value=static_cast<float>(scaled);if(!std::isfinite(value))throw std::runtime_error("scaled coordinate is outside finite float range on item #"+std::to_string(raw->m_tag));mesh.positions.push_back(value);} }
-        for(const auto& tri:face->m_CoordIndex){ if(tri.size()!=3)throw std::runtime_error("non-triangle index on item #"+std::to_string(raw->m_tag)); for(const auto& n:tri){ if(!n||n->m_value<1||size_t(n->m_value)>points->m_CoordList.size())throw std::runtime_error("invalid index on item #"+std::to_string(raw->m_tag)); mesh.indices.push_back(uint32_t(n->m_value-1)); } }
+        for(const auto& tri:face->m_CoordIndex){ if(tri.size()!=3)throw std::runtime_error("non-triangle index on item #"+std::to_string(raw->m_tag)); for(const auto& n:tri){ if(!n||n->m_value<1||size_t(n->m_value)>points->m_CoordList.size())throw std::runtime_error("invalid index on item #"+std::to_string(raw->m_tag)); mesh.indices.push_back(checked_u32(size_t(n->m_value-1),"index exceeds GLB uint32 range")); } }
         if(mesh.indices.empty())throw std::runtime_error("empty triangulation on item #"+std::to_string(raw->m_tag));
         e.meshes.push_back(std::move(mesh));
       }
@@ -214,6 +216,7 @@ int main(int argc,char**argv){
     fs::path source=argv[1],manifestPath=argv[2],glbPath=argv[3];std::string fileId;uintmax_t limit=512ull*1024*1024;Limits limits;
     for(int i=4;i<argc;i++){std::string a=argv[i];if(a=="--source-file-id"&&i+1<argc)fileId=argv[++i];else if(a=="--max-input-bytes"&&i+1<argc)limit=std::stoull(argv[++i]);else if(a=="--max-entities"&&i+1<argc)limits.entities=std::stoull(argv[++i]);else if(a=="--max-vertices"&&i+1<argc)limits.vertices=std::stoull(argv[++i]);else if(a=="--max-indices"&&i+1<argc)limits.indices=std::stoull(argv[++i]);else if(a=="--max-properties"&&i+1<argc)limits.properties=std::stoull(argv[++i]);else if(a=="--max-output-bytes"&&i+1<argc)limits.outputBytes=std::stoull(argv[++i]);else throw std::runtime_error("unknown or incomplete option: "+a);}
     if(fileId.empty())throw std::runtime_error("--source-file-id is required");
+    constexpr uint64_t glbMaximum=std::numeric_limits<uint32_t>::max();if(limits.vertices>glbMaximum)throw std::runtime_error("--max-vertices exceeds GLB uint32 maximum");if(limits.indices>glbMaximum)throw std::runtime_error("--max-indices exceeds GLB uint32 maximum");if(limits.outputBytes>glbMaximum)throw std::runtime_error("--max-output-bytes exceeds GLB uint32 maximum");
     if(normalized(source)==normalized(manifestPath)||normalized(source)==normalized(glbPath)||normalized(manifestPath)==normalized(glbPath))throw std::runtime_error("source and target paths must differ");
     auto size=fs::file_size(source);if(size>limit)throw std::runtime_error("input exceeds --max-input-bytes");
     std::ifstream in(source,std::ios::binary);if(!in)throw std::runtime_error("cannot open source");std::string raw((std::istreambuf_iterator<char>(in)),{});if(raw.size()!=size)throw std::runtime_error("source changed while reading");count_step_entities(raw,limits.entities);
