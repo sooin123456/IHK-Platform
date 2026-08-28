@@ -3,11 +3,11 @@
 ## Status
 
 - Local production-build Chromium warm-reopen gate: **MET**.
-- Exact 10,000-object first usable: **2292.0 ms**, target `<= 2500 ms`.
-- Warm input-to-next-frame p95: zoom **0.2 ms**, pan **0.2 ms**, selection **7.6 ms**, target `<= 16.7 ms` each.
-- Fresh production context/cache-miss baseline: **2809.5 ms — NOT MET**.
+- Exact 10,000-object first usable: **2283.2 ms**, target `<= 2500 ms`.
+- Warm input-to-next-frame p95: zoom **0.2 ms**, pan **0.2 ms**, selection **8.0 ms**, target `<= 16.7 ms` each.
+- Fresh production context/cache-miss baseline: **2865.1 ms — NOT MET**.
 - Hosted production runtime: **UNEXECUTED** because no trusted hosted browser/server/runtime authority was available.
-- Final measured implementation commit: `672eb0439052a0eee1b5e7e4b4baf8e15482ed35`.
+- Final measured implementation commit: `fdf68a2a1bc772510587e04adc7dad4aeb34829f`.
 
 The current gate does not trust a cached raster as PDF source-pixel authority. A cache hit may display provisionally, but readiness waits for PDF.js to render pixels from the original PDF source. The local `MET` is the live runner result. The persisted JSON files are mutually editable and have no external immutable or signed receipt, so the standalone validator deliberately refuses to grant execution authority from them.
 
@@ -55,7 +55,7 @@ Retained production corrections are limited to measured work:
 - collaboration/Yjs bootstrap deferred until required source first frames, without deferring the durable local command bridge;
 - an immediate PDF.js source verification/render after a provisional cache mount.
 
-The final source-bound run measured the PDF.js warm source render at **654.8 ms** and still completed the whole workspace in **2292.0 ms**.
+The final source-bound run measured the PDF.js warm source render at **654.7 ms** and still completed the whole workspace in **2283.2 ms**.
 
 Removed experiments included static PDF.js import, module/worker/source preloads that did not improve the gate, sequential PDF/IFC loading, inactive-panel splits within run variance, and timing diagnostics not needed by the production boundary. No new dependency, state manager, rendering framework, worker layer, queue, or second schema remains.
 
@@ -92,6 +92,45 @@ Removed experiments included static PDF.js import, module/worker/source preloads
 Selection measurement starts at capture-phase `pointerdown`, before hit resolution, selected-ID construction, snapshots, state update, and parent notification. Each of 30 raw samples proves the expected selected object name was committed before the measured next frame. Block-instance selection inverse-transforms the pointer and narrow-phase tests topmost definition primitives, so rotated sparse empty corners fall through to the real object below.
 
 ## Strict TDD evidence
+
+### Round 4 RED — fixed checked-in cold outcome
+
+The checked-in cold evidence was mutated in the test to a valid `2499 ms / MET` result. The old result-specific assertions rejected it:
+
+```sh
+node --test --test-name-pattern='P7 records a raw cold' tests/drawing-workspace-p7-performance.test.mjs
+```
+
+```text
+tests 1
+pass 0
+fail 1
+AssertionError: assert.ok(coldCacheMiss.durationMs > 2_500)
+```
+
+### Round 4 focused GREEN
+
+The regression now checks only that the raw duration is the readiness interval and that `status` is derived from `durationMs <= targetMs`. It has no fixed cold outcome:
+
+```sh
+node --test --test-name-pattern='P7 records a raw cold' tests/drawing-workspace-p7-performance.test.mjs
+```
+
+```text
+tests 1
+pass 1
+fail 0
+```
+
+```sh
+node --test tests/drawing-workspace-p7-performance.test.mjs
+```
+
+```text
+tests 14
+pass 14
+fail 0
+```
 
 ### Round 3 RED — paired evidence forgery, threshold retention, and mutable raster
 
@@ -163,10 +202,10 @@ PORT=4177 npm run test:e2e:drawing-workspace-p7:performance
 ```text
 prebuild/typecheck: PASS
 production client/server build: PASS
-Playwright: 3 passed (29.4s)
-warm reopen first usable: 2292.0 ms — MET
-cold/cache miss first usable: 2809.5 ms — NOT MET
-warm p95: zoom 0.2 ms, pan 0.2 ms, selection 7.6 ms — MET
+Playwright: 3 passed (29.6s)
+warm reopen first usable: 2283.2 ms — MET
+cold/cache miss first usable: 2865.1 ms — NOT MET
+warm p95: zoom 0.2 ms, pan 0.2 ms, selection 8.0 ms — MET
 hosted authority: UNEXECUTED
 ```
 
@@ -174,75 +213,75 @@ The three browser tests cover the exact 10k measurement, mutable/decode/dimensio
 
 ## Exact fixture and deterministic hashes
 
-| Kind | Count |
-| --- | ---: |
-| Wall | 2,000 |
-| Opening | 2,000 |
-| Space | 1,500 |
-| Area | 1,500 |
-| Grid | 1,500 |
-| Arc | 1,500 |
+| Kind      |      Count |
+| --------- | ---------: |
+| Wall      |      2,000 |
+| Opening   |      2,000 |
+| Space     |      1,500 |
+| Area      |      1,500 |
+| Grid      |      1,500 |
+| Arc       |      1,500 |
 | **Total** | **10,000** |
 
 Additional exact cardinalities: two source links, one selected IFC model, one active PDF page, 1,850 projected render items, and 1,848 accessible projected objects.
 
 Every hash series contains exactly 100 identical runs:
 
-| Boundary | SHA-256 |
-| --- | --- |
-| Fixture objects | `eb7b316b82a4a3f7a64fbd529d14c5e8041911c54ac3c926bd0af7f299c66cb6` |
+| Boundary               | SHA-256                                                            |
+| ---------------------- | ------------------------------------------------------------------ |
+| Fixture objects        | `eb7b316b82a4a3f7a64fbd529d14c5e8041911c54ac3c926bd0af7f299c66cb6` |
 | Canonical render order | `9154c645ec9f00664b117471fba109c17e44ce8fac9adb0648f65ab0f93f2e5e` |
-| Viewport projection | `41a922cd1303904150c91afab6bacb6d4288a6e6e6b781a58b329380e7a75543` |
+| Viewport projection    | `41a922cd1303904150c91afab6bacb6d4288a6e6e6b781a58b329380e7a75543` |
 
 ## Final stage evidence
 
 Runtime: Chromium `151.0.7922.34`, Apple M3 Max, 14 logical CPUs, 38,654,705,664 bytes total memory, viewport 1440×900.
 
-| Stage | Interval / duration (ms) | Authority label |
-| --- | ---: | --- |
-| Loader | 345.300 | `LOCAL_PRODUCTION_SERVER` |
-| SSR | 172.494 | `LOCAL_PRODUCTION_SERVER` |
-| Hydration | 599.6 → 809.5 / 209.9 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Style resolution | 2173.6 → 2176.9 / 3.3 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Render adapter | 2185.3 → 2222.5 / 37.2 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Konva mount | 838.6 → 902.5 / 63.9 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Snap/hit preparation | 2764.0 → 2768.2 / 4.2 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| PDF.js source render | 883.8 → 1538.6 / 654.8 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| IFC | 883.9 → 1111.5 / 227.6 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Stage                | Interval / duration (ms) | Authority label                   |
+| -------------------- | -----------------------: | --------------------------------- |
+| Loader               |                  346.556 | `LOCAL_PRODUCTION_SERVER`         |
+| SSR                  |                  173.310 | `LOCAL_PRODUCTION_SERVER`         |
+| Hydration            |    600.0 → 809.1 / 209.1 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Style resolution     |    2179.1 → 2182.4 / 3.3 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Render adapter       |     839.4 → 874.8 / 35.4 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Konva mount          |     837.4 → 903.5 / 66.1 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Snap/hit preparation |      921.1 → 924.6 / 3.5 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| PDF.js source render |   883.4 → 1538.1 / 654.7 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| IFC                  |   883.6 → 1111.2 / 227.6 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
 
 Warm readiness:
 
-- hydration end: 809.5 ms;
-- PDF.js pixels mounted: 1549.1 ms;
+- hydration end: 809.1 ms;
+- PDF.js pixels mounted: 1549.0 ms;
 - provisional cache status: `UNVERIFIED_HIT`;
 - provisional key digest: `d88d60be929ccb629703d75f2e63113e6fb2e323e3fe5b8ae42cfd39f6a29c3d`;
 - final PDF/display pixel ratio: 3.0769;
-- edit/state/projection/PDF/IFC predicates observed: 2239.3 ms;
-- next usable frame: 2292.0 ms.
+- edit/state/projection/PDF/IFC predicates observed: 2242.8 ms;
+- next usable frame: 2283.2 ms.
 
 Cold readiness:
 
 - cache status: `MISS`;
-- hydration end: 1109.8 ms;
-- all readiness predicates observed: 2763.0 ms;
-- next usable frame: 2809.5 ms;
+- hydration end: 1135.3 ms;
+- all readiness predicates observed: 2816.6 ms;
+- next usable frame: 2865.1 ms;
 - independently derived status: `NOT MET`.
 
 Raw interaction sample counts are 30 zoom, 31 pan, and 30 selection. Every selection sample committed the expected alternating object name before its recorded frame.
 
 ## Runner/build provenance
 
-| Boundary | Value |
-| --- | --- |
-| Source commit | `672eb0439052a0eee1b5e7e4b4baf8e15482ed35` |
-| Source tree | `a656865815b02ddda18418cb08029e4e3f74366a0361f34e72406f7a042931bd` |
-| Runner | `7e1703685cb53abb2834b9641d5847cc6bc896cd200d96c9ce8c136095c42fa6` |
-| Playwright config | `05b08b871eb320a47c28f9eccc9391c5dbf140f6d24c5604c2c7bf59185cf5f5` |
-| Served server build | `0b0815a7b63772ea4478a0d8cd6ccb5764fb3aa4e0173a0ff36d7b8ef63c24de` |
-| Served client build | `15936e1ba78b127b292418667b99694475f7ce1585302937bfc48390a646de91` |
-| Raw capture checksum | `04c5b5e354654af2c8f3947fc43e7fc35b3e437e0aaed8fb24c23a58fb383880` |
-| Derived evidence checksum | `46912fed537a1e6d9c42822ab90c30a4ae79083d194a1f9f1eaa0b70fc5f1837` |
-| Run ID | `ce3b991c-587f-4b00-9dd8-007edced7565` |
+| Boundary                  | Value                                                              |
+| ------------------------- | ------------------------------------------------------------------ |
+| Source commit             | `fdf68a2a1bc772510587e04adc7dad4aeb34829f`                         |
+| Source tree               | `82726593eb5ec607012d57bcb22296f0c85ffca0a8e468f81c05a9b3d9e89ff3` |
+| Runner                    | `7e1703685cb53abb2834b9641d5847cc6bc896cd200d96c9ce8c136095c42fa6` |
+| Playwright config         | `05b08b871eb320a47c28f9eccc9391c5dbf140f6d24c5604c2c7bf59185cf5f5` |
+| Served server build       | `0b0815a7b63772ea4478a0d8cd6ccb5764fb3aa4e0173a0ff36d7b8ef63c24de` |
+| Served client build       | `e3237dbf88b2e61adfce070f2f561c6813ccef1ec42c459fcc2c5bd6aea20e74` |
+| Raw capture checksum      | `ee01f99022c1803547827bdd5b932a3393b2fa780eb30b59bb1d805bb8c757eb` |
+| Derived evidence checksum | `bfa1b53e3a48605a55120ee6a773df75415db4370f49b71e377115657a8c534d` |
+| Run ID                    | `f94c9722-3a01-4b06-ac84-02e790ef9b09`                             |
 
 These checksums detect mutation but do not make the files an independent execution receipt.
 
@@ -265,6 +304,15 @@ These checksums detect mutation but do not make the files an independent executi
 
 Implementation commits: `95cbf3b35740fd4bbcae203695c469f3c9f6ca44` and ponytail cleanup `672eb0439052a0eee1b5e7e4b4baf8e15482ed35`.
 
+## Round 4 files changed
+
+- `platform/tests/drawing-workspace-p7-performance.test.mjs`
+- `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json`
+- `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-playwright-capture.json`
+- `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-report.md`
+
+Round 4 implementation commit: `fdf68a2a1bc772510587e04adc7dad4aeb34829f`.
+
 ## Final verification
 
 ### Full Drawing Workspace suite
@@ -278,7 +326,7 @@ tests 777
 pass 773
 fail 0
 skipped 4
-duration_ms 37147.95325
+duration_ms 38600.34575
 ```
 
 The skips are existing unavailable disposable/real PostgreSQL authorities.
@@ -343,8 +391,8 @@ The user-owned P4 progress/images and `.superpowers/audits/` remained unstaged a
 
 ## Concerns
 
-- The warm-reopen margin is **208.0 ms** on this machine. CPU load, browser version, thermal state, or hosted latency can reduce it.
-- The cold/cache-miss path remains **2809.5 ms — NOT MET**.
+- The warm-reopen margin is **216.8 ms** on this machine. CPU load, browser version, thermal state, or hosted latency can reduce it.
+- The cold/cache-miss path remains **2865.1 ms — NOT MET**.
 - Hosted production runtime remains **UNEXECUTED**.
 - The provisional cache can improve what the user sees before verification, but it is intentionally not a source-pixel authority; readiness always pays the PDF.js source-render cost.
 - Without an external immutable or signed runner receipt, persisted local timing artifacts remain inspectable records rather than independently verifiable execution authority.
