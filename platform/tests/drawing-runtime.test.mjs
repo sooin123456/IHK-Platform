@@ -126,6 +126,47 @@ test("drawing first usable marks distinguish PDF and IFC without duplicates", ()
   assert.deepEqual(names, ["drawing-first-page", "drawing-first-ifc-frame"]);
 });
 
+test("first-paint readiness is scoped to one revision and source lifecycle", () => {
+  const recorded = new Set();
+  const performance = {
+    getEntriesByName(name) {
+      return recorded.has(name) ? [{}] : [];
+    },
+    mark(name) {
+      recorded.add(name);
+    },
+  };
+  const requirements = { requiresPdf: true, requiresIfc: true };
+
+  markDrawingFirstUsable("pdf", performance, "revision-a:pdf-a:ifc-a");
+  markDrawingFirstUsable("ifc", performance, "revision-a:pdf-a:ifc-a");
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      requirements,
+      performance,
+      "revision-a:pdf-a:ifc-a",
+    ),
+    true,
+  );
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      requirements,
+      performance,
+      "revision-b:pdf-b:ifc-b",
+    ),
+    false,
+  );
+  markDrawingFirstUsable("pdf", performance, "revision-b:pdf-b:ifc-b");
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      requirements,
+      performance,
+      "revision-b:pdf-b:ifc-b",
+    ),
+    false,
+  );
+});
+
 test("workspace stages record measured production-boundary durations", () => {
   assert.equal(typeof drawingRuntime.startDrawingWorkspaceStage, "function");
   const measures = [];

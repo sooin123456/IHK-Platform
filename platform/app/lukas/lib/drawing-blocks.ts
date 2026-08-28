@@ -95,6 +95,28 @@ export function transformBlockPoint(
   };
 }
 
+/** Inverts the instance transform so hit testing stays in primitive-local space. */
+export function inverseTransformBlockPoint(
+  point: Point,
+  instance: Pick<
+    DrawingBlockInstance,
+    "origin" | "rotation" | "scaleX" | "scaleY"
+  >,
+): Point {
+  finiteTransform(instance);
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y))
+    throw new DrawingBlockError("Block hit point values must be finite.");
+  const angle = (-instance.rotation * Math.PI) / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const x = point.x - instance.origin.x;
+  const y = point.y - instance.origin.y;
+  return {
+    x: (x * cosine - y * sine) / instance.scaleX,
+    y: (x * sine + y * cosine) / instance.scaleY,
+  };
+}
+
 function translatePoint(point: Point, origin: Point): Point {
   return { x: point.x - origin.x, y: point.y - origin.y };
 }
@@ -333,6 +355,137 @@ export function blockRenderModelBounds(model: DrawingBlockRenderModel): Bounds {
   const right = Math.max(...bounds.map((value) => value.x + value.width));
   const bottom = Math.max(...bounds.map((value) => value.y + value.height));
   return { x, y, width: right - x, height: bottom - y };
+}
+
+function pointToSegmentDistance(point: Point, start: Point, end: Point) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0)
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  const amount = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+    ),
+  );
+  return Math.hypot(
+    point.x - (start.x + dx * amount),
+    point.y - (start.y + dy * amount),
+  );
+}
+
+function pointInBounds(point: Point, bounds: Bounds, tolerance = 0) {
+  return (
+    point.x >= bounds.x - tolerance &&
+    point.x <= bounds.x + bounds.width + tolerance &&
+    point.y >= bounds.y - tolerance &&
+    point.y <= bounds.y + bounds.height + tolerance
+  );
+}
+
+function primitiveHit(
+  primitive: DrawingBlockRenderModel["primitives"][number],
+  point: Point,
+  tolerance: number,
+  instance: DrawingBlockInstance,
+) {
+  const geometry = primitive.geometry;
+  const strokeTolerance = tolerance + primitive.style.strokeWidth / 2;
+  if (geometry.type === "line")
+    return (
+      pointToSegmentDistance(point, geometry.start, geometry.end) <=
+      strokeTolerance
+    );
+  if (geometry.type === "polyline") {
+    const segments = geometry.points
+      .slice(1)
+      .map((end, index) => [geometry.points[index], end] as const);
+    if (geometry.closed && geometry.points.length > 2)
+      segments.push([geometry.points.at(-1)!, geometry.points[0]]);
+    return segments.some(
+      ([start, end]) =>
+        pointToSegmentDistance(point, start, end) <= strokeTolerance,
+    );
+  }
+  if (geometry.type === "circle") {
+    const radius = Math.hypot(
+      point.x - geometry.center.x,
+      point.y - geometry.center.y,
+    );
+    return primitive.style.fill
+      ? radius <= geometry.radius + tolerance
+      : Math.abs(radius - geometry.radius) <= strokeTolerance;
+  }
+  if (geometry.type === "rectangle") {
+    const angle = (-geometry.rotation * Math.PI) / 180;
+    const dx = point.x - geometry.origin.x;
+    const dy = point.y - geometry.origin.y;
+    const local = {
+      x: dx * Math.cos(angle) - dy * Math.sin(angle),
+      y: dx * Math.sin(angle) + dy * Math.cos(angle),
+    };
+    const inside = pointInBounds(local, {
+      x: 0,
+      y: 0,
+      width: geometry.width,
+      height: geometry.height,
+    });
+    if (primitive.style.fill && inside) return true;
+    return [
+      [
+        { x: 0, y: 0 },
+        { x: geometry.width, y: 0 },
+      ],
+      [
+        { x: geometry.width, y: 0 },
+        { x: geometry.width, y: geometry.height },
+      ],
+      [
+        { x: geometry.width, y: geometry.height },
+        { x: 0, y: geometry.height },
+      ],
+      [
+        { x: 0, y: geometry.height },
+        { x: 0, y: 0 },
+      ],
+    ].some(
+      ([start, end]) =>
+        pointToSegmentDistance(local, start, end) <= strokeTolerance,
+    );
+  }
+  const localBounds = primitiveWorldBounds(
+    primitive,
+    {
+      ...instance,
+      origin: { x: 0, y: 0 },
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+    },
+    primitive.style,
+  );
+  return pointInBounds(point, localBounds, tolerance);
+}
+
+/** Returns the visual topmost primitive under a world point, not the instance AABB. */
+export function drawingBlockPrimitiveAtPoint(
+  model: DrawingBlockRenderModel,
+  worldPoint: Point,
+  tolerance: number,
+) {
+  if (!Number.isFinite(tolerance) || tolerance < 0)
+    throw new DrawingBlockError("Block hit tolerance must be nonnegative.");
+  const localPoint = inverseTransformBlockPoint(worldPoint, model.instance);
+  const localTolerance =
+    tolerance /
+    Math.min(Math.abs(model.instance.scaleX), Math.abs(model.instance.scaleY));
+  return [...model.primitives]
+    .reverse()
+    .find((primitive) =>
+      primitiveHit(primitive, localPoint, localTolerance, model.instance),
+    );
 }
 
 export type DrawingCanvasRenderItem =
@@ -575,11 +728,15 @@ export function drawingCanvasViewportProjection(input: {
     topmostAt(point: Point) {
       return [...hitItems].reverse().find((item) => {
         const bounds = item.hitBounds;
-        return (
+        const broadPhase =
           point.x >= bounds.x &&
           point.x <= bounds.x + bounds.width &&
           point.y >= bounds.y &&
-          point.y <= bounds.y + bounds.height
+          point.y <= bounds.y + bounds.height;
+        return (
+          broadPhase &&
+          (item.kind === "object" ||
+            Boolean(drawingBlockPrimitiveAtPoint(item.model, point, tolerance)))
         );
       });
     },

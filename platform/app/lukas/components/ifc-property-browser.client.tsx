@@ -54,6 +54,7 @@ type Props = {
   compact?: boolean;
   fileName: string;
   sourceKey: string;
+  firstPaintLifecycleKey?: string;
   initialGlobalId?: string | null;
   signedUrl: string;
   visible?: boolean;
@@ -185,6 +186,7 @@ export default function IfcPropertyBrowser({
   compact = false,
   fileName,
   sourceKey,
+  firstPaintLifecycleKey,
   initialGlobalId,
   signedUrl,
   activeAnchor = null,
@@ -427,6 +429,7 @@ export default function IfcPropertyBrowser({
         api: input.api,
         container: viewerContainerRef.current,
         modelId: input.modelId,
+        firstPaintLifecycleKey: firstPaintLifecycleKey ?? sourceKey,
         onSelect: (expressId) => {
           const element = byId.get(expressId);
           if (element) void choose(element, "viewer");

@@ -30,6 +30,9 @@ function memoryStorage() {
     async match(key) {
       return entries.get(key)?.clone();
     },
+    async keys() {
+      return [...entries.keys()];
+    },
     async put(key, response) {
       entries.set(key, response.clone());
     },
@@ -74,13 +77,52 @@ test("derived PDF raster cache is keyed by immutable identity and validates cont
   );
   assert.equal(await restored.blob.text(), "real rendered pixels");
   assert.deepEqual(restored.canvasSize, { width: 1600, height: 1200 });
-  assert.equal(restored.cacheKey, key);
+  assert.match(restored.cacheKey, new RegExp(`^${key}/[0-9a-f]{64}$`));
   assert.match(restored.keySha256, /^[0-9a-f]{64}$/);
 
-  const response = memory.entries.get(key);
+  const [storedKey, response] = [...memory.entries.entries()][0];
   const headers = new Headers(response.headers);
   headers.set("x-drawing-content-sha256", "0".repeat(64));
-  memory.entries.set(key, new Response(await response.blob(), { headers }));
+  memory.entries.set(
+    storedKey,
+    new Response(await response.blob(), { headers }),
+  );
+  assert.equal(
+    await rasterCache.readDrawingPdfRasterCache(memory.storage, input),
+    null,
+  );
+  assert.equal(memory.deletes, 1);
+});
+
+test("same-dimension alternate pixels cannot replace the authority bound to the cache request", async () => {
+  const memory = memoryStorage();
+  const original = new Blob(["original rendered pixels"], {
+    type: "image/png",
+  });
+  await rasterCache.writeDrawingPdfRasterCache(memory.storage, input, {
+    blob: original,
+    canvasPixelWidth: 1024,
+    canvasPixelHeight: 768,
+    canvasSize: { width: 1600, height: 1200 },
+    pageViewport: { width: 800, height: 600, rotation: 0 },
+  });
+  const [requestKey, response] = [...memory.entries.entries()][0];
+  const alternate = new Blob(["alternate rendered pixels"], {
+    type: "image/png",
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await alternate.arrayBuffer(),
+  );
+  const headers = new Headers(response.headers);
+  headers.set(
+    "x-drawing-content-sha256",
+    [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(""),
+  );
+  memory.entries.set(requestKey, new Response(alternate, { headers }));
+
   assert.equal(
     await rasterCache.readDrawingPdfRasterCache(memory.storage, input),
     null,

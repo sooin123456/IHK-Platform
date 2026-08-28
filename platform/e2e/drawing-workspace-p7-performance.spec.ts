@@ -1,15 +1,11 @@
 import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import os from "node:os";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { drawingCanvasRenderAdapter } from "../app/lukas/lib/drawing-blocks";
 import { buildDrawingP4PerformanceFixture } from "../app/lukas/lib/drawing-p4-performance";
-import {
-  drawingP7CaptureSha256,
-  writeDrawingP7PerformanceEvidence,
-} from "../scripts/drawing-p7-performance-evidence.mjs";
-
 const performancePath =
   "/workspace-preview/drawing-workspace?performanceTest=1";
 const layerId = "10000000-0000-4000-8000-000000000001";
@@ -31,12 +27,12 @@ function requiredEnvironment(name: string) {
 
 async function corruptFirstVisibleRaster(
   page: Page,
-  mode: "decode" | "dimensions",
+  mode: "decode" | "dimensions" | "pixels",
 ) {
   return page.evaluate(async (corruptionMode) => {
-    const cache = await caches.open("drawing-pdf-raster-v1");
+    const cache = await caches.open("drawing-pdf-raster-v2");
     const request = (await cache.keys()).find(({ url }) =>
-      url.includes("/__drawing-pdf-raster-cache/v1/first-visible-v1/current/"),
+      url.includes("/__drawing-pdf-raster-cache/v2/first-visible-v1/current/"),
     );
     if (!request) throw new Error("first-visible PDF raster cache is missing");
     const response = await cache.match(request);
@@ -48,9 +44,19 @@ async function corruptFirstVisibleRaster(
         ? new Blob([new Uint8Array([0, 1, 2, 3])], { type: "image/png" })
         : await new Promise<Blob>((resolve, reject) => {
             const canvas = document.createElement("canvas");
-            canvas.width = 1;
-            canvas.height = 1;
-            canvas.getContext("2d")?.fillRect(0, 0, 1, 1);
+            canvas.width =
+              corruptionMode === "pixels"
+                ? Number(headers.get("x-drawing-canvas-pixel-width"))
+                : 1;
+            canvas.height =
+              corruptionMode === "pixels"
+                ? Number(headers.get("x-drawing-canvas-pixel-height"))
+                : 1;
+            const context = canvas.getContext("2d");
+            if (context) {
+              context.fillStyle = "#ff00ff";
+              context.fillRect(0, 0, canvas.width, canvas.height);
+            }
             canvas.toBlob(
               (value) =>
                 value ? resolve(value) : reject(new Error("PNG encode failed")),
@@ -70,6 +76,74 @@ async function corruptFirstVisibleRaster(
     await cache.put(request, new Response(blob, { headers }));
     return request.url;
   }, mode);
+}
+
+async function measureFirstUsable(page: Page) {
+  const readinessHandle = await page.waitForFunction(
+    () => {
+      const canvas = document.querySelector<HTMLElement>(
+        '[aria-label*="도면 화면"]',
+      );
+      const hydrated = document.querySelector(
+        '[aria-label="미리보기 hydration 상태"]',
+      );
+      const ifcViewer = document.querySelector<HTMLElement>(
+        '[aria-label="IFC 3D 모델 화면"]',
+      );
+      const workspaceCanvas = document.querySelector<HTMLElement>(
+        '[aria-label="도면 캔버스"]',
+      );
+      const stageEnd = (name: string) => {
+        const entries = performance.getEntriesByName(
+          `drawing-workspace:${name}`,
+        );
+        const entry = entries.at(-1);
+        return entry ? entry.startTime + entry.duration : 0;
+      };
+      const ready =
+        canvas?.dataset.renderedSemanticObjectCount === "10000" &&
+        Number(canvas.dataset.projectedSemanticObjectCount) > 0 &&
+        canvas.dataset.pdfCurrentMounted === "true" &&
+        ifcViewer?.dataset.viewerPhase === "ready" &&
+        workspaceCanvas?.dataset.editReady === "true" &&
+        hydrated?.textContent?.includes("준비됨") &&
+        stageEnd("hydration") > 0 &&
+        stageEnd("pdf") > 0 &&
+        stageEnd("ifc") > 0;
+      if (!ready) return false;
+      const observed = performance.now();
+      return {
+        navigationStartMs: 0,
+        hydrationEndMs: stageEnd("hydration"),
+        editReadyObservedMs: observed,
+        authoritativeStateObservedMs: observed,
+        viewportProjectionObservedMs: observed,
+        pdfVisibleObservedMs: observed,
+        ifcVisibleObservedMs: observed,
+      };
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+  const readiness = (await readinessHandle.jsonValue()) as {
+    navigationStartMs: number;
+    hydrationEndMs: number;
+    editReadyObservedMs: number;
+    authoritativeStateObservedMs: number;
+    viewportProjectionObservedMs: number;
+    pdfVisibleObservedMs: number;
+    ifcVisibleObservedMs: number;
+  };
+  const usableFrameEndMs = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) =>
+        requestAnimationFrame(() => resolve(performance.now())),
+      ),
+  );
+  return {
+    durationMs: usableFrameEndMs - readiness.navigationStartMs,
+    readiness: { ...readiness, usableFrameEndMs },
+  };
 }
 
 async function stableSurfaceBox(surface: Locator) {
@@ -147,86 +221,25 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   test.setTimeout(10 * 60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.goto("/workspace-preview/drawing-workspace", {
+  await page.goto(performancePath, {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            performance.getEntriesByName("drawing-workspace:pdf").length > 0 &&
-            performance.getEntriesByName("drawing-workspace:ifc").length > 0,
-        ),
-      { timeout: 60_000 },
-    )
-    .toBe(true);
+  const coldCacheMiss = await measureFirstUsable(page);
+  const coldSurface = page.getByLabel(/도면 화면/);
+  await expect(coldSurface).toHaveAttribute(
+    "data-pdf-raster-authority",
+    "PDFJS",
+  );
+  expect(
+    coldCacheMiss.durationMs > 2_500 ? "NOT MET" : "MET",
+    `cold/cache-miss first usable ${coldCacheMiss.durationMs.toFixed(1)} ms`,
+  ).toBe("NOT MET");
 
   await page.goto(performancePath, { waitUntil: "domcontentloaded" });
   const surface = page.getByLabel(/도면 화면/);
-  const readinessHandle = await page.waitForFunction(
-    () => {
-      const canvas = document.querySelector<HTMLElement>(
-        '[aria-label*="도면 화면"]',
-      );
-      const hydrated = document.querySelector(
-        '[aria-label="미리보기 hydration 상태"]',
-      );
-      const ifcViewer = document.querySelector<HTMLElement>(
-        '[aria-label="IFC 3D 모델 화면"]',
-      );
-      const workspaceCanvas = document.querySelector<HTMLElement>(
-        '[aria-label="도면 캔버스"]',
-      );
-      const stageEnd = (name: string) => {
-        const entries = performance.getEntriesByName(
-          `drawing-workspace:${name}`,
-        );
-        const entry = entries.at(-1);
-        return entry ? entry.startTime + entry.duration : 0;
-      };
-      const ready =
-        canvas?.dataset.renderedSemanticObjectCount === "10000" &&
-        Number(canvas.dataset.projectedSemanticObjectCount) > 0 &&
-        canvas.dataset.pdfCurrentMounted === "true" &&
-        ifcViewer?.dataset.viewerPhase === "ready" &&
-        workspaceCanvas?.dataset.editReady === "true" &&
-        hydrated?.textContent?.includes("준비됨") &&
-        stageEnd("hydration") > 0 &&
-        stageEnd("pdf") > 0 &&
-        stageEnd("ifc") > 0;
-      if (!ready) return false;
-      const observed = performance.now();
-      return {
-        navigationStartMs: 0,
-        hydrationEndMs: stageEnd("hydration"),
-        editReadyObservedMs: observed,
-        authoritativeStateObservedMs: observed,
-        viewportProjectionObservedMs: observed,
-        pdfVisibleObservedMs: observed,
-        ifcVisibleObservedMs: observed,
-      };
-    },
-    undefined,
-    { timeout: 60_000 },
-  );
-  const readiness = (await readinessHandle.jsonValue()) as {
-    navigationStartMs: number;
-    hydrationEndMs: number;
-    editReadyObservedMs: number;
-    authoritativeStateObservedMs: number;
-    viewportProjectionObservedMs: number;
-    pdfVisibleObservedMs: number;
-    ifcVisibleObservedMs: number;
-  };
-  const usableFrameEndMs = await page.evaluate(
-    () =>
-      new Promise<number>((resolve) =>
-        requestAnimationFrame(() => resolve(performance.now())),
-      ),
-  );
-  const firstUsableMs = usableFrameEndMs - readiness.navigationStartMs;
+  const warmFirstUsable = await measureFirstUsable(page);
+  const readiness = warmFirstUsable.readiness;
+  const firstUsableMs = warmFirstUsable.durationMs;
   const pdfRaster = await surface.evaluate((element) => ({
     authority: element.dataset.pdfRasterAuthority,
     cacheStatus:
@@ -454,24 +467,20 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   const firstUsableStatus = firstUsableMs <= 2_500 ? "MET" : "NOT MET";
   const warmStatus =
     Math.max(...Object.values(p95Ms)) <= 16.7 ? "MET" : "NOT MET";
-  const localStatus =
-    firstUsableStatus === "MET" && warmStatus === "MET" ? "MET" : "NOT MET";
   const hashes = deterministicHashes();
-  const evidence = {
-    schemaVersion: 3,
-    status: localStatus,
-    authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-    sourceCommitSha: requiredEnvironment("P7_SOURCE_COMMIT_SHA"),
-    provenance: {
-      runner: "P7_PLAYWRIGHT_PRODUCTION_BUILD_V2",
-      sourceTreeSha256: requiredEnvironment("P7_SOURCE_TREE_SHA256"),
+  const capture = {
+    schemaVersion: 1,
+    authority: "P7_PLAYWRIGHT_RAW_CAPTURE_V1",
+    runId: requiredEnvironment("P7_RUN_ID"),
+    source: {
+      commitSha: requiredEnvironment("P7_SOURCE_COMMIT_SHA"),
+      treeSha256: requiredEnvironment("P7_SOURCE_TREE_SHA256"),
       runnerSha256: requiredEnvironment("P7_RUNNER_SHA256"),
       configSha256: requiredEnvironment("P7_CONFIG_SHA256"),
       build: {
         serverSha256: requiredEnvironment("P7_BUILD_SERVER_SHA256"),
         clientSha256: requiredEnvironment("P7_BUILD_CLIENT_SHA256"),
       },
-      captureSha256: "",
     },
     browserName,
     browserVersion: browser.version(),
@@ -503,9 +512,15 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       activePdfPages: 1,
     },
     conditions: {
+      coldCacheMiss:
+        "fresh production-build Chromium context with empty derived raster storage navigates directly to the exact 10,000-object workspace; requires hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, visible PDF.js pixels, a ready visible IFC frame, and the next animation frame",
       firstUsable:
-        "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this is not the separately observed 3,088.9 ms cold/cache-miss baseline, which was NOT MET",
+        "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this does not substitute for the separately captured cold/cache-miss boundary whose status is independently derived",
       warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
+    },
+    coldCacheMiss: {
+      cacheStatus: "MISS",
+      readiness: coldCacheMiss.readiness,
     },
     pdfRaster,
     stages: {
@@ -544,38 +559,30 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       },
     },
     firstUsable: {
-      durationMs: firstUsableMs,
-      targetMs: 2_500,
-      status: firstUsableStatus,
-      readiness: { ...readiness, usableFrameEndMs },
+      readiness,
     },
     warm: {
-      samples: {
-        zoom: frames.zoom.length,
-        pan: frames.pan.length,
-        selection: frames.selection.length,
-      },
-      p95Ms,
       rawSamples: {
         zoomMs: frames.zoom,
         panMs: frames.pan,
         selection: frames.selection,
       },
-      targetMs: 16.7,
-      status: warmStatus,
     },
     determinism: { runs: 100, ...hashes },
-    gates: { local: localStatus, productionRuntime: "UNEXECUTED" },
   };
-  evidence.provenance.captureSha256 = drawingP7CaptureSha256(evidence);
-  const evidencePath = writeDrawingP7PerformanceEvidence(evidence);
-  await test.info().attach("P7 whole-workspace performance evidence", {
-    path: evidencePath,
+  const capturePath = requiredEnvironment("P7_PLAYWRIGHT_CAPTURE_PATH");
+  writeFileSync(capturePath, `${JSON.stringify(capture, null, 2)}\n`);
+  await test.info().attach("P7 raw Playwright performance capture", {
+    path: capturePath,
     contentType: "application/json",
   });
   test.info().annotations.push({
     type: "P7 performance gate",
-    description: JSON.stringify(evidence),
+    description: JSON.stringify({
+      coldCacheMissMs: coldCacheMiss.durationMs,
+      firstUsableMs,
+      p95Ms,
+    }),
   });
   expect(firstUsableStatus, `first usable ${firstUsableMs.toFixed(1)} ms`).toBe(
     "MET",
@@ -603,7 +610,7 @@ test("source-bound PDF raster cache rejects decode and dimension corruption befo
     )
     .toBeGreaterThan(0);
 
-  for (const mode of ["dimensions", "decode"] as const) {
+  for (const mode of ["dimensions", "decode", "pixels"] as const) {
     await corruptFirstVisibleRaster(page, mode);
     await page.goto(performancePath, { waitUntil: "domcontentloaded" });
     await expect(surface).toHaveAttribute("data-pdf-current-mounted", "true", {

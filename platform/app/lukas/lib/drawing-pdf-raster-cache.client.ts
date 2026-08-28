@@ -1,5 +1,5 @@
-const CACHE_NAME = "drawing-pdf-raster-v1";
-const CACHE_SCHEMA = "1";
+const CACHE_NAME = "drawing-pdf-raster-v2";
+const CACHE_SCHEMA = "2";
 
 export type DrawingPdfRasterCacheInput = {
   renderProfile: "first-visible-v1";
@@ -21,8 +21,9 @@ export type DrawingPdfRasterPayload = {
 };
 
 type RasterCache = {
-  delete(key: string): Promise<boolean>;
-  match(key: string): Promise<Response | undefined>;
+  delete(key: Request | string): Promise<boolean>;
+  keys(): Promise<readonly (Request | string)[]>;
+  match(key: Request | string): Promise<Response | undefined>;
   put(key: string, response: Response): Promise<void>;
 };
 
@@ -70,7 +71,23 @@ export function drawingPdfRasterCacheKey(input: DrawingPdfRasterCacheInput) {
   positive(input.hostWidth, "PDF raster width");
   positive(input.zoom, "PDF raster zoom");
   positive(input.deviceScale, "PDF raster DPR");
-  return `/__drawing-pdf-raster-cache/v1/${input.renderProfile}/${input.slot}/${encodeURIComponent(input.sourceFileId)}/${input.sourceSha256}/${input.pageNumber}/${input.hostWidth}/${input.zoom.toFixed(3)}/${input.deviceScale.toFixed(3)}`;
+  return `/__drawing-pdf-raster-cache/v2/${input.renderProfile}/${input.slot}/${encodeURIComponent(input.sourceFileId)}/${input.sourceSha256}/${input.pageNumber}/${input.hostWidth}/${input.zoom.toFixed(3)}/${input.deviceScale.toFixed(3)}`;
+}
+
+function cacheRequestPath(request: Request | string) {
+  const value = typeof request === "string" ? request : request.url;
+  return new URL(value, "https://drawing-cache.invalid").pathname;
+}
+
+async function rasterRequests(cache: RasterCache, identityKey: string) {
+  const prefix = `${identityKey}/`;
+  return (await cache.keys()).filter((request) => {
+    const path = cacheRequestPath(request);
+    return (
+      path.startsWith(prefix) &&
+      /^[0-9a-f]{64}$/.test(path.slice(prefix.length))
+    );
+  });
 }
 
 export async function drawingPdfRasterCacheKeySha256(
@@ -89,9 +106,17 @@ export async function readDrawingPdfRasterCache(
   let cache: RasterCache | null = null;
   let key = "";
   try {
-    key = drawingPdfRasterCacheKey(input);
+    const identityKey = drawingPdfRasterCacheKey(input);
     cache = await storage.open(CACHE_NAME);
-    const response = await cache.match(key);
+    const requests = await rasterRequests(cache, identityKey);
+    if (requests.length !== 1) {
+      await Promise.all(requests.map((request) => cache!.delete(request)));
+      return null;
+    }
+    const request = requests[0];
+    key = cacheRequestPath(request);
+    const authoritySha256 = key.slice(key.lastIndexOf("/") + 1);
+    const response = await cache.match(request);
     if (!response) return null;
     const headers = response.headers;
     const blob = await response.blob();
@@ -121,6 +146,7 @@ export async function readDrawingPdfRasterCache(
       Number(headers.get("x-drawing-zoom")) === input.zoom &&
       Number(headers.get("x-drawing-device-scale")) === input.deviceScale &&
       headers.get("x-drawing-content-sha256") === contentSha256 &&
+      authoritySha256 === contentSha256 &&
       canvasPixelWidth !== null &&
       canvasPixelHeight !== null &&
       canvasWidth !== null &&
@@ -154,8 +180,9 @@ export async function writeDrawingPdfRasterCache(
 ) {
   if (!storage) return false;
   try {
-    const key = drawingPdfRasterCacheKey(input);
+    const identityKey = drawingPdfRasterCacheKey(input);
     const contentSha256 = await sha256(payload.blob);
+    const key = `${identityKey}/${contentSha256}`;
     const headers = new Headers({
       "content-type": "image/png",
       "x-drawing-cache-schema": CACHE_SCHEMA,
@@ -185,6 +212,8 @@ export async function writeDrawingPdfRasterCache(
       "x-drawing-page-rotation": String(payload.pageViewport.rotation),
     });
     const cache = await storage.open(CACHE_NAME);
+    const existing = await rasterRequests(cache, identityKey);
+    await Promise.all(existing.map((request) => cache.delete(request)));
     await cache.put(key, new Response(payload.blob, { headers }));
     return true;
   } catch {
@@ -199,7 +228,14 @@ export async function deleteDrawingPdfRasterCache(
   if (!storage) return false;
   try {
     const cache = await storage.open(CACHE_NAME);
-    return cache.delete(drawingPdfRasterCacheKey(input));
+    const requests = await rasterRequests(
+      cache,
+      drawingPdfRasterCacheKey(input),
+    );
+    const results = await Promise.all(
+      requests.map((request) => cache.delete(request)),
+    );
+    return results.some(Boolean);
   } catch {
     return false;
   }

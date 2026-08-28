@@ -1476,6 +1476,13 @@ export default function DrawingWorkspaceClient({
     sourceBundle?.catalog.find(
       (item) => item.kind === "ifc" && item.id === selectedIfcFileId,
     ) ?? null;
+  const firstPaintLifecycleKey = [
+    revision.id,
+    sourceBundle?.pdf?.id ?? "no-pdf",
+    sourceBundle?.pdf?.sha256 ?? "no-pdf-sha",
+    selectedIfcChoice?.id ?? "no-ifc",
+    selectedIfcChoice?.sha256 ?? "no-ifc-sha",
+  ].join(":");
   const [retainedIfc, setRetainedIfc] = useState(loadedIfc);
   useEffect(() => {
     setRetainedIfc(
@@ -1840,10 +1847,14 @@ export default function DrawingWorkspaceClient({
     const initializeAfterFirstPaint = () => {
       if (!active) return;
       if (
-        !drawingWorkspaceFirstPaintReady({
-          requiresPdf: surface.background.kind === "pdf",
-          requiresIfc: Boolean(selectedIfcChoice && viewMode !== "2d"),
-        })
+        !drawingWorkspaceFirstPaintReady(
+          {
+            requiresPdf: surface.background.kind === "pdf",
+            requiresIfc: Boolean(selectedIfcChoice && viewMode !== "2d"),
+          },
+          performance,
+          firstPaintLifecycleKey,
+        )
       ) {
         initializationFrame = window.requestAnimationFrame(
           initializeAfterFirstPaint,
@@ -1897,7 +1908,7 @@ export default function DrawingWorkspaceClient({
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, [documentStore, persistenceLifecycleKey]);
+  }, [documentStore, firstPaintLifecycleKey, persistenceLifecycleKey]);
 
   useEffect(() => {
     awarenessCursorRef.current = null;
@@ -4618,6 +4629,7 @@ export default function DrawingWorkspaceClient({
                   actorId={currentUserId}
                   awarenessStore={awarenessStoreRef.current}
                   background={background}
+                  firstPaintLifecycleKey={firstPaintLifecycleKey}
                   onPdfCompareState={setPdfCompareState}
                   onPdfPageTransform={setPdfPageTransform}
                   pdfCompare={pdfCompare}
@@ -4828,6 +4840,7 @@ export default function DrawingWorkspaceClient({
                       byteSize={selectedIfc.byteSize}
                       compact={activeView === "split"}
                       fileName={selectedIfc.originalFilename}
+                      firstPaintLifecycleKey={firstPaintLifecycleKey}
                       focusRequest={ifcFocusRequest}
                       onElementSelection={handleIfcElementSelection}
                       onViewerDispose={previewHarness?.onIfcViewerDispose}

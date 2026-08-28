@@ -474,6 +474,118 @@ test("production render adapter orders committed and hit items together and disp
   assert.equal(adapter.topmostAt({ x: 15, y: 25 })?.id, ids.instance);
 });
 
+test("block hit testing skips rotated sparse empty corners and reveals the real object below", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const sparseBlock = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Sparse rotated block",
+    version: 1,
+    primitives: [
+      {
+        localId: "top-edge",
+        name: "Top edge",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 20, y: 0 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+      {
+        localId: "left-edge",
+        name: "Left edge",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 0, y: 20 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+  };
+  const instance = {
+    id: ids.instance,
+    lineageId: ids.instance,
+    blockId: ids.block,
+    layerId: ids.otherLayer,
+    name: "Sparse top block",
+    origin: { x: 10, y: 10 },
+    rotation: 45,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const model = blockInstanceRenderModel(sparseBlock, instance, {});
+  const below = {
+    ...object(ids.objectA),
+    layerId: ids.layer,
+    geometry: {
+      type: "rectangle",
+      origin: { x: -20, y: 0 },
+      width: 50,
+      height: 50,
+      rotation: 0,
+    },
+    style: { ...inlineStyle, fill: "#ffffff" },
+  };
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    layers: structure().layers,
+    objects: [below],
+    blockInstances: [
+      { ...model, bounds: blockInstanceBounds(sparseBlock, instance, {}) },
+    ],
+    zoom: 4,
+  });
+  const emptyCorner = transformBlockPoint({ x: 7, y: 7 }, instance);
+  const edge = transformBlockPoint({ x: 10, y: 0 }, instance);
+
+  assert.equal(adapter.topmostAt(emptyCorner)?.id, ids.objectA);
+  assert.equal(adapter.topmostAt(edge)?.id, ids.instance);
+
+  const rotatedRectangle = {
+    ...sparseBlock,
+    primitives: [
+      {
+        localId: "rotated-rectangle",
+        name: "Rotated rectangle",
+        geometry: {
+          type: "rectangle",
+          origin: { x: 0, y: 0 },
+          width: 20,
+          height: 10,
+          rotation: 90,
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+  };
+  const rectangleModel = blockInstanceRenderModel(
+    rotatedRectangle,
+    instance,
+    {},
+  );
+  const rectangleAdapter = blocks.drawingCanvasRenderAdapter({
+    layers: structure().layers,
+    objects: [below],
+    blockInstances: [
+      {
+        ...rectangleModel,
+        bounds: blockInstanceBounds(rotatedRectangle, instance, {}),
+      },
+    ],
+    zoom: 4,
+  });
+  const rotatedRectangleEdge = transformBlockPoint({ x: -5, y: 20 }, instance);
+  assert.equal(
+    rectangleAdapter.topmostAt(rotatedRectangleEdge)?.id,
+    ids.instance,
+  );
+});
+
 test("render order is a stable host dependency graph across randomized layer and UUID order", async () => {
   const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
   for (let index = 0; index < 64; index += 1) {

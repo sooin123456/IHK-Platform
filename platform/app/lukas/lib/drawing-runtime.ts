@@ -69,24 +69,35 @@ export function drawingLocalEditReady(input: {
 
 type PerformanceMarker = Pick<Performance, "getEntriesByName" | "mark">;
 
+function drawingFirstPaintMarkName(kind: "pdf" | "ifc", lifecycleKey?: string) {
+  const base =
+    kind === "pdf" ? "drawing-first-page" : "drawing-first-ifc-frame";
+  return lifecycleKey ? `${base}:${encodeURIComponent(lifecycleKey)}` : base;
+}
+
 export function drawingWorkspaceFirstPaintReady(
   requirements: { requiresPdf: boolean; requiresIfc: boolean },
   performanceMarker: Pick<Performance, "getEntriesByName"> = performance,
+  lifecycleKey?: string,
 ) {
   return (
     (!requirements.requiresPdf ||
-      performanceMarker.getEntriesByName("drawing-first-page").length > 0) &&
+      performanceMarker.getEntriesByName(
+        drawingFirstPaintMarkName("pdf", lifecycleKey),
+      ).length > 0) &&
     (!requirements.requiresIfc ||
-      performanceMarker.getEntriesByName("drawing-first-ifc-frame").length > 0)
+      performanceMarker.getEntriesByName(
+        drawingFirstPaintMarkName("ifc", lifecycleKey),
+      ).length > 0)
   );
 }
 
 export function markDrawingFirstUsable(
   kind: "pdf" | "ifc",
   performanceMarker: PerformanceMarker = performance,
+  lifecycleKey?: string,
 ) {
-  const name =
-    kind === "pdf" ? "drawing-first-page" : "drawing-first-ifc-frame";
+  const name = drawingFirstPaintMarkName(kind, lifecycleKey);
   if (performanceMarker.getEntriesByName(name).length === 0)
     performanceMarker.mark(name);
 }

@@ -1733,6 +1733,7 @@ type DrawingCanvasProps = {
   activeTool: DrawingTool;
   actorId: string;
   background: DrawingCanvasBackground;
+  firstPaintLifecycleKey: string;
   pdfCompare?: DrawingPdfCompareInput | null;
   onPdfCompareState?: (state: DrawingPdfCompareState) => void;
   onPdfPageTransform?: (transform: DrawingPdfPageTransform | null) => void;
@@ -2382,6 +2383,7 @@ export const DrawingCanvas = forwardRef<
     activeTool,
     actorId,
     background,
+    firstPaintLifecycleKey,
     pdfCompare = null,
     onPdfCompareState,
     onPdfPageTransform,
@@ -2719,7 +2721,8 @@ export const DrawingCanvas = forwardRef<
       if (firstPaintFrame === null)
         firstPaintFrame = window.requestAnimationFrame(() => {
           firstPaintFrame = null;
-          if (alive) markDrawingFirstUsable("pdf");
+          if (alive)
+            markDrawingFirstUsable("pdf", performance, firstPaintLifecycleKey);
         });
       onPdfPageTransform?.(
         createDrawingPdfPageTransform({
@@ -2907,6 +2910,7 @@ export const DrawingCanvas = forwardRef<
     background.kind === "pdf" ? background.sourceFileId : "",
     background.kind === "pdf" ? background.sourceSha256 : "",
     background.width,
+    firstPaintLifecycleKey,
     onPdfPageTransform,
   ]);
 
@@ -3368,10 +3372,7 @@ export const DrawingCanvas = forwardRef<
 
   function candidateIdFor(screenPoint: Point) {
     const point = screenToWorld(screenPoint, viewportRef.current);
-    for (let index = selectionCandidates.length - 1; index >= 0; index -= 1)
-      if (pointInBounds(point, selectionCandidates[index].bounds))
-        return selectionCandidates[index].id;
-    return null;
+    return viewportProjection.topmostAt(point)?.id ?? null;
   }
 
   function pointerForHostEvent(

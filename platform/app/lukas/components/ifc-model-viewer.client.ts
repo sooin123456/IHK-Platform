@@ -30,6 +30,7 @@ export type CreateIfcModelViewerOptions = {
   container: HTMLElement;
   api: IfcAPI;
   modelId: number;
+  firstPaintLifecycleKey: string;
   onSelect?: (expressId: number) => void;
   onStatus?: (message: string, status: IfcModelViewerStatus) => void;
   onContextLost?: () => void;
@@ -144,6 +145,7 @@ export function createIfcModelViewer({
   container,
   api,
   modelId,
+  firstPaintLifecycleKey,
   onSelect,
   onStatus,
   onContextLost,
@@ -236,7 +238,7 @@ export function createIfcModelViewer({
         renderer.render(scene, camera);
         if (!firstUsableFrameMarked && elementMeshes.size > 0) {
           firstUsableFrameMarked = true;
-          markDrawingFirstUsable("ifc");
+          markDrawingFirstUsable("ifc", performance, firstPaintLifecycleKey);
         }
       }
     },

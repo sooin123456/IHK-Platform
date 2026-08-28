@@ -20,6 +20,13 @@ export const P7_PERFORMANCE_EVIDENCE_PATH = fileURLToPath(
   ),
 );
 
+export const P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH = fileURLToPath(
+  new URL(
+    "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-playwright-capture.json",
+    import.meta.url,
+  ),
+);
+
 export const P7_DETERMINISTIC_HASHES = {
   fixture: "eb7b316b82a4a3f7a64fbd529d14c5e8041911c54ac3c926bd0af7f299c66cb6",
   renderOrder:
@@ -38,8 +45,10 @@ const exactMix = {
 };
 
 const exactConditions = {
+  coldCacheMiss:
+    "fresh production-build Chromium context with empty derived raster storage navigates directly to the exact 10,000-object workspace; requires hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, visible PDF.js pixels, a ready visible IFC frame, and the next animation frame",
   firstUsable:
-    "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this is not the separately observed 3,088.9 ms cold/cache-miss baseline, which was NOT MET",
+    "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this does not substitute for the separately captured cold/cache-miss boundary whose status is independently derived",
   warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
 };
 
@@ -73,6 +82,10 @@ function canonicalJson(value) {
 export function drawingP7CaptureSha256(evidence) {
   const capture = structuredClone(evidence);
   if (capture?.provenance) capture.provenance.captureSha256 = "";
+  return sha256(canonicalJson(capture));
+}
+
+export function drawingP7PlaywrightCaptureSha256(capture) {
   return sha256(canonicalJson(capture));
 }
 
@@ -157,6 +170,135 @@ function percentile(values, ratio) {
   return sorted[Math.ceil(sorted.length * ratio) - 1] ?? 0;
 }
 
+function derivedStatus(durationMs, targetMs) {
+  return durationMs <= targetMs ? "MET" : "NOT MET";
+}
+
+function validateRawPlaywrightCapture(capture) {
+  exactKeys(
+    capture,
+    [
+      "schemaVersion",
+      "authority",
+      "runId",
+      "source",
+      "browserName",
+      "browserVersion",
+      "userAgent",
+      "viewport",
+      "cpu",
+      "memory",
+      "workload",
+      "conditions",
+      "coldCacheMiss",
+      "pdfRaster",
+      "stages",
+      "firstUsable",
+      "warm",
+      "determinism",
+    ],
+    "raw Playwright capture shape",
+  );
+  assert.equal(capture.schemaVersion, 1, "raw Playwright capture schema");
+  assert.equal(capture.authority, "P7_PLAYWRIGHT_RAW_CAPTURE_V1");
+  assert.match(capture.runId, /^[0-9a-f-]{36}$/i, "runner capture id");
+  exactKeys(
+    capture.source,
+    ["commitSha", "treeSha256", "runnerSha256", "configSha256", "build"],
+    "raw capture source",
+  );
+  exactKeys(
+    capture.source.build,
+    ["serverSha256", "clientSha256"],
+    "raw capture build",
+  );
+  exactKeys(
+    capture.coldCacheMiss,
+    ["cacheStatus", "readiness"],
+    "raw cold cache-miss capture",
+  );
+  assert.equal(capture.coldCacheMiss.cacheStatus, "MISS");
+  exactKeys(capture.firstUsable, ["readiness"], "raw first usable capture");
+  exactKeys(capture.warm, ["rawSamples"], "raw warm capture");
+  return capture;
+}
+
+export function drawingP7EvidenceFromPlaywrightCapture(capture) {
+  validateRawPlaywrightCapture(capture);
+  const coldDuration =
+    capture.coldCacheMiss.readiness.usableFrameEndMs -
+    capture.coldCacheMiss.readiness.navigationStartMs;
+  const firstUsableDuration =
+    capture.firstUsable.readiness.usableFrameEndMs -
+    capture.firstUsable.readiness.navigationStartMs;
+  const selectionMs = capture.warm.rawSamples.selection.map(
+    ({ durationMs }) => durationMs,
+  );
+  const p95Ms = {
+    zoom: percentile(capture.warm.rawSamples.zoomMs, 0.95),
+    pan: percentile(capture.warm.rawSamples.panMs, 0.95),
+    selection: percentile(selectionMs, 0.95),
+  };
+  const firstUsableStatus = derivedStatus(firstUsableDuration, 2_500);
+  const warmStatus = derivedStatus(Math.max(...Object.values(p95Ms)), 16.7);
+  const localStatus =
+    firstUsableStatus === "MET" && warmStatus === "MET" ? "MET" : "NOT MET";
+  const evidence = {
+    schemaVersion: 4,
+    status: localStatus,
+    authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
+    sourceCommitSha: capture.source.commitSha,
+    provenance: {
+      runner: "P7_PLAYWRIGHT_PRODUCTION_BUILD_V3",
+      runId: capture.runId,
+      sourceTreeSha256: capture.source.treeSha256,
+      runnerSha256: capture.source.runnerSha256,
+      configSha256: capture.source.configSha256,
+      build: structuredClone(capture.source.build),
+      playwrightCaptureSha256: drawingP7PlaywrightCaptureSha256(capture),
+      captureSha256: "",
+    },
+    browserName: capture.browserName,
+    browserVersion: capture.browserVersion,
+    userAgent: capture.userAgent,
+    viewport: structuredClone(capture.viewport),
+    cpu: structuredClone(capture.cpu),
+    memory: structuredClone(capture.memory),
+    workload: structuredClone(capture.workload),
+    conditions: structuredClone(capture.conditions),
+    coldCacheMiss: {
+      cacheStatus: capture.coldCacheMiss.cacheStatus,
+      durationMs: coldDuration,
+      targetMs: 2_500,
+      status: derivedStatus(coldDuration, 2_500),
+      readiness: structuredClone(capture.coldCacheMiss.readiness),
+    },
+    pdfRaster: structuredClone(capture.pdfRaster),
+    stages: structuredClone(capture.stages),
+    firstUsable: {
+      durationMs: firstUsableDuration,
+      targetMs: 2_500,
+      status: firstUsableStatus,
+      readiness: structuredClone(capture.firstUsable.readiness),
+    },
+    warm: {
+      samples: {
+        zoom: capture.warm.rawSamples.zoomMs.length,
+        pan: capture.warm.rawSamples.panMs.length,
+        selection: capture.warm.rawSamples.selection.length,
+      },
+      p95Ms,
+      rawSamples: structuredClone(capture.warm.rawSamples),
+      targetMs: 16.7,
+      status: warmStatus,
+    },
+    determinism: structuredClone(capture.determinism),
+    gates: { local: localStatus, productionRuntime: "UNEXECUTED" },
+  };
+  evidence.provenance.captureSha256 = drawingP7CaptureSha256(evidence);
+  return evidence;
+}
+
 function validateHashes(values, expected, label) {
   assert.equal(values?.length, 100, `${label} must contain exactly 100 runs`);
   for (const value of values) {
@@ -171,10 +313,12 @@ function validateProvenance(evidence) {
     provenance,
     [
       "runner",
+      "runId",
       "sourceTreeSha256",
       "runnerSha256",
       "configSha256",
       "build",
+      "playwrightCaptureSha256",
       "captureSha256",
     ],
     "runner provenance",
@@ -184,7 +328,13 @@ function validateProvenance(evidence) {
     ["serverSha256", "clientSha256"],
     "build provenance",
   );
-  assert.equal(provenance.runner, "P7_PLAYWRIGHT_PRODUCTION_BUILD_V2");
+  assert.equal(provenance.runner, "P7_PLAYWRIGHT_PRODUCTION_BUILD_V3");
+  assert.match(provenance.runId, /^[0-9a-f-]{36}$/i, "runner capture id");
+  assert.match(
+    provenance.playwrightCaptureSha256,
+    /^[0-9a-f]{64}$/,
+    "Playwright capture checksum",
+  );
   assert.equal(provenance.sourceTreeSha256, drawingP7SourceTreeSha256());
   assert.equal(
     provenance.runnerSha256,
@@ -231,10 +381,16 @@ function validateProvenance(evidence) {
   );
 }
 
-export function validateDrawingP7PerformanceEvidence(
+function validateDrawingP7PerformanceEvidenceAgainstCapture(
   evidence,
-  expectedCommitSha = drawingP7SourceCommitSha(),
+  expectedCommitSha,
+  playwrightCapture,
 ) {
+  assert.deepEqual(
+    evidence,
+    drawingP7EvidenceFromPlaywrightCapture(playwrightCapture),
+    "runner Playwright capture authority",
+  );
   exactKeys(
     evidence,
     [
@@ -251,6 +407,7 @@ export function validateDrawingP7PerformanceEvidence(
       "memory",
       "workload",
       "conditions",
+      "coldCacheMiss",
       "pdfRaster",
       "stages",
       "firstUsable",
@@ -260,7 +417,7 @@ export function validateDrawingP7PerformanceEvidence(
     ],
     "evidence shape",
   );
-  assert.equal(evidence.schemaVersion, 3, "schemaVersion");
+  assert.equal(evidence.schemaVersion, 4, "schemaVersion");
   assert.equal(evidence.authority, "LOCAL_PRODUCTION_BUILD_CHROMIUM");
   assert.match(expectedCommitSha, /^[0-9a-f]{40}$/);
   assert.equal(evidence.sourceCommitSha, expectedCommitSha);
@@ -313,6 +470,40 @@ export function validateDrawingP7PerformanceEvidence(
   assert.equal(evidence.workload.selectedIfcModels, 1);
   assert.equal(evidence.workload.activePdfPages, 1);
   assert.deepEqual(evidence.conditions, exactConditions);
+  exactKeys(
+    evidence.coldCacheMiss,
+    ["cacheStatus", "durationMs", "targetMs", "status", "readiness"],
+    "cold cache-miss evidence",
+  );
+  assert.equal(evidence.coldCacheMiss.cacheStatus, "MISS");
+  assert.equal(evidence.coldCacheMiss.targetMs, 2_500);
+  const coldReadiness = evidence.coldCacheMiss.readiness;
+  exactKeys(
+    coldReadiness,
+    [
+      "navigationStartMs",
+      "hydrationEndMs",
+      "editReadyObservedMs",
+      "authoritativeStateObservedMs",
+      "viewportProjectionObservedMs",
+      "pdfVisibleObservedMs",
+      "ifcVisibleObservedMs",
+      "usableFrameEndMs",
+    ],
+    "cold cache-miss readiness",
+  );
+  for (const [name, value] of Object.entries(coldReadiness))
+    nonnegativeFinite(value, `${name} cold readiness`);
+  assert.equal(
+    evidence.coldCacheMiss.durationMs,
+    coldReadiness.usableFrameEndMs - coldReadiness.navigationStartMs,
+    "cold cache-miss duration",
+  );
+  assert.equal(
+    evidence.coldCacheMiss.status,
+    derivedStatus(evidence.coldCacheMiss.durationMs, 2_500),
+    "cold cache-miss status",
+  );
   exactKeys(
     evidence.pdfRaster,
     [
@@ -537,33 +728,63 @@ export function validateDrawingP7PerformanceEvidence(
   return evidence;
 }
 
-export function writeDrawingP7PerformanceEvidence(
+export function validateDrawingP7PerformanceEvidence(
   evidence,
-  targetPath = P7_PERFORMANCE_EVIDENCE_PATH,
+  expectedCommitSha = drawingP7SourceCommitSha(),
+) {
+  const playwrightCapture = JSON.parse(
+    readFileSync(P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH, "utf8"),
+  );
+  return validateDrawingP7PerformanceEvidenceAgainstCapture(
+    evidence,
+    expectedCommitSha,
+    playwrightCapture,
+  );
+}
+
+export function removeDrawingP7FailedRunArtifacts(
+  status,
+  paths = [
+    P7_PERFORMANCE_EVIDENCE_PATH,
+    P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+  ],
+) {
+  if (status === 0) return;
+  for (const path of paths) rmSync(path, { force: true });
+}
+
+export function finalizeDrawingP7PerformanceEvidence(
+  provenance,
+  {
+    capturePath = P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+    targetPath = P7_PERFORMANCE_EVIDENCE_PATH,
+  } = {},
 ) {
   const temporaryPath = `${targetPath}.${process.pid}.tmp`;
   rmSync(targetPath, { force: true });
   rmSync(temporaryPath, { force: true });
   try {
-    assert.equal(
-      process.env.P7_PERFORMANCE_RUNNER_AUTHORITY,
-      "P7_PLAYWRIGHT_PRODUCTION_BUILD_V2",
-      "runner authority",
+    const capture = validateRawPlaywrightCapture(
+      JSON.parse(readFileSync(capturePath, "utf8")),
     );
-    for (const [environmentName, evidenceValue] of [
-      ["P7_SOURCE_COMMIT_SHA", evidence.sourceCommitSha],
-      ["P7_SOURCE_TREE_SHA256", evidence.provenance?.sourceTreeSha256],
-      ["P7_RUNNER_SHA256", evidence.provenance?.runnerSha256],
-      ["P7_CONFIG_SHA256", evidence.provenance?.configSha256],
-      ["P7_BUILD_SERVER_SHA256", evidence.provenance?.build?.serverSha256],
-      ["P7_BUILD_CLIENT_SHA256", evidence.provenance?.build?.clientSha256],
-    ])
-      assert.equal(
-        process.env[environmentName],
-        evidenceValue,
-        `runner authority ${environmentName}`,
-      );
-    const valid = validateDrawingP7PerformanceEvidence(evidence);
+    assert.deepEqual(
+      {
+        runId: capture.runId,
+        sourceCommitSha: capture.source.commitSha,
+        sourceTreeSha256: capture.source.treeSha256,
+        runnerSha256: capture.source.runnerSha256,
+        configSha256: capture.source.configSha256,
+        build: capture.source.build,
+      },
+      provenance,
+      "runner-owned Playwright capture provenance",
+    );
+    const evidence = drawingP7EvidenceFromPlaywrightCapture(capture);
+    const valid = validateDrawingP7PerformanceEvidenceAgainstCapture(
+      evidence,
+      provenance.sourceCommitSha,
+      capture,
+    );
     writeFileSync(temporaryPath, `${JSON.stringify(valid, null, 2)}\n`);
     renameSync(temporaryPath, targetPath);
     return targetPath;
