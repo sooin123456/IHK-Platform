@@ -18,6 +18,9 @@ const vite = await createServer({
 const ifcViewer = await vite.ssrLoadModule(
   "/app/lukas/components/ifc-model-viewer.client.ts",
 );
+const ifcPropertyBrowser = await vite.ssrLoadModule(
+  "/app/lukas/components/ifc-property-browser.client.tsx",
+);
 test.after(() => vite.close());
 
 const ids = {
@@ -30,6 +33,32 @@ const ids = {
   otherFile: "20000000-0000-4000-8000-000000000007",
 };
 const sha = "a".repeat(64);
+
+test("IFC fetch capability changes when signed URLs rotate without changing content identity", () => {
+  const descriptor = {
+    source: { fileId: ids.file, sha256: sha },
+    derivative: {
+      status: "ready",
+      version: 1,
+      sourceSha256: sha,
+      manifestSha256: "b".repeat(64),
+      geometrySha256: "c".repeat(64),
+      manifestSignedUrl: "https://storage.test/manifest?token=old",
+      geometrySignedUrl: "https://storage.test/model?token=old",
+    },
+  };
+  assert.notEqual(
+    ifcPropertyBrowser.ifcRenderCapabilityKey("source", descriptor),
+    ifcPropertyBrowser.ifcRenderCapabilityKey("source", {
+      ...descriptor,
+      derivative: {
+        ...descriptor.derivative,
+        manifestSignedUrl: "https://storage.test/manifest?token=new",
+        geometrySignedUrl: "https://storage.test/model?token=new",
+      },
+    }),
+  );
+});
 
 test("IFC initial fit waits until armed with a ready visible non-zero viewport and runs once", () => {
   let fits = 0;

@@ -88,18 +88,27 @@ type IfcFetchEntry = {
 
 const ifcFetches = new Map<string, IfcFetchEntry>();
 
-function acquireIfcRenderBundle(
+export function ifcRenderCapabilityKey(
   sourceKey: string,
   descriptor: IfcRenderBundleDescriptor,
 ) {
-  const cacheKey = [
+  return [
     sourceKey,
     descriptor.source.fileId,
     descriptor.source.sha256,
     descriptor.derivative.version,
     descriptor.derivative.manifestSha256,
     descriptor.derivative.geometrySha256,
-  ].join(":");
+    descriptor.derivative.manifestSignedUrl,
+    descriptor.derivative.geometrySignedUrl,
+  ].join("\u0000");
+}
+
+function acquireIfcRenderBundle(
+  sourceKey: string,
+  descriptor: IfcRenderBundleDescriptor,
+) {
+  const cacheKey = ifcRenderCapabilityKey(sourceKey, descriptor);
   let entry = ifcFetches.get(cacheKey);
   if (!entry) {
     const controller = new AbortController();
@@ -158,6 +167,9 @@ export default function IfcPropertyBrowser({
     renderBundle?.derivative.manifestSha256 ?? "no-manifest",
     renderBundle?.derivative.geometrySha256 ?? "no-glb",
   ].join(":");
+  const fetchCapabilityKey = renderBundle
+    ? ifcRenderCapabilityKey(sourceKey, renderBundle)
+    : `${sourceKey}:no-capability`;
   const [elements, setElements] = useState<IfcElement[]>([]);
   const [elementsSourceKey, setElementsSourceKey] = useState<string | null>(
     null,
@@ -299,7 +311,7 @@ export default function IfcPropertyBrowser({
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [sourceKey]);
+  }, [fetchCapabilityKey, sourceKey]);
 
   async function mountViewer(generation = loadGenerationRef.current) {
     const input = loadedViewerInputRef.current;
