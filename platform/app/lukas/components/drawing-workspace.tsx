@@ -3054,11 +3054,16 @@ export default function DrawingWorkspaceClient({
         searchParams.get("revision") === revision.id)
     )
       return;
-    const next = new URLSearchParams(searchParams);
-    next.set("object", selectedDrawingObjectId);
-    next.set("revision", revision.id);
-    next.delete("quantityCursor");
-    setSearchParams(next, { replace: true });
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("object", selectedDrawingObjectId);
+        next.set("revision", revision.id);
+        next.delete("quantityCursor");
+        return next;
+      },
+      { replace: true },
+    );
   }, [
     drawingState.objects,
     revision.id,
@@ -3194,11 +3199,16 @@ export default function DrawingWorkspaceClient({
   );
   const updateWorkspaceView = useCallback(
     (view: DrawingWorkspaceViewMode) => {
-      const next = new URLSearchParams(searchParams);
-      next.set("view", view);
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("view", view);
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [searchParams, setSearchParams],
+    [setSearchParams],
   );
   const ifcVisible =
     activeView === "3d" ||
@@ -3881,13 +3891,19 @@ export default function DrawingWorkspaceClient({
               aria-label="IFC 원본 선택"
               className="min-h-10 max-w-64 rounded-md border border-white/15 bg-slate-950 px-2 text-sm text-white"
               onChange={(event) => {
-                const next = new URLSearchParams(searchParams);
-                if (event.target.value) next.set("ifc", event.target.value);
-                else {
-                  next.delete("ifc");
-                  next.set("view", "2d");
-                }
-                setSearchParams(next, { replace: true });
+                const ifcFileId = event.target.value;
+                setSearchParams(
+                  (current) => {
+                    const next = new URLSearchParams(current);
+                    if (ifcFileId) next.set("ifc", ifcFileId);
+                    else {
+                      next.delete("ifc");
+                      next.set("view", "2d");
+                    }
+                    return next;
+                  },
+                  { replace: true },
+                );
               }}
               value={selectedIfcChoice?.id ?? ""}
             >
