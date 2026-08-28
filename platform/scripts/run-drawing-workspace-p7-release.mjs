@@ -49,7 +49,7 @@ const visualEvidencePath = fileURLToPath(
 function manifest() {
   return [
     {
-      id: "performance.source_bound",
+      id: "performance.bootstrap",
       argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
     },
     {
@@ -199,6 +199,10 @@ function manifest() {
     {
       id: "diff.check",
       argv: ["git", "--no-pager", "diff", "--check", "--", "."],
+    },
+    {
+      id: "performance.source_bound",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
     },
   ];
 }
@@ -817,8 +821,8 @@ export function prepareP7LocalReleaseRun({
   return invocationId;
 }
 
-async function collectLocal() {
-  const invocationId = prepareP7LocalReleaseRun();
+async function collectLocal({ invocationId = randomUUID() } = {}) {
+  prepareP7LocalReleaseRun({ invocationId });
   mkdirSync(artifactRoot, { recursive: true });
   const isolatedBrowserArtifactRoot = mkdtempSync(
     path.join(tmpdir(), "1hk-p7-browser-"),
@@ -939,9 +943,9 @@ async function main(mode) {
     throw new Error(
       "Usage: run-drawing-workspace-p7-release.mjs local|production|authority-check",
     );
-  const authority = requireP7ProductionAuthorities(process.env);
-  await collectLocal();
   const invocationId = randomUUID();
+  const authority = prepareP7ProductionReleaseRun({ invocationId });
+  await collectLocal({ invocationId });
   mkdirSync(artifactRoot, { recursive: true });
   const rawPath = `${artifactRoot}production-${invocationId}.json.tmp`;
   const productionResults = [];
@@ -1133,6 +1137,22 @@ async function main(mode) {
       `P7 production gate is ${baseEvidence.overall}: ${failed.length ? failed.map(({ id, status }) => `${id}=${status}`).join(", ") : `local ledger=${baseEvidence.overall}`}`,
     );
   return 0;
+}
+
+export function prepareP7ProductionReleaseRun({
+  environment = process.env,
+  commit = drawingP7ReleaseCommit(),
+  invocationId = randomUUID(),
+  reportPath,
+  matrixPath,
+} = {}) {
+  invalidateDrawingP7ReleaseDocuments({
+    commit,
+    invocationId,
+    reportPath,
+    matrixPath,
+  });
+  return requireP7ProductionAuthorities(environment);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])

@@ -176,8 +176,13 @@ test("P7 release manifest covers every required authority and gathers all result
   );
   const labels = runnerModule.P7_RELEASE_GATES.map(({ id }) => id);
   assert.ok(
-    labels.indexOf("performance.source_bound") < labels.indexOf("node.p0_p7"),
-    "fresh source-bound performance evidence must exist before the Node suite validates it",
+    labels.indexOf("performance.bootstrap") < labels.indexOf("node.p0_p7"),
+    "fresh bootstrap evidence must exist before the Node suite validates it",
+  );
+  assert.ok(
+    labels.indexOf("performance.source_bound") >
+      labels.indexOf("application.build"),
+    "authoritative performance evidence must bind the final served build",
   );
   for (const id of [
     "node.p0_p7",
@@ -811,6 +816,36 @@ test("a manifest assertion failure still leaves both release documents fail clos
       const content = readFileSync(path, "utf8");
       assert.match(content, /UNEXECUTED/);
       assert.match(content, /run-before-manifest/);
+      assert.doesNotMatch(content, /Overall: PASS/);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("production authority rejection invalidates both documents before credential validation", () => {
+  assert.equal(typeof runnerModule.prepareP7ProductionReleaseRun, "function");
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-production-preflight-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
+  writeFileSync(reportPath, "Overall: PASS\n");
+  writeFileSync(matrixPath, "Overall: PASS\n");
+  try {
+    assert.throws(
+      () =>
+        runnerModule.prepareP7ProductionReleaseRun({
+          environment: {},
+          commit: "9".repeat(40),
+          invocationId: "production-preflight",
+          reportPath,
+          matrixPath,
+        }),
+      /UNEXECUTED.*P7_E2E_BASE_URL/,
+    );
+    for (const path of [reportPath, matrixPath]) {
+      const content = readFileSync(path, "utf8");
+      assert.match(content, /UNEXECUTED/);
+      assert.match(content, /production-preflight/);
       assert.doesNotMatch(content, /Overall: PASS/);
     }
   } finally {
