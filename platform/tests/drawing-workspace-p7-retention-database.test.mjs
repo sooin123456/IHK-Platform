@@ -127,6 +127,10 @@ test("trusted purge is service-only and proves expiry, holds, and protected depe
   );
   assert.match(
     sql,
+    /create unique index[^;]*retention_events_hold_identity[^;]*organization_id,project_id,hold_id[^;]*where event_type='legal_hold_placed'/i,
+  );
+  assert.match(
+    sql,
     /lukas_qto_place_legal_hold[\s\S]*pg_advisory_xact_lock[\s\S]*request_sha256<>v_sha/i,
   );
   assert.match(
@@ -228,6 +232,14 @@ async function runtimeDatabase() {
     );
     create table public.lukas_drawing_library_imports(
       id uuid primary key,project_id uuid not null
+    );
+    create table public.lukas_qto_download_events(
+      id bigint generated always as identity primary key,
+      user_id uuid not null constraint lukas_qto_download_events_user_id_fkey
+        references auth.users(id) on delete cascade,
+      release_version text not null,
+      release_sha256 text not null,
+      downloaded_at timestamptz not null default now()
     );
     grant execute on function private.lukas_qto_organization_role(uuid) to authenticated,service_role;
   `);
@@ -473,14 +485,77 @@ test("PGlite export evidence is exact, idempotent, append-only, and cross-org de
     ]),
     /append-only/i,
   );
+  for (const artifactType of [
+    "boq_template_csv",
+    "suggestion_feedback_json",
+    "ids_bcfzip",
+  ])
+    await db.query(
+      `select public.lukas_qto_record_project_export($1,$2,$3,128,$4)`,
+      [p6Ids.project, artifactType, sha, crypto.randomUUID()],
+    );
   await p6SetSession(db, null, p6Ids.otherOwner);
   await assert.rejects(
     db.query(
-      `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
+      `select public.lukas_qto_record_project_export($1,'ids_bcfzip',$2,128,$3)`,
       [p6Ids.project, sha, crypto.randomUUID()],
     ),
     /authority denied/i,
   );
+});
+
+test("PGlite preserves Revit download evidence as append-only after Task 5", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  await p6SetSession(db, null, p6Ids.owner);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_revit_download(null,'2026.8.28',$1)`,
+      ["A".repeat(64)],
+    ),
+    /service authority/i,
+  );
+  await db.exec(
+    `select pg_catalog.set_config('request.jwt.claims','{"role":"service_role"}',false)`,
+  );
+  await db.query(
+    `select public.lukas_qto_record_revit_download(null,'2026.8.28',$1)`,
+    ["A".repeat(64)],
+  );
+  await db.query(
+    `insert into public.lukas_qto_download_events(user_id,release_version,release_sha256)
+      values($1,'2026.8.28',$2)`,
+    [p6Ids.owner, "A".repeat(64)],
+  );
+  await assert.rejects(
+    db.exec(
+      `update public.lukas_qto_download_events set release_version='changed'`,
+    ),
+    /append-only/i,
+  );
+  await assert.rejects(
+    db.exec(`delete from public.lukas_qto_download_events`),
+    /append-only/i,
+  );
+  const {
+    rows: [{ nullable, delete_action: deleteAction }],
+  } = await db.query(`
+    select not a.attnotnull nullable,con.confdeltype delete_action
+    from pg_catalog.pg_constraint con
+    join pg_catalog.pg_class c on c.oid=con.conrelid
+    join pg_catalog.pg_attribute a on a.attrelid=c.oid and a.attname='user_id'
+    where c.relname='lukas_qto_download_events'
+      and con.conname='lukas_qto_download_events_user_id_fkey'
+  `);
+  assert.equal(nullable, true);
+  assert.equal(deleteAction, "n");
+  const {
+    rows: [{ count: anonymousCount }],
+  } = await db.query(
+    `select count(*)::int count from public.lukas_qto_download_events
+      where user_id is null`,
+  );
+  assert.equal(anonymousCount, 1);
 });
 
 test("PGlite restore recording retries one request and permits a new rehearsal", async (context) => {
@@ -564,6 +639,26 @@ test("PGlite legal hold blocks trusted purge until release and empty dependency 
     ],
   );
   assert.deepEqual(retriedHold, firstHold);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_place_legal_hold($1,$2,$3,'different request',$4)`,
+      [
+        runtimeIds.organization,
+        runtimeIds.emptyProject,
+        runtimeIds.hold,
+        crypto.randomUUID(),
+      ],
+    ),
+  );
+  const {
+    rows: [{ count: placedCount }],
+  } = await db.query(
+    `select count(*)::int count from public.lukas_qto_retention_events
+      where organization_id=$1 and project_id=$2 and hold_id=$3
+        and event_type='legal_hold_placed'`,
+    [runtimeIds.organization, runtimeIds.emptyProject, runtimeIds.hold],
+  );
+  assert.equal(placedCount, 1);
   const {
     rows: [{ id: placedEventId }],
   } = await db.query(
@@ -731,6 +826,22 @@ if (!realPostgresUrl) {
         select pg_catalog.has_table_privilege(
           'authenticated','public.lukas_qto_projects','DELETE') can_delete`;
       assert.equal(project.can_delete, false);
+      const [downloadEvents] = await sql`
+        select
+          pg_catalog.has_table_privilege('authenticated',
+            'public.lukas_qto_download_events','INSERT') authenticated_insert,
+          pg_catalog.has_table_privilege('service_role',
+            'public.lukas_qto_download_events','INSERT') service_insert,
+          pg_catalog.has_table_privilege('service_role',
+            'public.lukas_qto_download_events','UPDATE') service_update,
+          pg_catalog.has_table_privilege('service_role',
+            'public.lukas_qto_download_events','DELETE') service_delete`;
+      assert.deepEqual(downloadEvents, {
+        authenticated_insert: false,
+        service_insert: false,
+        service_update: false,
+        service_delete: false,
+      });
       const [functions] = await sql`
         select
           pg_catalog.has_function_privilege('authenticated',
@@ -752,8 +863,9 @@ if (!realPostgresUrl) {
         join pg_catalog.pg_proc p on p.oid=t.tgfoid
         where t.tgname in('lukas_qto_retention_policy_versions_append_only',
           'lukas_qto_retention_events_append_only','lukas_qto_restore_runs_append_only',
-          'lukas_qto_export_events_append_only','lukas_qto_projects_retention_guard')`;
-      assert.equal(triggers.length, 5);
+          'lukas_qto_export_events_append_only','lukas_qto_download_events_append_only',
+          'lukas_qto_projects_retention_guard')`;
+      assert.equal(triggers.length, 6);
       for (const trigger of triggers)
         assert.equal(trigger.security_definer, false);
 

@@ -74,6 +74,43 @@ export function parseOrganizationRetentionForm(form: FormData) {
 
 type RetentionClient = SupabaseClient<any>;
 
+const retentionProjectPageSize = 100;
+const retentionProjectMaxPages = 100;
+
+export async function loadOrganizationRetentionProjects(
+  client: RetentionClient,
+  organizationId: string,
+) {
+  const projects: any[] = [];
+  let afterId: string | null = null;
+  for (let page = 0; page < retentionProjectMaxPages; page += 1) {
+    const { data, error } = await client.rpc(
+      "lukas_qto_list_retention_projects",
+      {
+        p_organization_id: Uuid.parse(organizationId),
+        p_after_id: afterId,
+        p_page_size: retentionProjectPageSize,
+      },
+    );
+    if (error) throw new Error(error.message);
+    if (!Array.isArray(data))
+      throw new Error("보존 프로젝트 페이지 응답이 올바르지 않습니다.");
+    const rows = data;
+    projects.push(...rows);
+    if (rows.length < retentionProjectPageSize)
+      return projects.sort(
+        (left, right) =>
+          String(right.updated_at).localeCompare(String(left.updated_at)) ||
+          String(right.id).localeCompare(String(left.id)),
+      );
+    const next = Uuid.parse(rows.at(-1)?.id);
+    if (next === afterId)
+      throw new Error("보존 프로젝트 커서가 진행되지 않았습니다.");
+    afterId = next;
+  }
+  throw new Error("보존 프로젝트 목록이 안전한 조회 한도를 초과했습니다.");
+}
+
 export async function runOrganizationRetentionMutation(
   client: RetentionClient,
   organizationId: string,

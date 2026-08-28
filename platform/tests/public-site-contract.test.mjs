@@ -28,7 +28,7 @@ test("public routes expose news, RSS and free download without payment checkout"
   assert.match(download, /href="\/download\/revit-2025"/);
   const redirect = await read("app/features/home/screens/revit-download.ts");
   assert.match(redirect, /lukas_qto_license_entitlements/);
-  assert.match(redirect, /lukas_qto_download_events/);
+  assert.match(redirect, /recordRevitDownloadAudit/);
   assert.match(redirect, /Cache-Control/);
 });
 

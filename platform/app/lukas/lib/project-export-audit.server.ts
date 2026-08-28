@@ -9,7 +9,10 @@ export type ProjectExportArtifactType =
   | "boq_csv"
   | "boq_xlsx"
   | "boq_manifest"
-  | "material_csv";
+  | "boq_template_csv"
+  | "material_csv"
+  | "suggestion_feedback_json"
+  | "ids_bcfzip";
 
 function artifactBytes(value: string | ArrayBuffer | Uint8Array) {
   return typeof value === "string"

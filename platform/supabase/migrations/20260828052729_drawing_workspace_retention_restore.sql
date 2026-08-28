@@ -10,7 +10,8 @@ begin
     'public.lukas_drawing_quantity_links','public.lukas_drawing_boq_links',
     'public.lukas_drawing_material_links','public.lukas_drawing_issue_approvals',
     'public.lukas_qto_material_transactions','public.lukas_drawing_library_versions',
-    'public.lukas_drawing_library_imports','public.lukas_qto_files'
+    'public.lukas_drawing_library_imports','public.lukas_qto_files',
+    'public.lukas_qto_download_events'
   ] loop
     if pg_catalog.to_regclass(v_table) is null then
       raise exception using errcode='P7R01',message='P7 retention base authority is missing';
@@ -43,6 +44,12 @@ alter table public.lukas_qto_projects
       and deletion_requested_at is not null and deletion_requested_by is not null
       and purge_after is not null and retention_event_id is not null)
   );
+
+alter table public.lukas_qto_download_events
+  drop constraint lukas_qto_download_events_user_id_fkey,
+  alter column user_id drop not null,
+  add constraint lukas_qto_download_events_user_id_fkey
+    foreign key(user_id) references auth.users(id) on delete set null;
 
 create table public.lukas_qto_retention_policy_versions (
   id uuid primary key default gen_random_uuid(),
@@ -121,7 +128,8 @@ create table public.lukas_qto_export_events (
   project_id uuid not null,
   artifact_type text not null check(artifact_type in(
     'drawing_pdf','drawing_png','drawing_svg','boq_csv','boq_xlsx',
-    'boq_manifest','material_csv'
+    'boq_manifest','boq_template_csv','material_csv',
+    'suggestion_feedback_json','ids_bcfzip'
   )),
   artifact_sha256 text not null check(artifact_sha256 ~ '^[0-9a-f]{64}$'),
   artifact_byte_size bigint not null check(artifact_byte_size>0),
@@ -144,6 +152,9 @@ create unique index lukas_qto_retention_events_service_request_idx
 create unique index lukas_qto_retention_events_hold_release_idx
   on public.lukas_qto_retention_events(releases_event_id)
   where releases_event_id is not null;
+create unique index lukas_qto_retention_events_hold_identity_idx
+  on public.lukas_qto_retention_events(organization_id,project_id,hold_id)
+  where event_type='legal_hold_placed';
 create index lukas_qto_restore_runs_org_idx
   on public.lukas_qto_restore_runs(organization_id,recorded_at desc,id desc);
 create index lukas_qto_projects_active_idx
@@ -169,6 +180,9 @@ before update or delete on public.lukas_qto_restore_runs
 for each row execute function private.lukas_qto_retention_append_guard();
 create trigger lukas_qto_export_events_append_only
 before update or delete on public.lukas_qto_export_events
+for each row execute function private.lukas_qto_retention_append_guard();
+create trigger lukas_qto_download_events_append_only
+before update or delete on public.lukas_qto_download_events
 for each row execute function private.lukas_qto_retention_append_guard();
 
 create function private.lukas_qto_project_retention_guard()
@@ -239,7 +253,9 @@ returns jsonb language sql stable security definer set search_path='' as $$
   )
 $$;
 
-create function public.lukas_qto_list_retention_projects(p_organization_id uuid)
+create function public.lukas_qto_list_retention_projects(
+  p_organization_id uuid,p_after_id uuid default null,p_page_size integer default 100
+)
 returns table(
   id uuid,name text,archived_at timestamptz,deletion_requested_at timestamptz,
   purge_after timestamptz,updated_at timestamptz
@@ -248,10 +264,14 @@ begin
   if not private.lukas_qto_retention_manager(p_organization_id) then
     raise exception using errcode='P7R04',message='Retention project list authority denied';
   end if;
+  if p_page_size not between 1 and 100 then
+    raise exception using errcode='P7R05',message='Retention project page is invalid';
+  end if;
   return query select p.id,p.name,p.archived_at,p.deletion_requested_at,
     p.purge_after,p.updated_at from public.lukas_qto_projects p
     where p.organization_id=p_organization_id
-    order by p.updated_at desc,p.id desc limit 100;
+      and (p_after_id is null or p.id>p_after_id)
+    order by p.id limit p_page_size;
 end;
 $$;
 
@@ -286,7 +306,9 @@ begin
     raise exception using errcode='P7R04',message='Project export authority denied';
   end if;
   if p_artifact_type not in('drawing_pdf','drawing_png','drawing_svg','boq_csv',
-      'boq_xlsx','boq_manifest','material_csv') or p_artifact_sha256 !~ '^[0-9a-f]{64}$'
+      'boq_xlsx','boq_manifest','boq_template_csv','material_csv',
+      'suggestion_feedback_json','ids_bcfzip')
+    or p_artifact_sha256 !~ '^[0-9a-f]{64}$'
     or p_artifact_byte_size<=0 or p_request_id is null then
     raise exception using errcode='P7R05',message='Project export evidence is invalid';
   end if;
@@ -306,6 +328,27 @@ begin
   values(v_organization_id,p_project_id,p_artifact_type,p_artifact_sha256,
     p_artifact_byte_size,p_request_id,v_sha,v_actor) returning * into v_event;
   return v_event;
+end;
+$$;
+
+create function public.lukas_qto_record_revit_download(
+  p_user_id uuid,p_release_version text,p_release_sha256 text
+) returns bigint language plpgsql security definer set search_path='' as $$
+declare v_id bigint;
+begin
+  if coalesce((select auth.jwt()->>'role'),'')<>'service_role' then
+    raise exception using errcode='P7R07',message='Revit download evidence requires service authority';
+  end if;
+  if pg_catalog.char_length(pg_catalog.btrim(p_release_version)) not between 1 and 120
+    or p_release_sha256 !~ '^[A-F0-9]{64}$'
+    or (p_user_id is not null and not exists(
+      select 1 from auth.users u where u.id=p_user_id)) then
+    raise exception using errcode='P7R05',message='Revit download evidence is invalid';
+  end if;
+  insert into public.lukas_qto_download_events(user_id,release_version,release_sha256)
+  values(p_user_id,pg_catalog.btrim(p_release_version),p_release_sha256)
+  returning id into v_id;
+  return v_id;
 end;
 $$;
 
@@ -446,6 +489,8 @@ begin
     if v_event.request_sha256<>v_sha then raise exception using errcode='P7R05',message='Retention request identity was reused'; end if;
     return v_event;
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+    'legal_hold:'||p_organization_id::text||':'||p_project_id::text||':'||p_hold_id::text,0));
   if not exists(select 1 from public.lukas_qto_projects p
       where p.id=p_project_id and p.organization_id=p_organization_id) then
     raise exception using errcode='P7R05',message='Legal hold input is invalid'; end if;
@@ -713,10 +758,15 @@ revoke all on table public.lukas_qto_retention_policy_versions from anon,authent
 revoke all on table public.lukas_qto_retention_events from anon,authenticated,service_role;
 revoke all on table public.lukas_qto_restore_runs from anon,authenticated,service_role;
 revoke all on table public.lukas_qto_export_events from anon,authenticated,service_role;
+revoke all on table public.lukas_qto_download_events from anon,authenticated,service_role;
 grant select on table public.lukas_qto_retention_policy_versions to authenticated,service_role;
 grant select on table public.lukas_qto_retention_events to authenticated,service_role;
 grant select on table public.lukas_qto_restore_runs to authenticated,service_role;
 grant select on table public.lukas_qto_export_events to authenticated,service_role;
+grant select on table public.lukas_qto_download_events to authenticated,service_role;
+
+drop policy if exists "users append own download events"
+  on public.lukas_qto_download_events;
 
 create policy "organization members read retention policies"
 on public.lukas_qto_retention_policy_versions for select to authenticated
@@ -745,9 +795,10 @@ revoke all on function public.lukas_qto_set_retention_policy(uuid,integer,intege
   public.lukas_qto_release_legal_hold(uuid,uuid,uuid,text,uuid),
   public.lukas_qto_purge_project(uuid,uuid,uuid,text),
   public.lukas_qto_finalize_project_purge(uuid,uuid,uuid,text,uuid,text),
-  public.lukas_qto_list_retention_projects(uuid),
+  public.lukas_qto_list_retention_projects(uuid,uuid,integer),
   public.lukas_qto_list_active_legal_holds(uuid),
   public.lukas_qto_record_project_export(uuid,text,text,bigint,uuid),
+  public.lukas_qto_record_revit_download(uuid,text,text),
   public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)
   from public,anon,authenticated,service_role;
 grant execute on function public.lukas_qto_set_retention_policy(uuid,integer,integer,text,uuid),
@@ -755,13 +806,15 @@ grant execute on function public.lukas_qto_set_retention_policy(uuid,integer,int
   public.lukas_qto_request_project_deletion(uuid,uuid,text,uuid),
   public.lukas_qto_place_legal_hold(uuid,uuid,uuid,text,uuid),
   public.lukas_qto_release_legal_hold(uuid,uuid,uuid,text,uuid),
-  public.lukas_qto_list_retention_projects(uuid),
+  public.lukas_qto_list_retention_projects(uuid,uuid,integer),
   public.lukas_qto_list_active_legal_holds(uuid),
   public.lukas_qto_record_project_export(uuid,text,text,bigint,uuid) to authenticated;
 grant execute on function public.lukas_qto_purge_project(uuid,uuid,uuid,text),
   public.lukas_qto_finalize_project_purge(uuid,uuid,uuid,text,uuid,text)
   to service_role;
 grant execute on function public.lukas_qto_record_restore_run(uuid,text,text,timestamptz,text,timestamptz,text,text,text,text,text,text,text,text,bigint,bigint,text,uuid)
+  to service_role;
+grant execute on function public.lukas_qto_record_revit_download(uuid,text,text)
   to service_role;
 
 commit;

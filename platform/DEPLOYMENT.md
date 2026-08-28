@@ -125,10 +125,13 @@ DB metadata before Storage confirmation. Both calls require fresh request UUIDs;
 reuse a UUID only to retry the exact same payload. Interactive users have neither
 project DELETE nor purge EXECUTE privilege.
 
-Drawing, approved/legacy BOQ, and material exports append organization/project,
-actor, artifact type, server-computed SHA-256, byte size, and time before response
-bytes are released. A failed audit must fail the download. Revit release downloads
-continue to use their existing server-side release SHA audit.
+Drawing, BOQ (including templates), material, suggestion-feedback JSON, and IDS
+BCFZIP exports append organization/project, actor, artifact type,
+server-computed SHA-256, byte size, and time before response bytes are released. A
+failed audit must fail the download. Revit release downloads keep their
+server-side release SHA audit; Task 5 makes those rows append-only, removes
+service-role mutation grants, and retains the evidence with a null actor if its
+user is later deleted.
 
 Run the optional real PostgreSQL contract before promotion. Missing authority is
 not a pass:

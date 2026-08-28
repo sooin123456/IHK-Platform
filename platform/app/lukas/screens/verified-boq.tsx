@@ -499,22 +499,38 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 export async function loader({ request, params }: Route.LoaderArgs) {
   const context = await getContext(request, params.projectId!);
   const url = new URL(request.url);
-  if (url.searchParams.get("download") === "pricebook-template")
-    return new Response(buildVerifiedBoqPriceBookTemplateCsv(), {
+  if (url.searchParams.get("download") === "pricebook-template") {
+    const artifact = buildVerifiedBoqPriceBookTemplateCsv();
+    await recordProjectExport(
+      context.client,
+      context.project.id,
+      "boq_template_csv",
+      artifact,
+    );
+    return new Response(artifact, {
       headers: {
         "Content-Disposition":
           'attachment; filename="verified-boq-pricebook-template.csv"',
         "Content-Type": "text/csv; charset=utf-8",
       },
     });
-  if (url.searchParams.get("download") === "structure-template")
-    return new Response(buildVerifiedBoqStructureTemplateCsv(), {
+  }
+  if (url.searchParams.get("download") === "structure-template") {
+    const artifact = buildVerifiedBoqStructureTemplateCsv();
+    await recordProjectExport(
+      context.client,
+      context.project.id,
+      "boq_template_csv",
+      artifact,
+    );
+    return new Response(artifact, {
       headers: {
         "Content-Disposition":
           'attachment; filename="verified-boq-structure-template.csv"',
         "Content-Type": "text/csv; charset=utf-8",
       },
     });
+  }
   const [fileResult, bookResult, versionResult] = await Promise.all([
     context.client
       .from("lukas_qto_files")

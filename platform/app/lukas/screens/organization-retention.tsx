@@ -8,6 +8,7 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
 import {
+  loadOrganizationRetentionProjects,
   parseOrganizationRetentionForm,
   runOrganizationRetentionMutation,
 } from "~/lukas/lib/organization-retention.server";
@@ -71,9 +72,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     restoresResult,
   ] = await Promise.all([
     mayManage
-      ? client.rpc("lukas_qto_list_retention_projects", {
-          p_organization_id: organization.id,
-        })
+      ? loadOrganizationRetentionProjects(client, organization.id).then(
+          (projects) => ({ data: projects, error: null }),
+          (error) => ({ data: null, error }),
+        )
       : Promise.resolve({ data: [], error: null }),
     client
       .from("lukas_qto_retention_policy_versions")
@@ -328,6 +330,41 @@ export default function OrganizationRetention({
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border p-5">
+          <h2 className="font-semibold">활성 법적 보존</h2>
+          <div className="mt-3 space-y-2 text-sm">
+            {loaderData.activeHolds.length ? (
+              loaderData.activeHolds.map((hold: any) => (
+                <div className="rounded-lg bg-muted p-3" key={hold.id}>
+                  <strong>legal_hold_placed</strong> · {hold.reason}
+                  <br />
+                  <span className="text-muted-foreground">
+                    {hold.created_at}
+                  </span>
+                  {loaderData.mayManage ? (
+                    <Form method="post" className="mt-2">
+                      <Hidden name="intent" value="release_hold" />
+                      <Hidden name="project_id" value={hold.project_id} />
+                      <Hidden name="hold_id" value={hold.hold_id} />
+                      <Hidden name="reason" value="관리자 법적 보존 해제" />
+                      <Hidden
+                        name="request_id"
+                        value={loaderData.requestIds.releases[hold.id]}
+                      />
+                      <Button size="sm" variant="outline">
+                        보존 해제
+                      </Button>
+                    </Form>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">
+                활성 법적 보존이 없습니다.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="rounded-2xl border p-5">
           <h2 className="font-semibold">추가형 보존 이벤트</h2>
           <div className="mt-3 space-y-2 text-sm">
             {loaderData.events.map((event: any) => (
@@ -337,30 +374,11 @@ export default function OrganizationRetention({
                 <span className="text-muted-foreground">
                   {event.created_at}
                 </span>
-                {event.event_type === "legal_hold_placed" &&
-                loaderData.activeHolds.some(
-                  (hold: any) => hold.id === event.id,
-                ) &&
-                loaderData.mayManage ? (
-                  <Form method="post" className="mt-2">
-                    <Hidden name="intent" value="release_hold" />
-                    <Hidden name="project_id" value={event.project_id} />
-                    <Hidden name="hold_id" value={event.hold_id} />
-                    <Hidden name="reason" value="관리자 법적 보존 해제" />
-                    <Hidden
-                      name="request_id"
-                      value={loaderData.requestIds.releases[event.id]}
-                    />
-                    <Button size="sm" variant="outline">
-                      보존 해제
-                    </Button>
-                  </Form>
-                ) : null}
               </div>
             ))}
           </div>
         </div>
-        <div className="rounded-2xl border p-5">
+        <div className="rounded-2xl border p-5 lg:col-span-2">
           <h2 className="font-semibold">관리형 복구 증거</h2>
           <div className="mt-3 space-y-2 text-sm">
             {loaderData.restores.length ? (

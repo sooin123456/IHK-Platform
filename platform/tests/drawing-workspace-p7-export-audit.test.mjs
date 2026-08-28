@@ -37,7 +37,7 @@ test("project exports are append-only, exact-byte hashed, and RPC-authorized", (
   );
 });
 
-test("actual Drawing, BOQ, and material response bytes cross the audit boundary", () => {
+test("every actual project export response crosses the audit boundary", () => {
   const drawing = readFileSync(
     new URL(
       "../app/lukas/components/drawing-export-dialog.tsx",
@@ -60,8 +60,21 @@ test("actual Drawing, BOQ, and material response bytes cross the audit boundary"
     new URL("../app/lukas/screens/material-control-export.ts", import.meta.url),
     "utf8",
   );
-  for (const source of [drawingRoute, boq, material])
+  const suggestion = readFileSync(
+    new URL("../app/lukas/screens/project.tsx", import.meta.url),
+    "utf8",
+  );
+  const ids = readFileSync(
+    new URL(
+      "../app/lukas/screens/information-requirements.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  for (const source of [drawingRoute, boq, material, suggestion, ids])
     assert.match(source, /recordProjectExport/);
+  assert.match(suggestion, /suggestion_feedback_json/);
+  assert.match(ids, /ids_bcfzip/);
   assert.match(drawing, /auditDrawingExport/);
   assert.doesNotMatch(
     drawing,
@@ -74,9 +87,59 @@ test("Revit release download keeps its existing server-side append-only SHA audi
     new URL("../app/features/home/screens/revit-download.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /lukas_qto_download_events/);
-  assert.match(source, /release_sha256:\s*release\.sha256/);
-  assert.match(source, /if \(auditError\) throw/);
+  assert.match(source, /await recordRevitDownloadAudit/);
+  assert.ok(
+    source.indexOf("await recordRevitDownloadAudit") <
+      source.indexOf('headers.set("Location"'),
+  );
+  assert.match(source, /recordRevitDownloadAudit/);
+  assert.match(
+    migration,
+    /lukas_qto_download_events_append_only[\s\S]*lukas_qto_retention_append_guard/i,
+  );
+  assert.match(migration, /foreign key\(user_id\)[^;]*on delete set null/i);
+  assert.match(
+    migration,
+    /grant select on table public\.lukas_qto_download_events to authenticated,service_role/i,
+  );
+  assert.doesNotMatch(
+    migration,
+    /grant[^;]*(?:insert|update|delete)[^;]*lukas_qto_download_events[^;]*service_role/i,
+  );
+});
+
+test("anonymous Revit redirect records through the trusted ledger and fails closed", async () => {
+  const { recordRevitDownloadAudit } =
+    await import("../app/features/home/lib/revit-download-audit.server.ts");
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push({ name, args });
+      return { data: 1, error: null };
+    },
+  };
+  await recordRevitDownloadAudit(client, null, {
+    version: "2026.8.28",
+    sha256: "A".repeat(64),
+  });
+  assert.deepEqual(calls, [
+    {
+      name: "lukas_qto_record_revit_download",
+      args: {
+        p_user_id: null,
+        p_release_version: "2026.8.28",
+        p_release_sha256: "A".repeat(64),
+      },
+    },
+  ]);
+  client.rpc = async () => ({ data: null, error: { message: "denied" } });
+  await assert.rejects(
+    recordRevitDownloadAudit(client, null, {
+      version: "2026.8.28",
+      sha256: "A".repeat(64),
+    }),
+    /다운로드 기록.*denied/,
+  );
 });
 
 test("server export helper hashes the exact response bytes and fails closed", async () => {

@@ -7,6 +7,7 @@ import { redirect } from "react-router";
 import makeServerClient from "~/core/lib/supa-client.server";
 
 import { readPublicReleaseConfig } from "../lib/release-config";
+import { recordRevitDownloadAudit } from "../lib/revit-download-audit.server";
 
 type DownloadDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables"> & {
@@ -14,12 +15,6 @@ type DownloadDatabase = Omit<Database, "public"> & {
       lukas_qto_license_entitlements: {
         Row: { user_id: string; plan: "free"; status: "active"; granted_at: string };
         Insert: { user_id: string; plan?: "free"; status?: "active"; granted_at?: string };
-        Update: never;
-        Relationships: [];
-      };
-      lukas_qto_download_events: {
-        Row: { id: number; user_id: string; release_version: string; release_sha256: string; downloaded_at: string };
-        Insert: { user_id: string; release_version: string; release_sha256: string; downloaded_at?: string };
         Update: never;
         Relationships: [];
       };
@@ -50,12 +45,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
       const { error: insertError } = await client.from("lukas_qto_license_entitlements").insert({ user_id: user.id });
       if (insertError && insertError.code !== "23505") throw new Response("무료 이용권을 만들지 못했습니다.", { status: 500 });
     }
-    const { error: auditError } = await client.from("lukas_qto_download_events").insert({
-      user_id: user.id,
-      release_version: release.version,
-      release_sha256: release.sha256,
+  }
+  const { default: admin } = await import(
+    "~/core/lib/supa-admin-client.server"
+  );
+  try {
+    await recordRevitDownloadAudit(admin as any, user?.id ?? null, {
+      version: release.version,
+      sha256: release.sha256,
     });
-    if (auditError) throw new Response("다운로드 기록을 남기지 못했습니다.", { status: 500 });
+  } catch {
+    throw new Response("다운로드 기록을 남기지 못했습니다.", { status: 500 });
   }
   headers.set("Location", release.url);
   headers.set("Cache-Control", "private, no-store");

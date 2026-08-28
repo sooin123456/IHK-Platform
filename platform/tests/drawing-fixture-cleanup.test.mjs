@@ -72,7 +72,7 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
     }),
     (error) =>
       error instanceof AggregateError &&
-      error.errors.length === 3 &&
+      error.errors.length === 2 &&
       /cleanup left possible residue/i.test(error.message),
   );
 
@@ -80,7 +80,6 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
     ["retention", "lukas_qto_set_retention_policy", "organization-1"],
     ["retention", "lukas_qto_request_project_deletion", "project-1"],
     ["purge", "project-1"],
-    ["storage", "one.pdf", "two.ifc"],
     ["user", "owner"],
     ["user", "reviewer"],
     ["user", "viewer"],
@@ -99,6 +98,14 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
             status: "STORAGE_REQUIRED",
             eventId: "ready-event",
             manifestSha256: "a".repeat(64),
+            files: [
+              { path: "drawing.pdf", sha256: "b".repeat(64), byteSize: 10 },
+              {
+                path: "uploaded-report.csv",
+                sha256: "c".repeat(64),
+                byteSize: 20,
+              },
+            ],
           },
           error: null,
         };
@@ -196,17 +203,10 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
   );
   assert.deepEqual(calls, [
     ["rooms", "project-1", "postgresql://not-used"],
-    ["file-paths", "project_id", "project-1"],
     ["retention", "lukas_qto_set_retention_policy", "organization-1"],
     ["retention", "lukas_qto_request_project_deletion", "project-1"],
     ["purge", "project-1"],
-    [
-      "storage",
-      "drawing.pdf",
-      "model.ifc",
-      "uploaded-report.csv",
-      "uploaded-manifest.csv",
-    ],
+    ["storage", "drawing.pdf", "uploaded-report.csv"],
     ["finalize", "project-1", "ready-event", "a".repeat(64)],
     ["user", "owner"],
     ["user", "editor"],

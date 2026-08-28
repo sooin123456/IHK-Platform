@@ -9,6 +9,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { recordProjectExport } from "~/lukas/lib/project-export-audit.server";
 import {
   buildBcf21FromRequirementFindings,
   checkIdsAgainstElementLedger,
@@ -113,6 +114,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         result,
         new Date().toISOString(),
       );
+      await recordProjectExport(client, project.id, "ids_bcfzip", bcf);
       return new Response(bcf as BodyInit, {
         headers: {
           "Content-Type": "application/octet-stream",

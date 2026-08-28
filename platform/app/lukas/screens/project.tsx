@@ -33,6 +33,7 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { recordProjectExport } from "~/lukas/lib/project-export-audit.server";
 import {
   ProjectWorkspaceNav,
   type ProjectWorkspaceView,
@@ -509,13 +510,20 @@ export async function action({ request, params }: Route.ActionArgs) {
       suggestions ?? [],
       decisions ?? [],
     );
+    const artifact = `${JSON.stringify(payload, null, 2)}\n`;
+    await recordProjectExport(
+      client,
+      project.id,
+      "suggestion_feedback_json",
+      artifact,
+    );
     headers.set("Content-Type", "application/json; charset=utf-8");
     headers.set(
       "Content-Disposition",
       `attachment; filename="lukas-qto-feedback-${project.id}.json"`,
     );
     headers.set("Cache-Control", "private, no-store");
-    return new Response(`${JSON.stringify(payload, null, 2)}\n`, { headers });
+    return new Response(artifact, { headers });
   }
 
   if (intent === "workflow") {

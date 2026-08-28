@@ -52,13 +52,13 @@ export type DrawingFixture = {
 async function cleanupDrawingResources(
   admin: DrawingFixture["admin"],
   retentionClient: DrawingFixture["retentionClient"] | null,
-  storagePaths: string[],
   projectId: string | null | undefined,
   organizationId: string | null | undefined,
   users: TestUser[],
 ) {
   const cleanupErrors: Error[] = [];
-  let storagePurge: { eventId: string; manifestSha256: string } | undefined;
+  let storagePurge:
+    { eventId: string; manifestSha256: string; paths: string[] } | undefined;
   const attempt = async (
     label: string,
     operation: () => Promise<{ error: unknown }>,
@@ -71,13 +71,16 @@ async function cleanupDrawingResources(
             `${label}: ${String((result.error as Error).message ?? result.error)}`,
           ),
         );
+        return false;
       }
+      return true;
     } catch (error) {
       cleanupErrors.push(
         new Error(
           `${label}: ${error instanceof Error ? error.message : String(error)}`,
         ),
       );
+      return false;
     }
   };
 
@@ -113,11 +116,34 @@ async function cleanupDrawingResources(
           p_request_id: randomUUID(),
           p_reason: "Disposable E2E fixture cleanup",
         });
-        if (result.data?.status === "STORAGE_REQUIRED")
-          storagePurge = {
-            eventId: result.data.eventId,
-            manifestSha256: result.data.manifestSha256,
-          };
+        if (!result.error && result.data?.status === "STORAGE_REQUIRED") {
+          const files = result.data.files;
+          const validFiles =
+            Array.isArray(files) &&
+            files.length > 0 &&
+            files.every(
+              (file) =>
+                file &&
+                typeof file.path === "string" &&
+                file.path.length > 0 &&
+                typeof file.sha256 === "string" &&
+                /^[0-9a-f]{64}$/.test(file.sha256) &&
+                Number.isSafeInteger(file.byteSize) &&
+                file.byteSize > 0,
+            );
+          if (
+            typeof result.data.eventId === "string" &&
+            /^[0-9a-f]{64}$/.test(result.data.manifestSha256) &&
+            validFiles
+          )
+            storagePurge = {
+              eventId: result.data.eventId,
+              manifestSha256: result.data.manifestSha256,
+              paths: files.map((file) => file.path),
+            };
+          else
+            return { error: new Error("project Storage manifest is invalid") };
+        }
         return result.error ||
           !["PURGED", "STORAGE_REQUIRED"].includes(result.data?.status)
           ? {
@@ -129,23 +155,22 @@ async function cleanupDrawingResources(
       });
     }
   }
-  if (storagePaths.length > 0) {
-    await attempt("storage cleanup", () =>
-      admin.storage.from("lukas-qto").remove(storagePaths),
-    );
-  }
   if (projectId && organizationId && storagePurge) {
     const ready = storagePurge;
-    await attempt("trusted project purge finalization", async () =>
-      admin.rpc("lukas_qto_finalize_project_purge", {
-        p_organization_id: organizationId,
-        p_project_id: projectId,
-        p_ready_event_id: ready.eventId,
-        p_manifest_sha256: ready.manifestSha256,
-        p_request_id: randomUUID(),
-        p_reason: "Disposable E2E fixture Storage cleanup confirmed",
-      }),
+    const storageRemoved = await attempt("storage cleanup", () =>
+      admin.storage.from("lukas-qto").remove(ready.paths),
     );
+    if (storageRemoved)
+      await attempt("trusted project purge finalization", async () =>
+        admin.rpc("lukas_qto_finalize_project_purge", {
+          p_organization_id: organizationId,
+          p_project_id: projectId,
+          p_ready_event_id: ready.eventId,
+          p_manifest_sha256: ready.manifestSha256,
+          p_request_id: randomUUID(),
+          p_reason: "Disposable E2E fixture Storage cleanup confirmed",
+        }),
+      );
   }
   for (const user of users) {
     await attempt(`user cleanup (${user.id})`, () =>
@@ -694,7 +719,6 @@ export async function createDrawingFixture(options?: {
       await cleanupDrawingResources(
         admin,
         ownerAuth,
-        storagePaths,
         createdProjectId,
         createdOrganizationId,
         createdUsers,
@@ -1302,7 +1326,6 @@ export async function destroyDrawingFixture(
   await cleanupDrawingResources(
     fixture.admin,
     fixture.retentionClient,
-    fixture.storagePaths,
     fixture.projectId,
     fixture.organizationId,
     [
@@ -1355,21 +1378,6 @@ export async function destroyDrawingP3Fixture(
   } catch (error) {
     if (error instanceof AggregateError) errors.push(...error.errors);
     else errors.push(error);
-  }
-  try {
-    const discovered = await fixture.admin
-      .from("lukas_qto_files")
-      .select("storage_path")
-      .eq("project_id", fixture.projectId);
-    if (discovered.error) throw discovered.error;
-    fixture.storagePaths = [
-      ...new Set([
-        ...fixture.storagePaths,
-        ...(discovered.data ?? []).map((file) => file.storage_path),
-      ]),
-    ];
-  } catch (error) {
-    errors.push(error);
   }
   try {
     await destroyDrawingFixture(fixture);
