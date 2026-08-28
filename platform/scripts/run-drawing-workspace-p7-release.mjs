@@ -49,6 +49,10 @@ const visualEvidencePath = fileURLToPath(
 function manifest() {
   return [
     {
+      id: "performance.source_bound",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
+    },
+    {
       id: "node.p0_p7",
       argv: ["npm", "run", "test:drawing-workspace"],
     },
@@ -195,10 +199,6 @@ function manifest() {
     {
       id: "diff.check",
       argv: ["git", "--no-pager", "diff", "--check", "--", "."],
-    },
-    {
-      id: "performance.source_bound",
-      argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
     },
   ];
 }
@@ -800,13 +800,25 @@ export function buildReleaseEvidenceFromResults(
   };
 }
 
-async function collectLocal() {
-  assertExactP7GateManifest(P7_RELEASE_GATES);
-  const invocationId = randomUUID();
+export function prepareP7LocalReleaseRun({
+  manifest = P7_RELEASE_GATES,
+  commit = drawingP7ReleaseCommit(),
+  invocationId = randomUUID(),
+  reportPath,
+  matrixPath,
+} = {}) {
   invalidateDrawingP7ReleaseDocuments({
-    commit: drawingP7ReleaseCommit(),
+    commit,
     invocationId,
+    reportPath,
+    matrixPath,
   });
+  assertExactP7GateManifest(manifest);
+  return invocationId;
+}
+
+async function collectLocal() {
+  const invocationId = prepareP7LocalReleaseRun();
   mkdirSync(artifactRoot, { recursive: true });
   const isolatedBrowserArtifactRoot = mkdtempSync(
     path.join(tmpdir(), "1hk-p7-browser-"),

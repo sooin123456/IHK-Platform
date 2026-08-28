@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   mkdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -27,6 +28,43 @@ function atomicWrite(path, content) {
   } finally {
     rmSync(temporaryPath, { force: true });
   }
+}
+
+function removeBestEffort(path) {
+  try {
+    rmSync(path, { force: true });
+  } catch {}
+}
+
+function writePair(reportPath, report, matrixPath, matrix) {
+  try {
+    atomicWrite(reportPath, report);
+    atomicWrite(matrixPath, matrix);
+    validateDrawingP7ReleaseDocumentPair({ reportPath, matrixPath });
+  } catch (error) {
+    removeBestEffort(reportPath);
+    removeBestEffort(matrixPath);
+    throw error;
+  }
+}
+
+function documentSet(content) {
+  const match = content.match(/^Document set: `([^`]+)`$/m);
+  if (!match) throw new Error("P7 release document set is missing");
+  return match[1];
+}
+
+export function validateDrawingP7ReleaseDocumentPair({
+  reportPath = P7_RELEASE_REPORT_PATH,
+  matrixPath = P7_RELEASE_MATRIX_PATH,
+}) {
+  const reportSet = documentSet(readFileSync(reportPath, "utf8"));
+  const matrixSet = documentSet(readFileSync(matrixPath, "utf8"));
+  if (reportSet !== matrixSet)
+    throw new Error(
+      `P7 release document set mismatch: ${reportSet} != ${matrixSet}`,
+    );
+  return reportSet;
 }
 
 function duration(value) {
@@ -70,7 +108,9 @@ export function writeDrawingP7ReleaseDocuments(
   } = {},
 ) {
   assertSourceBinding(evidence, performance);
+  const setId = `${evidence.runner.invocationId}:${evidence.commit}:${evidence.sourceTreeSha256}`;
   const shared = [
+    `Document set: \`${setId}\``,
     `Source commit: \`${evidence.commit}\``,
     `Source tree SHA-256: \`${evidence.sourceTreeSha256}\``,
     `Overall: **${evidence.overall}**`,
@@ -90,11 +130,9 @@ export function writeDrawingP7ReleaseDocuments(
     evidence.overall === "PASS"
       ? "All requirements pass; external completion signature validation remains mandatory."
       : "The program is not complete. Every NOT_MET and UNEXECUTED requirement must remain fail-closed.";
-  atomicWrite(
+  writePair(
     reportPath,
     `# P7 Task 7 — current release audit\n\n${shared}\n\n## Release ruling\n\n${ruling}\n`,
-  );
-  atomicWrite(
     matrixPath,
     `# 1HK Drawing Workspace P0–P7 current implementation matrix\n\n${shared}\n\n${ruling}\n`,
   );
@@ -110,6 +148,7 @@ export function invalidateDrawingP7ReleaseDocuments({
   const content = [
     "# P7 Task 7 — release audit in progress",
     "",
+    `Document set: \`${invocationId}:${commit}:UNEXECUTED\``,
     `Source commit: \`${commit}\``,
     `Invocation: \`${invocationId}\``,
     "Overall: **UNEXECUTED**",
@@ -117,7 +156,6 @@ export function invalidateDrawingP7ReleaseDocuments({
     "The current run has not produced a validated ledger. This fail-closed marker replaces any result from an older run.",
     "",
   ].join("\n");
-  atomicWrite(reportPath, content);
-  atomicWrite(matrixPath, content);
+  writePair(reportPath, content, matrixPath, content);
   return { reportPath, matrixPath };
 }

@@ -7,6 +7,8 @@ import {
 } from "node:crypto";
 import {
   cpSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -173,6 +175,10 @@ test("P7 release manifest covers every required authority and gathers all result
     runnerModule.assertExactP7GateManifest(runnerModule.P7_RELEASE_GATES),
   );
   const labels = runnerModule.P7_RELEASE_GATES.map(({ id }) => id);
+  assert.ok(
+    labels.indexOf("performance.source_bound") < labels.indexOf("node.p0_p7"),
+    "fresh source-bound performance evidence must exist before the Node suite validates it",
+  );
   for (const id of [
     "node.p0_p7",
     "database.pglite",
@@ -777,6 +783,99 @@ test("release run invalidation replaces stale PASS documents before any gate exe
       assert.doesNotMatch(content, /Overall: PASS/);
       assert.doesNotMatch(content, /48 PASS/);
     }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a manifest assertion failure still leaves both release documents fail closed", () => {
+  assert.equal(typeof runnerModule.prepareP7LocalReleaseRun, "function");
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-manifest-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
+  writeFileSync(reportPath, "Overall: PASS\n");
+  writeFileSync(matrixPath, "Overall: PASS\n");
+  try {
+    assert.throws(
+      () =>
+        runnerModule.prepareP7LocalReleaseRun({
+          manifest: [],
+          commit: "d".repeat(40),
+          invocationId: "run-before-manifest",
+          reportPath,
+          matrixPath,
+        }),
+      /manifest/i,
+    );
+    for (const path of [reportPath, matrixPath]) {
+      const content = readFileSync(path, "utf8");
+      assert.match(content, /UNEXECUTED/);
+      assert.match(content, /run-before-manifest/);
+      assert.doesNotMatch(content, /Overall: PASS/);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a partial document-pair write removes the other file instead of preserving stale authority", () => {
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-partial-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const invalidMatrixTarget = join(directory, "matrix-target");
+  mkdirSync(invalidMatrixTarget);
+  const evidence = evidenceModule.buildDrawingP7ReleaseEvidenceFixture({
+    commit: "e".repeat(40),
+  });
+  evidence.sourceTreeSha256 = "f".repeat(64);
+  const performance = {
+    sourceCommitSha: evidence.commit,
+    firstUsable: { status: "MET", durationMs: 1 },
+    coldCacheMiss: { status: "MET", durationMs: 1 },
+    warm: { status: "MET", p95Ms: { zoom: 1, pan: 1, selection: 1 } },
+  };
+  try {
+    assert.throws(() =>
+      documentModule.writeDrawingP7ReleaseDocuments(evidence, performance, {
+        reportPath,
+        matrixPath: invalidMatrixTarget,
+      }),
+    );
+    assert.equal(existsSync(reportPath), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("release document readers reject a mismatched document pair", () => {
+  assert.equal(
+    typeof documentModule.validateDrawingP7ReleaseDocumentPair,
+    "function",
+  );
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-pair-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
+  try {
+    documentModule.invalidateDrawingP7ReleaseDocuments({
+      reportPath,
+      matrixPath,
+      commit: "1".repeat(40),
+      invocationId: "pair-run",
+    });
+    assert.doesNotThrow(() =>
+      documentModule.validateDrawingP7ReleaseDocumentPair({
+        reportPath,
+        matrixPath,
+      }),
+    );
+    writeFileSync(matrixPath, readFileSync(matrixPath, "utf8").replace("pair-run", "other-run"));
+    assert.throws(
+      () =>
+        documentModule.validateDrawingP7ReleaseDocumentPair({
+          reportPath,
+          matrixPath,
+        }),
+      /document set/i,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
