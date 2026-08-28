@@ -80,6 +80,9 @@ async function mountedPage(
   );
   await page.waitForURL((url) => url.pathname === path.split("?")[0]);
   await expect(page.getByLabel(/도면 화면/)).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toBeVisible({ timeout: 30_000 });
   return page;
 }
 

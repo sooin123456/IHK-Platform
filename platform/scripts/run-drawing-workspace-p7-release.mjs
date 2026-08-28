@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+  P7_RELEASE_EVIDENCE_PATH,
   P7_REQUIREMENTS,
   drawingP7ReleaseCommit,
   drawingP7ReleaseTreeSha256,
@@ -361,6 +362,55 @@ async function execute({ argv }, environment = process.env) {
   });
 }
 
+async function executeWithEnvironment(argv, environment) {
+  return execute({ argv }, environment);
+}
+
+async function providerTelemetry(authority) {
+  const response = await fetch(authority.telemetryUrl, {
+    headers: {
+      Authorization: `Bearer ${authority.telemetryToken}`,
+      Accept: "application/json",
+    },
+  });
+  const body = await response.text();
+  if (!response.ok)
+    throw new Error(
+      `P7 provider runtime telemetry is UNEXECUTED: ${response.status}`,
+    );
+  const receipt = JSON.parse(body);
+  const receiptSha = response.headers.get("x-evidence-sha256")?.toLowerCase();
+  if (
+    receipt.commit !== authority.commit ||
+    receipt.deploymentId !== authority.deploymentId ||
+    receipt.region !== authority.region ||
+    !/^[A-Za-z0-9_-]{8,}$/.test(
+      response.headers.get("x-provider-request-id") ?? "",
+    ) ||
+    !/^[0-9a-f]{64}$/i.test(receiptSha ?? "") ||
+    createHash("sha256").update(body).digest("hex") !== receiptSha
+  )
+    throw new Error(
+      "P7 provider runtime telemetry is UNEXECUTED: unsigned or deployment-mismatched receipt",
+    );
+  for (const [name, value] of Object.entries({
+    coldFirstUsableP95Ms: receipt.metrics?.coldFirstUsableP95Ms,
+    collaborationP95Ms: receipt.metrics?.collaborationP95Ms,
+    peakRssMiB: receipt.metrics?.peakRssMiB,
+    cpuMs: receipt.metrics?.cpuMs,
+  }))
+    if (!Number.isFinite(value) || value < 0)
+      throw new Error(`P7 provider runtime telemetry is NOT_MET: ${name}`);
+  if (
+    receipt.metrics.coldFirstUsableP95Ms > 2_500 ||
+    receipt.metrics.collaborationP95Ms > 500
+  )
+    throw new Error(
+      "P7 provider runtime telemetry is NOT_MET: startup or collaboration p95",
+    );
+  return receipt;
+}
+
 export async function runP7Gates(gates, runner = execute) {
   const results = [];
   for (const gate of gates) {
@@ -429,7 +479,6 @@ export function buildReleaseEvidenceFromResults(
   restore,
   invocationId = randomUUID(),
 ) {
-  const resultById = new Map(results.map((result) => [result.id, result]));
   const requirements = P7_REQUIREMENTS.map(({ id, scope }) => {
     let status = scope === "production" ? "UNEXECUTED" : "PASS";
     let authority =
@@ -573,10 +622,175 @@ async function main(mode) {
     throw new Error(
       "Usage: run-drawing-workspace-p7-release.mjs local|production|authority-check",
     );
-  requireP7ProductionAuthorities(process.env);
-  throw new Error(
-    "P7 production runner is UNEXECUTED until managed restore and mounted three-user authorities are invoked together",
+  const authority = requireP7ProductionAuthorities(process.env);
+  await collectLocal();
+  const invocationId = randomUUID();
+  mkdirSync(artifactRoot, { recursive: true });
+  const rawPath = `${artifactRoot}production-${invocationId}.json.tmp`;
+  const productionResults = [];
+  for (const gate of [
+    {
+      id: "production.p0_p6",
+      argv: ["npm", "run", "release:drawing-workspace-p6:production"],
+    },
+    {
+      id: "production.real_postgres",
+      argv: [
+        "env",
+        "P7_REAL_POSTGRES_REQUIRED=1",
+        "DRAWING_P7_REQUIRE_REAL_POSTGRES=1",
+        "node",
+        "--test",
+        "tests/drawing-workspace-p7-retention-database.test.mjs",
+        "tests/drawing-workspace-p7-organization-admin-database.test.mjs",
+      ],
+    },
+    {
+      id: "production.managed_restore",
+      argv: ["npm", "run", "release:drawing-workspace-p7:restore"],
+    },
+    {
+      id: "production.three_users",
+      argv: [
+        "./node_modules/.bin/playwright",
+        "test",
+        "e2e/drawing-workspace-p7-production.spec.ts",
+        "--project=chromium",
+        "--workers=1",
+      ],
+    },
+  ]) {
+    const environment = {
+      ...process.env,
+      E2E_BASE_URL: authority.baseUrl.origin,
+      SUPABASE_URL: authority.supabaseUrl.origin,
+      SUPABASE_ANON_KEY: authority.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: authority.serviceRoleKey,
+      VITE_DRAWING_COLLABORATION_URL: authority.collaborationUrl.toString(),
+      DRAWING_P7_REAL_DATABASE_URL: authority.postgresUrl.toString(),
+      P7_PRODUCTION_RAW_EVIDENCE_PATH: rawPath,
+      P7_PRODUCTION_INVOCATION_ID: invocationId,
+    };
+    const exitCode = await executeWithEnvironment(gate.argv, environment);
+    productionResults.push({
+      id: gate.id,
+      status: exitCode === 0 ? "PASS" : "NOT_MET",
+      exitCode,
+    });
+    writeFileSync(
+      `${artifactRoot}${gate.id}.log`,
+      `${JSON.stringify({ invocationId, argv: gate.argv, exitCode, recordedAt: new Date().toISOString() })}\n`,
+    );
+  }
+  let telemetryStatus = "PASS";
+  try {
+    const telemetry = await providerTelemetry(authority);
+    writeFileSync(
+      `${artifactRoot}production.telemetry.log`,
+      `${JSON.stringify(telemetry, null, 2)}\n`,
+    );
+  } catch (error) {
+    telemetryStatus = String(error).includes("UNEXECUTED")
+      ? "UNEXECUTED"
+      : "NOT_MET";
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+  productionResults.push({
+    id: "production.telemetry",
+    status: telemetryStatus,
+    exitCode: telemetryStatus === "PASS" ? 0 : 1,
+  });
+  const threeUsers = productionResults.find(
+    ({ id }) => id === "production.three_users",
   );
+  if (threeUsers?.status === "PASS") {
+    const receipt = validateP7ProductionReceipt(
+      JSON.parse(readFileSync(rawPath, "utf8")),
+      authority,
+      invocationId,
+    );
+    writeFileSync(
+      `${artifactRoot}production.three-users.json`,
+      `${JSON.stringify(receipt, null, 2)}\n`,
+    );
+  }
+  const failed = productionResults.filter(({ status }) => status !== "PASS");
+  const baseEvidence = JSON.parse(
+    readFileSync(P7_RELEASE_EVIDENCE_PATH, "utf8"),
+  );
+  const productionStatus = (id) =>
+    productionResults.find((result) => result.id === id)?.status ??
+    "UNEXECUTED";
+  const receiptFor = (path, status) =>
+    status === "PASS" ? fileReceipt(path) : null;
+  const threeUserReceipt = `${artifactRoot}production.three-users.json`;
+  const restoreReceipt = fileURLToPath(
+    new URL(
+      "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+      import.meta.url,
+    ),
+  );
+  const realPgReceipt = `${artifactRoot}production.real_postgres.log`;
+  const telemetryReceipt = `${artifactRoot}production.telemetry.log`;
+  for (const row of baseEvidence.requirements) {
+    let status = row.status;
+    let path = null;
+    if (
+      [
+        "source.pdf_ifc_sha_immutable",
+        "p3.offline_zero_loss",
+        "collaboration.hosted_service",
+        "production.three_real_users",
+        "production.mounted_route_actions",
+        "production.export_audit",
+      ].includes(row.id)
+    ) {
+      status = productionStatus("production.three_users");
+      path = threeUserReceipt;
+    } else if (
+      [
+        "security.real_postgres_rls",
+        "security.approved_revision_immutable",
+      ].includes(row.id)
+    ) {
+      status = productionStatus("production.real_postgres");
+      path = realPgReceipt;
+    } else if (
+      ["retention.managed_backup_restore", "retention.rpo_rto"].includes(row.id)
+    ) {
+      status = productionStatus("production.managed_restore");
+      path = restoreReceipt;
+    } else if (row.id === "performance.hosted_runtime") {
+      status = productionStatus("production.telemetry");
+      path = telemetryReceipt;
+    }
+    if (path) {
+      row.status = status;
+      row.receipt = receiptFor(path, status);
+      row.authority = `P7 production ${row.id}`;
+    }
+  }
+  baseEvidence.summary = { PASS: 0, NOT_MET: 0, UNEXECUTED: 0 };
+  for (const row of baseEvidence.requirements)
+    baseEvidence.summary[row.status] += 1;
+  baseEvidence.overall =
+    baseEvidence.summary.NOT_MET > 0
+      ? "NOT_MET"
+      : baseEvidence.summary.UNEXECUTED > 0
+        ? "UNEXECUTED"
+        : "PASS";
+  baseEvidence.externalInputs = baseEvidence.requirements.filter(
+    ({ scope, status }) => scope === "production" && status !== "PASS",
+  ).length;
+  baseEvidence.generatedAt = new Date().toISOString();
+  writeDrawingP7ReleaseEvidence(baseEvidence);
+  if (failed.length)
+    throw new Error(
+      `P7 production gate is ${failed.some(({ status }) => status === "NOT_MET") ? "NOT_MET" : "UNEXECUTED"}: ${failed.map(({ id, status }) => `${id}=${status}`).join(", ")}`,
+    );
+  return 0;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])
