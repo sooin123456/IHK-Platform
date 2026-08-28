@@ -37,6 +37,18 @@ async function storageHardeningMigration() {
   return readFile(new URL(names[0], migrations), "utf8");
 }
 
+async function readyPublicationMigration() {
+  const names = (await readdir(migrations)).filter((name) =>
+    name.endsWith("_drawing_ifc_derivative_ready_publication_authority.sql"),
+  );
+  assert.equal(
+    names.length,
+    1,
+    "one additive migration owns ready derivative publication authority",
+  );
+  return readFile(new URL(names[0], migrations), "utf8");
+}
+
 test("authenticated storage policies cannot replace derivative artifacts", async () => {
   const db = new PGlite();
   await db.exec(`
@@ -138,6 +150,33 @@ test("IFC derivative RLS is project-scoped and exposes no client mutation path",
   assert.match(sql, /revoke all on table[\s\S]*anon,authenticated/i);
   assert.match(sql, /grant select on table[\s\S]*to authenticated/i);
   assert.doesNotMatch(sql, /create policy[\s\S]*for (?:insert|update|delete)/i);
+});
+
+test("ready derivative publication revokes direct service writes behind one narrow RPC", async () => {
+  const sql = await readyPublicationMigration();
+  assert.match(
+    sql,
+    /revoke all on table public\.lukas_drawing_ifc_derivatives[\s\S]*service_role/i,
+  );
+  assert.match(
+    sql,
+    /create function public\.lukas_drawing_publish_ifc_derivative_ready\(/i,
+  );
+  assert.match(sql, /security definer set search_path=''/i);
+  assert.match(sql, /insert into public\.lukas_drawing_ifc_derivatives/i);
+  assert.match(
+    sql,
+    /grant execute on function public\.lukas_drawing_publish_ifc_derivative_ready[\s\S]*to service_role/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant (?:all|insert) on table public\.lukas_drawing_ifc_derivatives[\s\S]*service_role/i,
+  );
+  assert.match(
+    sql,
+    /on conflict\s*\(source_file_id,project_id,version\)\s*do nothing/i,
+  );
+  assert.match(sql, /raise exception[\s\S]*different immutable payload/i);
 });
 
 test("approved revisions cannot lose their IFC derivative evidence", async () => {
@@ -262,6 +301,39 @@ test("PGlite enforces immutable source identity and approved derivative denial",
       geometry_sha256: geometrySha,
     },
   ]);
+  await db.exec(await readyPublicationMigration());
+  await db.exec("set role service_role");
+  await assert.rejects(
+    db.exec(`
+      insert into public.lukas_drawing_ifc_derivatives(
+        project_id,source_file_id,source_sha256,version,schema_version,status,created_by
+      ) values('${project}','${source}','${sha}',4,1,'pending','${actor}')
+    `),
+    /permission denied/i,
+  );
+  const retried = await db.query(`
+    select public.lukas_drawing_publish_ifc_derivative_ready(
+      '${project}','${source}','${sha}',2,
+      '{"schemaVersion":1,"source":{"fileId":"${source}","sha256":"${sha}"},"geometry":{"sha256":"${geometrySha}"},"elements":[]}',
+      '${prefix}/${manifestSha}.json',256,'${manifestSha}',
+      '${prefix}/${geometrySha}.glb',128,'${geometrySha}','${actor}'
+    ) as id
+  `);
+  assert.deepEqual(retried.rows, [
+    { id: "10000000-0000-4000-8000-000000000007" },
+  ]);
+  await assert.rejects(
+    db.query(`
+      select public.lukas_drawing_publish_ifc_derivative_ready(
+        '${project}','${source}','${sha}',2,
+        '{"schemaVersion":1,"source":{"fileId":"${source}","sha256":"${sha}"},"geometry":{"sha256":"${"d".repeat(64)}"},"elements":[]}',
+        '${prefix}/${manifestSha}.json',256,'${manifestSha}',
+        '${prefix}/${"d".repeat(64)}.glb',128,'${"d".repeat(64)}','${actor}'
+      )
+    `),
+    /different immutable payload/i,
+  );
+  await db.exec("reset role");
   const foreignProject = "10000000-0000-4000-8000-000000000011";
   const foreignSource = "10000000-0000-4000-8000-000000000012";
   const foreignSourceSha = "d".repeat(64);

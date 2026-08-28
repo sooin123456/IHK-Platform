@@ -515,6 +515,20 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_collaboration_bootstrap: DrawingRpc<{
         p_revision_id: string;
       }>;
+      lukas_drawing_publish_ifc_derivative_ready: DrawingRpc<{
+        p_project_id: string;
+        p_source_file_id: string;
+        p_source_sha256: string;
+        p_version: number;
+        p_manifest_json: Json;
+        p_manifest_storage_path: string;
+        p_manifest_byte_size: number;
+        p_manifest_sha256: string;
+        p_geometry_storage_path: string;
+        p_geometry_byte_size: number;
+        p_geometry_sha256: string;
+        p_created_by: string;
+      }>;
     };
   };
 };
@@ -3388,6 +3402,12 @@ export async function publishManagedIfcDerivativePair(
   },
   runtime: { fetch?: typeof fetch } = {},
 ) {
+  const verified = await validateManagedIfcDerivativePair({
+    sourceFileId: input.sourceFileId,
+    sourceSha256: input.sourceSha256,
+    manifestBytes: input.manifestBytes,
+    geometryBytes: input.geometryBytes,
+  });
   const common = {
     projectId: input.projectId,
     sourceSha256: input.sourceSha256,
@@ -3413,13 +3433,117 @@ export async function publishManagedIfcDerivativePair(
     },
     runtime,
   );
-  await validateManagedIfcDerivativePair({
+  return { manifest, geometry, verified };
+}
+
+export type ManagedIfcDerivativeReadyWriter = {
+  recordReady(input: {
+    projectId: string;
+    sourceFileId: string;
+    sourceSha256: string;
+    version: number;
+    createdBy: string;
+    manifestJson: IfcDerivativeManifest;
+    manifestStoragePath: string;
+    manifestByteSize: number;
+    manifestSha256: string;
+    geometryStoragePath: string;
+    geometryByteSize: number;
+    geometrySha256: string;
+  }): Promise<{ id: string }>;
+};
+
+/**
+ * Managed-worker writer for ready rows. It maps the orchestration result onto
+ * the service-only RPC. The service role remains the worker trust boundary;
+ * this is not a defense against a compromised service credential.
+ */
+export function createManagedIfcDerivativeReadyWriter(
+  client: Pick<DrawingWorkspaceClient, "rpc">,
+): ManagedIfcDerivativeReadyWriter {
+  return {
+    async recordReady(input) {
+      const { data, error } = await client.rpc(
+        "lukas_drawing_publish_ifc_derivative_ready",
+        {
+          p_project_id: input.projectId,
+          p_source_file_id: input.sourceFileId,
+          p_source_sha256: input.sourceSha256,
+          p_version: input.version,
+          p_manifest_json: input.manifestJson,
+          p_manifest_storage_path: input.manifestStoragePath,
+          p_manifest_byte_size: input.manifestByteSize,
+          p_manifest_sha256: input.manifestSha256,
+          p_geometry_storage_path: input.geometryStoragePath,
+          p_geometry_byte_size: input.geometryByteSize,
+          p_geometry_sha256: input.geometrySha256,
+          p_created_by: input.createdBy,
+        },
+      );
+      if (error || typeof data !== "string")
+        throw new Error("IFC derivative ready publication failed");
+      Uuid.parse(data);
+      return { id: data };
+    },
+  };
+}
+
+/**
+ * Managed-worker entry point. It validates before writes, reconciles both
+ * content-addressed objects, and records the ready row from that same exact
+ * verification result through the narrow database writer contract.
+ */
+export async function publishManagedIfcDerivativeReady(
+  storage: ManagedIfcDerivativeStorage,
+  writer: ManagedIfcDerivativeReadyWriter,
+  input: {
+    projectId: string;
+    sourceFileId: string;
+    sourceSha256: string;
+    version: number;
+    createdBy: string;
+    manifestBytes: Uint8Array;
+    geometryBytes: Uint8Array;
+  },
+  runtime: { fetch?: typeof fetch } = {},
+) {
+  Uuid.parse(input.createdBy);
+  const { manifest, geometry, verified } =
+    await publishManagedIfcDerivativePair(
+      storage,
+      {
+        projectId: input.projectId,
+        sourceFileId: input.sourceFileId,
+        sourceSha256: input.sourceSha256,
+        version: input.version,
+        manifestBytes: input.manifestBytes,
+        geometryBytes: input.geometryBytes,
+      },
+      runtime,
+    );
+  if (
+    manifest.byteSize !== verified.manifestByteSize ||
+    manifest.sha256 !== verified.manifestSha256 ||
+    geometry.byteSize !== verified.geometryByteSize ||
+    geometry.sha256 !== verified.geometrySha256
+  )
+    throw new Error("IFC derivative managed publication failed");
+  const row = await writer.recordReady({
+    projectId: input.projectId,
     sourceFileId: input.sourceFileId,
     sourceSha256: input.sourceSha256,
-    manifestBytes: input.manifestBytes,
-    geometryBytes: input.geometryBytes,
+    version: input.version,
+    createdBy: input.createdBy,
+    manifestJson: verified.manifest,
+    manifestStoragePath: manifest.path,
+    manifestByteSize: verified.manifestByteSize,
+    manifestSha256: verified.manifestSha256,
+    geometryStoragePath: geometry.path,
+    geometryByteSize: verified.geometryByteSize,
+    geometrySha256: verified.geometrySha256,
   });
-  return { manifest, geometry };
+  Uuid.parse(row.id);
+  return { id: row.id, manifest, geometry };
 }
 
 /**
@@ -3453,6 +3577,17 @@ export async function validateManagedIfcDerivativePair(input: {
     )
       throw new Error("IFC derivative manifest lineage differs");
     await validateSelfContainedGlb(input.geometryBytes, manifest);
+    return {
+      manifest,
+      manifestByteSize: input.manifestBytes.byteLength,
+      manifestSha256: createHash("sha256")
+        .update(input.manifestBytes)
+        .digest("hex"),
+      geometryByteSize: input.geometryBytes.byteLength,
+      geometrySha256: createHash("sha256")
+        .update(input.geometryBytes)
+        .digest("hex"),
+    };
   } catch {
     throw new Error("IFC derivative managed publication failed");
   }

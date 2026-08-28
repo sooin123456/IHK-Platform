@@ -299,7 +299,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     client
       .from("lukas_qto_files")
       .select(
-        "id, kind, original_filename, content_type, byte_size, sha256, storage_path, created_at",
+        "id, kind, original_filename, content_type, byte_size, sha256, created_at",
       )
       .eq("project_id", project.id)
       .order("created_at", { ascending: false }),

@@ -666,8 +666,13 @@ test("project file rows defer original-file capabilities to the authenticated do
     new URL("../app/lukas/screens/project-file-download.ts", import.meta.url),
     "utf8",
   );
+  const projectLoader = projectRoute.slice(
+    projectRoute.indexOf("export async function loader"),
+    projectRoute.indexOf("export async function action"),
+  );
   assert.doesNotMatch(projectRoute, /signedUrls/);
   assert.doesNotMatch(projectRoute, /createSignedUrl\(file\.storage_path/);
+  assert.doesNotMatch(projectLoader, /storage_path/);
   assert.match(
     projectRoute,
     /\/projects\/\$\{loaderData\.project\.id\}\/files\/\$\{file\.id\}\/download/,

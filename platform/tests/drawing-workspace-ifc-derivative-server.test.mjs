@@ -882,6 +882,165 @@ test("managed ingestion rejects a conflict whose existing bytes do not match", a
   );
 });
 
+test("pair publication validates before attempting either artifact upload", async () => {
+  const { publishManagedIfcDerivativePair } = await import(
+    "../app/lukas/lib/drawing-workspace.server.ts"
+  );
+  let uploads = 0;
+  const storage = {
+    from() {
+      return {
+        async upload() {
+          uploads += 1;
+          return { data: { path: "unexpected" }, error: null };
+        },
+        async createSignedUrl() {
+          return {
+            data: { signedUrl: "https://storage.test/unexpected" },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  await assert.rejects(
+    publishManagedIfcDerivativePair(storage, {
+      projectId: ids.project,
+      sourceFileId: ids.source,
+      sourceSha256: sourceSha,
+      version: 6,
+      manifestBytes: new TextEncoder().encode("{}"),
+      geometryBytes: new Uint8Array([1, 2, 3, 4]),
+    }),
+    /managed publication failed/i,
+  );
+  assert.equal(uploads, 0);
+});
+
+test("managed ready publication writes the exact verified upload result through one writer", async () => {
+  const { publishManagedIfcDerivativeReady } = await import(
+    "../app/lukas/lib/drawing-workspace.server.ts"
+  );
+  assert.equal(typeof publishManagedIfcDerivativeReady, "function");
+  const verified = artifact(8);
+  const objects = new Map();
+  const storage = {
+    from() {
+      return {
+        async upload(path, body) {
+          objects.set(path, new Uint8Array(body));
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path) {
+          return {
+            data: { signedUrl: `https://storage.test/internal/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  const recorded = [];
+  const result = await publishManagedIfcDerivativeReady(
+    storage,
+    {
+      async recordReady(input) {
+        recorded.push(input);
+        return { id: ids.derivative1 };
+      },
+    },
+    {
+      projectId: ids.project,
+      sourceFileId: ids.source,
+      sourceSha256: sourceSha,
+      version: 8,
+      createdBy: ids.actor,
+      manifestBytes: verified.manifestBytes,
+      geometryBytes: verified.geometryBytes,
+    },
+    {
+      fetch: async (url) => {
+        const bytes = objects.get(
+          String(url).replace("https://storage.test/internal/", ""),
+        );
+        assert.ok(bytes);
+        return new Response(bytes, {
+          status: 206,
+          headers: {
+            "content-length": String(bytes.byteLength),
+            "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+          },
+        });
+      },
+    },
+  );
+  assert.equal(result.id, ids.derivative1);
+  assert.deepEqual(recorded, [
+    {
+      projectId: ids.project,
+      sourceFileId: ids.source,
+      sourceSha256: sourceSha,
+      version: 8,
+      createdBy: ids.actor,
+      manifestJson: verified.row.manifest_json,
+      manifestStoragePath: verified.row.manifest_storage_path,
+      manifestByteSize: verified.row.manifest_byte_size,
+      manifestSha256: verified.row.manifest_sha256,
+      geometryStoragePath: verified.row.geometry_storage_path,
+      geometryByteSize: verified.row.geometry_byte_size,
+      geometrySha256: verified.row.geometry_sha256,
+    },
+  ]);
+});
+
+test("managed ready RPC writer accepts only the exact ready publication contract", async () => {
+  const { createManagedIfcDerivativeReadyWriter } = await import(
+    "../app/lukas/lib/drawing-workspace.server.ts"
+  );
+  assert.equal(typeof createManagedIfcDerivativeReadyWriter, "function");
+  const calls = [];
+  const writer = createManagedIfcDerivativeReadyWriter({
+    async rpc(name, args) {
+      calls.push({ name, args });
+      return { data: ids.derivative1, error: null };
+    },
+  });
+  const id = await writer.recordReady({
+    projectId: ids.project,
+    sourceFileId: ids.source,
+    sourceSha256: sourceSha,
+    version: 8,
+    createdBy: ids.actor,
+    manifestJson: artifact(8).row.manifest_json,
+    manifestStoragePath: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v8/${"a".repeat(64)}.json`,
+    manifestByteSize: 256,
+    manifestSha256: "a".repeat(64),
+    geometryStoragePath: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v8/${"b".repeat(64)}.glb`,
+    geometryByteSize: 128,
+    geometrySha256: "b".repeat(64),
+  });
+  assert.deepEqual(id, { id: ids.derivative1 });
+  assert.deepEqual(calls, [
+    {
+      name: "lukas_drawing_publish_ifc_derivative_ready",
+      args: {
+        p_project_id: ids.project,
+        p_source_file_id: ids.source,
+        p_source_sha256: sourceSha,
+        p_version: 8,
+        p_manifest_json: artifact(8).row.manifest_json,
+        p_manifest_storage_path: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v8/${"a".repeat(64)}.json`,
+        p_manifest_byte_size: 256,
+        p_manifest_sha256: "a".repeat(64),
+        p_geometry_storage_path: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v8/${"b".repeat(64)}.glb`,
+        p_geometry_byte_size: 128,
+        p_geometry_sha256: "b".repeat(64),
+        p_created_by: ids.actor,
+      },
+    },
+  ]);
+});
+
 test("pair publication reconciles exact content-addressed artifacts", async () => {
   const { publishManagedIfcDerivativePair } = await import(
     "../app/lukas/lib/drawing-workspace.server.ts"
@@ -956,14 +1115,14 @@ test("pair publication reconciles exact content-addressed artifacts", async () =
   );
 });
 
-test("pair publication retains an exact orphan when its peer is corrupt", async () => {
+test("pair publication retains an exact manifest orphan when a verified peer is corrupt", async () => {
   const { publishManagedIfcDerivativePair } = await import(
     "../app/lukas/lib/drawing-workspace.server.ts"
   );
-  const manifestBytes = new TextEncoder().encode('{"schemaVersion":1}');
-  const geometryBytes = new TextEncoder().encode("expected geometry");
-  const geometrySha = sha256(geometryBytes);
-  const geometryPath = `projects/${ids.project}/ifc-derivatives/${sourceSha}/v7/${geometrySha}.glb`;
+  const verified = artifact(7);
+  const manifestBytes = verified.manifestBytes;
+  const geometryBytes = verified.geometryBytes;
+  const geometryPath = verified.row.geometry_storage_path;
   const objects = new Map([
     [geometryPath, new TextEncoder().encode("corrupt geometry-")],
   ]);
@@ -1018,12 +1177,8 @@ test("pair publication retains an exact orphan when its peer is corrupt", async 
     objects.get(geometryPath),
     new TextEncoder().encode("corrupt geometry-"),
   );
-  const manifestPath = [...objects.keys()].find((path) =>
-    path.endsWith(".json"),
+  assert.deepEqual(
+    objects.get(verified.row.manifest_storage_path),
+    manifestBytes,
   );
-  assert.ok(
-    manifestPath,
-    "the exact manifest orphan remains for deterministic retry",
-  );
-  assert.deepEqual(objects.get(manifestPath), manifestBytes);
 });
