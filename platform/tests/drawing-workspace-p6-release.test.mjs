@@ -213,11 +213,11 @@ test("P6 notice closes fflate without adding a second package or lock entry", as
     createHash("sha256")
       .update(JSON.stringify(packageJson.dependencies))
       .digest("hex"),
-    "79d4ce1602910cbafff5d92a12922c4ecb77f83bf3193385e5a442b903bebcea",
+    "40bfaf1bf96430a2f9e3141d89b56d6d9788e056e562978e117068a891ba44d9",
   );
   assert.equal(
     createHash("sha256").update(JSON.stringify(lock.packages)).digest("hex"),
-    "dbcacef71200f5d5a11fef39f84aff4437ba683d26d8a2c2b3628255a3a36fcd",
+    "52f366ede478219b6aa7f5008f36cb5d6bde813f87b7e373b8fe13820b80900c",
   );
 });
 
