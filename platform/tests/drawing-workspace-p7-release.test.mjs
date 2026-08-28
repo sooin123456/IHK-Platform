@@ -472,6 +472,64 @@ test("production cannot exit zero while the combined local ledger is non-PASS", 
   );
 });
 
+test("release build authority combines all four typecheck and build gates fail closed", () => {
+  const buildGateIds = [
+    "application.typecheck_build",
+    "application.build",
+    "collaboration.typecheck_build",
+    "collaboration.build",
+  ];
+  const expectedReceipts = buildGateIds.map(
+    (id) =>
+      `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
+  );
+  const makeEvidence = (failedId, failedStatus = "NOT_MET") =>
+    runnerModule.buildReleaseEvidenceFromResults(
+      buildGateIds.map((id) => ({
+        id,
+        status: id === failedId ? failedStatus : "PASS",
+        exitCode: id === failedId ? 1 : 0,
+      })),
+      {
+        coldCacheMiss: { status: "MET" },
+        gates: { productionRuntime: "UNEXECUTED" },
+        path: new URL(
+          "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+          import.meta.url,
+        ).pathname,
+      },
+      {
+        status: "UNEXECUTED",
+        path: new URL(
+          "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+          import.meta.url,
+        ).pathname,
+      },
+    );
+
+  for (const failedId of buildGateIds) {
+    const evidence = makeEvidence(failedId);
+    const requirement = evidence.requirements.find(
+      ({ id }) => id === "release.typecheck_build_collaboration",
+    );
+    assert.equal(requirement.status, "NOT_MET", failedId);
+    assert.deepEqual(
+      requirement.receipts.map(({ path }) => path),
+      expectedReceipts,
+      failedId,
+    );
+    assert.equal(evidence.overall, "NOT_MET", failedId);
+    assert.equal(runnerModule.p7CombinedReleaseExitCode(evidence, []), 1);
+  }
+
+  const unexecuted = makeEvidence("collaboration.build", "UNEXECUTED");
+  const requirement = unexecuted.requirements.find(
+    ({ id }) => id === "release.typecheck_build_collaboration",
+  );
+  assert.equal(requirement.status, "UNEXECUTED");
+  assert.equal(runnerModule.p7CombinedReleaseExitCode(unexecuted, []), 1);
+});
+
 test("missing managed provider authority stays UNEXECUTED while an executed miss is NOT_MET", () => {
   assert.equal(
     runnerModule.p7ProductionGateStatus("production.managed_restore", 2, {

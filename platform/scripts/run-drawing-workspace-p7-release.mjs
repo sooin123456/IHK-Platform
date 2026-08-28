@@ -519,6 +519,11 @@ function gateRequirementIds(gateId) {
       "release.no_rayon_assets_or_copy",
     ],
     "application.typecheck_build": ["release.typecheck_build_collaboration"],
+    "application.build": ["release.typecheck_build_collaboration"],
+    "collaboration.typecheck_build": [
+      "release.typecheck_build_collaboration",
+    ],
+    "collaboration.build": ["release.typecheck_build_collaboration"],
   };
   return mapping[gateId] ?? [];
 }
@@ -543,6 +548,32 @@ export function buildReleaseEvidenceFromResults(
       if (result.status === "PASS") receipt = fileReceipt(path);
       authority = result.id;
     }
+    let receipts;
+    if (id === "release.typecheck_build_collaboration") {
+      const buildGateIds = [
+        "application.typecheck_build",
+        "application.build",
+        "collaboration.typecheck_build",
+        "collaboration.build",
+      ];
+      const buildResults = buildGateIds.map((gateId) =>
+        results.find(({ id: resultId }) => resultId === gateId),
+      );
+      if (buildResults.every(Boolean)) {
+        status = buildResults.some(({ status }) => status === "NOT_MET")
+          ? "NOT_MET"
+          : buildResults.some(({ status }) => status === "UNEXECUTED")
+            ? "UNEXECUTED"
+            : "PASS";
+        authority = buildGateIds.join(" + ");
+        receipts = buildResults.map((result) =>
+          fileReceipt(
+            result.receiptPath ?? `${artifactRoot}${result.id}.log`,
+          ),
+        );
+        receipt = receipts.at(-1);
+      }
+    }
     if (id === "performance.cold_startup") {
       status = performance.coldCacheMiss.status === "MET" ? "PASS" : "NOT_MET";
       authority = "source-bound P7 production-build Chromium cold cache-miss";
@@ -562,7 +593,9 @@ export function buildReleaseEvidenceFromResults(
       authority = "managed Supabase backup isolated restore comparison";
       receipt = status === "PASS" ? fileReceipt(restore.path) : null;
     }
-    return { id, scope, status, authority, receipt };
+    return receipts
+      ? { id, scope, status, authority, receipt, receipts }
+      : { id, scope, status, authority, receipt };
   });
   const summary = { PASS: 0, NOT_MET: 0, UNEXECUTED: 0 };
   for (const row of requirements) summary[row.status] += 1;

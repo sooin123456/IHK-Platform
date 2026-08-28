@@ -181,6 +181,24 @@ function overall(summary) {
   return "PASS";
 }
 
+const releaseBuildReceiptPaths = [
+  "application.typecheck_build",
+  "application.build",
+  "collaboration.typecheck_build",
+  "collaboration.build",
+].map(
+  (id) =>
+    `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
+);
+
+function validateReceipt(receipt) {
+  assert.equal(typeof receipt, "object");
+  assert.match(receipt.sha256, /^[0-9a-f]{64}$/);
+  const receiptPath = receiptAbsolutePath(receipt.path);
+  assert.equal(existsSync(receiptPath), true, receipt.path);
+  assert.equal(sha256(readFileSync(receiptPath)), receipt.sha256);
+}
+
 export function buildDrawingP7ReleaseEvidenceFixture({
   commit = "1".repeat(40),
 } = {}) {
@@ -257,18 +275,18 @@ export function validateDrawingP7ReleaseEvidence(
     assert.equal(typeof requirement.authority, "string");
     assert.ok(requirement.authority.length > 0);
     if (verifyReceipts && requirement.status === "PASS") {
-      assert.equal(
-        typeof requirement.receipt,
-        "object",
-        `${requirement.id} receipt`,
+      validateReceipt(requirement.receipt);
+    }
+    if (
+      verifyReceipts &&
+      requirement.id === "release.typecheck_build_collaboration"
+    ) {
+      assert.deepEqual(
+        requirement.receipts?.map(({ path }) => path),
+        releaseBuildReceiptPaths,
+        "all application and collaboration typecheck/build receipts",
       );
-      assert.match(requirement.receipt.sha256, /^[0-9a-f]{64}$/);
-      const receiptPath = receiptAbsolutePath(requirement.receipt.path);
-      assert.equal(existsSync(receiptPath), true, requirement.receipt.path);
-      assert.equal(
-        sha256(readFileSync(receiptPath)),
-        requirement.receipt.sha256,
-      );
+      for (const receipt of requirement.receipts) validateReceipt(receipt);
     }
   }
   assert.deepEqual(evidence.summary, summarize(evidence.requirements));
