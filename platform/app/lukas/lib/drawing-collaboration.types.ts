@@ -73,6 +73,7 @@ export type DrawingFile = {
   content_type: string | null;
   byte_size: number;
   sha256: string;
+  immutable: boolean;
   created_at: string;
 };
 

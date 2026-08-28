@@ -25,7 +25,6 @@ import { Link } from "react-router";
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
-import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import {
   addPreviewAnchor,
@@ -488,19 +487,13 @@ export default function WorkspacePreviewRoomClient({
 
           <section className="min-w-0 rounded-2xl border bg-white p-3 dark:border-white/10 dark:bg-[#1a1b1e]">
             {selectedFile.url && selectedFile.kind === "ifc" ? (
-              <IfcPropertyBrowser
-                byteSize={selectedFile.byteSize}
-                fileName={selectedFile.name}
-                initialGlobalId={null}
-                onAnchorSelected={(anchor) =>
-                  chooseAnchor({
-                    kind: "ifc_element",
-                    label: `IFC 객체 #${anchor.elementId}`,
-                  })
-                }
-                signedUrl={selectedFile.url}
-                sourceKey={selectedFile.id}
-              />
+              <div
+                className="grid min-h-[480px] place-items-center rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground"
+                role="status"
+              >
+                로컬 IFC 원본은 이 미리보기에서 렌더링하지 않습니다. 운영
+                환경에서는 검증된 GLB 파생물만 표시합니다.
+              </div>
             ) : selectedFile.url && selectedFile.kind === "pdf" ? (
               <PdfDrawingViewer
                 fileName={selectedFile.name}

@@ -30,6 +30,10 @@ import type {
 } from "~/lukas/lib/drawing-collaboration.types";
 import type { DrawingRevisionReviewItem } from "~/lukas/lib/drawing-revision.server";
 import type { DrawingViewerAnchor } from "~/lukas/lib/drawing-anchor-navigation";
+import type {
+  IfcRenderBundleDescriptor,
+  IfcRenderDerivativeDescriptor,
+} from "~/lukas/lib/ifc-render-descriptor";
 
 type Comment = {
   id: string;
@@ -43,6 +47,8 @@ export default function DrawingRoomClient({
   projectId,
   file,
   files,
+  ifcDerivative,
+  renderBundle,
   signedUrl,
   issues,
   issuePage,
@@ -61,7 +67,9 @@ export default function DrawingRoomClient({
   projectId: string;
   file: DrawingFile;
   files: DrawingFile[];
-  signedUrl: string;
+  ifcDerivative: IfcRenderDerivativeDescriptor | null;
+  renderBundle: IfcRenderBundleDescriptor | undefined;
+  signedUrl: string | null;
   issues: DrawingIssue[];
   issuePage: DrawingIssuePageInfo;
   comments: Comment[];
@@ -250,6 +258,7 @@ export default function DrawingRoomClient({
                   : null
               }
               byteSize={file.byte_size}
+              derivative={ifcDerivative}
               fileName={file.original_filename}
               focusRequest={ifcFocusRequest}
               sourceKey={file.id}
@@ -267,7 +276,7 @@ export default function DrawingRoomClient({
                 });
                 setMobileTab("issues");
               }}
-              signedUrl={signedUrl}
+              renderBundle={renderBundle}
             />
           ) : (
             <PdfDrawingViewer
@@ -284,7 +293,7 @@ export default function DrawingRoomClient({
                 });
                 setMobileTab("issues");
               }}
-              signedUrl={signedUrl}
+              signedUrl={signedUrl ?? ""}
             />
           )}
         </section>

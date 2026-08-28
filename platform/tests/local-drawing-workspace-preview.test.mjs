@@ -211,6 +211,7 @@ test("current canonical preview opens the integrated PDF and IFC split without q
     manifestByteSize: 84_033,
     manifestSignedUrl: "/examples/synthetic-ifc-mapping.manifest.json",
   });
+  assert.equal("signedUrl" in loaded.sourceBundle.ifc, false);
   assert.ok(
     loaded.sourceBundle.catalog.some(
       (item) =>
@@ -328,7 +329,11 @@ test("P5 preview exposes a controlled IFC pair without putting its URL in drawin
   );
   assert.equal(loaded.viewMode, "split");
   assert.equal(loaded.sourceBundle.ifc.id, ifcFileId);
-  assert.equal(loaded.sourceBundle.ifc.signedUrl.includes("example.ifc"), true);
+  assert.equal("signedUrl" in loaded.sourceBundle.ifc, false);
+  assert.equal(
+    loaded.sourceBundle.ifc.derivative.geometrySignedUrl.endsWith(".glb"),
+    true,
+  );
   assert.equal(
     JSON.stringify(loaded.sourceBundle.catalog).includes("http"),
     false,

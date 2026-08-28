@@ -99,7 +99,8 @@ const previewIfcFileId = "00000000-0000-4000-8000-0000000000a1";
 const previewAlternateIfcFileId = "00000000-0000-4000-8000-0000000000a2";
 const previewIfcSha256 =
   "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
-const previewIfcUrl =
+/** Source-catalog-only fixture URL; the preview renderer uses the GLB below. */
+const previewIfcFixtureSourceUrl =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
 const previewIfcGeometrySha256 =
   "cb450586de90c234831a6a206c0cb83078d65eca1870ac642680df5b5056270f";
@@ -156,7 +157,7 @@ export function localP5SourceManifest() {
       id: previewIfcFileId,
       byteSize: 413_681,
       sha256: previewIfcSha256,
-      signedUrl: previewIfcUrl,
+      fixtureSourceUrl: previewIfcFixtureSourceUrl,
     },
   ] as const;
 }
@@ -866,7 +867,6 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     : sourceSha256;
   const activeIfcByteSize = 413_681;
   const activeIfcSha256 = previewIfcSha256;
-  const activeIfcUrl = previewIfcUrl;
   const fixtureObjects = options?.performanceObjects
     ? options.performanceObjects
     : options?.hiddenHostTest
@@ -1094,7 +1094,6 @@ export function localDrawingWorkspacePreviewFixture(options?: {
               ? null
               : {
                   ...selectedIfc,
-                  signedUrl: activeIfcUrl,
                   derivative: previewIfcDerivative(
                     selectedIfc.id,
                     selectedIfc.sha256,
@@ -1112,7 +1111,6 @@ export function localDrawingWorkspacePreviewFixture(options?: {
                   ? null
                   : {
                       ...selectedIfc,
-                      signedUrl: activeIfcUrl,
                       derivative: previewIfcDerivative(
                         selectedIfc.id,
                         selectedIfc.sha256,

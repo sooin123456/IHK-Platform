@@ -448,7 +448,7 @@ export async function listDrawingFiles(
   const { data, error } = await client
     .from("lukas_qto_files")
     .select(
-      "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, created_at",
+      "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, immutable, created_at",
     )
     .eq("project_id", projectId)
     .in("kind", ["ifc", "pdf"])
@@ -525,7 +525,7 @@ export async function loadDrawingRoom(
   const { data: file, error: fileError } = await client
     .from("lukas_qto_files")
     .select(
-      "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, created_at",
+      "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, immutable, created_at",
     )
     .eq("project_id", projectId)
     .eq("id", fileId)

@@ -457,7 +457,7 @@ test("an IFC primary also remains unsigned until 3D is requested", async () => {
   );
 });
 
-test("source bundle signs only loaded sources and never puts capabilities in the catalog", async () => {
+test("source bundle signs PDF only and exposes IFC through its derivative descriptor", async () => {
   const primary = workspaceFile();
   const ifc = workspaceFile({
     id: sourceBundleIds.ifc,
@@ -501,7 +501,6 @@ test("source bundle signs only loaded sources and never puts capabilities in the
     originalFilename: "model.ifc",
     byteSize: 8192,
     sha256: "b".repeat(64),
-    signedUrl: "https://storage.test/projects/model.ifc",
     derivative: {
       status: "pending",
       version: null,
@@ -534,10 +533,7 @@ test("source bundle signs only loaded sources and never puts capabilities in the
   assert.equal(bundle.revisionEdge, null);
   assert.deepEqual(
     client.calls.filter(([kind]) => kind === "sign"),
-    [
-      ["sign", "projects/plan.pdf", 300],
-      ["sign", "projects/model.ifc", 300],
-    ],
+    [["sign", "projects/plan.pdf", 300]],
   );
   assert.equal(JSON.stringify(bundle.catalog).includes("storage.test"), false);
   assert.equal(JSON.stringify(bundle.catalog).includes("storage_path"), false);

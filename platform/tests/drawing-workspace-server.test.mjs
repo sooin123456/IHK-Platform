@@ -2372,7 +2372,7 @@ test("review-requested workspace loads its exact project-bound snapshot evidence
   assert.equal(snapshotCall.terminal, "maybeSingle");
 });
 
-test("workspace source signing covers IFC and exact PDF evidence without source mutation", async () => {
+test("workspace source signing never mints a raw IFC capability and preserves exact PDF evidence", async () => {
   assert.equal(
     typeof workspaceServer.loadDrawingWorkspaceSourceUrl,
     "function",
@@ -2411,12 +2411,9 @@ test("workspace source signing covers IFC and exact PDF evidence without source 
   };
   assert.equal(
     await workspaceServer.loadDrawingWorkspaceSourceUrl(client, ifcWorkspace),
-    "https://storage.test/source",
+    null,
   );
-  assert.deepEqual(calls, [
-    ["bucket", "lukas-qto"],
-    ["sign", "projects/model.ifc", 300],
-  ]);
+  assert.deepEqual(calls, []);
 
   const blankPdf = {
     ...ifcWorkspace,
@@ -2446,7 +2443,7 @@ test("workspace source signing covers IFC and exact PDF evidence without source 
     workspaceServer.loadDrawingWorkspaceSourceUrl(client, mismatchedPdf),
     (error) => error instanceof Response && error.status === 409,
   );
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 0);
 });
 
 test("document creation derives blank/background behavior from the authoritative file kind", async () => {

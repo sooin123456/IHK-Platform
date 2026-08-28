@@ -124,7 +124,7 @@ import type {
   DrawingWorkspaceCollaborationBootstrap,
   DrawingWorkspaceCapability,
   DrawingWorkspaceSourceBundle,
-  DrawingWorkspaceSourceDescriptor,
+  DrawingWorkspacePdfSourceDescriptor,
 } from "~/lukas/lib/drawing-workspace.server";
 import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import type {
@@ -812,7 +812,7 @@ type PdfCompareActionData =
       ok: true;
       kind: "pdf_compare";
       error: null;
-      previousPdf: DrawingWorkspaceSourceDescriptor;
+      previousPdf: DrawingWorkspacePdfSourceDescriptor;
     }
   | {
       ok: false;
@@ -902,7 +902,7 @@ export default function DrawingWorkspaceClient({
     revisionEdgeId: string;
   } | null>(null);
   const [previousPdfCapability, setPreviousPdfCapability] =
-    useState<DrawingWorkspaceSourceDescriptor | null>(null);
+    useState<DrawingWorkspacePdfSourceDescriptor | null>(null);
   const [pdfCompareState, setPdfCompareState] =
     useState<DrawingPdfCompareState>({ status: "idle", markers: [] });
   const [pdfPageTransform, setPdfPageTransform] =
@@ -1559,8 +1559,7 @@ export default function DrawingWorkspaceClient({
   const selectedIfcRenderBundle = adaptIfcRenderBundleDescriptor(selectedIfc);
   const primarySourceUrl =
     sourceBundle?.pdf?.signedUrl ??
-    (workspace.file.kind === "ifc" ? selectedIfc?.signedUrl : null) ??
-    sourceUrl;
+    (workspace.file.kind === "pdf" ? sourceUrl : null);
   const activeView: DrawingWorkspaceViewMode = selectedIfcChoice
     ? viewMode
     : "2d";

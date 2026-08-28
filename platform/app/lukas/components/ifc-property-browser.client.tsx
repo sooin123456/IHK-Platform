@@ -22,6 +22,7 @@ import {
   type IfcCameraState,
 } from "~/lukas/lib/ifc-anchor";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
+import type { IfcRenderDerivativeDescriptor } from "~/lukas/lib/ifc-render-descriptor";
 import {
   instantiateVerifiedIfcRenderModel,
   loadVerifiedIfcRenderBundle,
@@ -58,9 +59,8 @@ type Props = {
   sourceKey: string;
   firstPaintLifecycleKey?: string;
   initialGlobalId?: string | null;
+  derivative?: IfcRenderDerivativeDescriptor | null;
   renderBundle?: IfcRenderBundleDescriptor;
-  /** Raw IFC capabilities are intentionally never fetched by this client. */
-  signedUrl?: string;
   visible?: boolean;
   focusRequest?: IfcFocusRequest | null;
   remoteGlobalIds?: readonly string[];
@@ -159,6 +159,16 @@ function acquireIfcRenderBundle(
   };
 }
 
+function unavailableIfcDerivativeMessage(
+  derivative: IfcRenderDerivativeDescriptor | null | undefined,
+) {
+  if (derivative?.status === "pending")
+    return "검증된 IFC GLB 파생물을 생성 중입니다. 원본 IFC는 브라우저로 전송하지 않습니다.";
+  if (derivative?.status === "failed")
+    return "검증된 IFC GLB 파생물을 만들지 못했습니다. 원본 IFC는 브라우저로 전송하지 않습니다.";
+  return "검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.";
+}
+
 export default function IfcPropertyBrowser({
   byteSize = 0,
   compact = false,
@@ -166,6 +176,7 @@ export default function IfcPropertyBrowser({
   sourceKey: originalSourceKey,
   firstPaintLifecycleKey,
   initialGlobalId,
+  derivative,
   renderBundle,
   activeAnchor = null,
   onAnchorSelected,
@@ -228,12 +239,13 @@ export default function IfcPropertyBrowser({
     const finishIfcStage = startDrawingWorkspaceStage("ifc");
     const descriptor = renderBundleRef.current;
     if (!descriptor) {
+      const message = unavailableIfcDerivativeMessage(derivative);
       setElements([]);
       setElementsSourceKey(null);
       setViewerReady(false);
       setViewerPhase("error");
-      setViewerStatus("검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.");
-      setError("검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.");
+      setViewerStatus(message);
+      setError(message);
       setStatus("읽기에 실패했습니다.");
       finishIfcStage();
       return;
@@ -327,7 +339,7 @@ export default function IfcPropertyBrowser({
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [fetchCapabilityKey, sourceKey]);
+  }, [derivative, fetchCapabilityKey, sourceKey]);
 
   async function mountViewer(generation = loadGenerationRef.current) {
     const input = loadedViewerInputRef.current;

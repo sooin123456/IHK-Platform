@@ -126,11 +126,22 @@ export type DrawingIfcDerivativeDescriptor =
       geometrySignedUrl: string;
     };
 
-export type DrawingWorkspaceSourceDescriptor =
+export type DrawingWorkspacePdfSourceDescriptor =
   DrawingWorkspaceSourceIdentity & {
+    kind: "pdf";
     signedUrl: string;
     derivative: DrawingIfcDerivativeDescriptor;
   };
+
+export type DrawingWorkspaceIfcSourceDescriptor =
+  DrawingWorkspaceSourceIdentity & {
+    kind: "ifc";
+    derivative: DrawingIfcDerivativeDescriptor;
+  };
+
+export type DrawingWorkspaceSourceDescriptor =
+  | DrawingWorkspacePdfSourceDescriptor
+  | DrawingWorkspaceIfcSourceDescriptor;
 
 export type DrawingWorkspaceSourceCatalogItem = DrawingWorkspaceSourceIdentity;
 
@@ -264,8 +275,8 @@ type DrawingRevisionIfcDerivativeRow = {
 
 export type DrawingWorkspaceSourceBundle = {
   primary: DrawingWorkspaceSourceDescriptor | DrawingWorkspaceSourceCatalogItem;
-  pdf: DrawingWorkspaceSourceDescriptor | null;
-  ifc: DrawingWorkspaceSourceDescriptor | null;
+  pdf: DrawingWorkspacePdfSourceDescriptor | null;
+  ifc: DrawingWorkspaceIfcSourceDescriptor | null;
   previousPdf: DrawingWorkspaceSourceCatalogItem | null;
   revisionEdge: {
     id: string;
@@ -2772,6 +2783,7 @@ export async function loadDrawingWorkspaceSourceUrl(
   workspace: DrawingWorkspace,
 ): Promise<string | null> {
   if (!workspace.document) return null;
+  if (workspace.file.kind === "ifc") return null;
   const backgroundPage = workspace.document.revision.pages.find(
     (page): page is DrawingPageRow =>
       "background_pdf_page" in page &&
@@ -3562,25 +3574,32 @@ export async function loadDrawingWorkspaceSourceBundle(
     });
 
   const signed = new Map<string, DrawingWorkspaceSourceDescriptor>();
-  const sign = async (file: DrawingWorkspaceFile) => {
+  const loadSource = async (file: DrawingWorkspaceFile) => {
     const existing = signed.get(file.id);
     if (existing) return existing;
+    if (file.kind === "ifc") {
+      const descriptor: DrawingWorkspaceIfcSourceDescriptor = {
+        ...drawingWorkspaceSourceCatalogItem(file),
+        kind: "ifc",
+        derivative: await loadDrawingIfcDerivative(client, file, {
+          id: workspaceRevision.id,
+          status: workspaceRevision.status,
+          version: workspaceRevision.version,
+        }),
+      };
+      signed.set(file.id, descriptor);
+      return descriptor;
+    }
     const { data, error } = await client.storage
       .from("lukas-qto")
       .createSignedUrl(file.storage_path, 300);
     if (error || !data?.signedUrl)
       throw new Response("도면 원본을 열지 못했습니다.", { status: 500 });
-    const descriptor = {
+    const descriptor: DrawingWorkspacePdfSourceDescriptor = {
       ...drawingWorkspaceSourceCatalogItem(file),
+      kind: "pdf",
       signedUrl: data.signedUrl,
-      derivative:
-        file.kind === "ifc"
-          ? await loadDrawingIfcDerivative(client, file, {
-              id: workspaceRevision.id,
-              status: workspaceRevision.status,
-              version: workspaceRevision.version,
-            })
-          : notApplicableDerivative,
+      derivative: notApplicableDerivative,
     };
     signed.set(file.id, descriptor);
     return descriptor;
@@ -3590,14 +3609,18 @@ export async function loadDrawingWorkspaceSourceBundle(
       ? loadSelectedIfc
       : Boolean(backgroundPage || p2Background);
   const primary = primaryLoaded
-    ? await sign(workspace.file)
+    ? await loadSource(workspace.file)
     : drawingWorkspaceSourceCatalogItem(workspace.file);
   const pdf =
     workspace.file.kind === "pdf" && primaryLoaded
-      ? (primary as DrawingWorkspaceSourceDescriptor)
+      ? (primary as DrawingWorkspacePdfSourceDescriptor)
       : null;
   const ifc =
-    selectedCandidate && loadSelectedIfc ? await sign(selectedCandidate) : null;
+    selectedCandidate && loadSelectedIfc
+      ? ((await loadSource(
+          selectedCandidate,
+        )) as DrawingWorkspaceIfcSourceDescriptor)
+      : null;
   const previousPdf = previousFile
     ? drawingWorkspaceSourceCatalogItem(previousFile)
     : null;
@@ -3623,7 +3646,7 @@ export async function loadDrawingWorkspacePreviousPdf(
   client: DrawingWorkspaceClient,
   workspace: DrawingWorkspace,
   request: DrawingWorkspacePreviousPdfRequest,
-): Promise<DrawingWorkspaceSourceDescriptor> {
+): Promise<DrawingWorkspacePdfSourceDescriptor> {
   const input = DrawingWorkspacePreviousPdfRequestSchema.parse(request);
   if (!workspace.document || workspace.file.kind !== "pdf")
     throw new Response("PDF 개정 비교를 사용할 수 없습니다.", {
@@ -3711,6 +3734,7 @@ export async function loadDrawingWorkspacePreviousPdf(
     throw new Response("이전 PDF 원본을 열지 못했습니다.", { status: 500 });
   return {
     ...drawingWorkspaceSourceCatalogItem(previous),
+    kind: "pdf",
     signedUrl: data.signedUrl,
     derivative: notApplicableDerivative,
   };

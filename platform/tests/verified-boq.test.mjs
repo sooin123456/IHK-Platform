@@ -627,6 +627,18 @@ test("BOQ evidence opens the confirmed IFC GlobalId instead of assuming Revit an
   assert.doesNotMatch(boqRoute, /\?element=\$\{/);
 });
 
+test("IFC browser route exposes only a verified derivative render bundle", () => {
+  const ifcRoute = readFileSync(
+    new URL("../app/lukas/screens/ifc-browser.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(ifcRoute, /loadDrawingIfcDerivative\(/);
+  assert.match(ifcRoute, /adaptIfcRenderBundleDescriptor\(/);
+  assert.match(ifcRoute, /renderBundle=\{loaderData\.renderBundle\}/);
+  assert.doesNotMatch(ifcRoute, /createSignedUrl\(file\.storage_path/);
+  assert.doesNotMatch(ifcRoute, /signedUrl=\{loaderData\.signedUrl\}/);
+});
+
 test("customer-owned price resources import from strict UTF-8 CSV", () => {
   const csv = buildVerifiedBoqPriceBookTemplateCsv().replace(
     "M-001,material,콘크리트,25-270-15,m3,0",

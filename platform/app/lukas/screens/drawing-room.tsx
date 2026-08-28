@@ -30,6 +30,11 @@ import {
   parseDrawingIssueId,
   parseDrawingIssuePage,
 } from "~/lukas/lib/drawing-pagination";
+import { adaptIfcRenderBundleDescriptor } from "~/lukas/lib/ifc-render-descriptor";
+import {
+  loadDrawingIfcDerivative,
+  type DrawingWorkspaceClient,
+} from "~/lukas/lib/drawing-workspace.server";
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
@@ -73,11 +78,35 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       room.file.id,
     ),
   );
-  const { data: signed, error } = await client.storage
-    .from("lukas-qto")
-    .createSignedUrl(room.file.storage_path, 300);
-  if (error || !signed?.signedUrl)
-    throw new Response("도면 열기 링크를 만들지 못했습니다.", { status: 500 });
+  const ifcDerivative =
+    room.file.kind === "ifc"
+      ? await loadDrawingIfcDerivative(
+          client as unknown as DrawingWorkspaceClient,
+          room.file,
+        )
+      : null;
+  const renderBundle = adaptIfcRenderBundleDescriptor(
+    ifcDerivative
+      ? {
+          id: room.file.id,
+          sha256: room.file.sha256,
+          derivative: ifcDerivative,
+        }
+      : null,
+  );
+  const signedUrl =
+    room.file.kind === "pdf"
+      ? await (async () => {
+          const { data: signed, error } = await client.storage
+            .from("lukas-qto")
+            .createSignedUrl(room.file.storage_path, 300);
+          if (error || !signed?.signedUrl)
+            throw new Response("도면 열기 링크를 만들지 못했습니다.", {
+              status: 500,
+            });
+          return signed.signedUrl;
+        })()
+      : null;
   return data(
     {
       project,
@@ -93,7 +122,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       activeAnchor,
       currentUserId: user.id,
       assignees,
-      signedUrl: signed.signedUrl,
+      ifcDerivative,
+      renderBundle,
+      signedUrl,
     },
     { headers },
   );
@@ -203,10 +234,12 @@ export default function DrawingRoom({
         issuePage={room.issuePage}
         initialGlobalId={loaderData.initialGlobalId}
         initialIssueId={loaderData.initialIssueId}
+        ifcDerivative={loaderData.ifcDerivative}
         currentUserId={loaderData.currentUserId}
         projectId={project.id}
         revisionReview={loaderData.revisionReview}
         role={loaderData.role as DrawingProjectRole}
+        renderBundle={loaderData.renderBundle}
         signedUrl={loaderData.signedUrl}
       />
     </main>

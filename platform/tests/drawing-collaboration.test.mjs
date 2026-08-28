@@ -367,6 +367,26 @@ test("drawing room exposes persisted anchors and append-only events", async () =
   assert.match(client, /events=\{events\}/);
 });
 
+test("IFC drawing room uses only a verified derivative bundle while PDF keeps its signed URL", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const route = await readFile(
+    new URL("../app/lukas/screens/drawing-room.tsx", import.meta.url),
+    "utf8",
+  );
+  const client = await readFile(
+    new URL("../app/lukas/components/drawing-room.client.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /loadDrawingIfcDerivative\(/);
+  assert.match(route, /adaptIfcRenderBundleDescriptor\(/);
+  assert.match(client, /renderBundle=\{renderBundle\}/);
+  assert.match(client, /signedUrl=\{signedUrl \?\? ""\}/);
+  assert.match(
+    route,
+    /room\.file\.kind === "pdf"[\s\S]*createSignedUrl\(room\.file\.storage_path/s,
+  );
+});
+
 test("PDF anchors are never copied and IFC candidates require one exact identity", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(

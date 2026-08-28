@@ -5,7 +5,13 @@ import { Link, redirect } from "react-router";
 
 import IfcPropertyBrowser from "~/lukas/components/ifc-property-browser.client";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { adaptIfcRenderBundleDescriptor } from "~/lukas/lib/ifc-render-descriptor";
 import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
+import {
+  loadDrawingIfcDerivative,
+  type DrawingWorkspaceClient,
+  type DrawingWorkspaceFile,
+} from "~/lukas/lib/drawing-workspace.server";
 
 export const meta: Route.MetaFunction = ({ data }) => [
   {
@@ -37,7 +43,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const { data: file } = await client
     .from("lukas_qto_files")
-    .select("id, kind, original_filename, storage_path, byte_size, sha256")
+    .select(
+      "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, immutable, created_at",
+    )
     .eq("id", params.fileId)
     .eq("project_id", project.id)
     .single();
@@ -49,11 +57,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       { status: 413 },
     );
 
-  const { data: signed, error } = await client.storage
-    .from("lukas-qto")
-    .createSignedUrl(file.storage_path, 300);
-  if (error || !signed?.signedUrl)
-    throw new Response("IFC 열기 링크를 만들지 못했습니다.", { status: 500 });
+  const derivative = await loadDrawingIfcDerivative(
+    client as unknown as DrawingWorkspaceClient,
+    file as DrawingWorkspaceFile,
+  );
+  const renderBundle = adaptIfcRenderBundleDescriptor({
+    id: file.id,
+    sha256: file.sha256,
+    derivative,
+  });
   const requestedGlobalId = new URL(request.url).searchParams.get("globalId");
   if (
     requestedGlobalId !== null &&
@@ -65,7 +77,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return {
     project,
     file,
-    signedUrl: signed.signedUrl,
+    derivative,
+    renderBundle,
     requestedGlobalId,
   };
 }
@@ -98,9 +111,10 @@ export default function IfcBrowser({ loaderData }: Route.ComponentProps) {
       <div className="mt-8">
         <IfcPropertyBrowser
           byteSize={loaderData.file.byte_size}
+          derivative={loaderData.derivative}
           fileName={loaderData.file.original_filename}
           initialGlobalId={loaderData.requestedGlobalId}
-          signedUrl={loaderData.signedUrl}
+          renderBundle={loaderData.renderBundle}
           sourceKey={loaderData.file.id}
         />
       </div>
