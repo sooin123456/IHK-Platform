@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { Database, Json } from "database.types";
 import { z } from "zod";
 import {
@@ -73,19 +73,154 @@ export type DrawingWorkspaceFile = {
   created_at: string;
 };
 
-export type DrawingWorkspaceSourceDescriptor = {
+type DrawingWorkspaceSourceIdentity = {
   id: string;
   kind: "pdf" | "ifc";
   originalFilename: string;
   byteSize: number;
   sha256: string;
-  signedUrl: string;
 };
 
-export type DrawingWorkspaceSourceCatalogItem = Omit<
-  DrawingWorkspaceSourceDescriptor,
-  "signedUrl"
->;
+export type DrawingIfcDerivativeDescriptor =
+  | {
+      status: "not_applicable";
+      version: null;
+      sourceSha256: null;
+      manifestSha256: null;
+      geometrySha256: null;
+      manifestSignedUrl: null;
+      geometrySignedUrl: null;
+    }
+  | {
+      status: "pending" | "failed";
+      version: number | null;
+      sourceSha256: string;
+      manifestSha256: null;
+      geometrySha256: null;
+      manifestSignedUrl: null;
+      geometrySignedUrl: null;
+    }
+  | {
+      status: "ready";
+      version: number;
+      sourceSha256: string;
+      manifestSha256: string;
+      geometrySha256: string;
+      manifestSignedUrl: string;
+      geometrySignedUrl: string;
+    };
+
+export type DrawingWorkspaceSourceDescriptor =
+  DrawingWorkspaceSourceIdentity & {
+    signedUrl: string;
+    derivative: DrawingIfcDerivativeDescriptor;
+  };
+
+export type DrawingWorkspaceSourceCatalogItem = DrawingWorkspaceSourceIdentity;
+
+const IfcDerivativePropertyValueSchema = z.union([
+  z.string().max(4_000),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+const IfcDerivativePropertySchema = z
+  .object({
+    group: z.string().trim().min(1).max(160),
+    name: z.string().trim().min(1).max(160),
+    value: IfcDerivativePropertyValueSchema,
+  })
+  .strict();
+
+const IfcDerivativeMeshMappingSchema = z
+  .object({
+    nodeId: z.string().trim().min(1).max(256),
+    primitiveIndices: z.array(z.number().int().nonnegative()).min(1).max(1_000),
+  })
+  .strict()
+  .superRefine((mapping, context) => {
+    if (
+      new Set(mapping.primitiveIndices).size !== mapping.primitiveIndices.length
+    )
+      context.addIssue({
+        code: "custom",
+        message: "primitiveIndices must be unique",
+        path: ["primitiveIndices"],
+      });
+  });
+
+const IfcDerivativeElementSchema = z
+  .object({
+    expressId: z.number().int().positive(),
+    globalId: z.string().regex(/^[0-9A-Za-z_$]{22}$/),
+    typeName: z.string().trim().min(1).max(160),
+    name: z.string().max(500).nullable(),
+    meshes: z.array(IfcDerivativeMeshMappingSchema).min(1).max(10_000),
+    properties: z.array(IfcDerivativePropertySchema).max(10_000),
+  })
+  .strict();
+
+export const IfcDerivativeManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    source: z
+      .object({
+        fileId: z.string().uuid(),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .strict(),
+    geometry: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
+    elements: z.array(IfcDerivativeElementSchema).max(1_000_000),
+  })
+  .strict()
+  .superRefine((manifest, context) => {
+    const expressIds = new Set<number>();
+    const globalIds = new Set<string>();
+    const nodeIds = new Set<string>();
+    manifest.elements.forEach((element, index) => {
+      if (expressIds.has(element.expressId))
+        context.addIssue({
+          code: "custom",
+          message: "duplicate expressId",
+          path: ["elements", index, "expressId"],
+        });
+      expressIds.add(element.expressId);
+      if (globalIds.has(element.globalId))
+        context.addIssue({
+          code: "custom",
+          message: "duplicate globalId",
+          path: ["elements", index, "globalId"],
+        });
+      globalIds.add(element.globalId);
+      for (const mapping of element.meshes) {
+        if (nodeIds.has(mapping.nodeId))
+          context.addIssue({
+            code: "custom",
+            message: "duplicate nodeId",
+            path: ["elements", index, "meshes"],
+          });
+        nodeIds.add(mapping.nodeId);
+      }
+    });
+  });
+
+export type IfcDerivativeManifest = z.infer<typeof IfcDerivativeManifestSchema>;
+
+type DrawingIfcDerivativeRow = {
+  id: string;
+  project_id: string;
+  source_file_id: string;
+  source_sha256: string;
+  version: number;
+  schema_version: number;
+  status: "pending" | "ready" | "failed";
+  manifest_json: Json | null;
+  manifest_storage_path: string | null;
+  manifest_sha256: string | null;
+  geometry_storage_path: string | null;
+  geometry_sha256: string | null;
+};
 
 export type DrawingWorkspaceSourceBundle = {
   primary: DrawingWorkspaceSourceDescriptor | DrawingWorkspaceSourceCatalogItem;
@@ -257,6 +392,7 @@ type DrawingRpc<Args> = { Args: Args; Returns: Json };
 export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables" | "Functions"> & {
     Tables: Database["public"]["Tables"] & {
+      lukas_drawing_ifc_derivatives: TableDefinition<DrawingIfcDerivativeRow>;
       lukas_drawing_documents: TableDefinition<DrawingDocumentRow>;
       lukas_drawing_revisions: TableDefinition<DrawingRevisionRow>;
       lukas_drawing_pages: TableDefinition<DrawingPageRow>;
@@ -338,6 +474,7 @@ const drawingRowsMaxPageSize = 1_000;
 
 type DrawingRowsTable =
   | "lukas_qto_files"
+  | "lukas_drawing_ifc_derivatives"
   | "lukas_qto_file_revisions"
   | "lukas_drawing_pages"
   | "lukas_drawing_canvases"
@@ -2639,6 +2776,141 @@ function drawingWorkspaceSourceCatalogItem(
   };
 }
 
+function canonicalIfcDerivativeJson(value: unknown): string {
+  if (Array.isArray(value))
+    return `[${value.map(canonicalIfcDerivativeJson).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, child]) =>
+          `${JSON.stringify(key)}:${canonicalIfcDerivativeJson(child)}`,
+      )
+      .join(",")}}`;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined)
+    throw new Error("Invalid derivative JSON value");
+  return serialized;
+}
+
+const noIfcDerivative = (
+  sourceSha256: string,
+  status: "pending" | "failed" = "pending",
+  version: number | null = null,
+): DrawingIfcDerivativeDescriptor => ({
+  status,
+  version,
+  sourceSha256,
+  manifestSha256: null,
+  geometrySha256: null,
+  manifestSignedUrl: null,
+  geometrySignedUrl: null,
+});
+
+const notApplicableDerivative: DrawingIfcDerivativeDescriptor = {
+  status: "not_applicable",
+  version: null,
+  sourceSha256: null,
+  manifestSha256: null,
+  geometrySha256: null,
+  manifestSignedUrl: null,
+  geometrySignedUrl: null,
+};
+
+export async function loadDrawingIfcDerivative(
+  client: DrawingWorkspaceClient,
+  file: DrawingWorkspaceFile,
+): Promise<DrawingIfcDerivativeDescriptor> {
+  if (
+    file.kind !== "ifc" ||
+    !file.immutable ||
+    !Uuid.safeParse(file.id).success ||
+    !Uuid.safeParse(file.project_id).success ||
+    !Sha256.safeParse(file.sha256).success
+  )
+    throw new Response("IFC derivative 원본 증거가 올바르지 않습니다.", {
+      status: 409,
+    });
+
+  const { data, error } = await client
+    .from("lukas_drawing_ifc_derivatives")
+    .select(
+      "id,project_id,source_file_id,source_sha256,version,schema_version,status,manifest_json,manifest_storage_path,manifest_sha256,geometry_storage_path,geometry_sha256",
+    )
+    .eq("project_id", file.project_id)
+    .eq("source_file_id", file.id)
+    .order("version", { ascending: false })
+    .limit(1);
+  if (error)
+    throw new Response("IFC derivative 증거를 확인하지 못했습니다.", {
+      status: 500,
+    });
+  const candidate = Array.isArray(data) ? data[0] : null;
+  if (!candidate) return noIfcDerivative(file.sha256);
+  const row = candidate as DrawingIfcDerivativeRow;
+  if (
+    row.project_id !== file.project_id ||
+    row.source_file_id !== file.id ||
+    row.source_sha256 !== file.sha256 ||
+    row.schema_version !== 1 ||
+    !Number.isSafeInteger(row.version) ||
+    row.version < 1 ||
+    !["pending", "ready", "failed"].includes(row.status)
+  )
+    throw new Response("IFC derivative 원본 계보가 일치하지 않습니다.", {
+      status: 409,
+    });
+  if (row.status !== "ready")
+    return noIfcDerivative(file.sha256, row.status, row.version);
+
+  const manifest = IfcDerivativeManifestSchema.safeParse(row.manifest_json);
+  if (
+    !manifest.success ||
+    row.schema_version !== manifest.data.schemaVersion ||
+    manifest.data.source.fileId !== file.id ||
+    manifest.data.source.sha256 !== file.sha256 ||
+    manifest.data.geometry.sha256 !== row.geometry_sha256 ||
+    !row.manifest_storage_path ||
+    !row.geometry_storage_path ||
+    !row.manifest_sha256 ||
+    !Sha256.safeParse(row.manifest_sha256).success ||
+    !row.geometry_sha256 ||
+    !Sha256.safeParse(row.geometry_sha256).success ||
+    createHash("sha256")
+      .update(
+        canonicalIfcDerivativeJson(manifest.success ? manifest.data : null),
+      )
+      .digest("hex") !== row.manifest_sha256
+  )
+    throw new Response("IFC derivative 해시 또는 버전이 일치하지 않습니다.", {
+      status: 409,
+    });
+
+  const storage = client.storage.from("lukas-qto");
+  const [manifestResult, geometryResult] = await Promise.all([
+    storage.createSignedUrl(row.manifest_storage_path, 300),
+    storage.createSignedUrl(row.geometry_storage_path, 300),
+  ]);
+  if (
+    manifestResult.error ||
+    geometryResult.error ||
+    !manifestResult.data?.signedUrl ||
+    !geometryResult.data?.signedUrl
+  )
+    throw new Response("IFC derivative 파일을 열지 못했습니다.", {
+      status: 500,
+    });
+  return {
+    status: "ready",
+    version: row.version,
+    sourceSha256: file.sha256,
+    manifestSha256: row.manifest_sha256,
+    geometrySha256: row.geometry_sha256,
+    manifestSignedUrl: manifestResult.data.signedUrl,
+    geometrySignedUrl: geometryResult.data.signedUrl,
+  };
+}
+
 export async function loadDrawingWorkspaceSourceBundle(
   client: DrawingWorkspaceClient,
   workspace: DrawingWorkspace,
@@ -2773,6 +3045,10 @@ export async function loadDrawingWorkspaceSourceBundle(
     const descriptor = {
       ...drawingWorkspaceSourceCatalogItem(file),
       signedUrl: data.signedUrl,
+      derivative:
+        file.kind === "ifc"
+          ? await loadDrawingIfcDerivative(client, file)
+          : notApplicableDerivative,
     };
     signed.set(file.id, descriptor);
     return descriptor;
@@ -2904,6 +3180,7 @@ export async function loadDrawingWorkspacePreviousPdf(
   return {
     ...drawingWorkspaceSourceCatalogItem(previous),
     signedUrl: data.signedUrl,
+    derivative: notApplicableDerivative,
   };
 }
 

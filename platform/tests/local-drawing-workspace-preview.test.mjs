@@ -370,6 +370,20 @@ test("P2 preview fixture is a strict, hydrated P2 graph", () => {
   assert.equal(revision.issueLinks.length, 1);
 });
 
+test("local IFC preview fixture carries a source-bound immutable derivative contract", () => {
+  const fixture = preview.localDrawingWorkspacePreviewFixture({
+    p5IfcTest: true,
+    selectedIfcFileId: "00000000-0000-4000-8000-0000000000a1",
+    viewMode: "split",
+  });
+  const source = fixture.sourceBundle.ifc;
+  assert.equal(source.derivative.status, "ready");
+  assert.equal(source.derivative.version, 1);
+  assert.equal(source.derivative.sourceSha256, source.sha256);
+  assert.match(source.derivative.manifestSignedUrl, /\.json$/);
+  assert.match(source.derivative.geometrySignedUrl, /\.glb$/);
+});
+
 test("P4 preview is visibly populated with canonical hosted objects and schedules", () => {
   const fixture = preview.localDrawingWorkspacePreviewFixture();
   const revision = fixture.workspace.document.revision;

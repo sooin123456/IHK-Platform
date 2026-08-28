@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -43,6 +44,264 @@ const ids = {
 };
 
 const sourceSha = "a".repeat(64);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+const ifcDerivativeManifest = {
+  schemaVersion: 1,
+  source: { fileId: ids.file, sha256: sourceSha },
+  geometry: { sha256: "b".repeat(64) },
+  elements: [
+    {
+      expressId: 42,
+      globalId: "0VNYAWfXv8JvIRVfOzYH1j",
+      typeName: "IFCWALL",
+      name: "외벽",
+      meshes: [{ nodeId: "ifc-42", primitiveIndices: [0] }],
+      properties: [{ group: "Identity", name: "FireRating", value: "2h" }],
+    },
+  ],
+};
+const ifcManifestSha = createHash("sha256")
+  .update(canonicalJson(ifcDerivativeManifest))
+  .digest("hex");
+
+test("IFC derivative manifest is strict and rejects ambiguous element mappings", () => {
+  assert.deepEqual(
+    workspaceServer.IfcDerivativeManifestSchema.parse(ifcDerivativeManifest),
+    ifcDerivativeManifest,
+  );
+  assert.throws(
+    () =>
+      workspaceServer.IfcDerivativeManifestSchema.parse({
+        ...ifcDerivativeManifest,
+        ignored: true,
+      }),
+    /unrecognized/i,
+  );
+  assert.throws(
+    () =>
+      workspaceServer.IfcDerivativeManifestSchema.parse({
+        ...ifcDerivativeManifest,
+        elements: [
+          ifcDerivativeManifest.elements[0],
+          {
+            ...ifcDerivativeManifest.elements[0],
+            globalId: "1VNYAWfXv8JvIRVfOzYH1j",
+          },
+        ],
+      }),
+    /expressId/i,
+  );
+});
+
+test("IFC derivative loader signs only a hash-bound ready artifact", async () => {
+  const calls = [];
+  const derivative = {
+    id: "00000000-0000-4000-8000-000000000100",
+    project_id: ids.project,
+    source_file_id: ids.file,
+    source_sha256: sourceSha,
+    version: 1,
+    schema_version: 1,
+    status: "ready",
+    manifest_json: ifcDerivativeManifest,
+    manifest_storage_path: "projects/model.derivative.json",
+    manifest_sha256: ifcManifestSha,
+    geometry_storage_path: "projects/model.glb",
+    geometry_sha256: "b".repeat(64),
+  };
+  const client = {
+    from(table) {
+      calls.push(["table", table]);
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq(column, value) {
+          calls.push(["eq", column, value]);
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve({ data: [derivative], error: null });
+        },
+      };
+      return builder;
+    },
+    storage: {
+      from(bucket) {
+        calls.push(["bucket", bucket]);
+        return {
+          async createSignedUrl(path, ttl) {
+            calls.push(["sign", path, ttl]);
+            return {
+              data: { signedUrl: `https://storage.test/${path}` },
+              error: null,
+            };
+          },
+        };
+      },
+    },
+  };
+  const loaded = await workspaceServer.loadDrawingIfcDerivative(client, {
+    id: ids.file,
+    project_id: ids.project,
+    kind: "ifc",
+    original_filename: "model.ifc",
+    storage_path: "projects/model.ifc",
+    content_type: "application/x-step",
+    byte_size: 1,
+    sha256: sourceSha,
+    immutable: true,
+    created_at: "2026-08-28T00:00:00Z",
+  });
+  assert.deepEqual(loaded, {
+    status: "ready",
+    version: 1,
+    sourceSha256: sourceSha,
+    manifestSha256: ifcManifestSha,
+    geometrySha256: "b".repeat(64),
+    manifestSignedUrl: "https://storage.test/projects/model.derivative.json",
+    geometrySignedUrl: "https://storage.test/projects/model.glb",
+  });
+  assert.deepEqual(
+    calls.filter(([kind]) => kind === "sign"),
+    [
+      ["sign", "projects/model.derivative.json", 300],
+      ["sign", "projects/model.glb", 300],
+    ],
+  );
+});
+
+test("IFC derivative loader fails closed before signing mismatched evidence", async () => {
+  let signed = false;
+  const client = {
+    from() {
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve({
+            data: [
+              {
+                project_id: ids.project,
+                source_file_id: ids.file,
+                source_sha256: "c".repeat(64),
+                version: 1,
+                schema_version: 1,
+                status: "ready",
+                manifest_json: ifcDerivativeManifest,
+                manifest_storage_path: "model.json",
+                manifest_sha256: ifcManifestSha,
+                geometry_storage_path: "model.glb",
+                geometry_sha256: "b".repeat(64),
+              },
+            ],
+            error: null,
+          });
+        },
+      };
+      return builder;
+    },
+    storage: {
+      from() {
+        return {
+          createSignedUrl() {
+            signed = true;
+          },
+        };
+      },
+    },
+  };
+  await assert.rejects(
+    workspaceServer.loadDrawingIfcDerivative(client, {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "ifc",
+      original_filename: "model.ifc",
+      storage_path: "model.ifc",
+      content_type: null,
+      byte_size: 1,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-08-28T00:00:00Z",
+    }),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  assert.equal(signed, false);
+});
+
+test("IFC derivative loader rejects a pending row with an unsupported contract version", async () => {
+  const client = {
+    from() {
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        order() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve({
+            data: [
+              {
+                project_id: ids.project,
+                source_file_id: ids.file,
+                source_sha256: sourceSha,
+                version: 1,
+                schema_version: 2,
+                status: "pending",
+                manifest_json: null,
+                manifest_storage_path: null,
+                manifest_sha256: null,
+                geometry_storage_path: null,
+                geometry_sha256: null,
+              },
+            ],
+            error: null,
+          });
+        },
+      };
+      return builder;
+    },
+  };
+  await assert.rejects(
+    workspaceServer.loadDrawingIfcDerivative(client, {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "ifc",
+      original_filename: "model.ifc",
+      storage_path: "model.ifc",
+      content_type: null,
+      byte_size: 1,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-08-28T00:00:00Z",
+    }),
+    (error) => error instanceof Response && error.status === 409,
+  );
+});
 
 const p2Ids = {
   canvas: "00000000-0000-4000-8000-000000000013",

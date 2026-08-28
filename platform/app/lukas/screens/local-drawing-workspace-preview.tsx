@@ -101,6 +101,26 @@ const previewIfcSha256 =
   "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d";
 const previewIfcUrl =
   "https://raw.githubusercontent.com/ThatOpen/engine_web-ifc/3f6f3640b8317664194911fad63bcd407f7e32ca/examples/example.ifc";
+const previewIfcManifestSha256 = "c".repeat(64);
+const previewIfcGeometrySha256 = "d".repeat(64);
+const previewIfcDerivative = (sourceSha256: string) => ({
+  status: "ready" as const,
+  version: 1,
+  sourceSha256,
+  manifestSha256: previewIfcManifestSha256,
+  geometrySha256: previewIfcGeometrySha256,
+  manifestSignedUrl: "/__p5-ifc-derivative.json",
+  geometrySignedUrl: "/__p5-ifc-geometry.glb",
+});
+const previewNotApplicableDerivative = {
+  status: "not_applicable" as const,
+  version: null,
+  sourceSha256: null,
+  manifestSha256: null,
+  geometrySha256: null,
+  manifestSignedUrl: null,
+  geometrySignedUrl: null,
+};
 const previewPreviousPdfFileId = "00000000-0000-4000-8000-0000000000b1";
 const previewPdfRevisionEdgeId = "00000000-0000-4000-8000-0000000000b2";
 
@@ -1000,8 +1020,16 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         (item) => item.id === (options?.selectedIfcFileId ?? previewIfcFileId),
       );
   const pdfSourceBundle: DrawingWorkspaceSourceBundle = {
-    primary: { ...primary, signedUrl: "/__p5-current.pdf" },
-    pdf: { ...primary, signedUrl: "/__p5-current.pdf" },
+    primary: {
+      ...primary,
+      signedUrl: "/__p5-current.pdf",
+      derivative: previewNotApplicableDerivative,
+    },
+    pdf: {
+      ...primary,
+      signedUrl: "/__p5-current.pdf",
+      derivative: previewNotApplicableDerivative,
+    },
     ifc: null,
     previousPdf: {
       id: previewPreviousPdfFileId,
@@ -1053,7 +1081,11 @@ export function localDrawingWorkspacePreviewFixture(options?: {
           ifc:
             options.viewMode === "2d" || !selectedIfc
               ? null
-              : { ...selectedIfc, signedUrl: activeIfcUrl },
+              : {
+                  ...selectedIfc,
+                  signedUrl: activeIfcUrl,
+                  derivative: previewIfcDerivative(selectedIfc.sha256),
+                },
         }
       : options?.p5PdfTest
         ? pdfSourceBundle
@@ -1064,7 +1096,11 @@ export function localDrawingWorkspacePreviewFixture(options?: {
               ifc:
                 options.viewMode === "2d"
                   ? null
-                  : { ...selectedIfc, signedUrl: activeIfcUrl },
+                  : {
+                      ...selectedIfc,
+                      signedUrl: activeIfcUrl,
+                      derivative: previewIfcDerivative(selectedIfc.sha256),
+                    },
               previousPdf: null,
               revisionEdge: null,
               catalog: [primary, ...ifcCatalog],

@@ -150,7 +150,9 @@ function sourceBundleClient(rows, revisionEdges = []) {
     calls,
     from(table) {
       assert.ok(
-        table === "lukas_qto_files" || table === "lukas_qto_file_revisions",
+        table === "lukas_qto_files" ||
+          table === "lukas_qto_file_revisions" ||
+          table === "lukas_drawing_ifc_derivatives",
       );
       const query = {
         select(columns) {
@@ -172,7 +174,12 @@ function sourceBundleClient(rows, revisionEdges = []) {
         limit(size) {
           calls.push(["limit", size]);
           return Promise.resolve({
-            data: table === "lukas_qto_file_revisions" ? revisionEdges : rows,
+            data:
+              table === "lukas_qto_file_revisions"
+                ? revisionEdges
+                : table === "lukas_drawing_ifc_derivatives"
+                  ? []
+                  : rows,
             error: null,
           });
         },
@@ -282,6 +289,15 @@ test("PDF compare opt-in signs exactly one revalidated predecessor capability", 
     byteSize: 3072,
     sha256: "c".repeat(64),
     signedUrl: "https://storage.test/projects/plan-r1.pdf",
+    derivative: {
+      status: "not_applicable",
+      version: null,
+      sourceSha256: null,
+      manifestSha256: null,
+      geometrySha256: null,
+      manifestSignedUrl: null,
+      geometrySignedUrl: null,
+    },
   });
   assert.deepEqual(
     client.calls.filter(([kind]) => kind === "sign"),
@@ -462,6 +478,15 @@ test("source bundle signs only loaded sources and never puts capabilities in the
     byteSize: 4096,
     sha256: "a".repeat(64),
     signedUrl: "https://storage.test/projects/plan.pdf",
+    derivative: {
+      status: "not_applicable",
+      version: null,
+      sourceSha256: null,
+      manifestSha256: null,
+      geometrySha256: null,
+      manifestSignedUrl: null,
+      geometrySignedUrl: null,
+    },
   });
   assert.deepEqual(bundle.pdf, bundle.primary);
   assert.deepEqual(bundle.ifc, {
@@ -471,6 +496,15 @@ test("source bundle signs only loaded sources and never puts capabilities in the
     byteSize: 8192,
     sha256: "b".repeat(64),
     signedUrl: "https://storage.test/projects/model.ifc",
+    derivative: {
+      status: "pending",
+      version: null,
+      sourceSha256: "b".repeat(64),
+      manifestSha256: null,
+      geometrySha256: null,
+      manifestSignedUrl: null,
+      geometrySignedUrl: null,
+    },
   });
   assert.deepEqual(bundle.catalog, [
     {
