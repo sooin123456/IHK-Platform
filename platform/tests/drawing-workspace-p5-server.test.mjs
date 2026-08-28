@@ -152,7 +152,8 @@ function sourceBundleClient(rows, revisionEdges = []) {
       assert.ok(
         table === "lukas_qto_files" ||
           table === "lukas_qto_file_revisions" ||
-          table === "lukas_drawing_ifc_derivatives",
+          table === "lukas_drawing_ifc_derivatives" ||
+          table === "lukas_drawing_revision_ifc_derivatives",
       );
       const query = {
         select(columns) {
@@ -177,7 +178,8 @@ function sourceBundleClient(rows, revisionEdges = []) {
             data:
               table === "lukas_qto_file_revisions"
                 ? revisionEdges
-                : table === "lukas_drawing_ifc_derivatives"
+                : table === "lukas_drawing_ifc_derivatives" ||
+                    table === "lukas_drawing_revision_ifc_derivatives"
                   ? []
                   : rows,
             error: null,

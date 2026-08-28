@@ -217,9 +217,24 @@ type DrawingIfcDerivativeRow = {
   status: "pending" | "ready" | "failed";
   manifest_json: Json | null;
   manifest_storage_path: string | null;
+  manifest_byte_size: number | null;
   manifest_sha256: string | null;
   geometry_storage_path: string | null;
+  geometry_byte_size: number | null;
   geometry_sha256: string | null;
+};
+
+type DrawingRevisionIfcDerivativeRow = {
+  id: string;
+  revision_id: string;
+  revision_version: number;
+  project_id: string;
+  source_file_id: string;
+  source_sha256: string;
+  derivative_id: string;
+  derivative_version: number;
+  manifest_sha256: string;
+  geometry_sha256: string;
 };
 
 export type DrawingWorkspaceSourceBundle = {
@@ -393,6 +408,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables" | "Functions"> & {
     Tables: Database["public"]["Tables"] & {
       lukas_drawing_ifc_derivatives: TableDefinition<DrawingIfcDerivativeRow>;
+      lukas_drawing_revision_ifc_derivatives: TableDefinition<DrawingRevisionIfcDerivativeRow>;
       lukas_drawing_documents: TableDefinition<DrawingDocumentRow>;
       lukas_drawing_revisions: TableDefinition<DrawingRevisionRow>;
       lukas_drawing_pages: TableDefinition<DrawingPageRow>;
@@ -475,6 +491,7 @@ const drawingRowsMaxPageSize = 1_000;
 type DrawingRowsTable =
   | "lukas_qto_files"
   | "lukas_drawing_ifc_derivatives"
+  | "lukas_drawing_revision_ifc_derivatives"
   | "lukas_qto_file_revisions"
   | "lukas_drawing_pages"
   | "lukas_drawing_canvases"
@@ -2817,9 +2834,147 @@ const notApplicableDerivative: DrawingIfcDerivativeDescriptor = {
   geometrySignedUrl: null,
 };
 
+const ifcManifestMaxBytes = 32 * 1024 * 1024;
+const ifcGeometryMaxBytes = 200 * 1024 * 1024;
+
+function contentAddressedIfcDerivativePaths(row: DrawingIfcDerivativeRow) {
+  const prefix = `projects/${row.project_id}/ifc-derivatives/${row.source_sha256}/v${row.version}`;
+  return {
+    manifest: `${prefix}/${row.manifest_sha256}.json`,
+    geometry: `${prefix}/${row.geometry_sha256}.glb`,
+  };
+}
+
+function parseSelfContainedGlb(
+  bytes: Uint8Array,
+  manifest: IfcDerivativeManifest,
+) {
+  if (bytes.byteLength < 20) throw new Error("GLB header is incomplete");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (
+    view.getUint32(0, true) !== 0x46546c67 ||
+    view.getUint32(4, true) !== 2 ||
+    view.getUint32(8, true) !== bytes.byteLength
+  )
+    throw new Error("GLB header is invalid");
+  let offset = 12;
+  let json: unknown = null;
+  let binaryLength = 0;
+  while (offset < bytes.byteLength) {
+    if (offset + 8 > bytes.byteLength)
+      throw new Error("GLB chunk header is incomplete");
+    const length = view.getUint32(offset, true);
+    const type = view.getUint32(offset + 4, true);
+    offset += 8;
+    if (length % 4 !== 0 || offset + length > bytes.byteLength)
+      throw new Error("GLB chunk length is invalid");
+    if (type === 0x4e4f534a) {
+      if (json !== null) throw new Error("GLB has duplicate JSON chunks");
+      const source = new TextDecoder("utf-8", { fatal: true })
+        .decode(bytes.subarray(offset, offset + length))
+        .trimEnd();
+      json = JSON.parse(source);
+    } else if (type === 0x004e4942) {
+      if (binaryLength !== 0) throw new Error("GLB has duplicate BIN chunks");
+      binaryLength = length;
+    } else throw new Error("GLB has an unsupported chunk");
+    offset += length;
+  }
+  if (offset !== bytes.byteLength || !json || typeof json !== "object")
+    throw new Error("GLB JSON is unavailable");
+  const document = json as Record<string, unknown>;
+  const asset = document.asset as Record<string, unknown> | undefined;
+  if (asset?.version !== "2.0") throw new Error("GLB asset version is invalid");
+  const buffers = Array.isArray(document.buffers) ? document.buffers : [];
+  if (buffers.length > 1) throw new Error("GLB has multiple buffers");
+  for (const buffer of buffers) {
+    if (!buffer || typeof buffer !== "object")
+      throw new Error("GLB buffer is invalid");
+    const value = buffer as Record<string, unknown>;
+    if ("uri" in value) throw new Error("GLB buffer must be embedded");
+    if (
+      typeof value.byteLength !== "number" ||
+      !Number.isSafeInteger(value.byteLength) ||
+      value.byteLength < 0 ||
+      value.byteLength > binaryLength
+    )
+      throw new Error("GLB buffer length is invalid");
+  }
+  const images = Array.isArray(document.images) ? document.images : [];
+  for (const image of images) {
+    if (!image || typeof image !== "object")
+      throw new Error("GLB image is invalid");
+    const uri = (image as Record<string, unknown>).uri;
+    if (typeof uri === "string" && !uri.startsWith("data:"))
+      throw new Error("GLB image URI must be embedded");
+  }
+  const nodes = Array.isArray(document.nodes) ? document.nodes : [];
+  const meshes = Array.isArray(document.meshes) ? document.meshes : [];
+  const nodesById = new Map<string, Record<string, unknown>>();
+  for (const value of nodes) {
+    if (!value || typeof value !== "object")
+      throw new Error("GLB node is invalid");
+    const node = value as Record<string, unknown>;
+    const extras =
+      node.extras && typeof node.extras === "object"
+        ? (node.extras as Record<string, unknown>)
+        : null;
+    const nodeId =
+      typeof extras?.ifcNodeId === "string"
+        ? extras.ifcNodeId
+        : typeof node.name === "string"
+          ? node.name
+          : null;
+    if (nodeId) {
+      if (nodesById.has(nodeId))
+        throw new Error("GLB node identity is duplicated");
+      nodesById.set(nodeId, node);
+    }
+  }
+  for (const element of manifest.elements)
+    for (const mapping of element.meshes) {
+      const node = nodesById.get(mapping.nodeId);
+      if (!node || !Number.isSafeInteger(node.mesh))
+        throw new Error("GLB manifest node is unavailable");
+      const mesh = meshes[node.mesh as number];
+      if (!mesh || typeof mesh !== "object")
+        throw new Error("GLB manifest mesh is unavailable");
+      const primitives = (mesh as Record<string, unknown>).primitives;
+      if (
+        !Array.isArray(primitives) ||
+        mapping.primitiveIndices.some((index) => index >= primitives.length)
+      )
+        throw new Error("GLB manifest primitive is unavailable");
+    }
+}
+
+async function downloadIfcDerivativeBytes(
+  storage: ReturnType<DrawingWorkspaceClient["storage"]["from"]>,
+  path: string,
+  expectedSize: number,
+  expectedSha256: string,
+) {
+  const result = await storage.download(path);
+  if (result.error || !result.data)
+    throw new Response("IFC derivative 파일을 읽지 못했습니다.", {
+      status: 500,
+    });
+  if (result.data.size !== expectedSize)
+    throw new Response("IFC derivative 파일 크기가 일치하지 않습니다.", {
+      status: 409,
+    });
+  const bytes = new Uint8Array(await result.data.arrayBuffer());
+  if (createHash("sha256").update(bytes).digest("hex") !== expectedSha256)
+    throw new Response("IFC derivative 파일 해시가 일치하지 않습니다.", {
+      status: 409,
+    });
+  return bytes;
+}
+
 export async function loadDrawingIfcDerivative(
   client: DrawingWorkspaceClient,
   file: DrawingWorkspaceFile,
+  revision?: Pick<DrawingRevisionRow, "id" | "status" | "version">,
 ): Promise<DrawingIfcDerivativeDescriptor> {
   if (
     file.kind !== "ifc" ||
@@ -2832,21 +2987,92 @@ export async function loadDrawingIfcDerivative(
       status: 409,
     });
 
-  const { data, error } = await client
+  const protectedRevision = Boolean(
+    revision &&
+    ["review_requested", "reviewed", "approved", "superseded"].includes(
+      revision.status,
+    ),
+  );
+  let binding: DrawingRevisionIfcDerivativeRow | null = null;
+  if (revision) {
+    const bindingResult = await client
+      .from("lukas_drawing_revision_ifc_derivatives")
+      .select(
+        "id,revision_id,revision_version,project_id,source_file_id,source_sha256,derivative_id,derivative_version,manifest_sha256,geometry_sha256",
+      )
+      .eq("project_id", file.project_id)
+      .eq("revision_id", revision.id)
+      .eq("revision_version", revision.version)
+      .eq("source_file_id", file.id)
+      .limit(2);
+    if (bindingResult.error)
+      throw new Response("IFC derivative 고정 증거를 확인하지 못했습니다.", {
+        status: 500,
+      });
+    const bindings = Array.isArray(bindingResult.data)
+      ? bindingResult.data
+      : [];
+    if (bindings.length > 1)
+      throw new Response("IFC derivative 고정 증거가 중복되었습니다.", {
+        status: 409,
+      });
+    binding = (bindings[0] as DrawingRevisionIfcDerivativeRow) ?? null;
+  }
+  if (protectedRevision && !binding)
+    throw new Response("보호된 개정의 IFC derivative 고정 증거가 없습니다.", {
+      status: 409,
+    });
+
+  let derivativeQuery = client
     .from("lukas_drawing_ifc_derivatives")
     .select(
-      "id,project_id,source_file_id,source_sha256,version,schema_version,status,manifest_json,manifest_storage_path,manifest_sha256,geometry_storage_path,geometry_sha256",
+      "id,project_id,source_file_id,source_sha256,version,schema_version,status,manifest_json,manifest_storage_path,manifest_byte_size,manifest_sha256,geometry_storage_path,geometry_byte_size,geometry_sha256",
     )
     .eq("project_id", file.project_id)
-    .eq("source_file_id", file.id)
+    .eq("source_file_id", file.id);
+  if (binding)
+    derivativeQuery = derivativeQuery
+      .eq("id", binding.derivative_id)
+      .eq("version", binding.derivative_version);
+  else derivativeQuery = derivativeQuery.eq("status", "ready");
+  const derivativeResult = await derivativeQuery
     .order("version", { ascending: false })
-    .limit(1);
-  if (error)
+    .limit(2);
+  if (derivativeResult.error)
     throw new Response("IFC derivative 증거를 확인하지 못했습니다.", {
       status: 500,
     });
-  const candidate = Array.isArray(data) ? data[0] : null;
-  if (!candidate) return noIfcDerivative(file.sha256);
+  const candidates = Array.isArray(derivativeResult.data)
+    ? derivativeResult.data
+    : [];
+  if (candidates.length > 1 && binding)
+    throw new Response("고정된 IFC derivative 증거가 중복되었습니다.", {
+      status: 409,
+    });
+  let candidate: DrawingIfcDerivativeRow | undefined = candidates[0];
+  if (!candidate) {
+    if (protectedRevision || binding)
+      throw new Response("고정된 IFC derivative 증거를 찾을 수 없습니다.", {
+        status: 409,
+      });
+    const latestResult = await client
+      .from("lukas_drawing_ifc_derivatives")
+      .select(
+        "id,project_id,source_file_id,source_sha256,version,schema_version,status,manifest_json,manifest_storage_path,manifest_byte_size,manifest_sha256,geometry_storage_path,geometry_byte_size,geometry_sha256",
+      )
+      .eq("project_id", file.project_id)
+      .eq("source_file_id", file.id)
+      .order("version", { ascending: false })
+      .limit(1);
+    if (latestResult.error)
+      throw new Response("IFC derivative 상태를 확인하지 못했습니다.", {
+        status: 500,
+      });
+    candidate = Array.isArray(latestResult.data)
+      ? latestResult.data[0]
+      : undefined;
+    if (!candidate) return noIfcDerivative(file.sha256);
+  }
   const row = candidate as DrawingIfcDerivativeRow;
   if (
     row.project_id !== file.project_id ||
@@ -2862,6 +3088,21 @@ export async function loadDrawingIfcDerivative(
     });
   if (row.status !== "ready")
     return noIfcDerivative(file.sha256, row.status, row.version);
+  if (
+    binding &&
+    (binding.project_id !== file.project_id ||
+      binding.revision_id !== revision?.id ||
+      binding.revision_version !== revision.version ||
+      binding.source_file_id !== file.id ||
+      binding.source_sha256 !== file.sha256 ||
+      binding.derivative_id !== row.id ||
+      binding.derivative_version !== row.version ||
+      binding.manifest_sha256 !== row.manifest_sha256 ||
+      binding.geometry_sha256 !== row.geometry_sha256)
+  )
+    throw new Response("IFC derivative 고정 계보가 일치하지 않습니다.", {
+      status: 409,
+    });
 
   const manifest = IfcDerivativeManifestSchema.safeParse(row.manifest_json);
   if (
@@ -2872,6 +3113,8 @@ export async function loadDrawingIfcDerivative(
     manifest.data.geometry.sha256 !== row.geometry_sha256 ||
     !row.manifest_storage_path ||
     !row.geometry_storage_path ||
+    !row.manifest_byte_size ||
+    !row.geometry_byte_size ||
     !row.manifest_sha256 ||
     !Sha256.safeParse(row.manifest_sha256).success ||
     !row.geometry_sha256 ||
@@ -2886,7 +3129,64 @@ export async function loadDrawingIfcDerivative(
       status: 409,
     });
 
+  const expectedPaths = contentAddressedIfcDerivativePaths(row);
+  if (
+    row.manifest_storage_path !== expectedPaths.manifest ||
+    row.geometry_storage_path !== expectedPaths.geometry
+  )
+    throw new Response(
+      "IFC derivative 저장 경로가 content-addressed 형식이 아닙니다.",
+      {
+        status: 409,
+      },
+    );
   const storage = client.storage.from("lukas-qto");
+  if (
+    !Number.isSafeInteger(row.manifest_byte_size) ||
+    row.manifest_byte_size < 1 ||
+    row.manifest_byte_size > ifcManifestMaxBytes ||
+    !Number.isSafeInteger(row.geometry_byte_size) ||
+    row.geometry_byte_size < 1 ||
+    row.geometry_byte_size > ifcGeometryMaxBytes
+  )
+    throw new Response("IFC derivative 크기 증거가 올바르지 않습니다.", {
+      status: 409,
+    });
+  const [manifestBytes, geometryBytes] = await Promise.all([
+    downloadIfcDerivativeBytes(
+      storage,
+      row.manifest_storage_path,
+      row.manifest_byte_size,
+      row.manifest_sha256,
+    ),
+    downloadIfcDerivativeBytes(
+      storage,
+      row.geometry_storage_path,
+      row.geometry_byte_size,
+      row.geometry_sha256,
+    ),
+  ]);
+  let storedManifest: IfcDerivativeManifest;
+  try {
+    storedManifest = IfcDerivativeManifestSchema.parse(
+      JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes),
+      ),
+    );
+    if (
+      canonicalIfcDerivativeJson(storedManifest) !==
+        canonicalIfcDerivativeJson(manifest.data) ||
+      storedManifest.source.fileId !== file.id ||
+      storedManifest.source.sha256 !== file.sha256 ||
+      storedManifest.geometry.sha256 !== row.geometry_sha256
+    )
+      throw new Error("Manifest authority differs");
+    parseSelfContainedGlb(geometryBytes, storedManifest);
+  } catch {
+    throw new Response("IFC derivative 실제 artifact가 올바르지 않습니다.", {
+      status: 409,
+    });
+  }
   const [manifestResult, geometryResult] = await Promise.all([
     storage.createSignedUrl(row.manifest_storage_path, 300),
     storage.createSignedUrl(row.geometry_storage_path, 300),
@@ -2969,6 +3269,7 @@ export async function loadDrawingWorkspaceSourceBundle(
       revisionEdge: null,
       catalog,
     };
+  const workspaceRevision = workspace.document.revision;
 
   const revisionEdges =
     workspace.file.kind === "pdf"
@@ -3047,7 +3348,11 @@ export async function loadDrawingWorkspaceSourceBundle(
       signedUrl: data.signedUrl,
       derivative:
         file.kind === "ifc"
-          ? await loadDrawingIfcDerivative(client, file)
+          ? await loadDrawingIfcDerivative(client, file, {
+              id: workspaceRevision.id,
+              status: workspaceRevision.status,
+              version: workspaceRevision.version,
+            })
           : notApplicableDerivative,
     };
     signed.set(file.id, descriptor);

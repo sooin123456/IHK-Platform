@@ -55,10 +55,36 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function ifcTestGlb() {
+  const json = new TextEncoder().encode(
+    JSON.stringify({
+      asset: { version: "2.0" },
+      nodes: [{ name: "ifc-42", mesh: 0 }],
+      meshes: [{ primitives: [{}] }],
+    }),
+  );
+  const padded = Math.ceil(json.byteLength / 4) * 4;
+  const bytes = new Uint8Array(20 + padded);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(8, bytes.byteLength, true);
+  view.setUint32(12, padded, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  bytes.set(json, 20);
+  bytes.fill(0x20, 20 + json.byteLength);
+  return bytes;
+}
+
+const ifcGeometryBytes = ifcTestGlb();
+const ifcGeometrySha = createHash("sha256")
+  .update(ifcGeometryBytes)
+  .digest("hex");
+
 const ifcDerivativeManifest = {
   schemaVersion: 1,
   source: { fileId: ids.file, sha256: sourceSha },
-  geometry: { sha256: "b".repeat(64) },
+  geometry: { sha256: ifcGeometrySha },
   elements: [
     {
       expressId: 42,
@@ -73,6 +99,10 @@ const ifcDerivativeManifest = {
 const ifcManifestSha = createHash("sha256")
   .update(canonicalJson(ifcDerivativeManifest))
   .digest("hex");
+const ifcManifestBytes = new TextEncoder().encode(
+  canonicalJson(ifcDerivativeManifest),
+);
+const ifcDerivativePrefix = `projects/${ids.project}/ifc-derivatives/${sourceSha}/v1`;
 
 test("IFC derivative manifest is strict and rejects ambiguous element mappings", () => {
   assert.deepEqual(
@@ -114,10 +144,12 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
     schema_version: 1,
     status: "ready",
     manifest_json: ifcDerivativeManifest,
-    manifest_storage_path: "projects/model.derivative.json",
+    manifest_storage_path: `${ifcDerivativePrefix}/${ifcManifestSha}.json`,
+    manifest_byte_size: ifcManifestBytes.byteLength,
     manifest_sha256: ifcManifestSha,
-    geometry_storage_path: "projects/model.glb",
-    geometry_sha256: "b".repeat(64),
+    geometry_storage_path: `${ifcDerivativePrefix}/${ifcGeometrySha}.glb`,
+    geometry_byte_size: ifcGeometryBytes.byteLength,
+    geometry_sha256: ifcGeometrySha,
   };
   const client = {
     from(table) {
@@ -143,6 +175,13 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
       from(bucket) {
         calls.push(["bucket", bucket]);
         return {
+          async download(path) {
+            calls.push(["download", path]);
+            const bytes = path.endsWith(".json")
+              ? ifcManifestBytes
+              : ifcGeometryBytes;
+            return { data: new Blob([bytes]), error: null };
+          },
           async createSignedUrl(path, ttl) {
             calls.push(["sign", path, ttl]);
             return {
@@ -171,15 +210,15 @@ test("IFC derivative loader signs only a hash-bound ready artifact", async () =>
     version: 1,
     sourceSha256: sourceSha,
     manifestSha256: ifcManifestSha,
-    geometrySha256: "b".repeat(64),
-    manifestSignedUrl: "https://storage.test/projects/model.derivative.json",
-    geometrySignedUrl: "https://storage.test/projects/model.glb",
+    geometrySha256: ifcGeometrySha,
+    manifestSignedUrl: `https://storage.test/${ifcDerivativePrefix}/${ifcManifestSha}.json`,
+    geometrySignedUrl: `https://storage.test/${ifcDerivativePrefix}/${ifcGeometrySha}.glb`,
   });
   assert.deepEqual(
     calls.filter(([kind]) => kind === "sign"),
     [
-      ["sign", "projects/model.derivative.json", 300],
-      ["sign", "projects/model.glb", 300],
+      ["sign", `${ifcDerivativePrefix}/${ifcManifestSha}.json`, 300],
+      ["sign", `${ifcDerivativePrefix}/${ifcGeometrySha}.glb`, 300],
     ],
   );
 });
