@@ -3,8 +3,10 @@ import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createServer } from "vite";
+import * as THREE from "three";
 
 import * as workspaceView from "../app/lukas/lib/drawing-workspace-view.ts";
+import { adaptIfcRenderBundleDescriptor } from "../app/lukas/lib/ifc-render-descriptor.ts";
 
 const vite = await createServer({
   appType: "custom",
@@ -43,6 +45,8 @@ test("IFC fetch capability changes when signed URLs rotate without changing cont
       sourceSha256: sha,
       manifestSha256: "b".repeat(64),
       geometrySha256: "c".repeat(64),
+      manifestByteSize: 10,
+      geometryByteSize: 20,
       manifestSignedUrl: "https://storage.test/manifest?token=old",
       geometrySignedUrl: "https://storage.test/model?token=old",
     },
@@ -58,6 +62,101 @@ test("IFC fetch capability changes when signed URLs rotate without changing cont
       },
     }),
   );
+});
+
+test("backend ready derivative adapter preserves exact pinned hashes, byte sizes, and capabilities", () => {
+  const derivative = {
+    status: "ready",
+    version: 7,
+    sourceSha256: sha,
+    manifestSha256: "b".repeat(64),
+    geometrySha256: "c".repeat(64),
+    manifestByteSize: 10,
+    geometryByteSize: 20,
+    manifestSignedUrl: "https://storage.test/manifest",
+    geometrySignedUrl: "https://storage.test/geometry",
+  };
+  assert.deepEqual(
+    adaptIfcRenderBundleDescriptor({ id: ids.file, sha256: sha, derivative }),
+    {
+      source: { fileId: ids.file, sha256: sha },
+      derivative,
+    },
+  );
+  assert.equal(
+    adaptIfcRenderBundleDescriptor({ id: ids.file, sha256: sha }),
+    undefined,
+  );
+});
+
+test("IFC focus treats supplied GlobalId as authoritative and only uses expressId when GlobalId is absent", () => {
+  const elements = [
+    { expressId: 42, globalId: "3ABCdefghijklmnopqrstu" },
+    { expressId: 43, globalId: "2ABCdefghijklmnopqrstu" },
+  ];
+  assert.equal(
+    ifcPropertyBrowser.resolveIfcFocusElement(elements, {
+      ifcGlobalId: "missingGlobalId0000000",
+      elementId: "42",
+    }),
+    undefined,
+  );
+  assert.equal(
+    ifcPropertyBrowser.resolveIfcFocusElement(elements, {
+      ifcGlobalId: "",
+      elementId: "42",
+    }),
+    undefined,
+  );
+  assert.equal(
+    ifcPropertyBrowser.resolveIfcFocusElement(elements, {
+      ifcGlobalId: null,
+      elementId: "42",
+    })?.expressId,
+    42,
+  );
+  assert.equal(
+    ifcPropertyBrowser.resolveIfcFocusElement(elements, {
+      ifcGlobalId: "2ABCdefghijklmnopqrstu",
+      elementId: "42",
+    })?.expressId,
+    43,
+  );
+});
+
+test("IFC first-usable geometry requires a mapped visible finite nonempty rendered mesh", () => {
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  root.add(mesh);
+  const mapped = new Map([[42, [mesh]]]);
+  root.updateMatrixWorld(true);
+  assert.equal(ifcViewer.hasVisibleIfcRenderGeometry(root, mapped), true);
+
+  root.visible = false;
+  assert.equal(ifcViewer.hasVisibleIfcRenderGeometry(root, mapped), false);
+  root.visible = true;
+  mesh.material.visible = false;
+  assert.equal(ifcViewer.hasVisibleIfcRenderGeometry(root, mapped), false);
+  mesh.material.visible = true;
+
+  const empty = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial(),
+  );
+  root.add(empty);
+  assert.equal(
+    ifcViewer.hasVisibleIfcRenderGeometry(root, new Map([[42, [empty]]])),
+    false,
+  );
+
+  mesh.geometry.boundingBox = new THREE.Box3(
+    new THREE.Vector3(Number.NaN, 0, 0),
+    new THREE.Vector3(1, 1, 1),
+  );
+  assert.equal(ifcViewer.hasVisibleIfcRenderGeometry(root, mapped), false);
 });
 
 test("IFC initial fit waits until armed with a ready visible non-zero viewport and runs once", () => {

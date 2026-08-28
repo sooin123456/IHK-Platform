@@ -41,6 +41,7 @@ const exactKeys = [
   "viewport",
   "workload",
   "lifecycle",
+  "derivativeGeometryAuthority",
   "sourceObservation",
   "firstUsableMs",
   "firstUsableTargetMs",
@@ -105,6 +106,11 @@ export function validateDrawingP5ReleaseEvidence(
     ifcOwnedDisposals: 1,
     ifcContextLossRequests: 1,
   });
+  assert.equal(
+    evidence.derivativeGeometryAuthority,
+    "SYNTHETIC_MAPPING_FIXTURE_NOT_SOURCE_FAITHFUL",
+    "local synthetic mapping must never be promoted as source-faithful IFC geometry",
+  );
   assert.equal(
     evidence.sourceObservation?.observedBy,
     "browser_mutation_workflow",

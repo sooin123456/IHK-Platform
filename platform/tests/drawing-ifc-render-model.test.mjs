@@ -65,7 +65,12 @@ function encodeGlbJson(json) {
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-function descriptor({ manifestSha256, geometrySha256 }) {
+function descriptor({
+  manifestSha256,
+  geometrySha256,
+  manifestByteSize = 1,
+  geometryByteSize = 1,
+}) {
   return {
     source: { fileId: sourceFileId, sha256: sha.source },
     derivative: {
@@ -74,6 +79,8 @@ function descriptor({ manifestSha256, geometrySha256 }) {
       sourceSha256: sha.source,
       manifestSha256,
       geometrySha256,
+      manifestByteSize,
+      geometryByteSize,
       manifestSignedUrl: "https://storage.test/manifest.json",
       geometrySignedUrl: "https://storage.test/model.glb",
     },
@@ -129,6 +136,38 @@ test("manifest validation binds one strict element index to the selected IFC and
         }),
       /manifest/i,
     );
+});
+
+test("manifest mapping authority is unique by node and primitive pair, not node alone", () => {
+  const sharedNode = manifest({
+    elements: [
+      {
+        ...manifest().elements[0],
+        meshes: [{ nodeId: "shared-node", primitiveIndices: [0] }],
+      },
+      {
+        ...manifest().elements[0],
+        expressId: 43,
+        globalId: "2ABCdefghijklmnopqrstu",
+        meshes: [{ nodeId: "shared-node", primitiveIndices: [1] }],
+      },
+    ],
+  });
+  assert.doesNotThrow(() =>
+    renderModel.validateIfcRenderManifest(sharedNode, {
+      source: { fileId: sourceFileId, sha256: sha.source },
+      geometrySha256: sha.glb,
+    }),
+  );
+  sharedNode.elements[1].meshes[0].primitiveIndices = [0];
+  assert.throws(
+    () =>
+      renderModel.validateIfcRenderManifest(sharedNode, {
+        source: { fileId: sourceFileId, sha256: sha.source },
+        geometrySha256: sha.glb,
+      }),
+    /duplicate mesh primitive/i,
+  );
 });
 
 test("scene mapping requires stable node refs and matching express IDs while retaining all sibling meshes", () => {
@@ -291,7 +330,12 @@ test("immutable bundle loader verifies manifest and GLB bytes before returning t
   };
 
   const loaded = await renderModel.loadVerifiedIfcRenderBundle(
-    descriptor({ manifestSha256, geometrySha256: glbSha256 }),
+    descriptor({
+      manifestSha256,
+      geometrySha256: glbSha256,
+      manifestByteSize: manifestBytes.byteLength,
+      geometryByteSize: glbBytes.byteLength,
+    }),
     { fetcher },
   );
   assert.deepEqual(requests, [
@@ -320,6 +364,8 @@ test("immutable bundle loader rejects byte mismatches and skips oversized GLB bu
   const descriptors = descriptor({
     manifestSha256,
     geometrySha256: glbSha256,
+    manifestByteSize: manifestBytes.byteLength,
+    geometryByteSize: glbBytes.byteLength,
   });
 
   await assert.rejects(
@@ -345,23 +391,78 @@ test("immutable bundle loader rejects byte mismatches and skips oversized GLB bu
   );
 
   const requests = [];
-  const skipped = await renderModel.loadVerifiedIfcRenderBundle(descriptors, {
+  const oversized = {
+    ...descriptors,
+    derivative: {
+      ...descriptors.derivative,
+      geometryByteSize: 80 * 1024 * 1024,
+    },
+  };
+  const skipped = await renderModel.loadVerifiedIfcRenderBundle(oversized, {
     maxGeometryBytes: 75 * 1024 * 1024,
     fetcher: async (url) => {
       requests.push(url);
       return url.endsWith("manifest.json")
         ? new Response(manifestBytes)
-        : new Response(null, {
-            headers: { "content-length": String(80 * 1024 * 1024) },
-          });
+        : new Response(null);
     },
   });
   assert.equal(skipped.skipped, true);
   assert.equal(skipped.geometryBytes, null);
-  assert.deepEqual(requests, [
-    "https://storage.test/manifest.json",
-    "https://storage.test/model.glb",
-  ]);
+  assert.deepEqual(requests, ["https://storage.test/manifest.json"]);
+});
+
+test("immutable bundle loader rejects authoritative and HTTP byte-size mismatches before commit", async () => {
+  const glbBytes = encodeGlbJson({ asset: { version: "2.0" } });
+  const glbSha256 = digest(glbBytes);
+  const manifestBytes = new TextEncoder().encode(
+    JSON.stringify(manifest({ geometry: { sha256: glbSha256 }, elements: [] })),
+  );
+  const manifestSha256 = digest(manifestBytes);
+  const valid = descriptor({
+    manifestSha256,
+    geometrySha256: glbSha256,
+    manifestByteSize: manifestBytes.byteLength,
+    geometryByteSize: glbBytes.byteLength,
+  });
+
+  await assert.rejects(
+    renderModel.loadVerifiedIfcRenderBundle(
+      {
+        ...valid,
+        derivative: {
+          ...valid.derivative,
+          manifestByteSize: manifestBytes.byteLength + 1,
+        },
+      },
+      { fetcher: async () => new Response(manifestBytes) },
+    ),
+    /byte size/i,
+  );
+
+  await assert.rejects(
+    renderModel.loadVerifiedIfcRenderBundle(valid, {
+      fetcher: async (url) =>
+        url.endsWith("manifest.json")
+          ? new Response(manifestBytes, {
+              headers: {
+                "content-length": String(manifestBytes.byteLength + 1),
+              },
+            })
+          : new Response(glbBytes),
+    }),
+    /byte size/i,
+  );
+
+  await assert.rejects(
+    renderModel.loadVerifiedIfcRenderBundle(valid, {
+      fetcher: async (url) =>
+        url.endsWith("manifest.json")
+          ? new Response(manifestBytes)
+          : new Response(glbBytes.subarray(0, glbBytes.byteLength - 1)),
+    }),
+    /byte size/i,
+  );
 });
 
 test("verified self-contained GLB bytes instantiate a fresh owned model for every viewer mount", async () => {
@@ -427,15 +528,18 @@ test("bundle loading forwards source cancellation to immutable fetch work", asyn
   assert.deepEqual(seenSignals, [controller.signal]);
 });
 
-test("pinned canonical fixture maps 115 GLB primitives to manifest express IDs", async () => {
+test("synthetic mapping fixture maps 115 GLB primitives without claiming source-faithful IFC geometry", async () => {
   const geometryBytes = new Uint8Array(
     await readFile(
-      new URL("../public/examples/example.ifc.glb", import.meta.url),
+      new URL("../public/examples/synthetic-ifc-mapping.glb", import.meta.url),
     ),
   );
   const manifestInput = JSON.parse(
     await readFile(
-      new URL("../public/examples/example.ifc.manifest.json", import.meta.url),
+      new URL(
+        "../public/examples/synthetic-ifc-mapping.manifest.json",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );

@@ -251,6 +251,8 @@ test("P5 evidence validates exact workload, lifecycle, immutable hashes, and hon
       ifcOwnedDisposals: 1,
       ifcContextLossRequests: 1,
     },
+    derivativeGeometryAuthority:
+      "SYNTHETIC_MAPPING_FIXTURE_NOT_SOURCE_FAITHFUL",
     sourceObservation: {
       observedBy: "browser_mutation_workflow",
       runId: "00000000-0000-4000-8000-000000000099",

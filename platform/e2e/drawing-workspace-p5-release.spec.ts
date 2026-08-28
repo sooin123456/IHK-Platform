@@ -83,8 +83,10 @@ test("canonical P5 entry exposes one coherent PDF and IFC workflow without debug
   const ifcFetches = { manifest: 0, geometry: 0, raw: 0 };
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
-    if (pathname.endsWith(".ifc.manifest.json")) ifcFetches.manifest += 1;
-    else if (pathname.endsWith(".ifc.glb")) ifcFetches.geometry += 1;
+    if (pathname.endsWith("synthetic-ifc-mapping.manifest.json"))
+      ifcFetches.manifest += 1;
+    else if (pathname.endsWith("synthetic-ifc-mapping.glb"))
+      ifcFetches.geometry += 1;
     else if (pathname.endsWith(".ifc")) ifcFetches.raw += 1;
   });
 
@@ -293,8 +295,10 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   const ifcFetches = { manifest: 0, geometry: 0, raw: 0 };
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
-    if (pathname.endsWith(".ifc.manifest.json")) ifcFetches.manifest += 1;
-    else if (pathname.endsWith(".ifc.glb")) ifcFetches.geometry += 1;
+    if (pathname.endsWith("synthetic-ifc-mapping.manifest.json"))
+      ifcFetches.manifest += 1;
+    else if (pathname.endsWith("synthetic-ifc-mapping.glb"))
+      ifcFetches.geometry += 1;
     else if (pathname.endsWith(".ifc")) ifcFetches.raw += 1;
   });
   await ready(page, `${canonicalPath}?p5BaselineTest=1&view=split`);
@@ -370,6 +374,8 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
       ifcOwnedDisposals: ifcLifecycleEvidence.ownedDisposals,
       ifcContextLossRequests: ifcLifecycleEvidence.contextLossRequests,
     },
+    derivativeGeometryAuthority:
+      "SYNTHETIC_MAPPING_FIXTURE_NOT_SOURCE_FAITHFUL",
     sourceObservation: {
       observedBy: "browser_mutation_workflow",
       ...mutationWorkflowEvidence!,

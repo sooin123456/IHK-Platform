@@ -548,8 +548,13 @@ test("mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries
   let rawIfcFetches = 0;
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
-    if (pathname.endsWith(".ifc.manifest.json")) manifestFetches += 1;
-    if (pathname.endsWith("/examples/example.ifc.glb")) glbFetches += 1;
+    if (
+      pathname.endsWith("synthetic-ifc-mapping.manifest.json") ||
+      pathname.endsWith("synthetic-ifc-mapping-copy.manifest.json")
+    )
+      manifestFetches += 1;
+    if (pathname.endsWith("/examples/synthetic-ifc-mapping.glb"))
+      glbFetches += 1;
     if (pathname.endsWith(".ifc")) rawIfcFetches += 1;
   });
   await openP5Preview(page);
@@ -655,11 +660,14 @@ test("a source swap during a pending verified manifest load commits only the lat
   const manifestStarted = new Promise<void>((resolve) => {
     reportManifest = resolve;
   });
-  await page.route("**/examples/example.ifc.manifest.json", async (route) => {
-    reportManifest();
-    await manifestReleased;
-    await route.continue();
-  });
+  await page.route(
+    "**/examples/synthetic-ifc-mapping.manifest.json",
+    async (route) => {
+      reportManifest();
+      await manifestReleased;
+      await route.continue();
+    },
+  );
   await openP5Preview(page);
   await page.getByRole("button", { name: "IFC 3D" }).click();
   await manifestStarted;

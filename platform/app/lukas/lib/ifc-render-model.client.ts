@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+import type { IfcRenderBundleDescriptor } from "./ifc-render-descriptor";
+export type { IfcRenderBundleDescriptor } from "./ifc-render-descriptor";
+
 export type IfcRenderProperty = {
   group: string;
   name: string;
@@ -38,19 +41,7 @@ export type OwnedIfcRenderModel = {
 export type IfcRenderAssetDescriptor = {
   signedUrl: string;
   sha256: string;
-};
-
-export type IfcRenderBundleDescriptor = {
-  source: { fileId: string; sha256: string };
-  derivative: {
-    status: "ready";
-    version: number;
-    sourceSha256: string;
-    manifestSha256: string;
-    geometrySha256: string;
-    manifestSignedUrl: string;
-    geometrySignedUrl: string;
-  };
+  byteSize: number;
 };
 
 export type VerifiedIfcRenderBundle = {
@@ -147,7 +138,6 @@ export function validateIfcRenderManifest(
 
   const expressIds = new Set<number>();
   const globalIds = new Set<string>();
-  const nodeIds = new Set<string>();
   const meshPrimitives = new Set<string>();
   const elements = record.elements.map((value, index): IfcRenderElement => {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -248,8 +238,6 @@ export function validateIfcRenderManifest(
         manifestError(
           `elements[${index}].meshes[${meshIndex}].primitiveIndices`,
         );
-      if (nodeIds.has(nodeId)) manifestError(`duplicate nodeId ${nodeId}`);
-      nodeIds.add(nodeId);
       const localPrimitiveIndices = new Set<number>();
       const primitiveIndices = item.primitiveIndices.map(
         (primitiveIndex, primitiveOffset) => {
@@ -474,7 +462,9 @@ function validAssetDescriptor(
     !descriptor ||
     typeof descriptor.signedUrl !== "string" ||
     descriptor.signedUrl.length === 0 ||
-    !SHA256.test(descriptor.sha256)
+    !SHA256.test(descriptor.sha256) ||
+    !Number.isSafeInteger(descriptor.byteSize) ||
+    descriptor.byteSize <= 0
   )
     throw new Error(`IFC ${label} descriptor is invalid.`);
 }
@@ -504,9 +494,14 @@ async function fetchVerifiedBytes(
   const declaredLength = response.headers.get("content-length");
   if (
     declaredLength !== null &&
-    /^\d+$/.test(declaredLength) &&
-    Number(declaredLength) > maxBytes
+    (!/^\d+$/.test(declaredLength) ||
+      !Number.isSafeInteger(Number(declaredLength)) ||
+      Number(declaredLength) !== descriptor.byteSize)
   ) {
+    await response.body?.cancel();
+    throw new Error(`IFC ${label} byte size does not match its descriptor.`);
+  }
+  if (descriptor.byteSize > maxBytes) {
     await response.body?.cancel();
     if (oversize === "skip") return null;
     throw new Error(`IFC ${label} exceeds the browser byte limit.`);
@@ -519,6 +514,10 @@ async function fetchVerifiedBytes(
     const { done, value } = await reader.read();
     if (done) break;
     length += value.byteLength;
+    if (length > descriptor.byteSize) {
+      await reader.cancel();
+      throw new Error(`IFC ${label} byte size does not match its descriptor.`);
+    }
     if (length > maxBytes) {
       await reader.cancel();
       if (oversize === "skip") return null;
@@ -526,6 +525,8 @@ async function fetchVerifiedBytes(
     }
     chunks.push(value);
   }
+  if (length !== descriptor.byteSize)
+    throw new Error(`IFC ${label} byte size does not match its descriptor.`);
   const bytes = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
@@ -557,13 +558,17 @@ export async function loadVerifiedIfcRenderBundle(
   const manifestAsset = {
     signedUrl: descriptor.derivative.manifestSignedUrl,
     sha256: descriptor.derivative.manifestSha256,
+    byteSize: descriptor.derivative.manifestByteSize,
   };
   const geometryAsset = {
     signedUrl: descriptor.derivative.geometrySignedUrl,
     sha256: descriptor.derivative.geometrySha256,
+    byteSize: descriptor.derivative.geometryByteSize,
   };
   validAssetDescriptor(manifestAsset, "manifest");
   validAssetDescriptor(geometryAsset, "geometry GLB");
+  if (manifestAsset.byteSize > MAX_MANIFEST_BYTES)
+    throw new Error("IFC manifest exceeds the browser byte limit.");
   const fetcher = options.fetcher ?? fetch;
   const manifestBytes = await fetchVerifiedBytes(
     manifestAsset,
@@ -587,11 +592,14 @@ export async function loadVerifiedIfcRenderBundle(
     }),
   );
 
+  const maxGeometryBytes = options.maxGeometryBytes ?? MAX_BROWSER_GLB_BYTES;
+  if (geometryAsset.byteSize > maxGeometryBytes)
+    return { manifest, geometryBytes: null, skipped: true };
   const geometryBytes = await fetchVerifiedBytes(
     geometryAsset,
     "geometry GLB",
     fetcher,
-    options.maxGeometryBytes ?? MAX_BROWSER_GLB_BYTES,
+    maxGeometryBytes,
     "skip",
     options.signal,
   );

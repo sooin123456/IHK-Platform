@@ -65,6 +65,60 @@ function boundsForObjects(objects: THREE.Object3D[]) {
   return bounds;
 }
 
+function hasVisibleAncestors(object: THREE.Object3D, root: THREE.Object3D) {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (!current.visible) return false;
+    if (current === root) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+export function hasVisibleIfcRenderGeometry(
+  root: THREE.Object3D,
+  elementMeshes: ReadonlyMap<number, readonly THREE.Mesh[]>,
+) {
+  root.updateMatrixWorld(true);
+  for (const meshes of elementMeshes.values()) {
+    for (const mesh of meshes) {
+      if (!hasVisibleAncestors(mesh, root)) continue;
+      const materials = Array.isArray(mesh.material)
+        ? mesh.material
+        : [mesh.material];
+      if (
+        materials.length === 0 ||
+        !materials.some(
+          (material) =>
+            material.visible &&
+            (!("opacity" in material) || material.opacity > 0),
+        )
+      )
+        continue;
+      const position = mesh.geometry.getAttribute("position");
+      if (!position || position.count === 0) continue;
+      if (mesh.geometry.index && mesh.geometry.index.count === 0) continue;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const localBounds = mesh.geometry.boundingBox;
+      if (!localBounds || localBounds.isEmpty()) continue;
+      const worldBounds = localBounds.clone().applyMatrix4(mesh.matrixWorld);
+      if (worldBounds.isEmpty()) continue;
+      const coordinates = [
+        worldBounds.min.x,
+        worldBounds.min.y,
+        worldBounds.min.z,
+        worldBounds.max.x,
+        worldBounds.max.y,
+        worldBounds.max.z,
+      ];
+      if (!coordinates.every(Number.isFinite)) continue;
+      const size = worldBounds.getSize(new THREE.Vector3());
+      if (size.lengthSq() > 0) return true;
+    }
+  }
+  return false;
+}
+
 export function createIfcInitialFitOnce(fit: () => void) {
   let armed = false;
   let fitted = false;
@@ -200,7 +254,7 @@ export function createIfcModelViewer({
         if (
           !firstUsableFrameMarked &&
           fittedViewReady &&
-          elementMeshes.size > 0
+          hasVisibleIfcRenderGeometry(modelRoot, elementMeshes)
         ) {
           firstUsableFrameMarked = true;
           markDrawingFirstUsable(

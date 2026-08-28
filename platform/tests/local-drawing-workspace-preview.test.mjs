@@ -175,10 +175,12 @@ test("current canonical preview opens the integrated PDF and IFC split without q
       "db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d",
     geometrySha256:
       "0e78c44795e77591a49f05f3e050e7eec8390817b4d317b2014b3f71e4acb4c1",
-    geometrySignedUrl: "/examples/example.ifc.glb",
+    geometryByteSize: 15_500,
+    geometrySignedUrl: "/examples/synthetic-ifc-mapping.glb",
     manifestSha256:
       "b1323ce7bd1705fcd78458719730905d4cb3f759c3ce5c3e59e81be723d56c86",
-    manifestSignedUrl: "/examples/example.ifc.manifest.json",
+    manifestByteSize: 84_033,
+    manifestSignedUrl: "/examples/synthetic-ifc-mapping.manifest.json",
   });
   assert.ok(
     loaded.sourceBundle.catalog.some(

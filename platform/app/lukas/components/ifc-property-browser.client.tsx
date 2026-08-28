@@ -32,7 +32,7 @@ import {
 
 export type IfcFocusRequest = {
   requestId: string;
-  ifcGlobalId: string;
+  ifcGlobalId?: string | null;
   elementId?: string | null;
   camera?: IfcCameraState | null;
 };
@@ -99,9 +99,25 @@ export function ifcRenderCapabilityKey(
     descriptor.derivative.version,
     descriptor.derivative.manifestSha256,
     descriptor.derivative.geometrySha256,
+    descriptor.derivative.manifestByteSize,
+    descriptor.derivative.geometryByteSize,
     descriptor.derivative.manifestSignedUrl,
     descriptor.derivative.geometrySignedUrl,
   ].join("\u0000");
+}
+
+export function resolveIfcFocusElement<
+  T extends Pick<IfcElement, "expressId" | "globalId">,
+>(
+  elements: readonly T[],
+  focus: Pick<IfcFocusRequest, "ifcGlobalId" | "elementId">,
+) {
+  if (focus.ifcGlobalId !== null && focus.ifcGlobalId !== undefined)
+    return elements.find((element) => element.globalId === focus.ifcGlobalId);
+  const expressId = Number(focus.elementId);
+  return Number.isSafeInteger(expressId)
+    ? elements.find((element) => element.expressId === expressId)
+    : undefined;
 }
 
 function acquireIfcRenderBundle(
@@ -463,15 +479,7 @@ export default function IfcPropertyBrowser({
     )
       return;
     const focusLifecycleKey = `${sourceKey}:${focusRequest.requestId}`;
-    const byGlobalId = elements.find(
-      (element) => element.globalId === focusRequest.ifcGlobalId,
-    );
-    const expressId = Number(focusRequest.elementId);
-    const element =
-      byGlobalId ??
-      (Number.isSafeInteger(expressId)
-        ? elements.find((candidate) => candidate.expressId === expressId)
-        : undefined);
+    const element = resolveIfcFocusElement(elements, focusRequest);
     if (!element) {
       if (handledFocusSelectionRef.current !== focusLifecycleKey) {
         handledFocusSelectionRef.current = focusLifecycleKey;
