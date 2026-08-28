@@ -1,0 +1,4 @@
+
+> supaplate@1.0 build:collaboration
+> tsc -p collaboration/tsconfig.json
+

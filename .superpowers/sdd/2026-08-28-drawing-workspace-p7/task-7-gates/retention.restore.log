@@ -1,0 +1,23 @@
+✔ project exports are append-only, exact-byte hashed, and RPC-authorized (1.186917ms)
+✔ every actual project export response crosses the audit boundary (0.620709ms)
+✔ Revit release download keeps its existing server-side append-only SHA audit (0.497166ms)
+✔ anonymous Revit redirect records through the trusted ledger and fails closed (22.933167ms)
+✔ server export helper hashes the exact response bytes and fails closed (3.829917ms)
+✔ restore inventory names the existing approval, BOQ, and material lineage tables (2.363583ms)
+✔ missing managed authorities produce explicit UNEXECUTED evidence (7.898167ms)
+✔ source and isolated restore must match every retained evidence domain (0.542209ms)
+✔ provider-issued backup and restore identities gate PASS and recording (0.455875ms)
+✔ provider status or any digest mismatch stays NOT MET (0.190417ms)
+✔ checkout mismatch and unissued target restore identity cannot PASS (0.2145ms)
+✔ retention forms accept only stable identities and bounded policy values (40.965542ms)
+✔ every admin mutation binds route organization into one exact RPC (0.482959ms)
+✔ retention administration is mounted and archived projects leave the active workspace (0.532958ms)
+✔ organization retention project listing exhausts deterministic ID pages beyond 100 (7.675917ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 98.54125

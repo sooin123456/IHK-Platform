@@ -1,0 +1,15 @@
+✔ drawing editor dependencies are permissive and noticed (2.789292ms)
+✔ drawing export uses the exact unmodified MIT pdf-lib dependency (16.1065ms)
+✔ drawing collaboration pins its MIT protocol closure without direct transport or state packages (20.8275ms)
+✔ viewer delegates PDF.js primitives to the shared renderer (0.526375ms)
+✔ document replacement cancels an active renderer before destruction (0.390417ms)
+✔ PDF pages use the shared client renderer (0.526292ms)
+✔ shared PDF opening stops before starting an aborted load (0.260125ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 88.83275

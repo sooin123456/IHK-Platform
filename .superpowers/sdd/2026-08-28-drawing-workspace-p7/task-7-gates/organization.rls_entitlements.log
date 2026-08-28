@@ -1,0 +1,22 @@
+✔ organization library mutations accept stable authority inputs only (11.720917ms)
+✔ workspace template drafts have no polymorphic entity and imports keep exact optional revision (0.3545ms)
+✔ organization library search is bounded and cursor identity is exact (0.28725ms)
+✔ every mutation binds the route organization into database authority (0.201334ms)
+✔ organization library route is mounted in authenticated navigation (0.35625ms)
+✔ organization administration accepts stable bounded authority inputs only (42.454541ms)
+✔ every organization mutation binds the route organization into one exact RPC (0.248416ms)
+✔ project features are revalidated from the exact project organization (0.9995ms)
+✔ organization administration is mounted and project membership no longer scans all users (0.406875ms)
+✔ registered and unregistered invitation delivery uses one neutral fail-closed provider path (0.251791ms)
+✔ workspace dashboard hides organization administration from ordinary members (0.212125ms)
+✔ organization invitations, projects, and destinations continue beyond 100 exact rows (2.03075ms)
+✔ invitation login and magic-link preserve the exact safe acceptance return (0.239083ms)
+✔ IFC and quantity lineage feature flags are revalidated by route actions and loaders (0.502875ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 95.679375

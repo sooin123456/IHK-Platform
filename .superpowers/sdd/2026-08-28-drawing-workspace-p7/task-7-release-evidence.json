@@ -1,0 +1,457 @@
+{
+  "schemaVersion": 1,
+  "commit": "8155fa3db98d1fd1ef3a02ed11a4088fdfbfd087",
+  "sourceTreeSha256": "4401f79236b2b0ac3f471769e343e7a5e3bca973b50160e8220dcffafa916c56",
+  "generatedAt": "2026-08-28T09:51:11.086Z",
+  "runner": {
+    "name": "P7_FAIL_CLOSED_RELEASE_RUNNER_V1",
+    "sha256": "03994d6d573ebbced3d1987fe36007cd9ba16fdbac9eaa49dfb480a6fed1bbf1",
+    "invocationId": "72b1010d-d14e-4faa-916c-5f4d61d7e728"
+  },
+  "requirements": [
+    {
+      "id": "p0.editor_core",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p0.world_coordinates",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p0.autosave_restore",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p1.six_tools",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p1.select_move_copy_delete",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p1.undo_redo_inspector",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "vertical.blank_or_pdf_open",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "vertical.layers_visibility_lock",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "vertical.issue_object_link",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "vertical.two_browser_realtime",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "vertical.viewer_editor_roles",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "source.pdf_ifc_sha_immutable",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "p2.pages_canvas_styles_blocks",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p2.tables_properties_templates_export",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p3.yjs_indexeddb_hocuspocus",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "collaboration.service",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/collaboration.service.log",
+        "sha256": "758dae13f2216764e58e9b22b78272efef953ea4760ec80d0772c4a9114b8acb"
+      }
+    },
+    {
+      "id": "p3.awareness_locks_mentions_history",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "collaboration.service",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/collaboration.service.log",
+        "sha256": "758dae13f2216764e58e9b22b78272efef953ea4760ec80d0772c4a9114b8acb"
+      }
+    },
+    {
+      "id": "p3.offline_zero_loss",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "p4.semantic_objects_measurement",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p4.deterministic_schedules",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "p5.pdf_ifc_split_cross_select",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "source.pdf_ifc",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/source.pdf_ifc.log",
+        "sha256": "2d988f07c29213d774687f5d53f4204973338bad45a916e97d3ff8fb7b486c0e"
+      }
+    },
+    {
+      "id": "p5.revision_diff_anchor_relink",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "source.pdf_ifc",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/source.pdf_ifc.log",
+        "sha256": "2d988f07c29213d774687f5d53f4204973338bad45a916e97d3ff8fb7b486c0e"
+      }
+    },
+    {
+      "id": "p6.object_quantity_boq_material_lineage",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "lineage.boq_material",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/lineage.boq_material.log",
+        "sha256": "f78eacd14fe2eac35eea5c980de93d2b34853b9635677d63cf6e3dbd3d823ce2"
+      }
+    },
+    {
+      "id": "p6.approved_exports",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "lineage.boq_material",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/lineage.boq_material.log",
+        "sha256": "f78eacd14fe2eac35eea5c980de93d2b34853b9635677d63cf6e3dbd3d823ce2"
+      }
+    },
+    {
+      "id": "p7.current_default_workspace",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "browser.desktop_tablet",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
+        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+      }
+    },
+    {
+      "id": "p7.desktop_1280x720",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "browser.desktop_tablet",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
+        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+      }
+    },
+    {
+      "id": "p7.tablet_portrait_landscape",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "browser.desktop_tablet",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
+        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+      }
+    },
+    {
+      "id": "p7.touch_focus_accessibility",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "browser.desktop_tablet",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/browser.desktop_tablet.log",
+        "sha256": "9114d528868f409a73be265dd500f6566f5619b6335d7e7d2bd6c19cf72cb74b"
+      }
+    },
+    {
+      "id": "p7.organization_library_provenance",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "organization.rls_entitlements",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/organization.rls_entitlements.log",
+        "sha256": "c5be2cf463f47d275f05b87383cd382d42ae33676156c9db4c5c77fbb6a683ec"
+      }
+    },
+    {
+      "id": "p7.retention_archive_legal_hold",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "retention.restore",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/retention.restore.log",
+        "sha256": "18590a808a62d33b50740a111a1b768facf4973a2bbda2d678133f87a65a479e"
+      }
+    },
+    {
+      "id": "p7.organization_admin_entitlements",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "organization.rls_entitlements",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/organization.rls_entitlements.log",
+        "sha256": "c5be2cf463f47d275f05b87383cd382d42ae33676156c9db4c5c77fbb6a683ec"
+      }
+    },
+    {
+      "id": "security.real_postgres_rls",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "security.approved_revision_immutable",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "collaboration.hosted_service",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "performance.10k_deterministic",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "performance.source_bound",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
+        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+      }
+    },
+    {
+      "id": "performance.warm_interaction",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "performance.source_bound",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
+        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+      }
+    },
+    {
+      "id": "performance.warm_reopen",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "performance.source_bound",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/performance.source_bound.log",
+        "sha256": "eb89d5f204c359803edaa30ffeee32e8d0840c64bc19acccd60968632adb9aba"
+      }
+    },
+    {
+      "id": "performance.cold_startup",
+      "scope": "production",
+      "status": "NOT_MET",
+      "authority": "source-bound P7 production-build Chromium cold cache-miss",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+        "sha256": "d0d39cc923a91ffc85dd64d661da583f97453ca58cba4a4af115c73606008d30"
+      }
+    },
+    {
+      "id": "performance.hosted_runtime",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "hosted runtime performance receipt",
+      "receipt": null
+    },
+    {
+      "id": "retention.managed_backup_restore",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "managed Supabase backup isolated restore comparison",
+      "receipt": null
+    },
+    {
+      "id": "retention.rpo_rto",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "managed Supabase backup isolated restore comparison",
+      "receipt": null
+    },
+    {
+      "id": "production.three_real_users",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "production.mounted_route_actions",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "production.export_audit",
+      "scope": "production",
+      "status": "UNEXECUTED",
+      "authority": "production authority not supplied",
+      "receipt": null
+    },
+    {
+      "id": "release.regression_p0_p7",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "node.p0_p7",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        "sha256": "bbfd473fa0cb7feecf08de7337ba96b1a26bce70a5affd122778660e4962b17c"
+      }
+    },
+    {
+      "id": "release.typecheck_build_collaboration",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "application.typecheck_build",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/application.typecheck_build.log",
+        "sha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+      }
+    },
+    {
+      "id": "release.license_lock_notices",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "license.closure",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/license.closure.log",
+        "sha256": "62f93dd176ce24b1486a0876b0765fc149e15e53e67bcaf24333fd7b1d9c1e5a"
+      }
+    },
+    {
+      "id": "release.no_rayon_assets_or_copy",
+      "scope": "local",
+      "status": "PASS",
+      "authority": "license.closure",
+      "receipt": {
+        "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/license.closure.log",
+        "sha256": "62f93dd176ce24b1486a0876b0765fc149e15e53e67bcaf24333fd7b1d9c1e5a"
+      }
+    }
+  ],
+  "summary": {
+    "PASS": 35,
+    "NOT_MET": 1,
+    "UNEXECUTED": 11
+  },
+  "overall": "NOT_MET",
+  "externalInputs": 12
+}
