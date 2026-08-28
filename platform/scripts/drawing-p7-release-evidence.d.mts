@@ -13,8 +13,38 @@ export function validateDrawingP7ReleaseEvidence(
     expectedCommit?: string;
     expectedTreeSha256?: string | null;
     verifyReceipts?: boolean;
+    completionAuthority?: {
+      envelope: unknown;
+      trust: {
+        publicKey: string;
+        issuer: string;
+        keyId: string;
+        nonce: string;
+      };
+    } | null;
   },
 ): unknown;
+export function validateP7ExternalCompletionReceipt(
+  envelope: unknown,
+  evidence: unknown,
+  trust: {
+    publicKey: string;
+    issuer: string;
+    keyId: string;
+    nonce: string;
+  },
+): unknown;
+export function loadP7CompletionAuthority(
+  environment?: Record<string, string | undefined>,
+): {
+  envelope: unknown;
+  trust: {
+    publicKey: string;
+    issuer: string;
+    keyId: string;
+    nonce: string;
+  };
+};
 export function assertDrawingP7ProgramComplete(
   evidence: unknown,
   options?: Record<string, unknown>,

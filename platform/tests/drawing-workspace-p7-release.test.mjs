@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  createHash,
+  generateKeyPairSync,
+  sign as signBytes,
+} from "node:crypto";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const evidenceModule =
@@ -11,6 +23,8 @@ const runnerModule =
   await import("../scripts/run-drawing-workspace-p7-release.mjs").catch(
     () => ({}),
   );
+const visualModule =
+  await import("../scripts/drawing-p7-visual-evidence.mjs").catch(() => ({}));
 
 const hosted = {
   P7_E2E_BASE_URL: "https://drawing.onehk.kr",
@@ -39,29 +53,60 @@ const hosted = {
   P7_E2E_APPROVER_EMAIL: "approver@onehk.kr",
 };
 
-function withCurrentRequirementLedger(evidence) {
-  const current = structuredClone(evidence);
-  current.requirements = evidenceModule.P7_REQUIREMENTS.map(
-    ({ id, scope }) =>
-      current.requirements.find((row) => row.id === id) ?? {
-        id,
-        scope,
-        status: "UNEXECUTED",
-        authority: "new production authority remains unavailable",
-        receipt: null,
-      },
+function currentReleaseFixture() {
+  const receipt = (path) => ({
+    path,
+    sha256: createHash("sha256")
+      .update(readFileSync(new URL(`../../${path}`, import.meta.url)))
+      .digest("hex"),
+  });
+  const evidence = evidenceModule.buildDrawingP7ReleaseEvidenceFixture({
+    commit: evidenceModule.drawingP7ReleaseCommit(),
+  });
+  evidence.sourceTreeSha256 = evidenceModule.drawingP7ReleaseTreeSha256();
+  const nodeReceipt = receipt(
+    ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
   );
-  current.summary = { PASS: 0, NOT_MET: 0, UNEXECUTED: 0 };
-  for (const { status } of current.requirements) current.summary[status] += 1;
-  current.overall = current.summary.NOT_MET
-    ? "NOT_MET"
-    : current.summary.UNEXECUTED
-      ? "UNEXECUTED"
-      : "PASS";
-  current.externalInputs = current.requirements.filter(
-    ({ scope, status }) => scope === "production" && status !== "PASS",
-  ).length;
-  return current;
+  const performancePath =
+    ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json";
+  for (const requirement of evidence.requirements) {
+    if (requirement.status === "PASS")
+      requirement.receipt = structuredClone(nodeReceipt);
+    if (requirement.id.startsWith("performance.") && requirement.scope === "local")
+      requirement.receipt = receipt(performancePath);
+  }
+  for (const [requirementId, gateIds] of [
+    [
+      "release.typecheck_build_collaboration",
+      [
+        "application.typecheck_build",
+        "application.build",
+        "collaboration.typecheck_build",
+        "collaboration.build",
+      ],
+    ],
+    [
+      "release.regression_p0_p7",
+      [
+        "browser.p0_p2",
+        "browser.p3_multiplayer",
+        "browser.p4_functional",
+        "browser.p5_release",
+        "browser.p6_release",
+      ],
+    ],
+  ]) {
+    const requirement = evidence.requirements.find(
+      ({ id }) => id === requirementId,
+    );
+    requirement.receipts = gateIds.map((id) =>
+      receipt(
+        `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
+      ),
+    );
+    requirement.receipt = requirement.receipts.at(-1);
+  }
+  return evidence;
 }
 
 test("P7 production authority requires hosted current deployment and three real distinct identities", () => {
@@ -127,6 +172,11 @@ test("P7 release manifest covers every required authority and gathers all result
     "database.pglite",
     "database.real_postgres",
     "browser.desktop_tablet",
+    "browser.p0_p2",
+    "browser.p3_multiplayer",
+    "browser.p4_functional",
+    "browser.p5_release",
+    "browser.p6_release",
     "collaboration.service",
     "source.pdf_ifc",
     "lineage.boq_material",
@@ -134,6 +184,7 @@ test("P7 release manifest covers every required authority and gathers all result
     "retention.restore",
     "organization.rls_entitlements",
     "license.closure",
+    "license.permissive_policy",
     "application.typecheck_build",
   ])
     assert.ok(labels.includes(id), id);
@@ -392,9 +443,7 @@ test("P7 evidence binds to the latest authority-source commit, not documentation
 });
 
 test("persisted mutable child logs cannot be rewritten into program PASS", () => {
-  const persisted = withCurrentRequirementLedger(
-    JSON.parse(readFileSync(evidenceModule.P7_RELEASE_EVIDENCE_PATH, "utf8")),
-  );
+  const persisted = currentReleaseFixture();
   const receipt = persisted.requirements.find(
     (requirement) => requirement.receipt,
   ).receipt;
@@ -421,9 +470,7 @@ test("persisted mutable child logs cannot be rewritten into program PASS", () =>
 });
 
 test("release validation invokes the current Task4 semantic authority", () => {
-  const persisted = withCurrentRequirementLedger(
-    JSON.parse(readFileSync(evidenceModule.P7_RELEASE_EVIDENCE_PATH, "utf8")),
-  );
+  const persisted = currentReleaseFixture();
   const performancePath = new URL(
     "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
     import.meta.url,
@@ -528,6 +575,200 @@ test("release build authority combines all four typecheck and build gates fail c
   );
   assert.equal(requirement.status, "UNEXECUTED");
   assert.equal(runnerModule.p7CombinedReleaseExitCode(unexecuted, []), 1);
+});
+
+test("real PostgreSQL and production-browser gates classify missing authority independently", () => {
+  assert.equal(typeof runnerModule.p7LocalGateStatus, "function");
+  assert.equal(
+    runnerModule.p7LocalGateStatus("database.real_postgres", 1, {
+      DRAWING_P7_REAL_DATABASE_URL: "postgresql://drawing",
+    }),
+    "UNEXECUTED",
+  );
+  assert.equal(
+    runnerModule.p7LocalGateStatus("database.real_postgres", 1, {
+      P7_REAL_POSTGRES_DATABASE_URL: "postgresql://organization",
+    }),
+    "UNEXECUTED",
+  );
+  assert.equal(
+    runnerModule.p7LocalGateStatus("database.real_postgres", 1, {
+      DRAWING_P7_REAL_DATABASE_URL: "postgresql://drawing",
+      P7_REAL_POSTGRES_DATABASE_URL: "postgresql://organization",
+    }),
+    "NOT_MET",
+  );
+  assert.equal(
+    runnerModule.p7LocalGateStatus("browser.p3_multiplayer", 1, {}),
+    "UNEXECUTED",
+  );
+});
+
+test("actual P3 and P0-P6 browser gates directly bind realtime and regression requirements", () => {
+  const browserGateIds = [
+    "browser.p0_p2",
+    "browser.p3_multiplayer",
+    "browser.p4_functional",
+    "browser.p5_release",
+    "browser.p6_release",
+  ];
+  const results = browserGateIds.map((id) => ({
+    id,
+    status: id === "browser.p3_multiplayer" ? "UNEXECUTED" : "PASS",
+    exitCode: id === "browser.p3_multiplayer" ? 2 : 0,
+  }));
+  const evidence = runnerModule.buildReleaseEvidenceFromResults(
+    results,
+    {
+      coldCacheMiss: { status: "MET" },
+      gates: { productionRuntime: "UNEXECUTED" },
+      path: new URL(
+        "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+        import.meta.url,
+      ).pathname,
+    },
+    {
+      status: "UNEXECUTED",
+      path: new URL(
+        "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+        import.meta.url,
+      ).pathname,
+    },
+  );
+  assert.equal(
+    evidence.requirements.find(
+      ({ id }) => id === "vertical.two_browser_realtime",
+    ).status,
+    "UNEXECUTED",
+  );
+  const regression = evidence.requirements.find(
+    ({ id }) => id === "release.regression_p0_p7",
+  );
+  assert.equal(regression.status, "UNEXECUTED");
+  assert.deepEqual(
+    regression.receipts.map(({ path }) => path),
+    browserGateIds.map(
+      (id) =>
+        `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
+    ),
+  );
+});
+
+test("program PASS requires and accepts only a trusted signed completion receipt", () => {
+  assert.equal(
+    typeof evidenceModule.validateP7ExternalCompletionReceipt,
+    "function",
+  );
+  assert.equal(typeof evidenceModule.loadP7CompletionAuthority, "function");
+  assert.throws(
+    () => evidenceModule.loadP7CompletionAuthority({}),
+    /UNEXECUTED.*P7_COMPLETION_RECEIPT_PATH/,
+  );
+  const evidence = evidenceModule.buildDrawingP7ReleaseEvidenceFixture();
+  for (const requirement of evidence.requirements) requirement.status = "PASS";
+  evidence.summary = {
+    PASS: evidence.requirements.length,
+    NOT_MET: 0,
+    UNEXECUTED: 0,
+  };
+  evidence.overall = "PASS";
+  evidence.externalInputs = 0;
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const payload = {
+    schemaVersion: 1,
+    authority: "P7_EXTERNAL_SIGNED_COMPLETION_V1",
+    issuer: "release.onehk.kr",
+    keyId: "release-2026-08",
+    nonce: "00000000-0000-4000-8000-000000000099",
+    commit: evidence.commit,
+    sourceTreeSha256: evidence.sourceTreeSha256,
+    requirementsSha256: createHash("sha256")
+      .update(
+        JSON.stringify(
+          evidence.requirements.map(({ id, status }) => ({ id, status })),
+        ),
+      )
+      .digest("hex"),
+    issuedAt: "2026-08-28T00:00:00.000Z",
+  };
+  const envelope = {
+    payload,
+    signature: signBytes(
+      null,
+      Buffer.from(JSON.stringify(payload)),
+      privateKey,
+    ).toString("base64url"),
+  };
+  const trust = {
+    publicKey: publicKey.export({ type: "spki", format: "pem" }),
+    issuer: payload.issuer,
+    keyId: payload.keyId,
+    nonce: payload.nonce,
+  };
+  const directory = mkdtempSync(join(tmpdir(), "p7-completion-receipt-"));
+  const receiptPath = join(directory, "receipt.json");
+  writeFileSync(receiptPath, JSON.stringify(envelope));
+  try {
+    assert.deepEqual(
+      evidenceModule.loadP7CompletionAuthority({
+        P7_COMPLETION_RECEIPT_PATH: receiptPath,
+        P7_COMPLETION_PUBLIC_KEY_PEM: trust.publicKey,
+        P7_COMPLETION_ISSUER: trust.issuer,
+        P7_COMPLETION_KEY_ID: trust.keyId,
+        P7_COMPLETION_NONCE: trust.nonce,
+      }),
+      { envelope, trust },
+    );
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+  assert.deepEqual(
+    evidenceModule.validateP7ExternalCompletionReceipt(
+      envelope,
+      evidence,
+      trust,
+    ),
+    envelope,
+  );
+  assert.throws(
+    () =>
+      evidenceModule.validateP7ExternalCompletionReceipt(
+        { ...envelope, signature: "Zm9yZ2Vk" },
+        evidence,
+        trust,
+      ),
+    /signature/i,
+  );
+  assert.throws(
+    () =>
+      evidenceModule.validateP7ExternalCompletionReceipt(envelope, evidence, {
+        ...trust,
+        nonce: "different",
+      }),
+    /nonce/i,
+  );
+});
+
+test("visual receipt detects tampering anywhere in the client build tree", () => {
+  const evidence = visualModule.buildDrawingP7VisualEvidence();
+  const assets = new URL("../build/client/assets/", import.meta.url);
+  const asset = readdirSync(assets).find(
+    (name) =>
+      name.endsWith(".css") &&
+      name !== evidence.buildManifest.clientManifest?.path.split("/").at(-1),
+  );
+  assert.ok(asset, "non-manifest client asset");
+  const path = new URL(asset, assets);
+  const original = readFileSync(path);
+  try {
+    writeFileSync(path, Buffer.concat([original, Buffer.from("\n/* tamper */\n")]));
+    assert.throws(
+      () => visualModule.inspectDrawingP7VisualEvidence(evidence),
+      /client build|binding|tree/i,
+    );
+  } finally {
+    writeFileSync(path, original);
+  }
 });
 
 test("missing managed provider authority stays UNEXECUTED while an executed miss is NOT_MET", () => {

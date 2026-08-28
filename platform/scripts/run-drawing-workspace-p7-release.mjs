@@ -10,6 +10,7 @@ import {
   drawingP7ReceiptPath,
   drawingP7ReleaseCommit,
   drawingP7ReleaseTreeSha256,
+  loadP7CompletionAuthority,
   validateDrawingP7ReleaseEvidence,
   writeDrawingP7ReleaseEvidence,
 } from "./drawing-p7-release-evidence.mjs";
@@ -74,6 +75,33 @@ function manifest() {
       ],
     },
     {
+      id: "browser.p0_p2",
+      argv: [
+        "./node_modules/.bin/playwright",
+        "test",
+        "e2e/drawing-workspace.spec.ts",
+        "e2e/drawing-workspace-p2.spec.ts",
+        "--project=chromium",
+        "--workers=1",
+      ],
+    },
+    {
+      id: "browser.p3_multiplayer",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p3:production"],
+    },
+    {
+      id: "browser.p4_functional",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p4:local"],
+    },
+    {
+      id: "browser.p5_release",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p5:local"],
+    },
+    {
+      id: "browser.p6_release",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p6:local"],
+    },
+    {
       id: "collaboration.service",
       argv: [
         "node",
@@ -128,6 +156,10 @@ function manifest() {
     {
       id: "license.closure",
       argv: ["node", "--test", "tests/drawing-workspace-license.test.mjs"],
+    },
+    {
+      id: "license.permissive_policy",
+      argv: ["node", "scripts/run-drawing-p7-license-policy.mjs"],
     },
     {
       id: "application.typecheck_build",
@@ -453,6 +485,60 @@ export function p7ProductionGateStatus(
   return "NOT_MET";
 }
 
+const p0P2BrowserAuthorityNames = [
+  "E2E_BASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+const p3BrowserAuthorityNames = [
+  ...p0P2BrowserAuthorityNames,
+  "VITE_DRAWING_COLLABORATION_URL",
+  "COLLABORATION_INTERNAL_URL",
+  "COLLABORATION_INTERNAL_SECRET",
+  "COLLABORATION_FREEZE_SECRET",
+  "P3_E2E_DATABASE_ADMIN_URL",
+  "P3_E2E_RUN_ID",
+];
+
+function suppliedAuthority(environment, names) {
+  return names.every((name) => {
+    const value = environment[name]?.trim().toLowerCase();
+    return (
+      value &&
+      value !== "[sensitive]" &&
+      value !== "***" &&
+      !value.includes("placeholder") &&
+      !value.includes("<masked")
+    );
+  });
+}
+
+export function p7LocalGateStatus(gateId, exitCode, environment) {
+  if (exitCode === 0) return "PASS";
+  if (
+    gateId === "database.real_postgres" &&
+    !suppliedAuthority(environment, [
+      "DRAWING_P7_REAL_DATABASE_URL",
+      "P7_REAL_POSTGRES_DATABASE_URL",
+    ])
+  )
+    return "UNEXECUTED";
+  if (
+    gateId === "browser.p0_p2" &&
+    !suppliedAuthority(environment, p0P2BrowserAuthorityNames)
+  )
+    return "UNEXECUTED";
+  if (
+    gateId === "browser.p3_multiplayer" &&
+    (!suppliedAuthority(environment, p3BrowserAuthorityNames) ||
+      environment.COLLABORATION_INTERNAL_SECRET?.trim() ===
+        environment.COLLABORATION_FREEZE_SECRET?.trim())
+  )
+    return "UNEXECUTED";
+  return "NOT_MET";
+}
+
 export function buildP7ProductionGateEnvironment(
   authority,
   environment,
@@ -492,6 +578,14 @@ function gateRequirementIds(gateId) {
       "p7.tablet_portrait_landscape",
       "p7.touch_focus_accessibility",
     ],
+    "browser.p0_p2": ["release.regression_p0_p7"],
+    "browser.p3_multiplayer": [
+      "vertical.two_browser_realtime",
+      "release.regression_p0_p7",
+    ],
+    "browser.p4_functional": ["release.regression_p0_p7"],
+    "browser.p5_release": ["release.regression_p0_p7"],
+    "browser.p6_release": ["release.regression_p0_p7"],
     "collaboration.service": [
       "p3.yjs_indexeddb_hocuspocus",
       "p3.awareness_locks_mentions_history",
@@ -515,9 +609,9 @@ function gateRequirementIds(gateId) {
       "p7.organization_admin_entitlements",
     ],
     "license.closure": [
-      "release.license_lock_notices",
       "release.no_rayon_assets_or_copy",
     ],
+    "license.permissive_policy": ["release.license_lock_notices"],
     "application.typecheck_build": ["release.typecheck_build_collaboration"],
     "application.build": ["release.typecheck_build_collaboration"],
     "collaboration.typecheck_build": [
@@ -543,9 +637,11 @@ export function buildReleaseEvidenceFromResults(
     let receipt = null;
     for (const result of results) {
       if (!gateRequirementIds(result.id).includes(id)) continue;
-      if (result.status !== "PASS") status = "NOT_MET";
+      if (result.status === "NOT_MET") status = "NOT_MET";
+      else if (result.status === "UNEXECUTED" && status !== "NOT_MET")
+        status = "UNEXECUTED";
       const path = result.receiptPath ?? `${artifactRoot}${result.id}.log`;
-      if (result.status === "PASS") receipt = fileReceipt(path);
+      receipt = fileReceipt(path);
       authority = result.id;
     }
     let receipts;
@@ -567,6 +663,32 @@ export function buildReleaseEvidenceFromResults(
             : "PASS";
         authority = buildGateIds.join(" + ");
         receipts = buildResults.map((result) =>
+          fileReceipt(
+            result.receiptPath ?? `${artifactRoot}${result.id}.log`,
+          ),
+        );
+        receipt = receipts.at(-1);
+      }
+    }
+    if (id === "release.regression_p0_p7") {
+      const browserGateIds = [
+        "browser.p0_p2",
+        "browser.p3_multiplayer",
+        "browser.p4_functional",
+        "browser.p5_release",
+        "browser.p6_release",
+      ];
+      const browserResults = browserGateIds.map((gateId) =>
+        results.find(({ id: resultId }) => resultId === gateId),
+      );
+      if (browserResults.every(Boolean)) {
+        status = browserResults.some(({ status }) => status === "NOT_MET")
+          ? "NOT_MET"
+          : browserResults.some(({ status }) => status === "UNEXECUTED")
+            ? "UNEXECUTED"
+            : "PASS";
+        authority = browserGateIds.join(" + ");
+        receipts = browserResults.map((result) =>
           fileReceipt(
             result.receiptPath ?? `${artifactRoot}${result.id}.log`,
           ),
@@ -653,9 +775,6 @@ async function collectLocal() {
       child.once("exit", (code) => resolve(code ?? 1));
     });
     writeFileSync(logPath, Buffer.concat(chunks));
-    const missingRealPg =
-      gate.id === "database.real_postgres" &&
-      !process.env.DRAWING_P7_REAL_DATABASE_URL;
     let receiptPath;
     if (gate.id === "browser.desktop_tablet" && exitCode === 0) {
       execFileSync(process.execPath, [visualEvidenceScript, "write"], {
@@ -666,8 +785,7 @@ async function collectLocal() {
     }
     results.push({
       id: gate.id,
-      status:
-        exitCode === 0 ? "PASS" : missingRealPg ? "UNEXECUTED" : "NOT_MET",
+      status: p7LocalGateStatus(gate.id, exitCode, process.env),
       exitCode,
       ...(receiptPath ? { receiptPath } : {}),
     });
@@ -887,8 +1005,13 @@ async function main(mode) {
     ({ scope, status }) => scope === "production" && status !== "PASS",
   ).length;
   baseEvidence.generatedAt = new Date().toISOString();
+  const completionAuthority =
+    baseEvidence.overall === "PASS"
+      ? loadP7CompletionAuthority(process.env)
+      : null;
   validateDrawingP7ReleaseEvidence(baseEvidence, {
     expectedTreeSha256: drawingP7ReleaseTreeSha256(),
+    completionAuthority,
   });
   writeDrawingP7ReleaseEvidence(baseEvidence);
   if (p7CombinedReleaseExitCode(baseEvidence, productionResults) !== 0)

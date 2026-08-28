@@ -19,13 +19,13 @@ const drawingRoots = [
   "yjs",
 ];
 
-const allowedLicenses = new Set([
+const permissiveLicenses = new Set([
   "(MIT AND Zlib)",
   "0BSD",
   "Apache-2.0",
   "MIT",
-  "MPL-2.0",
 ]);
+const recognizedLicenses = new Set([...permissiveLicenses, "MPL-2.0"]);
 
 function resolveLockedDependency(packages, parentPath, dependencyName) {
   let directory = parentPath;
@@ -84,15 +84,31 @@ export function validateDrawingP7LicenseClosure({
       `${name} notice`,
     );
   }
-  for (const packagePath of packages) {
+  const entries = [];
+  for (const packagePath of [...packages].sort()) {
     const entry = lock.packages[packagePath];
     const license =
       entry.license ?? installedLicense(installedRoot, packagePath);
     assert.equal(
-      allowedLicenses.has(license),
+      recognizedLicenses.has(license),
       true,
       `${packagePath} has prohibited or unknown license ${String(license)}`,
     );
+    const escapedPath = packagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(
+      notice,
+      new RegExp(`\\|\\s*${escapedPath}\\s*\\|`),
+      `${packagePath} transitive notice`,
+    );
+    entries.push({ packagePath, version: entry.version, license });
   }
-  return { packages: [...packages].sort() };
+  const nonPermissive = entries
+    .filter(({ license }) => !permissiveLicenses.has(license))
+    .map(({ packagePath, license }) => ({ packagePath, license }));
+  return {
+    packages: entries.map(({ packagePath }) => packagePath),
+    entries,
+    nonPermissive,
+    policyStatus: nonPermissive.length === 0 ? "PASS" : "NOT_MET",
+  };
 }

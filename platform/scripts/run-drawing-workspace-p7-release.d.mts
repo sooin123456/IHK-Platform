@@ -55,3 +55,19 @@ export function p7ProductionGateStatus(
   exitCode: number,
   providerEvidence?: { status?: P7ReleaseStatus } | null,
 ): P7ReleaseStatus;
+export function p7LocalGateStatus(
+  gateId: string,
+  exitCode: number,
+  environment: Record<string, string | undefined>,
+): P7ReleaseStatus;
+export function buildReleaseEvidenceFromResults(
+  results: Array<{
+    id: string;
+    status: P7ReleaseStatus;
+    exitCode: number;
+    receiptPath?: string;
+  }>,
+  performance: any,
+  restore: any,
+  invocationId?: string,
+): any;

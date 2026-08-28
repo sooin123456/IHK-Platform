@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, verify as verifySignature } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,11 +181,103 @@ function overall(summary) {
   return "PASS";
 }
 
+function completionRequirementsSha256(requirements) {
+  return sha256(
+    Buffer.from(
+      JSON.stringify(requirements.map(({ id, status }) => ({ id, status }))),
+    ),
+  );
+}
+
+export function validateP7ExternalCompletionReceipt(
+  envelope,
+  evidence,
+  { publicKey, issuer, keyId, nonce },
+) {
+  assert.deepEqual(Object.keys(envelope).sort(), ["payload", "signature"]);
+  const { payload } = envelope;
+  assert.deepEqual(Object.keys(payload).sort(), [
+    "authority",
+    "commit",
+    "issuedAt",
+    "issuer",
+    "keyId",
+    "nonce",
+    "requirementsSha256",
+    "schemaVersion",
+    "sourceTreeSha256",
+  ]);
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.authority, "P7_EXTERNAL_SIGNED_COMPLETION_V1");
+  assert.equal(payload.issuer, issuer, "completion receipt issuer");
+  assert.equal(payload.keyId, keyId, "completion receipt key ID");
+  assert.equal(payload.nonce, nonce, "completion receipt nonce");
+  assert.equal(payload.commit, evidence.commit, "completion source commit");
+  assert.equal(
+    payload.sourceTreeSha256,
+    evidence.sourceTreeSha256,
+    "completion source tree",
+  );
+  assert.equal(
+    payload.requirementsSha256,
+    completionRequirementsSha256(evidence.requirements),
+    "completion requirement ledger",
+  );
+  assert.equal(Number.isNaN(Date.parse(payload.issuedAt)), false);
+  assert.equal(
+    verifySignature(
+      null,
+      Buffer.from(JSON.stringify(payload)),
+      publicKey,
+      Buffer.from(envelope.signature, "base64url"),
+    ),
+    true,
+    "completion receipt signature",
+  );
+  return envelope;
+}
+
+export function loadP7CompletionAuthority(environment = process.env) {
+  const names = [
+    "P7_COMPLETION_RECEIPT_PATH",
+    "P7_COMPLETION_PUBLIC_KEY_PEM",
+    "P7_COMPLETION_ISSUER",
+    "P7_COMPLETION_KEY_ID",
+    "P7_COMPLETION_NONCE",
+  ];
+  const missing = names.filter((name) => !environment[name]?.trim());
+  if (missing.length)
+    throw new Error(
+      `P7 completion authority is UNEXECUTED: missing ${missing.join(", ")}`,
+    );
+  return {
+    envelope: JSON.parse(
+      readFileSync(environment.P7_COMPLETION_RECEIPT_PATH, "utf8"),
+    ),
+    trust: {
+      publicKey: environment.P7_COMPLETION_PUBLIC_KEY_PEM,
+      issuer: environment.P7_COMPLETION_ISSUER,
+      keyId: environment.P7_COMPLETION_KEY_ID,
+      nonce: environment.P7_COMPLETION_NONCE,
+    },
+  };
+}
+
 const releaseBuildReceiptPaths = [
   "application.typecheck_build",
   "application.build",
   "collaboration.typecheck_build",
   "collaboration.build",
+].map(
+  (id) =>
+    `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
+);
+const regressionBrowserReceiptPaths = [
+  "browser.p0_p2",
+  "browser.p3_multiplayer",
+  "browser.p4_functional",
+  "browser.p5_release",
+  "browser.p6_release",
 ].map(
   (id) =>
     `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
@@ -241,6 +333,7 @@ export function validateDrawingP7ReleaseEvidence(
     expectedCommit = drawingP7ReleaseCommit(),
     expectedTreeSha256 = null,
     verifyReceipts = true,
+    completionAuthority = null,
   } = {},
 ) {
   assert.deepEqual(Object.keys(evidence).sort(), [
@@ -288,13 +381,28 @@ export function validateDrawingP7ReleaseEvidence(
       );
       for (const receipt of requirement.receipts) validateReceipt(receipt);
     }
+    if (verifyReceipts && requirement.id === "release.regression_p0_p7") {
+      assert.deepEqual(
+        requirement.receipts?.map(({ path }) => path),
+        regressionBrowserReceiptPaths,
+        "all P0-P6 browser release receipts",
+      );
+      for (const receipt of requirement.receipts) validateReceipt(receipt);
+    }
   }
   assert.deepEqual(evidence.summary, summarize(evidence.requirements));
   assert.equal(evidence.overall, overall(evidence.summary));
-  if (evidence.overall === "PASS")
-    throw new Error(
-      "Persisted mutable release evidence cannot confer program execution authority without an external immutable or signed completion receipt",
+  if (evidence.overall === "PASS") {
+    if (!completionAuthority)
+      throw new Error(
+        "Persisted mutable release evidence cannot confer program execution authority without an external immutable or signed completion receipt",
+      );
+    validateP7ExternalCompletionReceipt(
+      completionAuthority.envelope,
+      evidence,
+      completionAuthority.trust,
     );
+  }
   if (verifyReceipts) {
     const performance = JSON.parse(
       readFileSync(P7_PERFORMANCE_EVIDENCE_PATH, "utf8"),
@@ -355,10 +463,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (process.argv[2] !== "validate")
     throw new Error("Usage: drawing-p7-release-evidence.mjs validate");
   const evidence = JSON.parse(readFileSync(P7_RELEASE_EVIDENCE_PATH, "utf8"));
+  const completionAuthority =
+    evidence.overall === "PASS" ? loadP7CompletionAuthority() : null;
   validateDrawingP7ReleaseEvidence(evidence, {
     expectedTreeSha256: drawingP7ReleaseTreeSha256(),
+    completionAuthority,
   });
   assertDrawingP7ProgramComplete(evidence, {
     expectedTreeSha256: drawingP7ReleaseTreeSha256(),
+    completionAuthority,
   });
 }

@@ -7,6 +7,7 @@ import {
   drawingP7ReleaseCommit,
   drawingP7ReleaseTreeSha256,
 } from "./drawing-p7-release-evidence.mjs";
+import { drawingP7DirectorySha256 } from "./drawing-p7-performance-evidence.mjs";
 
 export const P7_VISUAL_EVIDENCE_PATH = fileURLToPath(
   new URL(
@@ -40,6 +41,12 @@ function buildManifestReceipt() {
   );
   assert.equal(existsSync(server), true, "current server build entry");
   return {
+    clientTree: {
+      path: "platform/build/client",
+      sha256: drawingP7DirectorySha256(
+        fileURLToPath(new URL("../build/client/", import.meta.url)),
+      ),
+    },
     clientManifest: {
       path: `platform/build/client/assets/${manifests[0]}`,
       sha256: sha256(readFileSync(`${assets}/${manifests[0]}`)),

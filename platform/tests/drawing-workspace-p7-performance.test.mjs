@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const evidenceModule =
@@ -16,6 +16,18 @@ const evidencePath = new URL(
   import.meta.url,
 );
 const runnerEvidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+const suiteEvidenceBytes = readFileSync(evidencePath);
+const suiteCaptureBytes = readFileSync(
+  evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+);
+
+after(() => {
+  writeFileSync(evidencePath, suiteEvidenceBytes);
+  writeFileSync(
+    evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+    suiteCaptureBytes,
+  );
+});
 
 test("P7 rejects the old handwritten summary and validates only the runner-produced raw capture", () => {
   assert.equal(
