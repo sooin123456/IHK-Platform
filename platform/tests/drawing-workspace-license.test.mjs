@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { test } from "node:test";
 
 const packageUrl = new URL("../package.json", import.meta.url);
@@ -13,6 +13,8 @@ const viewerUrl = new URL(
   import.meta.url,
 );
 const lockUrl = new URL("../package-lock.json", import.meta.url);
+const licenseAuthority =
+  await import("../scripts/drawing-p7-license-authority.mjs").catch(() => ({}));
 
 const approvedDirectDependencies = [
   "@hcaptcha/react-hcaptcha",
@@ -328,4 +330,58 @@ test("shared PDF opening stops before starting an aborted load", async () => {
   const createLoadingTask = source.indexOf("const loadingTask");
 
   assert.ok(abortCheck >= 0 && abortCheck < createLoadingTask);
+});
+
+test("P7 release inspects the actual drawing dependency closure and notices", async () => {
+  assert.equal(
+    typeof licenseAuthority.validateDrawingP7LicenseClosure,
+    "function",
+  );
+  const packageJson = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+  const result = licenseAuthority.validateDrawingP7LicenseClosure({
+    packageJson,
+    lock,
+    notice,
+    installedRoot: new URL("../node_modules/", import.meta.url),
+  });
+  assert.equal(result.packages.length, 33);
+  assert.ok(result.packages.includes("node_modules/pdfjs-dist"));
+  assert.ok(result.packages.includes("node_modules/web-ifc"));
+  assert.ok(result.packages.includes("node_modules/@hocuspocus/server"));
+
+  const prohibited = structuredClone(lock);
+  prohibited.packages["node_modules/react-konva"].license = "PROPRIETARY";
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7LicenseClosure({
+        packageJson,
+        lock: prohibited,
+        notice,
+        installedRoot: new URL("../node_modules/", import.meta.url),
+      }),
+    /react-konva.*PROPRIETARY/i,
+  );
+});
+
+test("1HK product source and public assets contain no Rayon name or asset", async () => {
+  const matches = [];
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const url = new URL(
+        `${entry.name}${entry.isDirectory() ? "/" : ""}`,
+        directory,
+      );
+      if (entry.isDirectory()) await visit(url);
+      else if (
+        /rayon/i.test(entry.name) ||
+        /rayon/i.test(await readFile(url, "utf8"))
+      )
+        matches.push(url.pathname);
+    }
+  }
+  await visit(new URL("../app/", import.meta.url));
+  await visit(new URL("../public/", import.meta.url));
+  assert.deepEqual(matches, []);
 });

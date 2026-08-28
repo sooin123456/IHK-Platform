@@ -11,7 +11,7 @@ export default defineConfig({
   reporter: "line",
   use: { ...base.use, baseURL, trace: "retain-on-failure" },
   webServer: {
-    command: "NODE_ENV=development npm run start",
+    command: "npm run build && NODE_ENV=development npm run start",
     url: baseURL,
     reuseExistingServer: false,
     env: {

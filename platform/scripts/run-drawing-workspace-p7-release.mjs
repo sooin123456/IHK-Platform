@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import {
   drawingP7ReceiptPath,
   drawingP7ReleaseCommit,
   drawingP7ReleaseTreeSha256,
+  validateDrawingP7ReleaseEvidence,
   writeDrawingP7ReleaseEvidence,
 } from "./drawing-p7-release-evidence.mjs";
 
@@ -22,6 +23,15 @@ const artifactRoot = fileURLToPath(
 );
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const visualEvidenceScript = fileURLToPath(
+  new URL("./drawing-p7-visual-evidence.mjs", import.meta.url),
+);
+const visualEvidencePath = fileURLToPath(
+  new URL(
+    "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-visual-evidence.json",
+    import.meta.url,
+  ),
+);
 
 function manifest() {
   return [
@@ -97,10 +107,6 @@ function manifest() {
       ],
     },
     {
-      id: "performance.source_bound",
-      argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
-    },
-    {
       id: "retention.restore",
       argv: [
         "node",
@@ -134,6 +140,10 @@ function manifest() {
     { id: "application.build", argv: ["npm", "run", "build"] },
     { id: "collaboration.build", argv: ["npm", "run", "build:collaboration"] },
     { id: "diff.check", argv: ["git", "--no-pager", "diff", "--check"] },
+    {
+      id: "performance.source_bound",
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p7:performance"],
+    },
   ];
 }
 
@@ -313,6 +323,14 @@ export function validateP7ProductionReceipt(receipt, authority, invocationId) {
   if (!isDeepStrictEqual(receipt.identities, authority.identities))
     throw new Error("P7 production receipt identity mismatch");
   if (
+    !isDeepStrictEqual(receipt.roles, {
+      author: "estimator",
+      commenter: "reviewer",
+      approver: "approver",
+    })
+  )
+    throw new Error("P7 production receipt exact project role mismatch");
+  if (
     !Array.isArray(receipt.sourceBefore) ||
     receipt.sourceBefore.length < 2 ||
     !receipt.sourceBefore.some(({ kind }) => kind === "pdf") ||
@@ -321,17 +339,39 @@ export function validateP7ProductionReceipt(receipt, authority, invocationId) {
   )
     throw new Error("P7 production PDF/IFC source SHA evidence changed");
   if (
+    !uuid.test(receipt.offlineClientOperationId ?? "") ||
     receipt.offlineLoss !== 0 ||
     receipt.offlineOperationsAuthored < 1 ||
     receipt.offlineOperationsPersisted !== receipt.offlineOperationsAuthored
   )
     throw new Error("P7 production offline operation loss is nonzero");
+  if (
+    !Array.isArray(receipt.collaborationUrls) ||
+    !receipt.collaborationUrls.includes(authority.collaborationUrl.toString())
+  )
+    throw new Error("P7 production hosted collaboration WebSocket is invalid");
   if (receipt.approvedImmutable !== true)
     throw new Error(
       "P7 production approved revision immutable authority failed",
     );
   if (
+    receipt.review?.decision !== "reviewed" ||
+    receipt.review?.decidedBy !== authority.identities[1].id ||
+    receipt.review?.authorId !== authority.identities[0].id ||
+    receipt.review.decidedBy === receipt.review.authorId
+  )
+    throw new Error("P7 production independent reviewer authority failed");
+  if (
+    receipt.approval?.decision !== "approved" ||
+    receipt.approval?.decidedBy !== authority.identities[2].id ||
+    receipt.approval?.authorId !== authority.identities[0].id ||
+    receipt.approval.decidedBy === receipt.approval.authorId
+  )
+    throw new Error("P7 production independent approval authority failed");
+  if (
     receipt.export?.auditActorId !== authority.identities[2].id ||
+    !uuid.test(receipt.export?.requestId ?? "") ||
+    receipt.export?.artifactType !== "drawing_pdf" ||
     !/^[0-9a-f]{64}$/.test(receipt.export?.sha256 ?? "") ||
     !(receipt.export?.byteSize > 0)
   )
@@ -367,49 +407,10 @@ async function executeWithEnvironment(argv, environment) {
   return execute({ argv }, environment);
 }
 
-async function providerTelemetry(authority) {
-  const response = await fetch(authority.telemetryUrl, {
-    headers: {
-      Authorization: `Bearer ${authority.telemetryToken}`,
-      Accept: "application/json",
-    },
-  });
-  const body = await response.text();
-  if (!response.ok)
-    throw new Error(
-      `P7 provider runtime telemetry is UNEXECUTED: ${response.status}`,
-    );
-  const receipt = JSON.parse(body);
-  const receiptSha = response.headers.get("x-evidence-sha256")?.toLowerCase();
-  if (
-    receipt.commit !== authority.commit ||
-    receipt.deploymentId !== authority.deploymentId ||
-    receipt.region !== authority.region ||
-    !/^[A-Za-z0-9_-]{8,}$/.test(
-      response.headers.get("x-provider-request-id") ?? "",
-    ) ||
-    !/^[0-9a-f]{64}$/i.test(receiptSha ?? "") ||
-    createHash("sha256").update(body).digest("hex") !== receiptSha
-  )
-    throw new Error(
-      "P7 provider runtime telemetry is UNEXECUTED: unsigned or deployment-mismatched receipt",
-    );
-  for (const [name, value] of Object.entries({
-    coldFirstUsableP95Ms: receipt.metrics?.coldFirstUsableP95Ms,
-    collaborationP95Ms: receipt.metrics?.collaborationP95Ms,
-    peakRssMiB: receipt.metrics?.peakRssMiB,
-    cpuMs: receipt.metrics?.cpuMs,
-  }))
-    if (!Number.isFinite(value) || value < 0)
-      throw new Error(`P7 provider runtime telemetry is NOT_MET: ${name}`);
-  if (
-    receipt.metrics.coldFirstUsableP95Ms > 2_500 ||
-    receipt.metrics.collaborationP95Ms > 500
-  )
-    throw new Error(
-      "P7 provider runtime telemetry is NOT_MET: startup or collaboration p95",
-    );
-  return receipt;
+export async function providerTelemetry() {
+  throw new Error(
+    "P7 provider runtime telemetry is UNEXECUTED: a trusted provider-domain signed immutable receipt with runner nonce is required",
+  );
 }
 
 export async function runP7Gates(gates, runner = execute) {
@@ -423,6 +424,51 @@ export async function runP7Gates(gates, runner = execute) {
     });
   }
   return results;
+}
+
+export function p7CombinedReleaseExitCode(evidence, productionResults) {
+  if (
+    evidence.overall !== "PASS" ||
+    evidence.externalInputs !== 0 ||
+    productionResults.some(({ status }) => status !== "PASS")
+  )
+    return 1;
+  return 0;
+}
+
+export function p7ProductionGateStatus(
+  gateId,
+  exitCode,
+  providerEvidence = null,
+) {
+  if (exitCode === 0) return "PASS";
+  if (
+    gateId === "production.managed_restore" &&
+    providerEvidence?.status === "UNEXECUTED"
+  )
+    return "UNEXECUTED";
+  return "NOT_MET";
+}
+
+export function buildP7ProductionGateEnvironment(
+  authority,
+  environment,
+  rawPath,
+  invocationId,
+) {
+  const postgresUrl = authority.postgresUrl.toString();
+  return {
+    ...environment,
+    E2E_BASE_URL: authority.baseUrl.origin,
+    SUPABASE_URL: authority.supabaseUrl.origin,
+    SUPABASE_ANON_KEY: authority.anonKey,
+    SUPABASE_SERVICE_ROLE_KEY: authority.serviceRoleKey,
+    VITE_DRAWING_COLLABORATION_URL: authority.collaborationUrl.toString(),
+    DRAWING_P7_REAL_DATABASE_URL: postgresUrl,
+    P7_REAL_POSTGRES_DATABASE_URL: postgresUrl,
+    P7_PRODUCTION_RAW_EVIDENCE_PATH: rawPath,
+    P7_PRODUCTION_INVOCATION_ID: invocationId,
+  };
 }
 
 function fileReceipt(path) {
@@ -490,7 +536,7 @@ export function buildReleaseEvidenceFromResults(
     for (const result of results) {
       if (!gateRequirementIds(result.id).includes(id)) continue;
       if (result.status !== "PASS") status = "NOT_MET";
-      const path = `${artifactRoot}${result.id}.log`;
+      const path = result.receiptPath ?? `${artifactRoot}${result.id}.log`;
       if (result.status === "PASS") receipt = fileReceipt(path);
       authority = result.id;
     }
@@ -574,11 +620,20 @@ async function collectLocal() {
     const missingRealPg =
       gate.id === "database.real_postgres" &&
       !process.env.DRAWING_P7_REAL_DATABASE_URL;
+    let receiptPath;
+    if (gate.id === "browser.desktop_tablet" && exitCode === 0) {
+      execFileSync(process.execPath, [visualEvidenceScript, "write"], {
+        cwd: root,
+        stdio: "inherit",
+      });
+      receiptPath = visualEvidencePath;
+    }
     results.push({
       id: gate.id,
       status:
         exitCode === 0 ? "PASS" : missingRealPg ? "UNEXECUTED" : "NOT_MET",
       exitCode,
+      ...(receiptPath ? { receiptPath } : {}),
     });
   }
   const performancePath = fileURLToPath(
@@ -606,6 +661,9 @@ async function collectLocal() {
     performance,
     restore,
   );
+  validateDrawingP7ReleaseEvidence(evidence, {
+    expectedTreeSha256: drawingP7ReleaseTreeSha256(),
+  });
   writeDrawingP7ReleaseEvidence(evidence);
   process.stdout.write(
     `P7 ${evidence.overall}: ${JSON.stringify(evidence.summary)}; external inputs ${evidence.externalInputs}\n`,
@@ -661,21 +719,27 @@ async function main(mode) {
       ],
     },
   ]) {
-    const environment = {
-      ...process.env,
-      E2E_BASE_URL: authority.baseUrl.origin,
-      SUPABASE_URL: authority.supabaseUrl.origin,
-      SUPABASE_ANON_KEY: authority.anonKey,
-      SUPABASE_SERVICE_ROLE_KEY: authority.serviceRoleKey,
-      VITE_DRAWING_COLLABORATION_URL: authority.collaborationUrl.toString(),
-      DRAWING_P7_REAL_DATABASE_URL: authority.postgresUrl.toString(),
-      P7_PRODUCTION_RAW_EVIDENCE_PATH: rawPath,
-      P7_PRODUCTION_INVOCATION_ID: invocationId,
-    };
+    const environment = buildP7ProductionGateEnvironment(
+      authority,
+      process.env,
+      rawPath,
+      invocationId,
+    );
     const exitCode = await executeWithEnvironment(gate.argv, environment);
+    let providerEvidence = null;
+    if (gate.id === "production.managed_restore") {
+      const path = fileURLToPath(
+        new URL(
+          "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+          import.meta.url,
+        ),
+      );
+      if (existsSync(path))
+        providerEvidence = JSON.parse(readFileSync(path, "utf8"));
+    }
     productionResults.push({
       id: gate.id,
-      status: exitCode === 0 ? "PASS" : "NOT_MET",
+      status: p7ProductionGateStatus(gate.id, exitCode, providerEvidence),
       exitCode,
     });
     writeFileSync(
@@ -746,6 +810,7 @@ async function main(mode) {
         "production.three_real_users",
         "production.mounted_route_actions",
         "production.export_audit",
+        "security.reviewer_approver_separation",
       ].includes(row.id)
     ) {
       status = productionStatus("production.three_users");
@@ -786,10 +851,13 @@ async function main(mode) {
     ({ scope, status }) => scope === "production" && status !== "PASS",
   ).length;
   baseEvidence.generatedAt = new Date().toISOString();
+  validateDrawingP7ReleaseEvidence(baseEvidence, {
+    expectedTreeSha256: drawingP7ReleaseTreeSha256(),
+  });
   writeDrawingP7ReleaseEvidence(baseEvidence);
-  if (failed.length)
+  if (p7CombinedReleaseExitCode(baseEvidence, productionResults) !== 0)
     throw new Error(
-      `P7 production gate is ${failed.some(({ status }) => status === "NOT_MET") ? "NOT_MET" : "UNEXECUTED"}: ${failed.map(({ id, status }) => `${id}=${status}`).join(", ")}`,
+      `P7 production gate is ${baseEvidence.overall}: ${failed.length ? failed.map(({ id, status }) => `${id}=${status}`).join(", ") : `local ledger=${baseEvidence.overall}`}`,
     );
   return 0;
 }

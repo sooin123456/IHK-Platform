@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -37,6 +39,31 @@ const hosted = {
   P7_E2E_APPROVER_EMAIL: "approver@onehk.kr",
 };
 
+function withCurrentRequirementLedger(evidence) {
+  const current = structuredClone(evidence);
+  current.requirements = evidenceModule.P7_REQUIREMENTS.map(
+    ({ id, scope }) =>
+      current.requirements.find((row) => row.id === id) ?? {
+        id,
+        scope,
+        status: "UNEXECUTED",
+        authority: "new production authority remains unavailable",
+        receipt: null,
+      },
+  );
+  current.summary = { PASS: 0, NOT_MET: 0, UNEXECUTED: 0 };
+  for (const { status } of current.requirements) current.summary[status] += 1;
+  current.overall = current.summary.NOT_MET
+    ? "NOT_MET"
+    : current.summary.UNEXECUTED
+      ? "UNEXECUTED"
+      : "PASS";
+  current.externalInputs = current.requirements.filter(
+    ({ scope, status }) => scope === "production" && status !== "PASS",
+  ).length;
+  return current;
+}
+
 test("P7 production authority requires hosted current deployment and three real distinct identities", () => {
   assert.equal(typeof runnerModule.requireP7ProductionAuthorities, "function");
   assert.throws(
@@ -68,6 +95,25 @@ test("P7 production authority requires hosted current deployment and three real 
         }),
       /real production identity/,
     );
+
+  assert.equal(
+    typeof runnerModule.buildP7ProductionGateEnvironment,
+    "function",
+  );
+  const environment = runnerModule.buildP7ProductionGateEnvironment(
+    authority,
+    { PATH: "/usr/bin" },
+    "/tmp/p7-raw.json",
+    "00000000-0000-4000-8000-000000000099",
+  );
+  assert.equal(
+    environment.DRAWING_P7_REAL_DATABASE_URL,
+    authority.postgresUrl.toString(),
+  );
+  assert.equal(
+    environment.P7_REAL_POSTGRES_DATABASE_URL,
+    authority.postgresUrl.toString(),
+  );
 });
 
 test("P7 release manifest covers every required authority and gathers all results", async () => {
@@ -154,7 +200,7 @@ test("P7 evidence is source and child-receipt bound and cannot pass with cold or
         expectedCommit: "1".repeat(40),
         verifyReceipts: false,
       }),
-    /cold|production|managed restore|three-user/i,
+    /cold|production|managed restore|three-user|execution authority/i,
   );
 });
 
@@ -183,7 +229,11 @@ test("P7 production Playwright contract uses supplied identities and emits only 
   assert.match(source, /readSourceEvidence|source.*sha256/i);
   assert.match(source, /offline/i);
   assert.match(source, /request_review|검토 요청/);
-  assert.match(source, /record_revision_decision|도면 승인/);
+  assert.match(source, /도면 검토 완료/);
+  assert.match(source, /도면 최종 승인/);
+  assert.match(source, /persistedOutboxOperationIds|offlineClientOperationId/);
+  assert.match(source, /page\.on\("websocket"/);
+  assert.doesNotMatch(source, /const revisionOperation/);
   assert.match(source, /download|내보내기/);
   assert.doesNotMatch(source, /createUser|example\.test|fixture/i);
 });
@@ -202,6 +252,11 @@ test("P7 production receipt accepts only the current runner invocation and zero-
       { id: hosted.P7_E2E_COMMENTER_ID, email: hosted.P7_E2E_COMMENTER_EMAIL },
       { id: hosted.P7_E2E_APPROVER_ID, email: hosted.P7_E2E_APPROVER_EMAIL },
     ],
+    roles: {
+      author: "estimator",
+      commenter: "reviewer",
+      approver: "approver",
+    },
     projectId: hosted.P7_E2E_PROJECT_ID,
     documentId: hosted.P7_E2E_DOCUMENT_ID,
     revisionId: hosted.P7_E2E_REVISION_ID,
@@ -233,11 +288,25 @@ test("P7 production receipt accepts only the current runner invocation and zero-
         bytes: 20,
       },
     ],
+    collaborationUrls: [new URL(hosted.P7_E2E_COLLABORATION_URL).toString()],
+    offlineClientOperationId: "00000000-0000-4000-8000-000000000013",
     offlineOperationsAuthored: 1,
     offlineOperationsPersisted: 1,
     offlineLoss: 0,
     approvedImmutable: true,
+    review: {
+      decision: "reviewed",
+      decidedBy: hosted.P7_E2E_COMMENTER_ID,
+      authorId: hosted.P7_E2E_AUTHOR_ID,
+    },
+    approval: {
+      decision: "approved",
+      decidedBy: hosted.P7_E2E_APPROVER_ID,
+      authorId: hosted.P7_E2E_AUTHOR_ID,
+    },
     export: {
+      requestId: "00000000-0000-4000-8000-000000000014",
+      artifactType: "drawing_pdf",
       sha256: "c".repeat(64),
       byteSize: 30,
       auditActorId: hosted.P7_E2E_APPROVER_ID,
@@ -258,6 +327,18 @@ test("P7 production receipt accepts only the current runner invocation and zero-
     { ...receipt, offlineLoss: 1 },
     { ...receipt, sourceAfter: [] },
     { ...receipt, approvedImmutable: false },
+    { ...receipt, offlineClientOperationId: "not-a-uuid" },
+    { ...receipt, collaborationUrls: ["wss://wrong.example.com"] },
+    { ...receipt, roles: { ...receipt.roles, approver: "reviewer" } },
+    {
+      ...receipt,
+      review: { ...receipt.review, decidedBy: hosted.P7_E2E_AUTHOR_ID },
+    },
+    {
+      ...receipt,
+      approval: { ...receipt.approval, decidedBy: hosted.P7_E2E_AUTHOR_ID },
+    },
+    { ...receipt, export: { ...receipt.export, requestId: "not-a-uuid" } },
   ])
     assert.throws(
       () =>
@@ -266,7 +347,7 @@ test("P7 production receipt accepts only the current runner invocation and zero-
           authority,
           receipt.invocationId,
         ),
-      /invocation|offline|source|immutable/i,
+      /invocation|offline|source|immutable|role|independent review|independent approval|collaboration|export/i,
     );
 });
 
@@ -308,4 +389,113 @@ test("P7 evidence binds to the latest authority-source commit, not documentation
     { cwd: new URL("../", import.meta.url), encoding: "utf8" },
   ).trim();
   assert.equal(evidenceModule.drawingP7ReleaseCommit(), expected);
+});
+
+test("persisted mutable child logs cannot be rewritten into program PASS", () => {
+  const persisted = withCurrentRequirementLedger(
+    JSON.parse(readFileSync(evidenceModule.P7_RELEASE_EVIDENCE_PATH, "utf8")),
+  );
+  const receipt = persisted.requirements.find(
+    (requirement) => requirement.receipt,
+  ).receipt;
+  const forged = structuredClone(persisted);
+  for (const requirement of forged.requirements) {
+    requirement.status = "PASS";
+    requirement.receipt = structuredClone(receipt);
+  }
+  forged.summary = {
+    PASS: forged.requirements.length,
+    NOT_MET: 0,
+    UNEXECUTED: 0,
+  };
+  forged.overall = "PASS";
+  forged.externalInputs = 0;
+  assert.throws(
+    () =>
+      evidenceModule.validateDrawingP7ReleaseEvidence(forged, {
+        expectedCommit: forged.commit,
+        expectedTreeSha256: forged.sourceTreeSha256,
+      }),
+    /persisted|external immutable|signed receipt|execution authority/i,
+  );
+});
+
+test("release validation invokes the current Task4 semantic authority", () => {
+  const persisted = withCurrentRequirementLedger(
+    JSON.parse(readFileSync(evidenceModule.P7_RELEASE_EVIDENCE_PATH, "utf8")),
+  );
+  const performancePath = new URL(
+    "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+    import.meta.url,
+  );
+  const original = readFileSync(performancePath);
+  const mutated = JSON.parse(original);
+  mutated.firstUsable.durationMs += 1;
+  const mutatedBytes = Buffer.from(`${JSON.stringify(mutated, null, 2)}\n`);
+  const evidence = structuredClone(persisted);
+  const relativePath =
+    ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json";
+  for (const requirement of evidence.requirements) {
+    if (requirement.receipt?.path !== relativePath) continue;
+    requirement.receipt.sha256 = createHash("sha256")
+      .update(mutatedBytes)
+      .digest("hex");
+  }
+  try {
+    writeFileSync(performancePath, mutatedBytes);
+    assert.throws(
+      () =>
+        evidenceModule.validateDrawingP7ReleaseEvidence(evidence, {
+          expectedCommit: evidence.commit,
+          expectedTreeSha256: evidence.sourceTreeSha256,
+        }),
+      /Playwright capture authority|capture checksum|first usable/i,
+    );
+  } finally {
+    writeFileSync(performancePath, original);
+  }
+});
+
+test("production cannot exit zero while the combined local ledger is non-PASS", () => {
+  assert.equal(typeof runnerModule.p7CombinedReleaseExitCode, "function");
+  const local = evidenceModule.buildDrawingP7ReleaseEvidenceFixture();
+  assert.equal(local.overall, "NOT_MET");
+  assert.equal(
+    runnerModule.p7CombinedReleaseExitCode(local, [
+      { id: "production.p0_p6", status: "PASS", exitCode: 0 },
+      { id: "production.real_postgres", status: "PASS", exitCode: 0 },
+      { id: "production.managed_restore", status: "PASS", exitCode: 0 },
+      { id: "production.three_users", status: "PASS", exitCode: 0 },
+      { id: "production.telemetry", status: "PASS", exitCode: 0 },
+    ]),
+    1,
+  );
+});
+
+test("missing managed provider authority stays UNEXECUTED while an executed miss is NOT_MET", () => {
+  assert.equal(
+    runnerModule.p7ProductionGateStatus("production.managed_restore", 2, {
+      status: "UNEXECUTED",
+    }),
+    "UNEXECUTED",
+  );
+  assert.equal(
+    runnerModule.p7ProductionGateStatus("production.managed_restore", 1, {
+      status: "NOT_MET",
+    }),
+    "NOT_MET",
+  );
+  assert.equal(
+    runnerModule.p7ProductionGateStatus("production.real_postgres", 1),
+    "NOT_MET",
+  );
+});
+
+test("an application-controlled HTTPS telemetry body cannot confer provider authority", async () => {
+  assert.equal(typeof runnerModule.providerTelemetry, "function");
+  const authority = runnerModule.requireP7ProductionAuthorities(hosted);
+  await assert.rejects(
+    runnerModule.providerTelemetry(authority),
+    /UNEXECUTED.*trusted provider.*signed|immutable/i,
+  );
 });

@@ -58,7 +58,7 @@ type TableDefinition<Row, Insert = never, Update = never> = {
 };
 
 export type DrawingWorkspaceCapability =
-  "admin" | "editor" | "reviewer" | "commenter" | "viewer";
+  "admin" | "editor" | "reviewer" | "approver" | "commenter" | "viewer";
 
 export type DrawingWorkspaceFile = {
   id: string;
@@ -119,7 +119,7 @@ type DrawingRevisionRow = {
   project_id: string;
   parent_revision_id: string | null;
   sequence: number;
-  status: "draft" | "review_requested" | "approved" | "superseded";
+  status: "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
   version: number;
   created_by: string;
   review_requested_at: string | null;
@@ -313,7 +313,7 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_revision_id: string;
         p_subject_version: number;
         p_snapshot_sha256: string;
-        p_decision: "approved" | "rejected";
+        p_decision: "reviewed" | "approved" | "rejected";
         p_note: string;
       }>;
       lukas_drawing_restore_approved_snapshot: DrawingRpc<{
@@ -719,7 +719,7 @@ const RecordRevisionDecisionMutationSchema = z.object({
   revisionId: Uuid,
   subjectVersion: z.number().int().positive(),
   snapshotSha256: Sha256,
-  decision: z.enum(["approved", "rejected"]),
+  decision: z.enum(["reviewed", "approved", "rejected"]),
   note: DecisionNote,
 });
 const RestoreApprovedSnapshotMutationSchema = z.object({
@@ -1055,10 +1055,18 @@ const DrawingWorkspaceCollaborationBootstrapSchema = z
     revisionStatus: z.enum([
       "draft",
       "review_requested",
+      "reviewed",
       "approved",
       "superseded",
     ]),
-    capability: z.enum(["admin", "editor", "reviewer", "commenter", "viewer"]),
+    capability: z.enum([
+      "admin",
+      "editor",
+      "reviewer",
+      "approver",
+      "commenter",
+      "viewer",
+    ]),
     canWrite: z.boolean(),
     recentOutcomes: z.array(CollaborationRecentOutcomeSchema).max(256),
   })
@@ -2524,7 +2532,10 @@ export async function loadDrawingWorkspace(
     subjectVersion: number;
     snapshotSha256: string;
   } | null = null;
-  if (revision.status === "review_requested") {
+  if (
+    revision.status === "review_requested" ||
+    revision.status === "reviewed"
+  ) {
     const { data: snapshot, error: snapshotError } = await client
       .from("lukas_drawing_snapshots")
       .select("revision_version,sha256")
@@ -2901,6 +2912,7 @@ const capabilityByRole: Record<string, DrawingWorkspaceCapability> = {
   staff: "admin",
   estimator: "editor",
   reviewer: "reviewer",
+  approver: "approver",
   site: "commenter",
   procurement: "commenter",
   viewer: "viewer",
@@ -3634,15 +3646,21 @@ function canEditWorkspace(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
 
-function canReviewWorkspace(capability: DrawingWorkspaceCapability) {
-  return capability === "admin" || capability === "reviewer";
+function canRecordRevisionDecision(
+  capability: DrawingWorkspaceCapability,
+  decision: "reviewed" | "approved" | "rejected",
+) {
+  if (decision === "reviewed") return capability === "reviewer";
+  if (decision === "approved") return capability === "approver";
+  return capability === "reviewer" || capability === "approver";
 }
 
 function canRestoreApprovedWorkspace(capability: DrawingWorkspaceCapability) {
   return (
     capability === "admin" ||
     capability === "editor" ||
-    capability === "reviewer"
+    capability === "reviewer" ||
+    capability === "approver"
   );
 }
 
@@ -3708,7 +3726,7 @@ export async function handleWorkspaceMutation({
     let clientOperationId: string | undefined;
 
     if (mutation.intent === "record_revision_decision") {
-      if (!canReviewWorkspace(capability))
+      if (!canRecordRevisionDecision(capability, mutation.decision))
         throw new Response("도면 리비전을 검토할 권한이 없습니다.", {
           status: 403,
         });

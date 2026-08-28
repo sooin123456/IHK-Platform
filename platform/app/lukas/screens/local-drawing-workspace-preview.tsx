@@ -1078,7 +1078,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
         project_id: ids.project,
         kind: "pdf",
         original_filename: "근린생활시설_A-101.pdf",
-        storage_path: "local-preview/rayon-a101.pdf",
+        storage_path: "local-preview/1hk-a101.pdf",
         content_type: "application/pdf",
         byte_size: activePdfByteSize,
         sha256: activePdfSha256,

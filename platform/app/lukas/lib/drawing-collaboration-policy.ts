@@ -10,6 +10,7 @@ export type DrawingProjectRole =
   | "owner"
   | "staff"
   | "reviewer"
+  | "approver"
   | "estimator"
   | "site"
   | "procurement"

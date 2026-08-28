@@ -208,13 +208,16 @@ body {
   }
 
   .drawing-workspace-toolbar {
-    right: max(1rem, var(--drawing-workspace-safe-inline-end));
-    left: max(1rem, var(--drawing-workspace-safe-inline-start));
+    --tw-translate-x: 0px !important;
+    --tw-translate-y: 0px !important;
+
+    right: max(1rem, var(--drawing-workspace-safe-inline-end)) !important;
+    left: max(1rem, var(--drawing-workspace-safe-inline-start)) !important;
     bottom: max(1rem, env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
-    transform: none;
-    translate: none;
+    transform: none !important;
+    translate: none !important;
     flex-wrap: nowrap;
     justify-content: flex-start;
     overflow-x: auto;

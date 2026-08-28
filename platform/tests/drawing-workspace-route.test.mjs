@@ -276,6 +276,17 @@ test("review controls require capability, requested status, separate maker, and 
   assert.deepEqual(
     workspaceView.drawingWorkspaceReviewControls({
       ...base,
+      capability: "approver",
+      status: "reviewed",
+    }),
+    {
+      requestReview: false,
+      decisionEvidence: base.reviewEvidence,
+    },
+  );
+  assert.deepEqual(
+    workspaceView.drawingWorkspaceReviewControls({
+      ...base,
       capability: "editor",
       status: "draft",
       reviewEvidence: null,
@@ -527,7 +538,10 @@ test("workspace route wires the verified source bundle and controlled IFC surfac
   assert.match(shell, /drawingRevisionDecisionFields\(/);
   assert.match(shell, /name="decision"/);
   assert.doesNotMatch(shell, /name="review"/);
-  assert.match(shell, /value="approved"/);
+  assert.match(
+    shell,
+    /value=\{\s*effectiveCapability === "approver" \? "approved" : "reviewed"\s*\}/s,
+  );
   assert.match(shell, /value="rejected"/);
   assert.equal(shell.match(/loadDrawingClientModule\(/g)?.length, 2);
   assert.match(shell, /2D 도면/);

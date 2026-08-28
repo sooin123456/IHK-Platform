@@ -2382,6 +2382,73 @@ test("capability comes from project ownership or membership rows, never user met
     ["eq", "project_id", ids.project],
     ["eq", "user_id", ids.actor],
   ]);
+
+  const approverClient = queryClient({
+    lukas_qto_project_members: { data: { role: "approver" }, error: null },
+  });
+  assert.equal(
+    await loadDrawingWorkspaceCapability(
+      approverClient,
+      ids.project,
+      ids.actor,
+      ids.document,
+    ),
+    "approver",
+  );
+});
+
+test("reviewer recommendation and approver final approval are separate action authorities", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, input) {
+      calls.push([name, input.p_decision]);
+      return { data: { decision: input.p_decision }, error: null };
+    },
+  };
+  const decisionForm = (decision) =>
+    form({
+      intent: "record_revision_decision",
+      revision_id: ids.revision,
+      subject_version: "1",
+      snapshot_sha256: sourceSha,
+      decision,
+      note: "separated",
+    });
+  const reviewWorkspace = loadedWorkspace();
+  reviewWorkspace.document.revision.status = "review_requested";
+  const reviewed = await handleWorkspaceMutation({
+    client,
+    projectId: ids.project,
+    capability: "reviewer",
+    workspace: reviewWorkspace,
+    form: decisionForm("reviewed"),
+  });
+  assert.equal(reviewed.status, 200);
+
+  await assert.rejects(
+    handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "reviewer",
+      workspace: reviewWorkspace,
+      form: decisionForm("approved"),
+    }),
+    (error) => error instanceof Response && error.status === 403,
+  );
+  const approvalWorkspace = loadedWorkspace();
+  approvalWorkspace.document.revision.status = "reviewed";
+  const approved = await handleWorkspaceMutation({
+    client,
+    projectId: ids.project,
+    capability: "approver",
+    workspace: approvalWorkspace,
+    form: decisionForm("approved"),
+  });
+  assert.equal(approved.status, 200);
+  assert.deepEqual(calls, [
+    ["lukas_drawing_record_revision_decision", "reviewed"],
+    ["lukas_drawing_record_revision_decision", "approved"],
+  ]);
 });
 
 test("trusted staff context is admin without membership while viewer and outsider stay constrained", async () => {

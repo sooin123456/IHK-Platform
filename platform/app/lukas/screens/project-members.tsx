@@ -12,6 +12,7 @@ import makeServerClient from "~/core/lib/supa-client.server";
 const assignableRoles = [
   "estimator",
   "reviewer",
+  "approver",
   "site",
   "procurement",
   "viewer",
@@ -19,7 +20,8 @@ const assignableRoles = [
 const roleLabels: Record<string, string> = {
   owner: "소유자",
   estimator: "적산 담당",
-  reviewer: "검토·승인",
+  reviewer: "검토 담당",
+  approver: "최종 승인",
   site: "현장 담당",
   procurement: "구매·계산서",
   viewer: "조회 전용",

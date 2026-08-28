@@ -57,16 +57,9 @@ export function drawingCollaborationPhaseForProviderStatus(status: string) {
 }
 
 type DrawingCollaborationCapability =
-  | "admin"
-  | "editor"
-  | "reviewer"
-  | "commenter"
-  | "viewer";
+  "admin" | "editor" | "reviewer" | "approver" | "commenter" | "viewer";
 type DrawingCollaborationRevisionStatus =
-  | "draft"
-  | "review_requested"
-  | "approved"
-  | "superseded";
+  "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
 
 export function drawingCollaborationAuthority({
   bootstrap,

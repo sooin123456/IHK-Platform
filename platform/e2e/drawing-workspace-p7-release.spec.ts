@@ -93,6 +93,42 @@ for (const viewport of [
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(box?.height).toBeGreaterThanOrEqual(44);
     }
+    const toolbar = page.getByRole("navigation", { name: "캔버스 도구" });
+    for (const target of await toolbar.getByRole("button").all()) {
+      const box = await target.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+    const workspace = page.locator("main.drawing-workspace");
+    await workspace.evaluate((element) => {
+      (element as HTMLElement).style.setProperty(
+        "--drawing-workspace-safe-inline-start",
+        "48px",
+      );
+      (element as HTMLElement).style.setProperty(
+        "--drawing-workspace-safe-inline-end",
+        "36px",
+      );
+    });
+    const safeBounds = await toolbar.evaluate((element) =>
+      element.getBoundingClientRect().toJSON(),
+    );
+    expect(safeBounds.x).toBeGreaterThanOrEqual(48);
+    expect(safeBounds.right).toBeLessThanOrEqual(viewport.width - 36);
+    await toolbar.evaluate((element) => {
+      (element as HTMLElement).style.width = "180px";
+    });
+    const overflow = await toolbar.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+    await toolbar.evaluate((element) => {
+      (element as HTMLElement).scrollLeft = element.scrollWidth;
+    });
+    await expect
+      .poll(() => toolbar.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0);
     await page.getByRole("button", { name: "속성 검사기 열기" }).click();
     await expect(inspector).toBeVisible();
     await expect(tools).toBeHidden();

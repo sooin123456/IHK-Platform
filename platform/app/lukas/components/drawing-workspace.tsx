@@ -3300,7 +3300,7 @@ export default function DrawingWorkspaceClient({
     ? drawingRevisionDecisionFields({
         revisionId: revision.id,
         evidence: reviewControls.decisionEvidence,
-        decision: "approved",
+        decision: effectiveCapability === "approver" ? "approved" : "reviewed",
         note: reviewNote,
       })
     : null;
@@ -3628,13 +3628,20 @@ export default function DrawingWorkspaceClient({
                 value={reviewNote}
               />
               <Button
-                aria-label="도면 승인"
+                aria-label={
+                  effectiveCapability === "approver"
+                    ? "도면 최종 승인"
+                    : "도면 검토 완료"
+                }
                 name="decision"
                 type="submit"
-                value="approved"
+                value={
+                  effectiveCapability === "approver" ? "approved" : "reviewed"
+                }
                 variant="secondary"
               >
-                <Check className="size-4" /> 승인
+                <Check className="size-4" />
+                {effectiveCapability === "approver" ? "최종 승인" : "검토 완료"}
               </Button>
               <Button
                 aria-label="도면 반려"
@@ -4301,7 +4308,9 @@ export default function DrawingWorkspaceClient({
                 </p>
               ) : null}
               {effectiveRevisionStatus === "approved" &&
-              ["admin", "editor", "reviewer"].includes(effectiveCapability) ? (
+              ["admin", "editor", "reviewer", "approver"].includes(
+                effectiveCapability,
+              ) ? (
                 <Form
                   method="post"
                   className="rounded-md border border-indigo-400/30 p-2"

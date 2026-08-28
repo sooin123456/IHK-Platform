@@ -9,7 +9,8 @@ import {
   type DrawingObjectSource,
 } from "./drawing-workspace.types.ts";
 
-type RevisionStatus = "draft" | "review_requested" | "approved" | "superseded";
+type RevisionStatus =
+  "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
 
 export type DrawingWorkspaceViewMode = "2d" | "3d" | "split";
 
@@ -232,8 +233,8 @@ export function drawingWorkspaceReviewControls(input: {
     input.status === "draft";
   const evidence = input.reviewEvidence;
   const decisionEvidence =
-    (input.capability === "admin" || input.capability === "reviewer") &&
-    input.status === "review_requested" &&
+    ((input.capability === "reviewer" && input.status === "review_requested") ||
+      (input.capability === "approver" && input.status === "reviewed")) &&
     input.createdBy !== input.currentUserId &&
     evidence?.subjectVersion === input.revisionVersion &&
     /^[0-9a-f]{64}$/.test(evidence.snapshotSha256)
@@ -259,7 +260,7 @@ export function drawingIssueLinkReady(input: {
 }
 
 export function drawingRevisionDecisionFields(input: {
-  decision: "approved" | "rejected";
+  decision: "reviewed" | "approved" | "rejected";
   evidence: DrawingReviewEvidence;
   note: string;
   revisionId: string;

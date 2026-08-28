@@ -5,6 +5,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  P7_PERFORMANCE_EVIDENCE_PATH,
+  inspectDrawingP7PerformanceEvidence,
+} from "./drawing-p7-performance-evidence.mjs";
+
 const platformRoot = fileURLToPath(new URL("../", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 export const P7_RELEASE_EVIDENCE_PATH = fileURLToPath(
@@ -48,6 +53,7 @@ export const P7_REQUIREMENTS = Object.freeze(
     ["p7.organization_admin_entitlements", "local"],
     ["security.real_postgres_rls", "production"],
     ["security.approved_revision_immutable", "production"],
+    ["security.reviewer_approver_separation", "production"],
     ["collaboration.hosted_service", "production"],
     ["performance.10k_deterministic", "local"],
     ["performance.warm_interaction", "local"],
@@ -72,6 +78,7 @@ const hardProductionIds = new Set([
   "p3.offline_zero_loss",
   "security.real_postgres_rls",
   "security.approved_revision_immutable",
+  "security.reviewer_approver_separation",
   "collaboration.hosted_service",
   "performance.cold_startup",
   "performance.hosted_runtime",
@@ -266,6 +273,32 @@ export function validateDrawingP7ReleaseEvidence(
   }
   assert.deepEqual(evidence.summary, summarize(evidence.requirements));
   assert.equal(evidence.overall, overall(evidence.summary));
+  if (evidence.overall === "PASS")
+    throw new Error(
+      "Persisted mutable release evidence cannot confer program execution authority without an external immutable or signed completion receipt",
+    );
+  if (verifyReceipts) {
+    const performance = JSON.parse(
+      readFileSync(P7_PERFORMANCE_EVIDENCE_PATH, "utf8"),
+    );
+    inspectDrawingP7PerformanceEvidence(performance);
+    const visualRequirement = evidence.requirements.find(
+      ({ id }) => id === "p7.desktop_1280x720",
+    );
+    if (
+      visualRequirement?.receipt?.path.endsWith("task-7-visual-evidence.json")
+    )
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL("./drawing-p7-visual-evidence.mjs", import.meta.url),
+          ),
+          "validate",
+        ],
+        { cwd: platformRoot, stdio: "pipe" },
+      );
+  }
   for (const id of hardProductionIds) {
     const row = evidence.requirements.find((candidate) => candidate.id === id);
     assert.ok(row, id);
