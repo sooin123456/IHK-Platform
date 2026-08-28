@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "status": "UNEXECUTED",
+  "sourceCommit": "fe3015fa71d3ecaacbec18140cd980543a96bd3b",
+  "provider": {
+    "status": "UNEXECUTED",
+    "backupId": null,
+    "restoreProjectRef": null
+  },
+  "comparison": {
+    "status": "UNEXECUTED",
+    "mismatches": [
+      "schema",
+      "database",
+      "storage",
+      "yjs",
+      "approvals",
+      "lineage"
+    ]
+  },
+  "rpoSeconds": null,
+  "rtoSeconds": null,
+  "missingAuthorities": [
+    "UNEXECUTED: missing P7_RESTORE_MANAGEMENT_ACCESS_TOKEN"
+  ],
+  "recordedAt": "2026-08-28T06:15:43.556Z"
+}
