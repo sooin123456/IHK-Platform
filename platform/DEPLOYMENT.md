@@ -908,13 +908,14 @@ available throughout rollout and use it as the immediate product rollback path.
    generated database type diff before application promotion.
 4. Run `npm run test:drawing-workspace`, `node --test tests/*.test.mjs`,
    `npm run test:ifc`, `npm run typecheck`, and `npm run build`.
-   With no path argument, `test:ifc` requires network access and downloads the
-   pinned public `examples/example.ifc` from `ThatOpen/engine_web-ifc` commit
-   `3f6f3640b8317664194911fad63bcd407f7e32ca`, verifies its known SHA-256,
-   runs the selectable/renderable geometry smoke, and removes the temporary
-   bytes. The upstream fixture is provided under MPL-2.0. Offline or
-   changed-source runs fail explicitly; they are never reported as skipped.
-   A reviewer may instead run `npm run test:ifc -- /absolute/path/model.ifc`.
+   `test:ifc` validates the committed self-contained GLB and canonical manifest,
+   verifies their SHA-256 chain, maps every node/primitive to one Express ID, and
+   creates/disposes two independent owned scenes. It performs no network access
+   and never parses raw IFC in the browser package. Production source-byte
+   evidence separately uses the pinned public `examples/example.ifc` from the
+   `ThatOpen/engine_web-ifc` commit
+   `3f6f3640b8317664194911fad63bcd407f7e32ca`; that upstream fixture is provided
+   under MPL-2.0 and its SHA-256 must remain unchanged before and after review.
 5. Deploy a Vercel preview. Smoke the PDF-backed and blank routes with an Editor,
    then confirm a Viewer has no mutation controls and receives a database
    rejection for an attempted mutation.

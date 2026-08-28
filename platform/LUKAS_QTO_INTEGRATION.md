@@ -53,13 +53,13 @@ must be stored in private buckets with RLS policies that limit owner access.
    exposed table needs RLS.
 3. Keep IFC, CSV and export manifests immutable after upload. Review status
    and notes are separate records, not edits to the source files.
-4. The first IFC viewer is implemented with `web-ifc` and Three.js: an
-   authenticated owner can rotate, pan and zoom a model, select geometry in 3D,
-   search elements, and see its Express ID, IFC type, Global ID and raw IFC
-   properties. It runs in the browser from a five-minute signed Storage URL and
-   never writes to, recalculates or claims an IFC-to-Revit mapping for the file.
-   Files over 75MB keep the property browser but skip client-side triangulation
-   to protect browser memory.
+4. The IFC viewer renders a server-produced, immutable self-contained GLB with
+   Three.js and reads properties from its version-pinned semantic manifest. The
+   browser verifies the selected source identity and both artifact SHA-256 values
+   before selection, search, GlobalId focus, or property display. It never fetches
+   or parses raw IFC bytes and never writes to or recalculates the source. GLB
+   responses over 75MB keep the verified property browser but skip 3D parsing to
+   protect browser memory.
 
 ## Evidence-bound automatic review
 

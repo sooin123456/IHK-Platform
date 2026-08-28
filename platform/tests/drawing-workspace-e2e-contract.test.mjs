@@ -10,7 +10,7 @@ test("drawing workspace has one complete serial production contract", async () =
   const spec = await read("e2e/drawing-workspace.spec.ts");
   const fixture = await read("e2e/utils/drawing-collaboration-fixture.ts");
   const canvas = await read("app/lukas/components/drawing-canvas.client.tsx");
-  const ifcRunner = await read("tests/run-ifc-geometry-smoke.mjs");
+  const ifcLoader = await read("app/lukas/lib/ifc-render-model.client.ts");
   const packageJson = JSON.parse(await read("package.json"));
 
   assert.match(spec, /test\.describe\.serial\(/);
@@ -116,21 +116,12 @@ test("drawing workspace has one complete serial production contract", async () =
   );
   assert.equal(
     packageJson.scripts["test:ifc"],
-    "node tests/run-ifc-geometry-smoke.mjs",
+    "node --test tests/drawing-ifc-render-model.test.mjs",
   );
-  assert.match(ifcRunner, /ThatOpen\/engine_web-ifc/);
-  assert.match(
-    ifcRunner,
-    /raw\.githubusercontent\.com\/ThatOpen\/engine_web-ifc\/[0-9a-f]{40}\/examples\/example\.ifc/,
-  );
-  assert.doesNotMatch(ifcRunner, /engine_web-ifc\/main\//);
-  assert.match(
-    ifcRunner,
-    /db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d/,
-  );
-  assert.match(ifcRunner, /mkdtemp/);
-  assert.match(ifcRunner, /rm\(temporaryDirectory/);
-  assert.match(ifcRunner, /spawnSync/);
+  assert.match(ifcLoader, /crypto\.subtle\.digest/);
+  assert.match(ifcLoader, /GLTFLoader/);
+  assert.match(ifcLoader, /assertSelfContainedGlb/);
+  assert.doesNotMatch(ifcLoader, /web-ifc/);
   assert.doesNotMatch(canvas, /<output/);
   assert.match(canvas, /data-viewport-zoom=\{viewport\.zoom\}/);
   assert.match(canvas, /export function drawingFittedViewport/);
@@ -168,6 +159,7 @@ test("release documentation keeps local evidence separate from external gates", 
   assert.match(deployment, /unexecuted/i);
   assert.match(deployment, /60fps.*P7/is);
   assert.match(deployment, /ThatOpen\/engine_web-ifc/);
+  assert.match(deployment, /GLB.*manifest/is);
   assert.match(deployment, /MPL-2\.0/);
   assert.match(deployment, /network/i);
   assert.match(matrix, /Drawing Workspace P0\/P1/);

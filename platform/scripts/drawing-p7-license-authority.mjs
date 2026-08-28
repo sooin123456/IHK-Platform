@@ -14,7 +14,6 @@ const drawingRoots = [
   "pdfjs-dist",
   "react-konva",
   "three",
-  "web-ifc",
   "y-indexeddb",
   "y-protocols",
   "yjs",
@@ -26,7 +25,7 @@ const permissiveLicenses = new Set([
   "Apache-2.0",
   "MIT",
 ]);
-const recognizedLicenses = new Set([...permissiveLicenses, "MPL-2.0"]);
+const recognizedLicenses = permissiveLicenses;
 
 function resolveLockedDependency(packages, parentPath, dependencyName) {
   let directory = parentPath;

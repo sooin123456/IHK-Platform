@@ -11,7 +11,6 @@ packages has been modified or copied into this repository.
 | pdf-lib              | 1.17.1         | https://github.com/Hopding/pdf-lib             | MIT        | No       | npm         | Drawing export                                |
 | pdfjs-dist           | 6.2.108        | https://github.com/mozilla/pdf.js              | Apache-2.0 | No       | npm         | Immutable PDF background rendering            |
 | three                | 0.185.1        | https://github.com/mrdoob/three.js             | MIT        | No       | npm         | IFC WebGL scene rendering                     |
-| web-ifc              | 0.0.77         | https://github.com/ThatOpen/engine_web-ifc     | MPL-2.0    | No       | npm         | IFC parsing at the package/runtime boundary   |
 | fflate               | 0.8.3          | https://github.com/101arrowz/fflate            | MIT        | No       | npm         | Formula-free Verified BOQ XLSX ZIP generation |
 | gltf-validator       | 2.0.0-dev.3.10 | https://github.com/KhronosGroup/glTF-Validator | Apache-2.0 | No       | npm         | Server-side GLB conformance validation        |
 | yjs                  | 13.6.32        | https://github.com/yjs/yjs                     | MIT        | No       | npm         | CRDT document and updates                     |
@@ -58,13 +57,10 @@ gate. Package paths distinguish independently installed versions.
 | node_modules/scheduler                                        | 0.27.0         | MIT            |
 | node_modules/three                                            | 0.185.1        | MIT            |
 | node_modules/tslib                                            | 2.8.1          | 0BSD           |
-| node_modules/web-ifc                                          | 0.0.77         | MPL-2.0        |
 | node_modules/y-indexeddb                                      | 9.0.12         | MIT            |
 | node_modules/y-protocols                                      | 1.0.7          | MIT            |
 | node_modules/yjs                                              | 13.6.32        | MIT            |
 
-`web-ifc` is received unmodified under MPL-2.0. Its covered source is available
-from the upstream project linked above and the npm distribution includes its
-license text. MPL-2.0 is weak-copyleft, not a permissive license, so the P7
-permissive-only release policy remains `NOT_MET` until `web-ifc` is replaced or
-an explicit policy exception is approved outside this audit.
+The drawing dependency closure is permissive-only. IFC source parsing and
+derivative generation run outside this browser package; the client verifies and
+renders immutable, self-contained GLB plus its semantic manifest with Three.js.

@@ -84,7 +84,6 @@ const approvedDirectDependencies = [
   "tailwind-merge",
   "tailwindcss-animate",
   "three",
-  "web-ifc",
   "y-indexeddb",
   "y-protocols",
   "yjs",
@@ -379,23 +378,20 @@ test("P7 release inspects the actual drawing dependency closure and notices", as
     notice,
     installedRoot: new URL("../node_modules/", import.meta.url),
   });
-  assert.equal(result.packages.length, 34);
-  assert.equal(result.entries.length, 34);
+  assert.equal(result.packages.length, 33);
+  assert.equal(result.entries.length, 33);
   assert.ok(result.packages.includes("node_modules/gltf-validator"));
   assert.ok(result.packages.includes("node_modules/pdfjs-dist"));
-  assert.ok(result.packages.includes("node_modules/web-ifc"));
   assert.ok(result.packages.includes("node_modules/@hocuspocus/server"));
-  assert.equal(result.policyStatus, "NOT_MET");
-  assert.deepEqual(result.nonPermissive, [
-    { packagePath: "node_modules/web-ifc", license: "MPL-2.0" },
-  ]);
+  assert.equal(result.policyStatus, "PASS");
+  assert.deepEqual(result.nonPermissive, []);
   for (const { packagePath, license } of result.entries) {
     const escapedPath = packagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const escapedLicense = license.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(notice, new RegExp(`\\|\\s*${escapedPath}\\s*\\|`));
     assert.match(notice, new RegExp(`\\|\\s*${escapedLicense}\\s*\\|`));
   }
-  assert.match(notice, /MPL-2\.0.*source.*upstream/is);
+  assert.doesNotMatch(notice, /web-ifc|MPL-2\.0/i);
 
   const prohibited = structuredClone(lock);
   prohibited.packages["node_modules/react-konva"].license = "PROPRIETARY";
