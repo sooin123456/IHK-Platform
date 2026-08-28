@@ -26,6 +26,8 @@ const runnerModule =
   );
 const visualModule =
   await import("../scripts/drawing-p7-visual-evidence.mjs").catch(() => ({}));
+const documentModule =
+  await import("../scripts/drawing-p7-release-documents.mjs").catch(() => ({}));
 
 const hosted = {
   P7_E2E_BASE_URL: "https://drawing.onehk.kr",
@@ -705,6 +707,79 @@ test("actual P3 and P0-P6 browser gates directly bind realtime and regression re
         `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/${id}.log`,
     ),
   );
+});
+
+test("release report and matrix are atomically derived from the current authoritative ledger", () => {
+  assert.equal(typeof documentModule.writeDrawingP7ReleaseDocuments, "function");
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-documents-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
+  const evidence = evidenceModule.buildDrawingP7ReleaseEvidenceFixture({
+    commit: "a".repeat(40),
+  });
+  evidence.sourceTreeSha256 = "b".repeat(64);
+  evidence.requirements[0].status = "NOT_MET";
+  evidence.requirements[1].status = "UNEXECUTED";
+  evidence.summary = { PASS: 46, NOT_MET: 1, UNEXECUTED: 1 };
+  evidence.overall = "NOT_MET";
+  const performance = {
+    sourceCommitSha: evidence.commit,
+    status: "MET",
+    firstUsable: { durationMs: 1657.4, targetMs: 2500, status: "MET" },
+    coldCacheMiss: { durationMs: 2160.1, targetMs: 2500, status: "MET" },
+    warm: {
+      p95Ms: { zoom: 0.2, pan: 0.3, selection: 7.7 },
+      targetMs: 16.7,
+      status: "MET",
+    },
+  };
+  try {
+    documentModule.writeDrawingP7ReleaseDocuments(evidence, performance, {
+      reportPath,
+      matrixPath,
+    });
+    const report = readFileSync(reportPath, "utf8");
+    const matrix = readFileSync(matrixPath, "utf8");
+    for (const content of [report, matrix]) {
+      assert.match(content, new RegExp(evidence.commit));
+      assert.match(content, /46 PASS \/ 1 NOT_MET \/ 1 UNEXECUTED/);
+      assert.match(content, /p0\.editor_core.*NOT_MET/);
+      assert.match(content, /p0\.world_coordinates.*UNEXECUTED/);
+      assert.match(content, /cold\/cache-miss.*2160\.1ms.*MET/i);
+      assert.doesNotMatch(content, /35 PASS \/ 1 NOT_MET \/ 12 UNEXECUTED/);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("release run invalidation replaces stale PASS documents before any gate executes", () => {
+  assert.equal(
+    typeof documentModule.invalidateDrawingP7ReleaseDocuments,
+    "function",
+  );
+  const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-running-"));
+  const reportPath = join(directory, "task-7-report.md");
+  const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
+  writeFileSync(reportPath, "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n");
+  writeFileSync(matrixPath, "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n");
+  try {
+    documentModule.invalidateDrawingP7ReleaseDocuments({
+      reportPath,
+      matrixPath,
+      commit: "c".repeat(40),
+      invocationId: "run-123",
+    });
+    for (const path of [reportPath, matrixPath]) {
+      const content = readFileSync(path, "utf8");
+      assert.match(content, /UNEXECUTED/);
+      assert.match(content, /run-123/);
+      assert.doesNotMatch(content, /Overall: PASS/);
+      assert.doesNotMatch(content, /48 PASS/);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("program PASS requires and accepts only a trusted signed completion receipt", () => {

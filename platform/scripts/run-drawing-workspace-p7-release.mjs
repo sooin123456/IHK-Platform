@@ -22,6 +22,10 @@ import {
   validateDrawingP7ReleaseEvidence,
   writeDrawingP7ReleaseEvidence,
 } from "./drawing-p7-release-evidence.mjs";
+import {
+  invalidateDrawingP7ReleaseDocuments,
+  writeDrawingP7ReleaseDocuments,
+} from "./drawing-p7-release-documents.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const artifactRoot = fileURLToPath(
@@ -798,6 +802,11 @@ export function buildReleaseEvidenceFromResults(
 
 async function collectLocal() {
   assertExactP7GateManifest(P7_RELEASE_GATES);
+  const invocationId = randomUUID();
+  invalidateDrawingP7ReleaseDocuments({
+    commit: drawingP7ReleaseCommit(),
+    invocationId,
+  });
   mkdirSync(artifactRoot, { recursive: true });
   const isolatedBrowserArtifactRoot = mkdtempSync(
     path.join(tmpdir(), "1hk-p7-browser-"),
@@ -895,11 +904,13 @@ async function collectLocal() {
     results,
     performance,
     restore,
+    invocationId,
   );
   validateDrawingP7ReleaseEvidence(evidence, {
     expectedTreeSha256: drawingP7ReleaseTreeSha256(),
   });
   writeDrawingP7ReleaseEvidence(evidence);
+  writeDrawingP7ReleaseDocuments(evidence, performance);
   process.stdout.write(
     `P7 ${evidence.overall}: ${JSON.stringify(evidence.summary)}; external inputs ${evidence.externalInputs}\n`,
   );
@@ -1095,6 +1106,16 @@ async function main(mode) {
     completionAuthority,
   });
   writeDrawingP7ReleaseEvidence(baseEvidence);
+  const performancePath = fileURLToPath(
+    new URL(
+      "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+      import.meta.url,
+    ),
+  );
+  writeDrawingP7ReleaseDocuments(
+    baseEvidence,
+    JSON.parse(readFileSync(performancePath, "utf8")),
+  );
   if (p7CombinedReleaseExitCode(baseEvidence, productionResults) !== 0)
     throw new Error(
       `P7 production gate is ${baseEvidence.overall}: ${failed.length ? failed.map(({ id, status }) => `${id}=${status}`).join(", ") : `local ledger=${baseEvidence.overall}`}`,
