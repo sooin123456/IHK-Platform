@@ -6,6 +6,7 @@ export const P7_REQUIREMENTS: ReadonlyArray<{
 }>;
 export function drawingP7ReleaseCommit(): string;
 export function drawingP7ReleaseTreeSha256(): string;
+export function drawingP7ReceiptPath(path: string): string;
 export function validateDrawingP7ReleaseEvidence(
   evidence: unknown,
   options?: {

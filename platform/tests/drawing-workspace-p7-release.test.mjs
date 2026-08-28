@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -268,4 +268,44 @@ test("P7 production receipt accepts only the current runner invocation and zero-
         ),
       /invocation|offline|source|immutable/i,
     );
+});
+
+test("P7 child receipts are repository-relative and cannot escape the checkout", () => {
+  assert.equal(typeof evidenceModule.drawingP7ReceiptPath, "function");
+  assert.equal(
+    evidenceModule.drawingP7ReceiptPath(
+      new URL(
+        "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+        import.meta.url,
+      ).pathname,
+    ),
+    ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-gates/node.p0_p7.log",
+  );
+  assert.throws(
+    () => evidenceModule.drawingP7ReceiptPath("/tmp/forged-p7-receipt.json"),
+    /outside repository/,
+  );
+});
+
+test("P7 evidence binds to the latest authority-source commit, not documentation HEAD", () => {
+  const expected = execFileSync(
+    "git",
+    [
+      "log",
+      "-1",
+      "--format=%H",
+      "--",
+      "app",
+      "collaboration",
+      "e2e",
+      "scripts",
+      "supabase/migrations",
+      "tests",
+      "package.json",
+      "package-lock.json",
+      "THIRD_PARTY_NOTICES.md",
+    ],
+    { cwd: new URL("../", import.meta.url), encoding: "utf8" },
+  ).trim();
+  assert.equal(evidenceModule.drawingP7ReleaseCommit(), expected);
 });

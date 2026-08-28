@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const platformRoot = fileURLToPath(new URL("../", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 export const P7_RELEASE_EVIDENCE_PATH = fileURLToPath(
   new URL(
     "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-release-evidence.json",
@@ -84,11 +86,44 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function drawingP7ReceiptPath(path) {
+  const absolute = isAbsolute(path) ? path : resolve(repositoryRoot, path);
+  const repositoryRelative = relative(repositoryRoot, absolute);
+  if (
+    !repositoryRelative ||
+    repositoryRelative === ".." ||
+    repositoryRelative.startsWith("../") ||
+    repositoryRelative.startsWith("..\\") ||
+    isAbsolute(repositoryRelative)
+  )
+    throw new Error("P7 child receipt is outside repository authority");
+  return repositoryRelative.split("\\").join("/");
+}
+
+function receiptAbsolutePath(path) {
+  return resolve(repositoryRoot, drawingP7ReceiptPath(path));
+}
+
 export function drawingP7ReleaseCommit() {
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: platformRoot,
-    encoding: "utf8",
-  }).trim();
+  return execFileSync(
+    "git",
+    [
+      "log",
+      "-1",
+      "--format=%H",
+      "--",
+      "app",
+      "collaboration",
+      "e2e",
+      "scripts",
+      "supabase/migrations",
+      "tests",
+      "package.json",
+      "package-lock.json",
+      "THIRD_PARTY_NOTICES.md",
+    ],
+    { cwd: platformRoot, encoding: "utf8" },
+  ).trim();
 }
 
 export function drawingP7ReleaseTreeSha256() {
@@ -221,13 +256,10 @@ export function validateDrawingP7ReleaseEvidence(
         `${requirement.id} receipt`,
       );
       assert.match(requirement.receipt.sha256, /^[0-9a-f]{64}$/);
+      const receiptPath = receiptAbsolutePath(requirement.receipt.path);
+      assert.equal(existsSync(receiptPath), true, requirement.receipt.path);
       assert.equal(
-        existsSync(requirement.receipt.path),
-        true,
-        requirement.receipt.path,
-      );
-      assert.equal(
-        sha256(readFileSync(requirement.receipt.path)),
+        sha256(readFileSync(receiptPath)),
         requirement.receipt.sha256,
       );
     }

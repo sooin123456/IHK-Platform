@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   P7_RELEASE_EVIDENCE_PATH,
   P7_REQUIREMENTS,
+  drawingP7ReceiptPath,
   drawingP7ReleaseCommit,
   drawingP7ReleaseTreeSha256,
   writeDrawingP7ReleaseEvidence,
@@ -426,7 +427,7 @@ export async function runP7Gates(gates, runner = execute) {
 
 function fileReceipt(path) {
   return {
-    path,
+    path: drawingP7ReceiptPath(path),
     sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
   };
 }
