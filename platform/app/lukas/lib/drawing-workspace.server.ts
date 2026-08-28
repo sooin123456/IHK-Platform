@@ -2885,7 +2885,7 @@ async function validateSelfContainedGlb(
     maxIssues: 256,
     writeTimestamp: false,
   });
-  if (!report?.issues || report.issues.numErrors > 0)
+  if (!report?.issues || report.issues.truncated || report.issues.numErrors > 0)
     throw new Error("Khronos glTF validation failed");
   const document = readValidatedGlbDocument(bytes);
   const buffers = Array.isArray(document.buffers) ? document.buffers : [];
@@ -2937,8 +2937,18 @@ async function validateSelfContainedGlb(
     }
 }
 
+type IfcSignedStorageReader = {
+  createSignedUrl(
+    path: string,
+    expiresIn: number,
+  ): Promise<{
+    data: { signedUrl: string } | null;
+    error: unknown;
+  }>;
+};
+
 async function downloadIfcDerivativeBytes(
-  storage: ReturnType<DrawingWorkspaceClient["storage"]["from"]>,
+  storage: IfcSignedStorageReader,
   path: string,
   expectedSize: number,
   expectedSha256: string,
@@ -3256,6 +3266,13 @@ type ManagedIfcDerivativeStorage = {
       body: Uint8Array,
       options: { contentType: string; upsert: false },
     ): Promise<{ data: { path: string } | null; error: unknown }>;
+    createSignedUrl(
+      path: string,
+      expiresIn: number,
+    ): Promise<{
+      data: { signedUrl: string } | null;
+      error: unknown;
+    }>;
   };
 };
 
@@ -3274,6 +3291,7 @@ export async function publishManagedIfcDerivativeObject(
     extension: "json" | "glb";
     contentType: "application/json" | "model/gltf-binary";
   },
+  runtime: { fetch?: typeof fetch } = {},
 ) {
   Uuid.parse(input.projectId);
   Sha256.parse(input.sourceSha256);
@@ -3281,15 +3299,74 @@ export async function publishManagedIfcDerivativeObject(
     throw new Error("IFC derivative version is invalid");
   if (input.bytes.byteLength < 1)
     throw new Error("IFC derivative bytes are empty");
+  const maximumBytes =
+    input.extension === "json" ? ifcManifestMaxBytes : ifcGeometryMaxBytes;
+  if (input.bytes.byteLength > maximumBytes)
+    throw new Error("IFC derivative bytes exceed the managed limit");
   const sha256 = createHash("sha256").update(input.bytes).digest("hex");
   const path = `projects/${input.projectId}/ifc-derivatives/${input.sourceSha256}/v${input.version}/${sha256}.${input.extension}`;
-  const result = await storage.from("lukas-qto").upload(path, input.bytes, {
+  const bucket = storage.from("lukas-qto");
+  await bucket.upload(path, input.bytes, {
     contentType: input.contentType,
     upsert: false,
   });
-  if (result.error || result.data?.path !== path)
+  try {
+    await downloadIfcDerivativeBytes(
+      bucket,
+      path,
+      input.bytes.byteLength,
+      sha256,
+      runtime.fetch ?? fetch,
+    );
+  } catch {
     throw new Error("IFC derivative managed publication failed");
+  }
   return { path, byteSize: input.bytes.byteLength, sha256 };
+}
+
+/**
+ * Publishes and re-verifies both content-addressed artifacts. If the second
+ * artifact cannot be reconciled, the first is intentionally retained: an
+ * exact hash-keyed object is safe to reuse, while deleting it could remove an
+ * immutable object shared by an idempotent retry.
+ */
+export async function publishManagedIfcDerivativePair(
+  storage: ManagedIfcDerivativeStorage,
+  input: {
+    projectId: string;
+    sourceSha256: string;
+    version: number;
+    manifestBytes: Uint8Array;
+    geometryBytes: Uint8Array;
+  },
+  runtime: { fetch?: typeof fetch } = {},
+) {
+  const common = {
+    projectId: input.projectId,
+    sourceSha256: input.sourceSha256,
+    version: input.version,
+  };
+  const manifest = await publishManagedIfcDerivativeObject(
+    storage,
+    {
+      ...common,
+      bytes: input.manifestBytes,
+      extension: "json",
+      contentType: "application/json",
+    },
+    runtime,
+  );
+  const geometry = await publishManagedIfcDerivativeObject(
+    storage,
+    {
+      ...common,
+      bytes: input.geometryBytes,
+      extension: "glb",
+      contentType: "model/gltf-binary",
+    },
+    runtime,
+  );
+  return { manifest, geometry };
 }
 
 export async function loadDrawingWorkspaceSourceBundle(

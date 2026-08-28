@@ -400,6 +400,29 @@ test("the loader verifies actual manifest and official GLB errors before final s
   const invalidChunkBytes = validGeometryGlb();
   new DataView(invalidChunkBytes.buffer).setUint32(12, 0xfffffffc, true);
   const invalidChunk = artifact(1, { geometryBytes: invalidChunkBytes });
+  const informationalFloodNodes = Array.from({ length: 300 }, (_, index) => ({
+    name: `unused-${index}`,
+  }));
+  const truncatedReport = artifact(1, {
+    geometryBytes: validGeometryGlb({
+      nodes: [...informationalFloodNodes, { name: "ifc-42", mesh: 0 }],
+      scenes: [{ nodes: [300] }],
+    }),
+  });
+  const truncatedBeforeInvalidAccessor = artifact(1, {
+    geometryBytes: validGeometryGlb({
+      nodes: [...informationalFloodNodes, { name: "ifc-42", mesh: 0 }],
+      accessors: [
+        {
+          bufferView: 99,
+          componentType: 5126,
+          count: 3,
+          type: "VEC3",
+        },
+      ],
+      scenes: [{ nodes: [300] }],
+    }),
+  });
   const cases = [
     [
       "substituted manifest",
@@ -427,6 +450,16 @@ test("the loader verifies actual manifest and official GLB errors before final s
       objectsFor(invalidNodeReference),
     ],
     ["invalid chunk length", invalidChunk, objectsFor(invalidChunk)],
+    [
+      "truncated informational report",
+      truncatedReport,
+      objectsFor(truncatedReport),
+    ],
+    [
+      "truncated report before invalid accessor",
+      truncatedBeforeInvalidAccessor,
+      objectsFor(truncatedBeforeInvalidAccessor),
+    ],
   ];
   for (const [name, selected, objects] of cases) {
     await context.test(name, async () => {
@@ -520,17 +553,37 @@ test("managed ingestion publishes a content-addressed object without replacement
           calls.push({ path, body: new Uint8Array(body), options });
           return { data: { path }, error: null };
         },
+        async createSignedUrl(path, ttl) {
+          assert.equal(ttl, 30);
+          return {
+            data: { signedUrl: `https://storage.test/internal/${path}` },
+            error: null,
+          };
+        },
       };
     },
   };
-  const result = await publishManagedIfcDerivativeObject(storage, {
-    projectId: ids.project,
-    sourceSha256: sourceSha,
-    version: 3,
-    bytes,
-    extension: "glb",
-    contentType: "model/gltf-binary",
-  });
+  const result = await publishManagedIfcDerivativeObject(
+    storage,
+    {
+      projectId: ids.project,
+      sourceSha256: sourceSha,
+      version: 3,
+      bytes,
+      extension: "glb",
+      contentType: "model/gltf-binary",
+    },
+    {
+      fetch: async () =>
+        new Response(bytes, {
+          status: 206,
+          headers: {
+            "content-length": String(bytes.byteLength),
+            "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+          },
+        }),
+    },
+  );
   assert.deepEqual(result, {
     path: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v3/${expectedSha}.glb`,
     byteSize: bytes.byteLength,
@@ -540,4 +593,244 @@ test("managed ingestion publishes a content-addressed object without replacement
   assert.equal(calls[0].options.upsert, false);
   assert.equal(calls[0].options.contentType, "model/gltf-binary");
   assert.deepEqual(calls[0].body, bytes);
+});
+
+test("managed ingestion reconciles a response-lost retry only from exact stored bytes", async () => {
+  const bytes = new TextEncoder().encode("immutable retry");
+  const expectedSha = sha256(bytes);
+  const path = `projects/${ids.project}/ifc-derivatives/${sourceSha}/v4/${expectedSha}.json`;
+  const objects = new Map();
+  const storage = {
+    from() {
+      return {
+        async upload(uploadPath, body, options) {
+          assert.equal(options.upsert, false);
+          objects.set(uploadPath, new Uint8Array(body));
+          return { data: null, error: new Error("response lost") };
+        },
+        async createSignedUrl(signedPath, ttl) {
+          assert.equal(ttl, 30);
+          return {
+            data: { signedUrl: `https://storage.test/internal/${signedPath}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  const fetchImpl = async (url) => {
+    const stored = objects.get(
+      String(url).replace("https://storage.test/internal/", ""),
+    );
+    assert.ok(stored);
+    return new Response(stored, {
+      status: 206,
+      headers: {
+        "content-length": String(stored.byteLength),
+        "content-range": `bytes 0-${stored.byteLength - 1}/${stored.byteLength}`,
+      },
+    });
+  };
+  assert.deepEqual(
+    await publishManagedIfcDerivativeObject(
+      storage,
+      {
+        projectId: ids.project,
+        sourceSha256: sourceSha,
+        version: 4,
+        bytes,
+        extension: "json",
+        contentType: "application/json",
+      },
+      { fetch: fetchImpl },
+    ),
+    { path, byteSize: bytes.byteLength, sha256: expectedSha },
+  );
+});
+
+test("managed ingestion rejects a conflict whose existing bytes do not match", async () => {
+  const bytes = new TextEncoder().encode("expected bytes");
+  const wrong = new TextEncoder().encode("wrong bytes---");
+  const storage = {
+    from() {
+      return {
+        async upload() {
+          return { data: null, error: new Error("already exists") };
+        },
+        async createSignedUrl(path) {
+          return {
+            data: { signedUrl: `https://storage.test/internal/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  await assert.rejects(
+    publishManagedIfcDerivativeObject(
+      storage,
+      {
+        projectId: ids.project,
+        sourceSha256: sourceSha,
+        version: 5,
+        bytes,
+        extension: "glb",
+        contentType: "model/gltf-binary",
+      },
+      {
+        fetch: async () =>
+          new Response(wrong, {
+            status: 206,
+            headers: {
+              "content-length": String(wrong.byteLength),
+              "content-range": `bytes 0-${wrong.byteLength - 1}/${wrong.byteLength}`,
+            },
+          }),
+      },
+    ),
+    /publication failed/i,
+  );
+});
+
+test("pair publication reconciles exact content-addressed artifacts", async () => {
+  const { publishManagedIfcDerivativePair } = await import(
+    "../app/lukas/lib/drawing-workspace.server.ts"
+  );
+  assert.equal(typeof publishManagedIfcDerivativePair, "function");
+  const manifestBytes = new TextEncoder().encode('{"schemaVersion":1}');
+  const geometryBytes = new TextEncoder().encode("verified glb bytes");
+  const objects = new Map();
+  const uploads = [];
+  const storage = {
+    from() {
+      return {
+        async upload(path, body, options) {
+          uploads.push({ path, options });
+          if (objects.has(path))
+            return { data: null, error: new Error("already exists") };
+          objects.set(path, new Uint8Array(body));
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path) {
+          return {
+            data: { signedUrl: `https://storage.test/internal/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  const fetchImpl = async (url) => {
+    const stored = objects.get(
+      String(url).replace("https://storage.test/internal/", ""),
+    );
+    assert.ok(stored);
+    return new Response(stored, {
+      status: 206,
+      headers: {
+        "content-length": String(stored.byteLength),
+        "content-range": `bytes 0-${stored.byteLength - 1}/${stored.byteLength}`,
+      },
+    });
+  };
+  const first = await publishManagedIfcDerivativePair(
+    storage,
+    {
+      projectId: ids.project,
+      sourceSha256: sourceSha,
+      version: 6,
+      manifestBytes,
+      geometryBytes,
+    },
+    { fetch: fetchImpl },
+  );
+  const retry = await publishManagedIfcDerivativePair(
+    storage,
+    {
+      projectId: ids.project,
+      sourceSha256: sourceSha,
+      version: 6,
+      manifestBytes,
+      geometryBytes,
+    },
+    { fetch: fetchImpl },
+  );
+  assert.deepEqual(retry, first);
+  assert.equal(objects.size, 2);
+  assert.equal(uploads.length, 4);
+  assert.equal(
+    uploads.every(({ options }) => options.upsert === false),
+    true,
+  );
+});
+
+test("pair publication retains an exact orphan when its peer is corrupt", async () => {
+  const { publishManagedIfcDerivativePair } = await import(
+    "../app/lukas/lib/drawing-workspace.server.ts"
+  );
+  const manifestBytes = new TextEncoder().encode('{"schemaVersion":1}');
+  const geometryBytes = new TextEncoder().encode("expected geometry");
+  const geometrySha = sha256(geometryBytes);
+  const geometryPath = `projects/${ids.project}/ifc-derivatives/${sourceSha}/v7/${geometrySha}.glb`;
+  const objects = new Map([
+    [geometryPath, new TextEncoder().encode("corrupt geometry-")],
+  ]);
+  const storage = {
+    from() {
+      return {
+        async upload(path, body) {
+          if (objects.has(path))
+            return { data: null, error: new Error("already exists") };
+          objects.set(path, new Uint8Array(body));
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path) {
+          return {
+            data: { signedUrl: `https://storage.test/internal/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+  const fetchImpl = async (url) => {
+    const stored = objects.get(
+      String(url).replace("https://storage.test/internal/", ""),
+    );
+    assert.ok(stored);
+    return new Response(stored, {
+      status: 206,
+      headers: {
+        "content-length": String(stored.byteLength),
+        "content-range": `bytes 0-${stored.byteLength - 1}/${stored.byteLength}`,
+      },
+    });
+  };
+  await assert.rejects(
+    publishManagedIfcDerivativePair(
+      storage,
+      {
+        projectId: ids.project,
+        sourceSha256: sourceSha,
+        version: 7,
+        manifestBytes,
+        geometryBytes,
+      },
+      { fetch: fetchImpl },
+    ),
+    /publication failed/i,
+  );
+  assert.equal(objects.size, 2);
+  assert.deepEqual(
+    objects.get(geometryPath),
+    new TextEncoder().encode("corrupt geometry-"),
+  );
+  const manifestPath = [...objects.keys()].find((path) =>
+    path.endsWith(".json"),
+  );
+  assert.ok(
+    manifestPath,
+    "the exact manifest orphan remains for deterministic retry",
+  );
+  assert.deepEqual(objects.get(manifestPath), manifestBytes);
 });

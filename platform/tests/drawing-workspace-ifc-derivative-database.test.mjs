@@ -46,6 +46,7 @@ test("authenticated storage policies cannot replace derivative artifacts", async
     create table storage.objects(bucket_id text not null,name text not null,payload text not null);
     grant select,insert,update,delete on storage.objects to authenticated;
     create policy permissive_select on storage.objects for select to authenticated using(true);
+    create policy permissive_insert on storage.objects for insert to authenticated with check(true);
     create policy permissive_update on storage.objects for update to authenticated using(true) with check(true);
     create policy permissive_delete on storage.objects for delete to authenticated using(true);
     alter table storage.objects enable row level security;

@@ -6,6 +6,7 @@ declare module "gltf-validator" {
       numInfos: number;
       numHints: number;
       messages: Array<{ code: string; message: string; severity: number }>;
+      truncated: boolean;
     };
   };
 
