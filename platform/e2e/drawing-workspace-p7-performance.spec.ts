@@ -29,6 +29,49 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
+async function corruptFirstVisibleRaster(
+  page: Page,
+  mode: "decode" | "dimensions",
+) {
+  return page.evaluate(async (corruptionMode) => {
+    const cache = await caches.open("drawing-pdf-raster-v1");
+    const request = (await cache.keys()).find(({ url }) =>
+      url.includes("/__drawing-pdf-raster-cache/v1/first-visible-v1/current/"),
+    );
+    if (!request) throw new Error("first-visible PDF raster cache is missing");
+    const response = await cache.match(request);
+    if (!response)
+      throw new Error("first-visible PDF raster response is missing");
+    const headers = new Headers(response.headers);
+    const blob =
+      corruptionMode === "decode"
+        ? new Blob([new Uint8Array([0, 1, 2, 3])], { type: "image/png" })
+        : await new Promise<Blob>((resolve, reject) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            canvas.getContext("2d")?.fillRect(0, 0, 1, 1);
+            canvas.toBlob(
+              (value) =>
+                value ? resolve(value) : reject(new Error("PNG encode failed")),
+              "image/png",
+            );
+          });
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      await blob.arrayBuffer(),
+    );
+    headers.set(
+      "x-drawing-content-sha256",
+      [...new Uint8Array(digest)]
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join(""),
+    );
+    await cache.put(request, new Response(blob, { headers }));
+    return request.url;
+  }, mode);
+}
+
 async function stableSurfaceBox(surface: Locator) {
   let box = { x: 0, y: 0, width: 0, height: 0 };
   await expect
@@ -133,6 +176,9 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       const ifcViewer = document.querySelector<HTMLElement>(
         '[aria-label="IFC 3D 모델 화면"]',
       );
+      const workspaceCanvas = document.querySelector<HTMLElement>(
+        '[aria-label="도면 캔버스"]',
+      );
       const stageEnd = (name: string) => {
         const entries = performance.getEntriesByName(
           `drawing-workspace:${name}`,
@@ -145,6 +191,7 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
         Number(canvas.dataset.projectedSemanticObjectCount) > 0 &&
         canvas.dataset.pdfCurrentMounted === "true" &&
         ifcViewer?.dataset.viewerPhase === "ready" &&
+        workspaceCanvas?.dataset.editReady === "true" &&
         hydrated?.textContent?.includes("준비됨") &&
         stageEnd("hydration") > 0 &&
         stageEnd("pdf") > 0 &&
@@ -154,6 +201,7 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       return {
         navigationStartMs: 0,
         hydrationEndMs: stageEnd("hydration"),
+        editReadyObservedMs: observed,
         authoritativeStateObservedMs: observed,
         viewportProjectionObservedMs: observed,
         pdfVisibleObservedMs: observed,
@@ -166,6 +214,7 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   const readiness = (await readinessHandle.jsonValue()) as {
     navigationStartMs: number;
     hydrationEndMs: number;
+    editReadyObservedMs: number;
     authoritativeStateObservedMs: number;
     viewportProjectionObservedMs: number;
     pdfVisibleObservedMs: number;
@@ -178,6 +227,25 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       ),
   );
   const firstUsableMs = usableFrameEndMs - readiness.navigationStartMs;
+  const pdfRaster = await surface.evaluate((element) => ({
+    authority: element.dataset.pdfRasterAuthority,
+    cacheStatus:
+      element.dataset.pdfRasterAuthority === "SHA256_DERIVED_CACHE"
+        ? "HIT"
+        : "MISS",
+    renderProfile: "first-visible-v1",
+    keySha256: element.dataset.pdfRasterKeySha256,
+    mountedAtMs: Number(element.dataset.pdfRasterMountedAtMs),
+    screenPixelRatio: Number(element.dataset.pdfRasterScreenPixelRatio),
+  }));
+  expect(pdfRaster.authority).toBe("SHA256_DERIVED_CACHE");
+  expect(pdfRaster.cacheStatus).toBe("HIT");
+  expect(pdfRaster.keySha256).toMatch(/^[0-9a-f]{64}$/);
+  expect(pdfRaster.mountedAtMs).toBeGreaterThan(0);
+  expect(pdfRaster.mountedAtMs).toBeLessThanOrEqual(
+    readiness.pdfVisibleObservedMs,
+  );
+  expect(pdfRaster.screenPixelRatio).toBeGreaterThanOrEqual(1.5);
   const workloadProjection = await surface.evaluate(async (element) => {
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
@@ -390,7 +458,7 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     firstUsableStatus === "MET" && warmStatus === "MET" ? "MET" : "NOT MET";
   const hashes = deterministicHashes();
   const evidence = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     status: localStatus,
     authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
     sourceCommitSha: requiredEnvironment("P7_SOURCE_COMMIT_SHA"),
@@ -436,9 +504,10 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     },
     conditions: {
       firstUsable:
-        "exact 10,000-object document navigation with immutable application, PDF, and IFC response bytes already in the browser HTTP cache; usable after hydration, exact authoritative-state confirmation, non-empty viewport projection, mounted PDF pixels, ready visible IFC frame, and the next animation frame",
+        "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this is not the separately observed 3,088.9 ms cold/cache-miss baseline, which was NOT MET",
       warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
     },
+    pdfRaster,
     stages: {
       loader: { authority: "LOCAL_PRODUCTION_SERVER", durationMs: loaderMs },
       ssr: {
@@ -512,4 +581,41 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     "MET",
   );
   expect(warmStatus, `warm p95 ${JSON.stringify(p95Ms)}`).toBe("MET");
+});
+
+test("source-bound PDF raster cache rejects decode and dimension corruption before falling back", async ({
+  page,
+}) => {
+  test.setTimeout(3 * 60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/workspace-preview/drawing-workspace", {
+    waitUntil: "domcontentloaded",
+  });
+  const surface = page.getByLabel(/도면 화면/);
+  await expect(surface).toHaveAttribute("data-pdf-current-mounted", "true", {
+    timeout: 60_000,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => performance.getEntriesByName("drawing-workspace:pdf").length,
+      ),
+    )
+    .toBeGreaterThan(0);
+
+  for (const mode of ["dimensions", "decode"] as const) {
+    await corruptFirstVisibleRaster(page, mode);
+    await page.goto(performancePath, { waitUntil: "domcontentloaded" });
+    await expect(surface).toHaveAttribute("data-pdf-current-mounted", "true", {
+      timeout: 60_000,
+    });
+    await expect(surface).toHaveAttribute("data-pdf-raster-authority", "PDFJS");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => performance.getEntriesByName("drawing-workspace:pdf").length,
+        ),
+      )
+      .toBeGreaterThan(0);
+  }
 });

@@ -5,10 +5,76 @@ import * as drawingRuntime from "../app/lukas/lib/drawing-runtime.ts";
 
 const {
   createVisibilityRenderGate,
+  drawingLocalEditReady,
+  drawingWorkspaceFirstPaintReady,
   drawingRealtimeState,
   drawingRealtimeTransition,
   markDrawingFirstUsable,
 } = drawingRuntime;
+
+test("local editing is ready only with an outbox, a command bridge, and healthy persistence", () => {
+  assert.equal(
+    drawingLocalEditReady({
+      outboxReady: true,
+      bridgeReady: true,
+      persistenceFailed: false,
+    }),
+    true,
+  );
+  for (const input of [
+    { outboxReady: false, bridgeReady: true, persistenceFailed: false },
+    { outboxReady: true, bridgeReady: false, persistenceFailed: false },
+    { outboxReady: true, bridgeReady: true, persistenceFailed: true },
+  ])
+    assert.equal(drawingLocalEditReady(input), false);
+});
+
+test("collaboration waits only for the visible source frames required by the workspace", () => {
+  const entries = new Set();
+  const performance = {
+    getEntriesByName(name) {
+      return entries.has(name) ? [{}] : [];
+    },
+  };
+
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      { requiresPdf: true, requiresIfc: true },
+      performance,
+    ),
+    false,
+  );
+  entries.add("drawing-first-page");
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      { requiresPdf: true, requiresIfc: false },
+      performance,
+    ),
+    true,
+  );
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      { requiresPdf: true, requiresIfc: true },
+      performance,
+    ),
+    false,
+  );
+  entries.add("drawing-first-ifc-frame");
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      { requiresPdf: true, requiresIfc: true },
+      performance,
+    ),
+    true,
+  );
+  assert.equal(
+    drawingWorkspaceFirstPaintReady(
+      { requiresPdf: false, requiresIfc: false },
+      performance,
+    ),
+    true,
+  );
+});
 
 test("hidden IFC render requests collapse into one render when visible again", () => {
   let hidden = true;

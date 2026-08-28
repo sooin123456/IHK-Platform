@@ -76,6 +76,7 @@ import {
 import {
   createDrawingDocumentStore,
   deriveDrawingTransientState,
+  DRAWING_SERVER_VALIDATED_HYDRATION,
   drawingTransientAuthorizationKey,
   hydrateDrawingDocumentState,
   sanitizeDrawingTransientInput,
@@ -174,11 +175,16 @@ import {
   type DrawingPdfPageTransform,
 } from "~/lukas/lib/drawing-pdf-transform";
 import { geometryBounds } from "~/lukas/lib/drawing-geometry";
+import { resolveDrawingPdfRasterSource } from "~/lukas/lib/drawing-pdf-raster-identity";
 import {
   useDrawingWorkspaceRealtime,
   type DrawingWorkspaceRealtimeAdapter,
 } from "~/lukas/lib/drawing-workspace-realtime";
-import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
+import {
+  drawingLocalEditReady,
+  drawingWorkspaceFirstPaintReady,
+  startDrawingWorkspaceStage,
+} from "~/lukas/lib/drawing-runtime";
 import {
   createDrawingAwarenessPublication,
   createDrawingAwarenessPeerStore,
@@ -626,24 +632,27 @@ function drawingStateFromRevision(
     p2Layers.length === revision.layers.length &&
     p2Objects.length === revision.objects.length
   ) {
-    return hydrateDrawingDocumentState({
-      revisionId: revision.id,
-      pages: p2Pages,
-      canvases: revision.canvases,
-      layers: p2Layers.map((layer) => ({
-        ...layer,
-        canvasId: layer.canvasId!,
-        sortOrder: layer.sortOrder!,
-      })),
-      objects: p2Objects,
-      sources: revision.sources ?? [],
-      styles: revision.styles,
-      blocks: revision.blocks,
-      blockInstances: revision.blockInstances,
-      propertySchemas: revision.propertySchemas,
-      propertyValues: revision.propertyValues,
-      tables: revision.tables,
-    });
+    return hydrateDrawingDocumentState(
+      {
+        revisionId: revision.id,
+        pages: p2Pages,
+        canvases: revision.canvases,
+        layers: p2Layers.map((layer) => ({
+          ...layer,
+          canvasId: layer.canvasId!,
+          sortOrder: layer.sortOrder!,
+        })),
+        objects: p2Objects,
+        sources: revision.sources ?? [],
+        styles: revision.styles,
+        blocks: revision.blocks,
+        blockInstances: revision.blockInstances,
+        propertySchemas: revision.propertySchemas,
+        propertyValues: revision.propertyValues,
+        tables: revision.tables,
+      },
+      { authority: DRAWING_SERVER_VALIDATED_HYDRATION },
+    );
   }
   const activeCanvasId = revision.activeCanvasId;
   const layers = revision.layers.filter(
@@ -945,6 +954,7 @@ export default function DrawingWorkspaceClient({
     string | null
   >(null);
   const [outboxReady, setOutboxReady] = useState(previewMode);
+  const [localEditBridgeReady, setLocalEditBridgeReady] = useState(false);
   const [saveState, setSaveState] = useState({
     pending: 0,
     conflicted: false,
@@ -955,6 +965,7 @@ export default function DrawingWorkspaceClient({
   const [persistenceState, setPersistenceState] =
     useState<DrawingPersistenceSnapshot>({ failed: false, volatileCount: 0 });
   const markStorageFailed = useCallback(() => {
+    setLocalEditBridgeReady(false);
     setPersistenceState((current) => ({ ...current, failed: true }));
     setSaveState((current) => ({ ...current, storageError: true }));
   }, []);
@@ -1122,6 +1133,11 @@ export default function DrawingWorkspaceClient({
     effectiveCapability,
     persistenceState,
   );
+  const editReady = drawingLocalEditReady({
+    outboxReady,
+    bridgeReady: localEditBridgeReady,
+    persistenceFailed: persistenceState.failed,
+  });
   const baseCanEdit =
     outboxReady &&
     !reviewPreparing &&
@@ -1570,6 +1586,10 @@ export default function DrawingWorkspaceClient({
     let awarenessExpiryTimer: number | null = null;
     let connecting: Promise<void> | null = null;
     let initializing: Promise<void> | null = null;
+    let initializationFrame: number | null = null;
+    let initializationIdle: number | null = null;
+    let initializationFallback: number | null = null;
+    let initialInitializationRequested = false;
     const clearAwareness = () => {
       unsubscribeAwareness?.();
       unsubscribeAwareness = null;
@@ -1702,6 +1722,7 @@ export default function DrawingWorkspaceClient({
         ? drawingStateFromBootstrap(bootstrap)
         : drawingStateFromRevision(revision);
       try {
+        setLocalEditBridgeReady(false);
         if (!previewMode) setOutboxReady(false);
         collaborationAdapterRef.current = null;
         collaborationCommandRef.current = null;
@@ -1780,6 +1801,7 @@ export default function DrawingWorkspaceClient({
             recoveredState: draft.getSnapshot().state,
           });
         drawingStateRef.current = documentStore.getSnapshot();
+        setLocalEditBridgeReady(true);
         setOutboxReady(true);
         setPersistenceState({ failed: false, volatileCount: 0 });
         setSaveState((current) => ({ ...current, storageError: false }));
@@ -1788,6 +1810,7 @@ export default function DrawingWorkspaceClient({
         await flush();
       } catch {
         if (active) {
+          setLocalEditBridgeReady(false);
           markStorageFailed();
           setSaveState((current) => ({ ...current, flushing: false }));
         }
@@ -1800,6 +1823,35 @@ export default function DrawingWorkspaceClient({
         });
       return initializing;
     };
+    const initializeWhenIdle = () => {
+      if (!active || initialInitializationRequested) return;
+      initialInitializationRequested = true;
+      const requestIdle = (
+        window as Window & {
+          requestIdleCallback?: Window["requestIdleCallback"];
+        }
+      ).requestIdleCallback;
+      if (requestIdle)
+        initializationIdle = requestIdle.call(window, () => void initialize(), {
+          timeout: 250,
+        });
+      else globalThis.setTimeout(() => void initialize(), 0);
+    };
+    const initializeAfterFirstPaint = () => {
+      if (!active) return;
+      if (
+        !drawingWorkspaceFirstPaintReady({
+          requiresPdf: surface.background.kind === "pdf",
+          requiresIfc: Boolean(selectedIfcChoice && viewMode !== "2d"),
+        })
+      ) {
+        initializationFrame = window.requestAnimationFrame(
+          initializeAfterFirstPaint,
+        );
+        return;
+      }
+      initializationFrame = window.requestAnimationFrame(initializeWhenIdle);
+    };
     retryStorageRef.current = () => void initialize();
     const online = () => {
       setSaveState((current) => ({ ...current, online: true }));
@@ -1811,6 +1863,7 @@ export default function DrawingWorkspaceClient({
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     if (!previewMode) setOutboxReady(false);
+    setLocalEditBridgeReady(false);
     setLegacyOperationCount(0);
     setPersistenceState({ failed: false, volatileCount: 0 });
     setActiveTool("select");
@@ -1818,9 +1871,16 @@ export default function DrawingWorkspaceClient({
     setSelectedIds([]);
     clipboardRef.current = { items: [] };
     blockClipboardRef.current = null;
-    void initialize();
+    initializeAfterFirstPaint();
+    initializationFallback = window.setTimeout(initializeWhenIdle, 5_000);
     return () => {
       active = false;
+      if (initializationFrame !== null)
+        window.cancelAnimationFrame(initializationFrame);
+      if (initializationIdle !== null && "cancelIdleCallback" in window)
+        window.cancelIdleCallback(initializationIdle);
+      if (initializationFallback !== null)
+        window.clearTimeout(initializationFallback);
       persistence.dispose();
       outbox.dispose();
       clearAwareness();
@@ -3031,14 +3091,28 @@ export default function DrawingWorkspaceClient({
   const ifcVisible =
     activeView === "3d" ||
     (activeView === "split" && (!narrowLayout || narrowSplitTab === "3d"));
+  const backgroundPdfSource = resolveDrawingPdfRasterSource({
+    bundledPdf:
+      sourceBundle?.pdf?.kind === "pdf"
+        ? { ...sourceBundle.pdf, kind: "pdf" }
+        : null,
+    fallbackSignedUrl: sourceUrl,
+    workspaceFile: {
+      id: file.id,
+      kind: file.kind,
+      sha256: file.sha256,
+    },
+  });
   const background: DrawingCanvasBackground = activeCanvas
-    ? activeCanvas.background && primarySourceUrl
+    ? activeCanvas.background && backgroundPdfSource
       ? {
           kind: "pdf",
           width: activeCanvas.widthMillimeters,
           height: activeCanvas.heightMillimeters,
           pageNumber: activeCanvas.background.pdfPageNumber ?? 1,
-          signedUrl: primarySourceUrl,
+          signedUrl: backgroundPdfSource.signedUrl,
+          sourceFileId: backgroundPdfSource.id,
+          sourceSha256: backgroundPdfSource.sha256,
         }
       : {
           kind: "blank",
@@ -4461,7 +4535,8 @@ export default function DrawingWorkspaceClient({
         <section
           aria-label="도면 캔버스"
           className="drawing-workspace-canvas relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 xl:min-h-0 xl:overflow-hidden"
-          aria-busy={!outboxReady}
+          data-edit-ready={editReady ? "true" : "false"}
+          aria-busy={!editReady}
         >
           <div className="absolute left-2 top-2 z-50 flex gap-1 rounded-md bg-slate-950/85 p-1 shadow-lg">
             <Button

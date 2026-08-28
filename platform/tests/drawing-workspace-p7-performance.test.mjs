@@ -20,7 +20,7 @@ test("P7 rejects the old handwritten summary and validates only the runner-produ
     typeof evidenceModule.validateDrawingP7PerformanceEvidence,
     "function",
   );
-  assert.equal(runnerEvidence.schemaVersion, 2);
+  assert.equal(runnerEvidence.schemaVersion, 3);
   assert.doesNotThrow(() =>
     evidenceModule.validateDrawingP7PerformanceEvidence(runnerEvidence),
   );
@@ -62,6 +62,22 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   assert.throws(
     () => evidenceModule.validateDrawingP7PerformanceEvidence(buildMutation),
     /build provenance/,
+  );
+});
+
+test("P7 requires a verified first-visible raster cache hit with real pixel authority", () => {
+  assert.equal(runnerEvidence.pdfRaster.cacheStatus, "HIT");
+  assert.equal(runnerEvidence.pdfRaster.authority, "SHA256_DERIVED_CACHE");
+  assert.match(runnerEvidence.pdfRaster.keySha256, /^[0-9a-f]{64}$/);
+  assert.ok(runnerEvidence.pdfRaster.mountedAtMs > 0);
+  assert.ok(runnerEvidence.pdfRaster.screenPixelRatio >= 1.5);
+
+  const miss = structuredClone(runnerEvidence);
+  miss.pdfRaster.cacheStatus = "MISS";
+  miss.provenance.captureSha256 = evidenceModule.drawingP7CaptureSha256(miss);
+  assert.throws(
+    () => evidenceModule.validateDrawingP7PerformanceEvidence(miss),
+    /raster cache HIT/,
   );
 });
 
@@ -123,4 +139,18 @@ test("the evidence writer rejects replay outside the production runner", () => {
     /runner authority/,
   );
   assert.equal(existsSync(target), false);
+});
+
+test("only the server-loaded revision callsite carries code-only hydration authority", () => {
+  const source = readFileSync(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.equal(source.match(/DRAWING_SERVER_VALIDATED_HYDRATION/g)?.length, 2);
+  const bootstrapBoundary = source.slice(
+    source.indexOf("function drawingStateFromBootstrap"),
+    source.indexOf("export default function DrawingWorkspaceClient"),
+  );
+  assert.doesNotMatch(bootstrapBoundary, /DRAWING_SERVER_VALIDATED_HYDRATION/);
+  assert.match(source, /data-edit-ready=\{editReady \? "true" : "false"\}/);
 });

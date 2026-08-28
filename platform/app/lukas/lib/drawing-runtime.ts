@@ -59,7 +59,27 @@ export function drawingRealtimeTransition(
   };
 }
 
+export function drawingLocalEditReady(input: {
+  outboxReady: boolean;
+  bridgeReady: boolean;
+  persistenceFailed: boolean;
+}) {
+  return input.outboxReady && input.bridgeReady && !input.persistenceFailed;
+}
+
 type PerformanceMarker = Pick<Performance, "getEntriesByName" | "mark">;
+
+export function drawingWorkspaceFirstPaintReady(
+  requirements: { requiresPdf: boolean; requiresIfc: boolean },
+  performanceMarker: Pick<Performance, "getEntriesByName"> = performance,
+) {
+  return (
+    (!requirements.requiresPdf ||
+      performanceMarker.getEntriesByName("drawing-first-page").length > 0) &&
+    (!requirements.requiresIfc ||
+      performanceMarker.getEntriesByName("drawing-first-ifc-frame").length > 0)
+  );
+}
 
 export function markDrawingFirstUsable(
   kind: "pdf" | "ifc",

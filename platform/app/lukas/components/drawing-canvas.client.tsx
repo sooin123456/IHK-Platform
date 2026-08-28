@@ -55,7 +55,10 @@ import {
   type DrawingBlockRenderModel,
   type DrawingCanvasRenderItem,
 } from "~/lukas/lib/drawing-blocks";
-import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
+import {
+  markDrawingFirstUsable,
+  startDrawingWorkspaceStage,
+} from "~/lukas/lib/drawing-runtime";
 import {
   drawingDimensionDisplayPoints,
   drawingDimensionLabel,
@@ -77,6 +80,12 @@ import {
   renderPdfPageToCanvas,
   type OpenPdfDocument,
 } from "~/lukas/lib/pdf-page-renderer.client";
+import {
+  deleteDrawingPdfRasterCache,
+  readDrawingPdfRasterCache,
+  writeDrawingPdfRasterCache,
+  type DrawingPdfRasterCacheInput,
+} from "~/lukas/lib/drawing-pdf-raster-cache.client";
 import type {
   Bounds,
   DrawingGeometry,
@@ -131,6 +140,15 @@ export function scheduleDrawingPdfOwnedCleanup(
   frameId = scheduler.requestFrame(finish);
   timerId = scheduler.setTimer(finish, 1_000);
   return finish;
+}
+
+function drawingCanvasPngBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("PDF raster cache image could not be encoded."));
+    }, "image/png"),
+  );
 }
 
 const MIN_ZOOM = 0.05;
@@ -1677,6 +1695,8 @@ export type DrawingCanvasBackground =
       height: number;
       pageNumber: number;
       signedUrl: string;
+      sourceFileId?: string;
+      sourceSha256?: string;
     };
 
 export type DrawingCanvasHandle = {
@@ -2505,6 +2525,11 @@ export const DrawingCanvas = forwardRef<
     bounds: { x: number; y: number; width: number; height: number };
     pageViewport: { width: number; height: number; rotation: number };
   } | null>(null);
+  const [pdfRasterEvidence, setPdfRasterEvidence] = useState<{
+    authority: "NONE" | "PDFJS" | "SHA256_DERIVED_CACHE";
+    keySha256: string;
+    mountedAtMs: number;
+  }>({ authority: "NONE", keySha256: "", mountedAtMs: 0 });
   const [previousPdfSource, setPreviousPdfSource] = useState<{
     canvas: HTMLCanvasElement;
     bounds: { x: number; y: number; width: number; height: number };
@@ -2630,6 +2655,11 @@ export const DrawingCanvas = forwardRef<
   useEffect(() => {
     if (background.kind !== "pdf") {
       setPdfSource(null);
+      setPdfRasterEvidence({
+        authority: "NONE",
+        keySha256: "",
+        mountedAtMs: 0,
+      });
       setPdfMessage("");
       onPdfPageTransform?.(null);
       return;
@@ -2637,77 +2667,223 @@ export const DrawingCanvas = forwardRef<
     let alive = true;
     let opened: OpenPdfDocument | null = null;
     let renderCleanup: (() => void) | null = null;
+    let refineTimer: number | null = null;
+    let firstPaintFrame: number | null = null;
     const controller = new AbortController();
-    const canvas = document.createElement("canvas");
+    const ownedCanvases = new Set<HTMLCanvasElement>();
     const finishPdfStage = startDrawingWorkspaceStage("pdf");
-    setPdfSource(null);
-    setPdfMessage("PDF 배경을 준비하는 중입니다.");
-    void openPdfDocument(background.signedUrl, controller.signal)
-      .then(async (nextDocument) => {
-        if (!alive || controller.signal.aborted) {
-          await nextDocument.destroy();
-          return;
-        }
-        opened = nextDocument;
-        const rendered = await renderPdfPageToCanvas({
-          document: nextDocument.document,
-          pageNumber: background.pageNumber,
-          canvas,
-          hostWidth: 1600,
-          zoom: 1,
-          signal: controller.signal,
-        });
-        renderCleanup = rendered.cleanup;
-        const sourceBounds = drawingPdfImagePlacement(rendered.canvasSize, {
-          width: background.width,
-          height: background.height,
-        });
-        if (!alive || controller.signal.aborted) {
-          rendered.cleanup();
-          renderCleanup = null;
-          return;
-        }
-        setPdfSource({
-          canvas,
-          bounds: sourceBounds,
-          pageViewport: rendered.pageViewport,
-        });
-        onPdfPageTransform?.(
-          createDrawingPdfPageTransform({
+    const cacheDeviceScale = 1;
+    const cacheInput: DrawingPdfRasterCacheInput | null =
+      background.sourceFileId &&
+      background.sourceSha256 &&
+      /^[0-9a-f]{64}$/.test(background.sourceSha256)
+        ? {
+            renderProfile: "first-visible-v1",
+            slot: "current",
+            sourceFileId: background.sourceFileId,
+            sourceSha256: background.sourceSha256,
             pageNumber: background.pageNumber,
-            rotation: rendered.pageViewport.rotation,
-            pdfViewport: rendered.pageViewport,
-            worldViewport: {
-              x: 0,
-              y: 0,
-              width: background.width,
-              height: background.height,
-            },
-          }),
+            hostWidth: 1024,
+            zoom: 1,
+            deviceScale: cacheDeviceScale,
+          }
+        : null;
+    const rasterStorage = typeof caches === "undefined" ? null : caches;
+    setPdfSource(null);
+    setPdfRasterEvidence({ authority: "NONE", keySha256: "", mountedAtMs: 0 });
+    setPdfMessage("PDF 배경을 준비하는 중입니다.");
+
+    const mountRaster = ({
+      authority,
+      canvas,
+      canvasSize,
+      keySha256 = "",
+      pageViewport,
+    }: {
+      authority: "PDFJS" | "SHA256_DERIVED_CACHE";
+      canvas: HTMLCanvasElement;
+      canvasSize: { width: number; height: number };
+      keySha256?: string;
+      pageViewport: { width: number; height: number; rotation: number };
+    }) => {
+      const sourceBounds = drawingPdfImagePlacement(canvasSize, {
+        width: background.width,
+        height: background.height,
+      });
+      setPdfSource({ canvas, bounds: sourceBounds, pageViewport });
+      setPdfRasterEvidence({
+        authority,
+        keySha256,
+        mountedAtMs: performance.now(),
+      });
+      if (firstPaintFrame === null)
+        firstPaintFrame = window.requestAnimationFrame(() => {
+          firstPaintFrame = null;
+          if (alive) markDrawingFirstUsable("pdf");
+        });
+      onPdfPageTransform?.(
+        createDrawingPdfPageTransform({
+          pageNumber: background.pageNumber,
+          rotation: pageViewport.rotation,
+          pdfViewport: pageViewport,
+          worldViewport: {
+            x: 0,
+            y: 0,
+            width: background.width,
+            height: background.height,
+          },
+        }),
+      );
+      setPdfMessage("PDF 원본 배경을 표시하고 있습니다.");
+    };
+
+    const renderFresh = async (persistRaster: boolean) => {
+      const nextDocument = await openPdfDocument(
+        background.signedUrl,
+        controller.signal,
+      );
+      if (!alive || controller.signal.aborted) {
+        await nextDocument.destroy();
+        return;
+      }
+      opened = nextDocument;
+      const canvas = document.createElement("canvas");
+      ownedCanvases.add(canvas);
+      const rendered = await renderPdfPageToCanvas({
+        document: nextDocument.document,
+        pageNumber: background.pageNumber,
+        canvas,
+        hostWidth: 1600,
+        zoom: 1,
+        signal: controller.signal,
+      });
+      renderCleanup?.();
+      renderCleanup = rendered.cleanup;
+      if (!alive || controller.signal.aborted) return;
+      mountRaster({
+        authority: "PDFJS",
+        canvas,
+        canvasSize: rendered.canvasSize,
+        pageViewport: rendered.pageViewport,
+      });
+      if (persistRaster && cacheInput) {
+        const cacheCanvas = document.createElement("canvas");
+        try {
+          cacheCanvas.width = cacheInput.hostWidth;
+          cacheCanvas.height = Math.max(
+            1,
+            Math.floor(
+              (rendered.canvasSize.height / rendered.canvasSize.width) *
+                cacheCanvas.width,
+            ),
+          );
+          const cacheContext = cacheCanvas.getContext("2d");
+          if (!cacheContext) return;
+          cacheContext.drawImage(
+            canvas,
+            0,
+            0,
+            cacheCanvas.width,
+            cacheCanvas.height,
+          );
+          const blob = await drawingCanvasPngBlob(cacheCanvas);
+          await writeDrawingPdfRasterCache(rasterStorage, cacheInput, {
+            blob,
+            canvasPixelWidth: cacheCanvas.width,
+            canvasPixelHeight: cacheCanvas.height,
+            canvasSize: rendered.canvasSize,
+            pageViewport: rendered.pageViewport,
+          });
+        } catch {
+          // A derived-cache failure must not remove the fresh PDF.js pixels.
+        } finally {
+          cacheCanvas.width = 0;
+          cacheCanvas.height = 0;
+        }
+      }
+    };
+
+    const restoreCachedRaster = async () => {
+      if (!cacheInput) return false;
+      try {
+        const cached = await readDrawingPdfRasterCache(
+          rasterStorage,
+          cacheInput,
         );
-        setPdfMessage("PDF 원본 배경을 표시하고 있습니다.");
+        if (!cached || !alive || controller.signal.aborted) return false;
+        const bitmap = await createImageBitmap(cached.blob);
+        if (
+          bitmap.width !== cached.canvasPixelWidth ||
+          bitmap.height !== cached.canvasPixelHeight
+        ) {
+          bitmap.close();
+          await deleteDrawingPdfRasterCache(rasterStorage, cacheInput);
+          return false;
+        }
+        const canvas = document.createElement("canvas");
+        ownedCanvases.add(canvas);
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.style.width = `${cached.canvasSize.width}px`;
+        canvas.style.height = `${cached.canvasSize.height}px`;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          bitmap.close();
+          return false;
+        }
+        context.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        if (!alive || controller.signal.aborted) return false;
+        mountRaster({
+          authority: "SHA256_DERIVED_CACHE",
+          canvas,
+          canvasSize: cached.canvasSize,
+          keySha256: cached.keySha256,
+          pageViewport: cached.pageViewport,
+        });
+        return true;
+      } catch {
+        await deleteDrawingPdfRasterCache(rasterStorage, cacheInput);
+        return false;
+      }
+    };
+
+    void (async () => {
+      const restored = await restoreCachedRaster();
+      if (restored) {
         finishPdfStage();
-      })
-      .catch((error: unknown) => {
-        renderCleanup?.();
-        renderCleanup = null;
-        const failedDocument = opened;
-        opened = null;
-        void failedDocument?.destroy();
+        refineTimer = window.setTimeout(() => {
+          void renderFresh(false).catch(() => undefined);
+        }, 1_500);
+        return;
+      }
+      await renderFresh(true);
+      finishPdfStage();
+    })().catch((error: unknown) => {
+      renderCleanup?.();
+      renderCleanup = null;
+      const failedDocument = opened;
+      opened = null;
+      void failedDocument?.destroy();
+      for (const canvas of ownedCanvases) {
         canvas.width = 0;
         canvas.height = 0;
-        if (!alive || controller.signal.aborted || isCancelled(error)) return;
-        finishPdfStage();
-        setPdfMessage(
-          error instanceof Error
-            ? error.message
-            : "PDF 배경을 열지 못했습니다.",
-        );
-      });
+      }
+      if (!alive || controller.signal.aborted || isCancelled(error)) return;
+      finishPdfStage();
+      setPdfMessage(
+        error instanceof Error ? error.message : "PDF 배경을 열지 못했습니다.",
+      );
+    });
     return () => {
       alive = false;
       controller.abort();
-      setPdfSource((current) => (current?.canvas === canvas ? null : current));
+      if (refineTimer !== null) window.clearTimeout(refineTimer);
+      if (firstPaintFrame !== null)
+        window.cancelAnimationFrame(firstPaintFrame);
+      setPdfSource((current) =>
+        current && ownedCanvases.has(current.canvas) ? null : current,
+      );
       const cleanup = renderCleanup;
       renderCleanup = null;
       const documentToDestroy = opened;
@@ -2716,8 +2892,10 @@ export const DrawingCanvas = forwardRef<
       scheduleDrawingPdfOwnedCleanup(() => {
         cleanup?.();
         void documentToDestroy?.destroy().finally(() => {
-          canvas.width = 0;
-          canvas.height = 0;
+          for (const canvas of ownedCanvases) {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
         });
       });
     };
@@ -2726,6 +2904,8 @@ export const DrawingCanvas = forwardRef<
     background.height,
     background.kind === "pdf" ? background.pageNumber : 0,
     background.kind === "pdf" ? background.signedUrl : "",
+    background.kind === "pdf" ? background.sourceFileId : "",
+    background.kind === "pdf" ? background.sourceSha256 : "",
     background.width,
     onPdfPageTransform,
   ]);
@@ -3416,6 +3596,15 @@ export const DrawingCanvas = forwardRef<
       className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       data-active-canvas-id={activeCanvasId}
       data-pdf-current-mounted={pdfSource ? "true" : "false"}
+      data-pdf-raster-authority={pdfRasterEvidence.authority}
+      data-pdf-raster-key-sha256={pdfRasterEvidence.keySha256}
+      data-pdf-raster-mounted-at-ms={pdfRasterEvidence.mountedAtMs}
+      data-pdf-raster-screen-pixel-ratio={
+        pdfSource
+          ? pdfSource.canvas.width /
+            Math.max(1, pdfSource.bounds.width * viewport.zoom)
+          : 0
+      }
       data-pdf-previous-mounted={previousPdfSource ? "true" : "false"}
       data-drag-active={selectionState.drag ? "true" : "false"}
       data-drag-pointer-id={selectionState.drag?.pointerId ?? ""}

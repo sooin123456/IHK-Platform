@@ -7,6 +7,7 @@ import {
   drawingTransientAuthorizationKey,
   sanitizeDrawingTransientInput,
   createDrawingDocumentStore,
+  DRAWING_SERVER_VALIDATED_HYDRATION,
   hydrateDrawingDocumentState,
 } from "../app/lukas/lib/drawing-document-store.ts";
 import { createDrawingStyleResolutionCache } from "../app/lukas/lib/drawing-style-resolution.ts";
@@ -212,6 +213,36 @@ test("hydrates every P2 collection into one canonical document state", () => {
   assert.deepEqual(state.structure.sources, { [ids.source]: source() });
   assert.strictEqual(state.objects, state.structure.objects);
   assert.strictEqual(state.layers, state.structure.layers);
+});
+
+test("explicit server-validated hydration skips duplicate row parsing but keeps graph invariants", () => {
+  const input = structure();
+  input.objects[ids.object].serverValidatedMarker = "preserved";
+  const hydration = {
+    revisionId: ids.revision,
+    ...Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [key, Object.values(value)]),
+    ),
+  };
+
+  assert.throws(() => hydrateDrawingDocumentState(hydration));
+  assert.throws(() =>
+    hydrateDrawingDocumentState(hydration, { authority: "server-validated" }),
+  );
+  const trustedState = hydrateDrawingDocumentState(hydration, {
+    authority: DRAWING_SERVER_VALIDATED_HYDRATION,
+  });
+  assert.equal(
+    trustedState.objects[ids.object].serverValidatedMarker,
+    "preserved",
+  );
+
+  hydration.canvases[0].pageId = ids.actor;
+  assert.throws(() =>
+    hydrateDrawingDocumentState(hydration, {
+      authority: DRAWING_SERVER_VALIDATED_HYDRATION,
+    }),
+  );
 });
 
 test("store preserves canonical P2 state and falls back to the page default after active canvas deletion", () => {

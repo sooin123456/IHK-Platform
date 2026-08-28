@@ -77,6 +77,11 @@ export class DrawingDocumentStoreError extends Error {
   }
 }
 
+/** Code-only proof that route data already crossed the server schema boundary. */
+export const DRAWING_SERVER_VALIDATED_HYDRATION = Symbol(
+  "drawing-server-validated-hydration",
+);
+
 function byId<T extends { id: string }>(items: T[]): Record<string, T> {
   const result: Record<string, T> = {};
   for (const item of items) {
@@ -92,48 +97,77 @@ function byId<T extends { id: string }>(items: T[]): Record<string, T> {
 /** Turns the complete P2 loader payload into its single canonical client state. */
 export function hydrateDrawingDocumentState(
   hydration: DrawingDocumentHydration,
+  options?: { authority?: typeof DRAWING_SERVER_VALIDATED_HYDRATION },
 ): DrawingDocumentState {
+  const serverValidated =
+    options?.authority === DRAWING_SERVER_VALIDATED_HYDRATION;
   const structure = {
-    pages: byId(hydration.pages.map((value) => DrawingPageSchema.parse(value))),
+    pages: byId(
+      serverValidated
+        ? hydration.pages
+        : hydration.pages.map((value) => DrawingPageSchema.parse(value)),
+    ),
     canvases: byId(
-      hydration.canvases.map((value) => DrawingCanvasSchema.parse(value)),
+      serverValidated
+        ? hydration.canvases
+        : hydration.canvases.map((value) => DrawingCanvasSchema.parse(value)),
     ),
     layers: byId(
-      hydration.layers.map((value) => DrawingStructureLayerSchema.parse(value)),
+      serverValidated
+        ? hydration.layers
+        : hydration.layers.map((value) =>
+            DrawingStructureLayerSchema.parse(value),
+          ),
     ),
     objects: byId(
-      hydration.objects.map((value) => DrawingObjectSchema.parse(value)),
+      serverValidated
+        ? hydration.objects
+        : hydration.objects.map((value) => DrawingObjectSchema.parse(value)),
     ),
     sources: byId(
-      (hydration.sources ?? []).map((value) =>
-        DrawingObjectSourceSchema.parse(value),
-      ),
+      serverValidated
+        ? (hydration.sources ?? [])
+        : (hydration.sources ?? []).map((value) =>
+            DrawingObjectSourceSchema.parse(value),
+          ),
     ),
     styles: byId(
-      hydration.styles.map((value) =>
-        DrawingStyleDefinitionSchema.parse(value),
-      ),
+      serverValidated
+        ? hydration.styles
+        : hydration.styles.map((value) =>
+            DrawingStyleDefinitionSchema.parse(value),
+          ),
     ),
     blocks: byId(
-      hydration.blocks.map((value) => DrawingBlockSchema.parse(value)),
+      serverValidated
+        ? hydration.blocks
+        : hydration.blocks.map((value) => DrawingBlockSchema.parse(value)),
     ),
     blockInstances: byId(
-      hydration.blockInstances.map((value) =>
-        DrawingBlockInstanceSchema.parse(value),
-      ),
+      serverValidated
+        ? hydration.blockInstances
+        : hydration.blockInstances.map((value) =>
+            DrawingBlockInstanceSchema.parse(value),
+          ),
     ),
     propertySchemas: byId(
-      hydration.propertySchemas.map((value) =>
-        DrawingPropertySchemaSchema.parse(value),
-      ),
+      serverValidated
+        ? hydration.propertySchemas
+        : hydration.propertySchemas.map((value) =>
+            DrawingPropertySchemaSchema.parse(value),
+          ),
     ),
     propertyValues: byId(
-      hydration.propertyValues.map((value) =>
-        DrawingPropertyValueSchema.parse(value),
-      ),
+      serverValidated
+        ? hydration.propertyValues
+        : hydration.propertyValues.map((value) =>
+            DrawingPropertyValueSchema.parse(value),
+          ),
     ),
     tables: byId(
-      hydration.tables.map((value) => DrawingTableSchema.parse(value)),
+      serverValidated
+        ? hydration.tables
+        : hydration.tables.map((value) => DrawingTableSchema.parse(value)),
     ),
   };
   validateDrawingStructureState({

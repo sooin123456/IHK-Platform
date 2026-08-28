@@ -39,7 +39,7 @@ const exactMix = {
 
 const exactConditions = {
   firstUsable:
-    "exact 10,000-object document navigation with immutable application, PDF, and IFC response bytes already in the browser HTTP cache; usable after hydration, exact authoritative-state confirmation, non-empty viewport projection, mounted PDF pixels, ready visible IFC frame, and the next animation frame",
+    "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this is not the separately observed 3,088.9 ms cold/cache-miss baseline, which was NOT MET",
   warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
 };
 
@@ -251,6 +251,7 @@ export function validateDrawingP7PerformanceEvidence(
       "memory",
       "workload",
       "conditions",
+      "pdfRaster",
       "stages",
       "firstUsable",
       "warm",
@@ -259,7 +260,7 @@ export function validateDrawingP7PerformanceEvidence(
     ],
     "evidence shape",
   );
-  assert.equal(evidence.schemaVersion, 2, "schemaVersion");
+  assert.equal(evidence.schemaVersion, 3, "schemaVersion");
   assert.equal(evidence.authority, "LOCAL_PRODUCTION_BUILD_CHROMIUM");
   assert.match(expectedCommitSha, /^[0-9a-f]{40}$/);
   assert.equal(evidence.sourceCommitSha, expectedCommitSha);
@@ -312,6 +313,37 @@ export function validateDrawingP7PerformanceEvidence(
   assert.equal(evidence.workload.selectedIfcModels, 1);
   assert.equal(evidence.workload.activePdfPages, 1);
   assert.deepEqual(evidence.conditions, exactConditions);
+  exactKeys(
+    evidence.pdfRaster,
+    [
+      "authority",
+      "cacheStatus",
+      "renderProfile",
+      "keySha256",
+      "mountedAtMs",
+      "screenPixelRatio",
+    ],
+    "PDF raster evidence",
+  );
+  assert.equal(
+    evidence.pdfRaster.authority,
+    "SHA256_DERIVED_CACHE",
+    "derived raster authority",
+  );
+  assert.equal(
+    evidence.pdfRaster.cacheStatus,
+    "HIT",
+    "derived raster cache HIT",
+  );
+  assert.equal(evidence.pdfRaster.renderProfile, "first-visible-v1");
+  assert.match(evidence.pdfRaster.keySha256, /^[0-9a-f]{64}$/);
+  positiveFinite(evidence.pdfRaster.mountedAtMs, "PDF raster mounted time");
+  assert.equal(
+    Number.isFinite(evidence.pdfRaster.screenPixelRatio) &&
+      evidence.pdfRaster.screenPixelRatio >= 1.5,
+    true,
+    "first-visible raster must provide at least 1.5 screen pixels per CSS pixel",
+  );
 
   const serverStages = ["loader", "ssr"];
   const browserStages = [
@@ -360,6 +392,7 @@ export function validateDrawingP7PerformanceEvidence(
     [
       "navigationStartMs",
       "hydrationEndMs",
+      "editReadyObservedMs",
       "authoritativeStateObservedMs",
       "viewportProjectionObservedMs",
       "pdfVisibleObservedMs",
@@ -375,6 +408,7 @@ export function validateDrawingP7PerformanceEvidence(
   }
   for (const name of [
     "hydrationEndMs",
+    "editReadyObservedMs",
     "authoritativeStateObservedMs",
     "viewportProjectionObservedMs",
     "pdfVisibleObservedMs",
@@ -389,6 +423,10 @@ export function validateDrawingP7PerformanceEvidence(
   assert.ok(
     readiness.pdfVisibleObservedMs >= evidence.stages.pdf.endMs,
     "PDF readiness includes visible completion",
+  );
+  assert.ok(
+    evidence.pdfRaster.mountedAtMs <= readiness.pdfVisibleObservedMs,
+    "PDF raster pixels must mount before PDF readiness",
   );
   assert.ok(
     readiness.ifcVisibleObservedMs >= evidence.stages.ifc.endMs,
