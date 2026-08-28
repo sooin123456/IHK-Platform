@@ -92,6 +92,8 @@ export type DrawingIfcDerivativeDescriptor =
       status: "not_applicable";
       version: null;
       sourceSha256: null;
+      manifestByteSize: null;
+      geometryByteSize: null;
       manifestSha256: null;
       geometrySha256: null;
       manifestSignedUrl: null;
@@ -101,6 +103,8 @@ export type DrawingIfcDerivativeDescriptor =
       status: "pending" | "failed";
       version: number | null;
       sourceSha256: string;
+      manifestByteSize: null;
+      geometryByteSize: null;
       manifestSha256: null;
       geometrySha256: null;
       manifestSignedUrl: null;
@@ -110,6 +114,10 @@ export type DrawingIfcDerivativeDescriptor =
       status: "ready";
       version: number;
       sourceSha256: string;
+      /** Client authority: reject fetched bytes whose length differs. */
+      manifestByteSize: number;
+      /** Client authority: reject fetched bytes whose length differs. */
+      geometryByteSize: number;
       /** Client authority: re-hash bytes fetched from the signed URL. */
       manifestSha256: string;
       /** Client authority: re-hash bytes fetched from the signed URL. */
@@ -185,7 +193,7 @@ export const IfcDerivativeManifestSchema = z
   .superRefine((manifest, context) => {
     const expressIds = new Set<number>();
     const globalIds = new Set<string>();
-    const nodeIds = new Set<string>();
+    const meshPrimitiveTuples = new Set<string>();
     manifest.elements.forEach((element, index) => {
       if (expressIds.has(element.expressId))
         context.addIssue({
@@ -201,15 +209,24 @@ export const IfcDerivativeManifestSchema = z
           path: ["elements", index, "globalId"],
         });
       globalIds.add(element.globalId);
-      for (const mapping of element.meshes) {
-        if (nodeIds.has(mapping.nodeId))
-          context.addIssue({
-            code: "custom",
-            message: "duplicate nodeId",
-            path: ["elements", index, "meshes"],
-          });
-        nodeIds.add(mapping.nodeId);
-      }
+      element.meshes.forEach((mapping, mappingIndex) =>
+        mapping.primitiveIndices.forEach((primitiveIndex) => {
+          const tuple = `${mapping.nodeId}\0${primitiveIndex}`;
+          if (meshPrimitiveTuples.has(tuple))
+            context.addIssue({
+              code: "custom",
+              message: "duplicate nodeId and primitiveIndex tuple",
+              path: [
+                "elements",
+                index,
+                "meshes",
+                mappingIndex,
+                "primitiveIndices",
+              ],
+            });
+          meshPrimitiveTuples.add(tuple);
+        }),
+      );
     });
   });
 
@@ -2828,6 +2845,8 @@ const noIfcDerivative = (
   status,
   version,
   sourceSha256,
+  manifestByteSize: null,
+  geometryByteSize: null,
   manifestSha256: null,
   geometrySha256: null,
   manifestSignedUrl: null,
@@ -2838,6 +2857,8 @@ const notApplicableDerivative: DrawingIfcDerivativeDescriptor = {
   status: "not_applicable",
   version: null,
   sourceSha256: null,
+  manifestByteSize: null,
+  geometryByteSize: null,
   manifestSha256: null,
   geometrySha256: null,
   manifestSignedUrl: null,
@@ -2901,31 +2922,45 @@ async function validateSelfContainedGlb(
   }
   const nodes = Array.isArray(document.nodes) ? document.nodes : [];
   const meshes = Array.isArray(document.meshes) ? document.meshes : [];
-  const nodesById = new Map<string, Record<string, unknown>>();
+  const nodesById = new Map<
+    string,
+    { node: Record<string, unknown>; ifcExpressId?: number }
+  >();
   for (const value of nodes) {
     const node = value as Record<string, unknown>;
-    const extras =
-      node.extras && typeof node.extras === "object"
-        ? (node.extras as Record<string, unknown>)
-        : null;
-    const nodeId =
-      typeof extras?.ifcNodeId === "string"
-        ? extras.ifcNodeId
-        : typeof node.name === "string"
-          ? node.name
-          : null;
-    if (nodeId) {
-      if (nodesById.has(nodeId))
-        throw new Error("GLB node identity is duplicated");
-      nodesById.set(nodeId, node);
-    }
+    if (!Number.isSafeInteger(node.mesh)) continue;
+    const extras = node.extras;
+    if (!extras || typeof extras !== "object" || Array.isArray(extras))
+      throw new Error("GLB mesh node identity is unavailable");
+    const values = extras as Record<string, unknown>;
+    if (
+      Object.keys(values).some(
+        (key) => key !== "ifcNodeId" && key !== "ifcExpressId",
+      ) ||
+      typeof values.ifcNodeId !== "string" ||
+      values.ifcNodeId.trim() !== values.ifcNodeId ||
+      values.ifcNodeId.length < 1 ||
+      values.ifcNodeId.length > 256 ||
+      (values.ifcExpressId !== undefined &&
+        (!Number.isSafeInteger(values.ifcExpressId) ||
+          (values.ifcExpressId as number) < 1))
+    )
+      throw new Error("GLB mesh node extras are invalid");
+    if (nodesById.has(values.ifcNodeId))
+      throw new Error("GLB node identity is duplicated");
+    nodesById.set(values.ifcNodeId, {
+      node,
+      ...(values.ifcExpressId === undefined
+        ? {}
+        : { ifcExpressId: values.ifcExpressId as number }),
+    });
   }
+  const claims = new Map<string, number>();
   for (const element of manifest.elements)
     for (const mapping of element.meshes) {
-      const node = nodesById.get(mapping.nodeId);
-      if (!node || !Number.isSafeInteger(node.mesh))
-        throw new Error("GLB manifest node is unavailable");
-      const mesh = meshes[node.mesh as number];
+      const resolved = nodesById.get(mapping.nodeId);
+      if (!resolved) throw new Error("GLB manifest node is unavailable");
+      const mesh = meshes[resolved.node.mesh as number];
       if (!mesh || typeof mesh !== "object")
         throw new Error("GLB manifest mesh is unavailable");
       const primitives = (mesh as Record<string, unknown>).primitives;
@@ -2934,7 +2969,39 @@ async function validateSelfContainedGlb(
         mapping.primitiveIndices.some((index) => index >= primitives.length)
       )
         throw new Error("GLB manifest primitive is unavailable");
+      for (const primitiveIndex of mapping.primitiveIndices) {
+        const tuple = `${mapping.nodeId}\0${primitiveIndex}`;
+        if (claims.has(tuple))
+          throw new Error("GLB primitive claim is duplicated");
+        claims.set(tuple, element.expressId);
+      }
     }
+  for (const [nodeId, resolved] of nodesById) {
+    const mesh = meshes[resolved.node.mesh as number];
+    if (!mesh || typeof mesh !== "object")
+      throw new Error("GLB manifest mesh is unavailable");
+    const primitives = (mesh as Record<string, unknown>).primitives;
+    if (!Array.isArray(primitives) || primitives.length < 1)
+      throw new Error("GLB rendered primitive is unavailable");
+    const owners = new Set<number>();
+    for (
+      let primitiveIndex = 0;
+      primitiveIndex < primitives.length;
+      primitiveIndex += 1
+    ) {
+      const expressId = claims.get(`${nodeId}\0${primitiveIndex}`);
+      if (expressId === undefined)
+        throw new Error("GLB rendered primitive is unclaimed");
+      owners.add(expressId);
+    }
+    if (
+      resolved.ifcExpressId !== undefined &&
+      (owners.size !== 1 || !owners.has(resolved.ifcExpressId))
+    )
+      throw new Error(
+        "GLB node ifcExpressId does not match primitive ownership",
+      );
+  }
 }
 
 type IfcSignedStorageReader = {
@@ -3252,6 +3319,8 @@ export async function loadDrawingIfcDerivative(
     status: "ready",
     version: row.version,
     sourceSha256: file.sha256,
+    manifestByteSize: row.manifest_byte_size,
+    geometryByteSize: row.geometry_byte_size,
     manifestSha256: row.manifest_sha256,
     geometrySha256: row.geometry_sha256,
     manifestSignedUrl: manifestResult.data.signedUrl,

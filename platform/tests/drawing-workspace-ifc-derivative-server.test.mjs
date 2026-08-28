@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
+  IfcDerivativeManifestSchema,
   loadDrawingIfcDerivative,
   publishManagedIfcDerivativeObject,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
@@ -72,7 +73,7 @@ function validGeometryGlb(overrides = {}) {
         max: [1, 1, 0],
       },
     ],
-    nodes: [{ name: "ifc-42", mesh: 0 }],
+    nodes: [{ extras: { ifcNodeId: "ifc-42", ifcExpressId: 42 }, mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
     scenes: [{ nodes: [0] }],
     scene: 0,
@@ -80,6 +81,58 @@ function validGeometryGlb(overrides = {}) {
   };
   return glb(document, binary);
 }
+
+function withManifestElements(selected, elements) {
+  const manifest = { ...selected.row.manifest_json, elements };
+  const manifestBytes = new TextEncoder().encode(canonicalJson(manifest));
+  const manifestSha256 = sha256(manifestBytes);
+  const prefix = selected.row.manifest_storage_path.slice(
+    0,
+    selected.row.manifest_storage_path.lastIndexOf("/"),
+  );
+  return {
+    ...selected,
+    row: {
+      ...selected.row,
+      manifest_json: manifest,
+      manifest_storage_path: `${prefix}/${manifestSha256}.json`,
+      manifest_byte_size: manifestBytes.byteLength,
+      manifest_sha256: manifestSha256,
+    },
+    manifestBytes,
+  };
+}
+
+test("manifest mesh identity is the global node and primitive tuple", () => {
+  const selected = artifact(1);
+  const first = selected.row.manifest_json.elements[0];
+  const disjoint = {
+    ...first,
+    expressId: 43,
+    globalId: "1VNYAWfXv8JvIRVfOzYH1j",
+    meshes: [{ nodeId: "ifc-42", primitiveIndices: [1] }],
+  };
+  assert.doesNotThrow(() =>
+    IfcDerivativeManifestSchema.parse({
+      ...selected.row.manifest_json,
+      elements: [first, disjoint],
+    }),
+  );
+  assert.throws(
+    () =>
+      IfcDerivativeManifestSchema.parse({
+        ...selected.row.manifest_json,
+        elements: [
+          first,
+          {
+            ...disjoint,
+            meshes: [{ nodeId: "ifc-42", primitiveIndices: [0] }],
+          },
+        ],
+      }),
+    /nodeId and primitiveIndex tuple/i,
+  );
+});
 
 function artifact(version, options = {}) {
   const geometryBytes = options.geometryBytes ?? validGeometryGlb();
@@ -275,6 +328,8 @@ test("an approved revision keeps its pin after pending, failed, and ready append
   );
   assert.equal(loaded.version, 1);
   assert.equal(loaded.manifestSha256, first.row.manifest_sha256);
+  assert.equal(loaded.manifestByteSize, first.row.manifest_byte_size);
+  assert.equal(loaded.geometryByteSize, first.row.geometry_byte_size);
   assert.deepEqual(
     client.calls.filter(([kind]) => kind === "fetch").map(([, url]) => url),
     [
@@ -353,10 +408,166 @@ test("a draft exposes the latest failed status when no ready derivative exists",
     status: "failed",
     version: 1,
     sourceSha256: sourceSha,
+    manifestByteSize: null,
+    geometryByteSize: null,
     manifestSha256: null,
     geometrySha256: null,
     manifestSignedUrl: null,
     geometrySignedUrl: null,
+  });
+});
+
+test("GLB node identity requires canonical extras and every primitive claim", async (context) => {
+  const base = artifact(1);
+  const outOfRange = withManifestElements(base, [
+    {
+      ...base.row.manifest_json.elements[0],
+      meshes: [{ nodeId: "ifc-42", primitiveIndices: [1] }],
+    },
+  ]);
+  const cases = [
+    [
+      "node name is not an identity fallback",
+      artifact(1, {
+        geometryBytes: validGeometryGlb({
+          nodes: [{ name: "ifc-42", mesh: 0 }],
+        }),
+      }),
+    ],
+    [
+      "mesh node extras reject non-canonical identity fields",
+      artifact(1, {
+        geometryBytes: validGeometryGlb({
+          nodes: [
+            {
+              extras: { ifcNodeId: "ifc-42", ifcExpressId: 42, legacyId: 42 },
+              mesh: 0,
+            },
+          ],
+        }),
+      }),
+    ],
+    ["manifest primitive index must be in range", outOfRange],
+    [
+      "an unclaimed rendered primitive is rejected",
+      artifact(1, {
+        geometryBytes: validGeometryGlb({
+          meshes: [
+            {
+              primitives: [
+                { attributes: { POSITION: 0 } },
+                { attributes: { POSITION: 0 } },
+              ],
+            },
+          ],
+        }),
+      }),
+    ],
+  ];
+  for (const [name, selected] of cases)
+    await context.test(name, async () => {
+      const client = clientFor({
+        derivatives: [selected.row],
+        objects: objectsFor(selected),
+      });
+      await assert.rejects(
+        loadDrawingIfcDerivative(
+          client,
+          file,
+          { id: ids.revision, status: "draft", version: 1 },
+          { fetch: client.fetchImpl },
+        ),
+        (error) => error instanceof Response && error.status === 409,
+      );
+    });
+});
+
+test("GLB ifcExpressId matches the complete primitive ownership of a node", async (context) => {
+  const primitives = [
+    { attributes: { POSITION: 0 } },
+    { attributes: { POSITION: 0 } },
+  ];
+  const first = artifact(1, {
+    geometryBytes: validGeometryGlb({
+      nodes: [{ extras: { ifcNodeId: "ifc-42" }, mesh: 0 }],
+      meshes: [{ primitives }],
+    }),
+  });
+  const original = first.row.manifest_json.elements[0];
+  const mixedElements = [
+    original,
+    {
+      ...original,
+      expressId: 43,
+      globalId: "1VNYAWfXv8JvIRVfOzYH1j",
+      meshes: [{ nodeId: "ifc-42", primitiveIndices: [1] }],
+    },
+  ];
+  const mixed = withManifestElements(first, mixedElements);
+  await context.test("mixed node omits ifcExpressId", async () => {
+    const client = clientFor({
+      derivatives: [mixed.row],
+      objects: objectsFor(mixed),
+    });
+    const loaded = await loadDrawingIfcDerivative(
+      client,
+      file,
+      { id: ids.revision, status: "draft", version: 1 },
+      { fetch: client.fetchImpl },
+    );
+    assert.equal(loaded.status, "ready");
+  });
+  await context.test("mixed node cannot claim one ifcExpressId", async () => {
+    const selected = artifact(1, {
+      geometryBytes: validGeometryGlb({
+        nodes: [
+          {
+            extras: { ifcNodeId: "ifc-42", ifcExpressId: 42 },
+            mesh: 0,
+          },
+        ],
+        meshes: [{ primitives }],
+      }),
+    });
+    const invalid = withManifestElements(selected, mixedElements);
+    const client = clientFor({
+      derivatives: [invalid.row],
+      objects: objectsFor(invalid),
+    });
+    await assert.rejects(
+      loadDrawingIfcDerivative(
+        client,
+        file,
+        { id: ids.revision, status: "draft", version: 1 },
+        { fetch: client.fetchImpl },
+      ),
+      (error) => error instanceof Response && error.status === 409,
+    );
+  });
+  await context.test("single owner ifcExpressId must match", async () => {
+    const selected = artifact(1, {
+      geometryBytes: validGeometryGlb({
+        nodes: [
+          {
+            extras: { ifcNodeId: "ifc-42", ifcExpressId: 99 },
+            mesh: 0,
+          },
+        ],
+      }),
+    });
+    const client = clientFor({
+      derivatives: [selected.row],
+      objects: objectsFor(selected),
+    });
+    await assert.rejects(
+      loadDrawingIfcDerivative(
+        client,
+        file,
+        { id: ids.revision, status: "draft", version: 1 },
+        { fetch: client.fetchImpl },
+      ),
+      (error) => error instanceof Response && error.status === 409,
+    );
   });
 });
 

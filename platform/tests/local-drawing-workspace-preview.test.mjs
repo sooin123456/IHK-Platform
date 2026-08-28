@@ -418,6 +418,8 @@ test("local IFC preview fixture carries a source-bound immutable derivative cont
   assert.equal(source.derivative.status, "ready");
   assert.equal(source.derivative.version, 1);
   assert.equal(source.derivative.sourceSha256, source.sha256);
+  assert.ok(source.derivative.manifestByteSize > 0);
+  assert.ok(source.derivative.geometryByteSize > 0);
   assert.match(source.derivative.manifestSignedUrl, /\.json$/);
   assert.match(source.derivative.geometrySignedUrl, /\.glb$/);
 });
