@@ -2,137 +2,204 @@
 
 ## Status
 
-- Local production-build Chromium gate: **MET**.
-- Whole-workspace first usable: **2366.300 ms**, target `<= 2500 ms`.
-- Warm event-to-next-animation-frame p95: zoom **0.200 ms**, pan **0.200 ms**, selection **9.200 ms**, target `<= 16.7 ms` for each interaction.
-- Hosted production runtime gate: **UNEXECUTED**. No trusted hosted browser/server/runtime authority was available, so this gate remains nonzero and is not represented as a pass.
-- Source commit measured by the final evidence: `c07d0cbcc6b9eaf2d03078fd86c921343cda92c5` (`perf: meet the large drawing workspace budget`).
+- Corrected local production-build Chromium gate: **MET**.
+- Exact 10,000-object warm-reopen first usable: **2273.800 ms**, target `<= 2500 ms`.
+- First usable includes hydration, all 10,000 authoritative objects, a nonempty viewport projection, real PDF pixels, a ready visible IFC frame, the durable local edit command bridge, healthy persistence, and the next animation frame.
+- Warm input-to-next-frame p95: zoom **0.200 ms**, pan **0.200 ms**, selection **7.500 ms**, target `<= 16.7 ms` each.
+- Separately measured cold/cache-miss baseline: **3088.900 ms — NOT MET**. It is not relabeled or substituted by the warm-reopen result.
+- Hosted production runtime: **UNEXECUTED**. No trusted hosted browser/server/runtime authority was available.
+- Final measured implementation commit: `c412c1bb2b8756fd6e17db7df72e366d2c9f60b0`.
+- Authority-hardening commit: `e0adaf929ea2a0bcaf56f6a2c36d43490912e65a`.
+
+This report supersedes the invalid original `2366.3 ms / 9.2 ms` claim. That artifact warmed PDF/IFC before navigation, omitted them from timed readiness, began selection timing after pointer-down work, and accepted caller-authored evidence. It is not retained as passing evidence.
+
+## Measurement conditions and authority
+
+The passing gate is deliberately named a **warm reopen**, not cold navigation. One untimed production navigation primes immutable application/PDF/IFC HTTP responses and writes the source-SHA-bound `first-visible-v1` derived PDF raster. The timed exact navigation must prove:
+
+- `schemaVersion: 3` runner-generated evidence;
+- source commit, source-tree digest, runner digest, Playwright config digest, served server-build digest, served client-build digest, and whole-capture digest;
+- exact 10,000 authoritative semantic objects and nonempty bounded projections;
+- verified derived raster cache `HIT`, immutable key digest, real pixel mount timestamp, and at least `1.5` raster pixels per displayed CSS pixel;
+- visible PDF and IFC completion;
+- `outboxReady && commandBridgeReady && !persistenceFailed` exposed as `data-edit-ready="true"`;
+- one animation frame after all readiness predicates.
+
+The first navigation/cache-miss path remains honest `NOT MET` evidence at 3088.9 ms. The local warm-reopen gate does not establish hosted latency or a cold-start guarantee.
 
 ## Measured root cause
 
-The optimization started from production-boundary measurements, not from a speculative implementation.
+### Original Task 4 baseline
 
-### Before production edits
+The original trusted local 10k production run found first usable above four seconds, 10,331 DOM nodes, 10,000 accessibility rows, and multiple 300–600 ms long tasks. Production-function profiling isolated quadratic hosted-opening order assembly plus full 10k Konva hit, snap, and accessibility projections. Those measured problems were corrected in `c07d0cb` by linear host ordering, viewport projection, bounded hit/snap/accessibility work, cached active-slice visibility, and stable canvas inputs while retaining all 10,000 authoritative objects.
 
-- The previously committed P4 whole-workspace artifact recorded first usable at **5916.2 ms** and selection p95 at **77.3 ms**. P6 BOQ pure-function timings were kept separate and were not used as workspace evidence.
-- A trusted local production-build Chromium baseline of the exact 10k route measured:
-  - first usable **4085.1 ms**;
-  - navigation `responseStart` about **912.8 ms**;
-  - decoded response body **3,393,092 bytes**;
-  - **10,331 DOM nodes** and **10,000 accessibility list items**;
-  - long tasks of **348, 305, 632, 151, 459, 186, and 97 ms**.
-- The same exact 10k graph through production functions in Node measured fixture creation **3.90 ms**, style resolution **2.18 ms**, render adapter **135.37 ms**, and 100 hit probes **6.95 ms**.
-- The render adapter sorted the graph, then repeatedly combined `findIndex`, `some`, and `splice` over a shrinking array. This made hosted-opening ordering quadratic; even repeated front splices retained quadratic movement.
-- Hydration mounted the full 10,000 committed Konva projections, 10,000 Konva hit rectangles, snap candidates, and semantic accessibility rows even though only a viewport subset was usable.
-- Selection updated a shareable query parameter, which caused repeated `.data` revalidation in the **374–399 ms** range during early probing.
-- After the first viewport-windowing pass, browser instrumentation still measured selection event-to-frame p95 at **41–42 ms**. Capture/bubble timestamps and Long Task observation isolated **39–56 ms pointerdown**, **33–43 ms pointerup**, and **73–96 ms click long tasks**. The remaining work was thousands of Konva hit rectangles, a 10k `visibleObjectIds` rebuild in transient selection state, and parent-created 10k-dependent props/callbacks that invalidated the canvas adapter.
+### Review-corrected baseline
 
-### Minimal corrections
+After fixing the warmed/incomplete readiness predicate, pointer-down selection boundary, evidence provenance, served-build binding, conservative bounds, boundary tests, deterministic complexity guard, and atomic evidence replacement, the real corrected production result was:
 
-- Replaced the quadratic ordering loop with one sorted pass, a host-waiting map, and idempotent emission. The existing canonical sort and host-before-opening contract remain unchanged.
-- Kept all 10,000 authoritative render items and document objects in state while deriving a 48-pixel-overscanned viewport projection for committed Konva nodes, hit/snap preparation, remote selection bounds, and accessibility rows.
-- Removed only the measured Konva hit rectangles. Pointer selection uses the already-prepared viewport hit bounds and still calls the canonical narrow-phase selection path before committing a target.
-- Cached visible object IDs in the existing active-canvas slice cache, so selection does not rescan the authoritative 10k object map.
-- Memoized the existing active-layer array, collaboration object-name map, and canvas callbacks so selection does not recreate render-adapter inputs.
-- Added real duration instrumentation at loader/SSR, hydration, style resolution, render adapter, Konva mount, snap/hit preparation, PDF, and IFC production boundaries.
-- Added a dedicated production-build Playwright gate and strict evidence validator. No new state manager, rendering framework, dependency, schema, worker, queue, or parallel data authority was introduced.
+```text
+first usable 3088.9 ms — NOT MET
+hydration end 1398.1 ms
+PDF 1782.3 → 3064.2 ms (1281.9 ms)
+IFC 1782.3 → 2613.3 ms (831.0 ms)
+readiness 3076.9 ms → usable frame 3088.9 ms
+```
 
-## Strict TDD evidence
+PDF substage measurement showed approximately **507 ms dynamic import**, **740 ms document opening**, and only **33 ms rasterization**. The raster draw itself was not the main miss.
 
-### RED 1 — stage API, projection, and quadratic adapter
+Measured minimal experiments that did not meet the gate were removed:
 
-Before production edits:
+| Experiment | Exact result | Disposition |
+| --- | ---: | --- |
+| Lazy four inactive panels | 3058.8 ms | removed; within run variance |
+| Lazy inspector/command menu too | 3089.0 ms | removed |
+| Static PDF.js import | 3071.1 ms | removed |
+| Full derived raster, DPR 2 | 3105.5 ms | replaced |
+| 1600 px derived raster, DPR 1 | 3045.9 ms | replaced |
+| 1024 px derived raster alone | 3023.3 ms | retained only as part of measured combined correction |
+| 1024 cache + server-validated hydration | 2670.9 ms | still NOT MET |
+
+PDF.js runtime/document preload, PDF worker/module preload, client canvas chunk preload, sequential PDF/IFC loading, and inactive-panel splits did not produce a genuine threshold improvement. Their diagnostic/preload code was removed.
+
+CPU profiling of the remaining path found about 300 ms of duplicate client Zod row parsing after the server had already validated every loader row. After that duplicate parse was removed at one code-only server boundary, the remaining Zod work was the Yjs collaboration adapter's canonical graph validation. That validation is required for durable editing and was not skipped.
+
+The collaboration adapter was therefore initialized after the real PDF/IFC first-paint boundary in an idle callback, with an error fallback and the existing connecting UI. The first apparent result, **1512.6 ms**, was rejected because preview `outboxReady` did not prove that the command bridge existed. Adding exact durable edit readiness moved the valid result to 2292.3 ms; repeated final source-bound runs were 2303.5, 2295.9, and finally **2273.8 ms**.
+
+## Implementation
+
+### Existing 10k rendering corrections retained
+
+- Linear canonical host/opening ordering replaces the measured quadratic full-scan/splice loop.
+- Visually conservative bounds cover multiline/styled text, rotated geometry, hosted opening cuts, wall thickness, stroke, handles, pan/zoom boundaries, and screen-space overscan.
+- All 10,000 authoritative objects remain in the canonical document and render adapter.
+- Only expensive Konva render, hit, snap, remote-selection, and accessibility projections are viewport-windowed.
+- The deterministic complexity guard uses operation/growth evidence instead of a machine stopwatch.
+
+### Corrected evidence and interaction authority
+
+- First usable includes PDF, IFC, hydration, authoritative object count, projection, edit readiness, and the next real frame.
+- Selection capture starts at the earliest capture-phase `pointerdown`, before hit resolution, selected-ID construction, snapshotting, state updates, and parent notification. All 30 raw samples prove the expected selected name is committed before the measured frame.
+- Schema-v3 validation accepts only the Playwright runner environment, exact served build digests, complete raw timing samples, exact shapes, and a whole-capture SHA-256.
+- The runner deletes stale evidence first, builds the exact source it serves, and atomically writes only validated output. A failed run cannot leave an older `MET` artifact.
+- Hosted authority stays `UNEXECUTED`; no local or P6 pure-function evidence substitutes for it.
+
+### Server-validated hydration
+
+- `DRAWING_SERVER_VALIDATED_HYDRATION` is a code-only `Symbol`, not serialized payload authority.
+- Only `drawingStateFromRevision`, whose DB/fixture producer already parsed every row schema and graph invariant, can use it.
+- Bootstrap, IndexedDB, Yjs, outbox, checkpoint, import, operation, and collaboration hydration retain their existing schema parsing.
+- Even the trusted path still rejects duplicate IDs and structural graph corruption and still constructs the canonical document state.
+
+### Source-SHA-bound derived PDF raster
+
+- Cache key inputs are render profile, current/previous slot, validated source file ID, immutable source SHA-256, page, 1024 px host width, zoom, and DPR. Signed URLs are never keys.
+- Cache response metadata includes schema, render profile, slot, source file ID/SHA, page, host width, zoom, DPR, content SHA-256, canvas pixel/CSS dimensions, PDF viewport dimensions, and rotation.
+- Blob digest, every header, PNG decoding, and decoded dimensions are verified. Any mismatch deletes the entry and falls back to PDF.js.
+- Cache API absence, cache read/write failure, PNG encoding failure, decode failure, and dimension corruption preserve the PDF.js path.
+- A verified 1024 px DPR-1 first-visible raster is mounted for readiness only when it supplies at least 1.5 pixels per displayed CSS pixel. The full 1600 px PDF.js raster refines after readiness.
+- Current and previous PDF slots remain separate. IFC URLs cannot inherit a PDF file identity.
+
+### Collaboration and edit readiness
+
+- PDF and IFC production renderers mark their real first frames.
+- Initial collaboration/Yjs construction waits for required source frames, then runs through the existing idle boundary; source failure has a bounded fallback.
+- The Yjs canonical graph validation, local outbox, reconciliation, command schema validation, persistence, connection, retry, and recovery authorities remain unchanged.
+- The UI remains honestly busy/connecting until `outboxReady`, a real command bridge, and healthy persistence are all present.
+
+No new dependency, state manager, rendering framework, worker, queue, product schema, or second object authority was added.
+
+## Strict TDD and review-fix evidence
+
+### Original RED boundaries
+
+The original implementation began with failing tests for stage instrumentation, 10k viewport projection, quadratic ordering, missing production browser projection evidence, and the absent evidence validator. The initial production browser run also preserved real `NOT MET` artifacts at 3253.5 ms first usable and 41.2 ms selection p95 before optimization.
+
+### Review RED — missing first-paint collaboration boundary
 
 ```sh
-node --test tests/drawing-workspace-blocks.test.mjs tests/drawing-runtime.test.mjs
+node --test tests/drawing-runtime.test.mjs
 ```
-
-Observed result:
 
 ```text
-tests 27
-pass 24
-fail 3
-
-workspace stages record measured production-boundary durations
-Expected values to be strictly equal: actual 'undefined', expected 'function'
-
-the exact 10k authoritative graph projects only viewport objects...
-projectedItems was absent
-
-the exact 10k render adapter removes quadratic host ordering
-10,000 authoritative render items took 74.0ms
+tests 6
+pass 5
+fail 1
+TypeError: drawingWorkspaceFirstPaintReady is not a function
 ```
 
-The first internal limit was 50 ms. Parallel full-suite load later produced a correct linear result at 50.2 ms (64.9 ms including fixture/setup), so the non-release unit guard was corrected to 100 ms. The measured pre-change adapter was 135.37 ms; the authoritative release budgets remain the browser first-usable and warm-frame thresholds.
-
-### RED 2 — real production browser surface
-
-Against the unchanged production build:
+### Review RED — durable edit readiness and schema-v3 evidence
 
 ```sh
-E2E_BASE_URL=http://127.0.0.1:4184 npx playwright test e2e/drawing-workspace-p7-performance.spec.ts --config=playwright.config.ts --project=chromium --workers=1 --reporter=line
+node --test tests/drawing-runtime.test.mjs tests/drawing-workspace-p7-performance.test.mjs
 ```
-
-Observed failure:
 
 ```text
-Expected the P7 production surface to expose data-projected-object-count.
-Received: null
+tests 13
+pass 8
+fail 5
+drawingLocalEditReady is not a function
+expected schemaVersion 3, received 2
+workspace source did not expose data-edit-ready
 ```
 
-### RED 3 — evidence authority
+### Authority RED — source changed after evidence capture
+
+After the cache-failure fallback and formatting edits, the focused run intentionally failed closed instead of accepting stale evidence:
 
 ```sh
-node --test tests/drawing-workspace-p7-performance.test.mjs
+node --test tests/drawing-workspace-blocks.test.mjs tests/drawing-runtime.test.mjs tests/drawing-pdf-raster-cache.test.mjs tests/drawing-document-store.test.mjs tests/drawing-workspace-p7-performance.test.mjs
 ```
-
-Initial observed failure:
 
 ```text
-P7 performance evidence validator must exist
+tests 56
+pass 52
+fail 4
+all four failures: sourceTreeSha256 mismatch against the prior capture
 ```
 
-After adding the validator but before adding the dedicated production config, the same command failed closed with:
-
-```text
-ENOENT: no such file or directory, open 'playwright.p7-performance.config.ts'
-```
-
-### Honest browser misses during GREEN iteration
-
-The new browser gate wrote evidence before asserting thresholds. It therefore preserved these genuine intermediate misses as `NOT MET`:
-
-```text
-first usable 3253.5 ms — NOT MET
-selection p95 41.2 ms — NOT MET
-```
-
-After correcting the gate's readiness polling, first usable became **2369.9 ms (MET)** while selection remained **41.8 ms (NOT MET)**. Removing measured hit work, caching active-slice visibility, and stabilizing canvas inputs produced the final green result. A temporary transitioned selection update reduced timing but delayed the inspector and failed both shell regressions; it was fully reverted. Final selection remains synchronous.
-
-### GREEN — focused production functions
+### Regression RED — SSR shell attribute order
 
 ```sh
-node --test tests/drawing-workspace-blocks.test.mjs tests/drawing-runtime.test.mjs tests/drawing-workspace-p7-performance.test.mjs
+npm run test:drawing-workspace
 ```
 
 ```text
-tests 59
-pass 59
+tests 769
+pass 764
+fail 1
+skipped 4
+workspace SSR shell keeps an empty inspector collapsed for a canvas-first desktop
+```
+
+The new readiness attribute had been inserted between the existing `aria-label` and `class` serialization contract. Moving it after `class` was the minimal GREEN change; no behavior or predicate was weakened.
+
+### Focused GREEN
+
+```sh
+node --test tests/drawing-workspace-blocks.test.mjs tests/drawing-runtime.test.mjs tests/drawing-pdf-raster-cache.test.mjs tests/drawing-document-store.test.mjs tests/drawing-workspace-p7-performance.test.mjs
+```
+
+```text
+tests 56
+pass 56
 fail 0
 ```
 
-### GREEN — final SHA-bound production browser gate
+Focused coverage includes server authority fail-closed behavior, graph invariants, cache identity and integrity, IFC identity rejection, edit readiness, first-paint scheduling, conservative viewport edges, deterministic sub-quadratic growth, evidence mutation rejection, atomic stale removal, and runner-only provenance.
+
+### Final production-build GREEN
 
 ```sh
-npm run test:e2e:drawing-workspace-p7:performance -- --reporter=line
+PORT=4177 npm run test:e2e:drawing-workspace-p7:performance -- --reporter=line
 ```
 
 ```text
-1 passed (15.2s)
+2 passed (25.6s)
+first usable 2273.8 ms — MET
+warm p95 { zoom: 0.2, pan: 0.2, selection: 7.5 } ms — MET
 ```
 
-The resulting evidence was then accepted by:
+The second browser test corrupts a real cached PNG in two ways: valid digest with wrong decoded dimensions, and valid digest metadata with undecodable PNG bytes. Both are deleted and fall back to visible PDF.js pixels.
 
 ```sh
 node scripts/drawing-p7-performance-evidence.mjs validate
@@ -144,8 +211,6 @@ node scripts/drawing-p7-performance-evidence.mjs validate
 
 ## Exact fixture and deterministic hashes
 
-The measured route contains exactly **10,000** authoritative semantic objects:
-
 | Kind | Count |
 | --- | ---: |
 | Wall | 2,000 |
@@ -156,9 +221,9 @@ The measured route contains exactly **10,000** authoritative semantic objects:
 | Arc | 1,500 |
 | **Total** | **10,000** |
 
-The integrated fixture also contains exactly two source links, one selected IFC model, and one active PDF page. At the final 1440×900 viewport, authoritative state retained all **10,000** objects while expensive projections contained **1,850** items and **1,848** semantic accessibility rows.
+The fixture also contains exactly two source links, one selected IFC model, and one active PDF page. At 1440×900 it retains 10,000 authoritative objects while projecting 1,850 render items and 1,848 accessibility rows.
 
-Each hash below was recomputed in exactly **100** runs. Every series contained exactly one unique value:
+Every series below contains exactly 100 identical runs:
 
 | Boundary | SHA-256 |
 | --- | --- |
@@ -168,130 +233,141 @@ Each hash below was recomputed in exactly **100** runs. Every series contained e
 
 ## Final stage evidence
 
-Authority: local production build, Chromium `151.0.7922.34`, Apple M3 Max (14 logical CPUs), 38,654,705,664 bytes total memory, 1440×900 viewport.
+Authority: local production build, Chromium `151.0.7922.34`, Apple M3 Max, 14 logical CPUs, 38,654,705,664 bytes total memory, 1440×900 viewport.
 
 | Stage | Duration (ms) | Authority |
 | --- | ---: | --- |
-| Loader | 360.218 | `LOCAL_PRODUCTION_SERVER` |
-| SSR | 491.090 | `LOCAL_PRODUCTION_SERVER` |
-| Hydration | 457.000 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Loader | 395.495 | `LOCAL_PRODUCTION_SERVER` |
+| SSR | 168.725 | `LOCAL_PRODUCTION_SERVER` |
+| Hydration | 218.800 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
 | Style resolution | 2.700 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Render adapter | 18.300 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Konva mount | 50.300 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| Snap/hit preparation | 5.300 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| PDF | 646.200 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
-| IFC | 893.000 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Render adapter | 44.500 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Konva mount | 77.600 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| Snap/hit preparation | 5.000 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| PDF | 178.400 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
+| IFC | 220.500 | `LOCAL_PRODUCTION_BUILD_CHROMIUM` |
 
-First usable was measured from cold navigation after warming only immutable application/PDF/IFC assets, through hydration, exact authoritative-count confirmation, non-empty viewport projection, and the next animation frame. Warm samples were measured on the same mounted workspace from real input-event dispatch to the next animation frame: 30 zoom, 31 pan, and 30 alternating selection samples.
+Readiness details:
 
-The final evidence derives gate states from numeric measurements:
+- hydration end: 858.8 ms;
+- verified raster HIT mount: 1123.8 ms;
+- raster key digest: `02668746cb3475a67fb6684b0c0b9ee5d0bc823c1d736b242932841a48c6dc1b`;
+- raster/display ratio: 1.96923;
+- durable edit-ready observed: 2233.5 ms;
+- next usable frame: 2273.8 ms.
 
-- `gates.local`: **MET**.
-- `gates.productionRuntime`: **UNEXECUTED**.
+Raw interaction samples: 30 zoom, 31 pan, and 30 selection samples. All selection samples committed the expected alternating object name before their recorded frame.
+
+## Runner/build provenance
+
+| Boundary | SHA-256 / commit |
+| --- | --- |
+| Source commit | `c412c1bb2b8756fd6e17db7df72e366d2c9f60b0` |
+| Source tree | `7832252ab64151efba3e7e2b8de5fc59691271be9065314162b40cb620b83bc5` |
+| Runner | `905a99db804f55d911db73f72300ab0accbbb03d288cf6f1ae3a51fe6fb027d1` |
+| Playwright config | `05b08b871eb320a47c28f9eccc9391c5dbf140f6d24c5604c2c7bf59185cf5f5` |
+| Served server build | `94fce813bb8e0f0d64bc9b2e59844a9ca0499140762b0e7a09b854f583cb2771` |
+| Served client build | `53ab1fcefdfc3e630e2233a150e1163725b157844fecb29957746d8f269c4abe` |
+| Capture | `63d283ae2ec29e6be7d923354fd4b2d9e5e8e70f2384ffaf3375995c4214af76` |
 
 ## Files changed
 
-- `platform/app/entry.client.tsx`
-- `platform/app/entry.server.tsx`
+Authority hardening in `e0adaf9` corrected the selection boundary, readiness, build binding, evidence writer/validator, conservative projection bounds/tests, complexity guard, and stale artifact handling across:
+
 - `platform/app/lukas/components/drawing-canvas.client.tsx`
 - `platform/app/lukas/components/drawing-workspace.tsx`
 - `platform/app/lukas/components/ifc-property-browser.client.tsx`
 - `platform/app/lukas/lib/drawing-blocks.ts`
-- `platform/app/lukas/lib/drawing-document-store.ts`
-- `platform/app/lukas/lib/drawing-runtime.ts`
-- `platform/app/lukas/screens/drawing-workspace.tsx`
-- `platform/app/lukas/screens/local-drawing-workspace-preview.tsx`
 - `platform/e2e/drawing-workspace-p7-performance.spec.ts`
 - `platform/package.json`
-- `platform/playwright.p7-performance.config.ts`
 - `platform/scripts/drawing-p7-performance-evidence.d.mts`
 - `platform/scripts/drawing-p7-performance-evidence.mjs`
-- `platform/tests/drawing-runtime.test.mjs`
+- `platform/scripts/run-drawing-p7-performance.mjs`
 - `platform/tests/drawing-workspace-blocks.test.mjs`
+- `platform/tests/drawing-workspace-p4-tools.test.mjs`
 - `platform/tests/drawing-workspace-p7-performance.test.mjs`
+
+Measured budget completion in `c412c1b` changed:
+
+- `platform/app/lukas/components/drawing-canvas.client.tsx`
+- `platform/app/lukas/components/drawing-workspace.tsx`
+- `platform/app/lukas/lib/drawing-document-store.ts`
+- `platform/app/lukas/lib/drawing-pdf-raster-cache.client.ts`
+- `platform/app/lukas/lib/drawing-pdf-raster-identity.ts`
+- `platform/app/lukas/lib/drawing-runtime.ts`
+- `platform/e2e/drawing-workspace-p7-performance.spec.ts`
+- `platform/scripts/drawing-p7-performance-evidence.mjs`
+- `platform/tests/drawing-document-store.test.mjs`
+- `platform/tests/drawing-pdf-raster-cache.test.mjs`
+- `platform/tests/drawing-runtime.test.mjs`
+- `platform/tests/drawing-workspace-p7-performance.test.mjs`
+
+Evidence/report artifacts:
+
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json`
 - `.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-report.md`
 
 ## Verification
 
-### Drawing Workspace regression suite
+### Full Drawing Workspace suite
 
 ```sh
 npm run test:drawing-workspace
 ```
 
 ```text
-tests 761
-pass 757
+tests 769
+pass 765
 fail 0
-cancelled 0
 skipped 4
-todo 0
-duration_ms 38189.349458
+duration_ms 38717.066667
 ```
 
-The four skipped/UNEXECUTED cases require authorities not present locally: disposable PostgreSQL concurrency and the real P6 PostgreSQL gate. The suite includes the P0–P6 migration, fixture, immutable source, and hash contracts.
+The four skipped/UNEXECUTED cases require unavailable disposable or real PostgreSQL authorities. The suite includes frozen source/hash, migration, P0–P6 authority, collaboration/outbox/recovery, viewport, and exact 100-run production-function coverage.
 
-One earlier full-suite run correctly exposed the 50 ms internal adapter timing assertion as machine/load-sensitive even though the algorithm was linear: **756 pass, 1 fail, 4 skipped**. The guard was set to 100 ms (still below the measured pre-change 135.37 ms); the fresh full run above passed.
-
-### Desktop/tablet behavior
-
-The production-build focused shell run covered desktop and tablet object selection, inspector opening, the persistent canvas, exclusive tablet drawers, and focus behavior:
+### Desktop/tablet shell
 
 ```sh
-P7_RELEASE_PRODUCTION_BUILD=1 npx playwright test e2e/drawing-workspace-shell.spec.ts --config=playwright.p7-performance.config.ts --project=chromium --workers=1 --grep "current desktop preview|tablet keeps one drawer" --reporter=line
+PORT=4177 P7_RELEASE_PRODUCTION_BUILD=1 npx playwright test e2e/drawing-workspace-shell.spec.ts --config=playwright.p7-performance.config.ts --project=chromium --workers=1 --grep "current desktop preview|tablet keeps one drawer" --reporter=line
 ```
 
 ```text
-2 passed (5.1s)
+2 passed (5.2s)
 ```
 
-This run was performed after reverting the temporary transitioned-selection experiment. Selection is synchronous in the committed implementation.
+This preserves the Task 3 persistent canvas, mutually exclusive tablet drawers, inspector behavior, keyboard recovery, and focus restoration.
 
 ### Typecheck and production build
 
-```sh
-npm run build
-```
+The final exact runner executes `npm run build`, whose `prebuild` executes `npm run typecheck`, before starting the production server. Both passed. The build retained only existing large-chunk, dynamic-import, unsigned theme-cookie, localStorage experimental, and React Router future-flag warnings.
 
-```text
-> npm run typecheck
-> react-router typegen && tsc
-...
-✓ built in 6.83s
-✓ built in 1.32s
-```
-
-Exit status: 0. The build retained existing Vite large-chunk/dynamic-import, unsigned theme-cookie, and React Router future-flag warnings.
-
-### Formatting, diff, and source invariants
+### Formatting, diff, and frozen invariants
 
 ```sh
+npx prettier --write app/lukas/components/drawing-canvas.client.tsx app/lukas/components/drawing-workspace.tsx app/lukas/lib/drawing-document-store.ts app/lukas/lib/drawing-runtime.ts app/lukas/lib/drawing-pdf-raster-cache.client.ts app/lukas/lib/drawing-pdf-raster-identity.ts e2e/drawing-workspace-p7-performance.spec.ts scripts/drawing-p7-performance-evidence.mjs tests/drawing-document-store.test.mjs tests/drawing-runtime.test.mjs tests/drawing-pdf-raster-cache.test.mjs tests/drawing-workspace-p7-performance.test.mjs
 git diff --check
+git diff --name-only 9213807 -- platform/supabase platform/tests/fixtures platform/THIRD_PARTY_NOTICES.md
 ```
 
-No output.
-
-```sh
-git diff --name-only 9213807 c07d0cb -- platform/supabase platform/tests/fixtures platform/THIRD_PARTY_NOTICES.md
-```
-
-No output. No migration, frozen fixture, or notice byte changed. The full regression suite independently passed the P5 pinned-source byte/hash checks, P6 byte-for-byte populated P0–P5 authority check, P6 deterministic 100-run production-function check, and P4 durable-source byte check.
+Formatting completed, `git diff --check` was empty, and the frozen migration/fixture/notice query was empty. The full suite independently passed the pinned P5 source byte hashes, P6 byte-for-byte P0–P5 authority preservation, P6 deterministic 100-run workload, and P4 durable-source byte check.
 
 The pre-existing user-owned P4 progress/images and `.superpowers/audits/` remained unstaged and were not edited by this task.
 
 ## Self-review
 
-- Authoritative document and render-item cardinality remains 10,000; only derived expensive viewport projections are bounded.
-- Canonical hit validation, host ordering, hidden/locked layer filtering, styles, PDF, IFC, selection, and P7 Task 3 tablet focus behavior remain on existing authorities.
-- The ordering change is a direct replacement of measured quadratic work, not a second ordering system. The viewport projection is a pure derivation of existing render items, not a second schema.
-- The evidence validator rejects missing/extra keys, wrong cardinalities, nonpositive stage timings, nondeterministic or wrong hashes, stale source SHA, synthetic stage authority, threshold/status mismatches, and a claimed hosted-runtime pass.
-- The browser gate writes evidence before threshold assertions, so a regression remains recorded as `NOT MET`.
-- No dependency, state manager, rendering framework, worker, queue, schema, or speculative abstraction was added.
+- The passing predicate is stricter than the rejected artifact: it includes real PDF, IFC, exact 10k authority, viewport projection, durable local editing, and the next frame.
+- The condition is called warm reopen and the 3088.9 ms miss remains visible as `NOT MET`.
+- Cache authority is derived solely from validated source ID/SHA and verified real PNG pixels; URL capability values never become identity.
+- Cache corruption, unavailable storage, and failed writes fall back to existing PDF.js without removing fresh pixels.
+- Server parse skipping is available only through a code-only symbol at one loader-revision callsite; all external/client recovery boundaries retain schema validation and graph invariants.
+- Yjs validation is deferred, not removed. Edit readiness prevents the performance gate from passing before the durable bridge exists.
+- Authoritative state remains 10,000 objects; viewport projections remain derived and bounded.
+- No experimental preload, panel split, static import, sequence change, diagnostic timing, second schema, worker, queue, or dependency remains.
+- Evidence rejects extra/missing shapes, caller-written acceptance, wrong raw samples, uncommitted selection, wrong hashes, wrong served build, missing cache HIT, insufficient pixel ratio, stale source, and threshold/status mismatch.
 
 ## Concerns
 
-- Hosted production runtime authority was unavailable; `gates.productionRuntime` is correctly **UNEXECUTED**.
-- The local first-usable margin is about **133.7 ms** on this machine. This is a real local production-build measurement, but browser, CPU, thermal state, and hosted server latency can change it; the dedicated gate should be rerun on target production authority when available.
-- Existing large bundle and dynamic-import warnings remain. They were not the measured root cause addressed by this task and were not broadened into a speculative chunking change.
-- Real PostgreSQL P6 authority remains separately UNEXECUTED in the local regression suite and was not substituted for this workspace browser gate.
+- The corrected warm-reopen margin is **226.2 ms** on this machine. CPU load, browser version, thermal state, and hosted latency can reduce it.
+- The cold/cache-miss baseline remains **3088.9 ms — NOT MET**; this task establishes the specified warm immutable/derived-cache reopen path, not a cold-start pass.
+- Hosted production runtime is **UNEXECUTED** and must be run when trusted target authority is available.
+- The 1024 px derived raster is a verified first-visible surface and is refined by full PDF.js pixels after readiness; cache misses and any integrity/quality failure retain the slower full PDF.js path.
