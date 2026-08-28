@@ -14,7 +14,11 @@ export function drawingP7SourceTreeSha256(): string;
 export function validateDrawingP7PerformanceEvidence(
   evidence: unknown,
   expectedSourceCommitSha?: string,
-): unknown;
+): never;
+export function inspectDrawingP7PerformanceEvidence(
+  evidence: unknown,
+  expectedSourceCommitSha?: string,
+): { status: "MET" | "NOT MET" };
 export function drawingP7EvidenceFromPlaywrightCapture(
   capture: unknown,
 ): unknown;
@@ -25,4 +29,4 @@ export function removeDrawingP7FailedRunArtifacts(
 export function finalizeDrawingP7PerformanceEvidence(
   provenance: unknown,
   options?: { capturePath?: string; targetPath?: string },
-): string;
+): { status: "MET" | "NOT MET" };

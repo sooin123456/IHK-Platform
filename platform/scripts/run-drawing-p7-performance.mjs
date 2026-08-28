@@ -104,8 +104,8 @@ export async function runDrawingP7PerformanceGate(
       return playwrightStatus;
     }
     renameSync(rawCapturePath, P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH);
-    finalizeDrawingP7PerformanceEvidence(provenance);
-    return 0;
+    const evidence = finalizeDrawingP7PerformanceEvidence(provenance);
+    return evidence.status === "MET" ? 0 : 1;
   } catch (error) {
     removeDrawingP7FailedRunArtifacts(1, [
       P7_PERFORMANCE_EVIDENCE_PATH,

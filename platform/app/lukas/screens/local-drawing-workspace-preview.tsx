@@ -1180,6 +1180,8 @@ export function loader({ request }: Route.LoaderArgs) {
   const finishLoaderStage = startDrawingWorkspaceStage("loader");
   const performanceTest =
     new URL(request.url).searchParams.get("performanceTest") === "1";
+  const ifcLifecycleTest =
+    new URL(request.url).searchParams.get("ifcLifecycleTest") === "1";
   const performanceFixture = performanceTest
     ? buildDrawingP4PerformanceFixture(10_000, ids.layerPlanWork)
     : null;
@@ -1344,6 +1346,7 @@ export function loader({ request }: Route.LoaderArgs) {
     realtimeTest,
     verticalTest,
     performanceTest,
+    ifcLifecycleTest,
     p5IfcTest,
     p5PdfTest,
     p5BaselineTest,
@@ -1482,6 +1485,8 @@ export default function LocalDrawingWorkspacePreview({
     ownedDisposals: 0,
     contextLossRequests: 0,
   });
+  const [ifcLifecycleTransitioned, setIfcLifecycleTransitioned] =
+    useState(false);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
@@ -1516,6 +1521,40 @@ export default function LocalDrawingWorkspacePreview({
     () => ({ onStateChange: setVerticalSnapshot, p5PdfTest: true }),
     [],
   );
+  const lifecycleSourceBundle = useMemo(() => {
+    const bundle = loaderData.sourceBundle;
+    if (
+      !loaderData.ifcLifecycleTest ||
+      !ifcLifecycleTransitioned ||
+      !bundle?.pdf
+    )
+      return bundle;
+    return {
+      ...bundle,
+      pdf: { ...bundle.pdf, sha256: "e".repeat(64) },
+    };
+  }, [
+    ifcLifecycleTransitioned,
+    loaderData.ifcLifecycleTest,
+    loaderData.sourceBundle,
+  ]);
+  const ifcLifecycleKey = useMemo(() => {
+    const revision = loaderData.workspace.document.revision;
+    const selectedIfc = lifecycleSourceBundle?.catalog.find(
+      (item) => item.kind === "ifc" && item.id === loaderData.selectedIfcFileId,
+    );
+    return [
+      revision.id,
+      lifecycleSourceBundle?.pdf?.id ?? "no-pdf",
+      lifecycleSourceBundle?.pdf?.sha256 ?? "no-pdf-sha",
+      selectedIfc?.id ?? "no-ifc",
+      selectedIfc?.sha256 ?? "no-ifc-sha",
+    ].join(":");
+  }, [
+    lifecycleSourceBundle,
+    loaderData.selectedIfcFileId,
+    loaderData.workspace.document.revision,
+  ]);
   useEffect(() => setHydrated(true), []);
   useEffect(() => {
     if (!loaderData.realtimeTest) return;
@@ -1591,6 +1630,7 @@ export default function LocalDrawingWorkspacePreview({
     <>
       <DrawingWorkspaceClient
         {...loaderData}
+        sourceBundle={lifecycleSourceBundle}
         actionError={
           actionData && "error" in actionData ? actionData.error : undefined
         }
@@ -1657,6 +1697,23 @@ export default function LocalDrawingWorkspacePreview({
             <output aria-label="P7 source link count" className="sr-only">
               {loaderData.workspace.document.revision.sources?.length ?? 0}
             </output>
+          </>
+        ) : null}
+        {loaderData.ifcLifecycleTest ? (
+          <>
+            <output
+              aria-label="P7 IFC first-paint lifecycle"
+              className="sr-only"
+            >
+              {ifcLifecycleTransitioned ? "next:" : "initial:"}
+              {ifcLifecycleKey}
+            </output>
+            <button
+              onClick={() => setIfcLifecycleTransitioned(true)}
+              type="button"
+            >
+              P7 IFC lifecycle transition
+            </button>
           </>
         ) : null}
         {loaderData.verticalTest ? (

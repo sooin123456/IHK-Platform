@@ -228,6 +228,10 @@ export default function IfcPropertyBrowser({
   const onViewerDisposeRef = useRef(onViewerDispose);
   onViewerDisposeRef.current = onViewerDispose;
   const visibleRef = useRef(visible);
+  const firstPaintLifecycleKeyRef = useRef(
+    firstPaintLifecycleKey ?? sourceKey,
+  );
+  firstPaintLifecycleKeyRef.current = firstPaintLifecycleKey ?? sourceKey;
   visibleRef.current = visible;
   const signedUrlRef = useRef(signedUrl);
   signedUrlRef.current = signedUrl;
@@ -429,7 +433,7 @@ export default function IfcPropertyBrowser({
         api: input.api,
         container: viewerContainerRef.current,
         modelId: input.modelId,
-        firstPaintLifecycleKey: firstPaintLifecycleKey ?? sourceKey,
+        firstPaintLifecycleKey: firstPaintLifecycleKeyRef.current,
         onSelect: (expressId) => {
           const element = byId.get(expressId);
           if (element) void choose(element, "viewer");
@@ -476,6 +480,12 @@ export default function IfcPropertyBrowser({
   }
 
   useEffect(() => viewerRef.current?.setVisible(visible), [visible]);
+
+  useEffect(() => {
+    viewerRef.current?.setFirstPaintLifecycleKey(
+      firstPaintLifecycleKey ?? sourceKey,
+    );
+  }, [firstPaintLifecycleKey, sourceKey]);
 
   useEffect(() => {
     if (!initialGlobalId || elements.length === 0) return;

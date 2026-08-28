@@ -2528,10 +2528,16 @@ export const DrawingCanvas = forwardRef<
     pageViewport: { width: number; height: number; rotation: number };
   } | null>(null);
   const [pdfRasterEvidence, setPdfRasterEvidence] = useState<{
-    authority: "NONE" | "PDFJS" | "SHA256_DERIVED_CACHE";
+    authority: "NONE" | "PDFJS" | "UNVERIFIED_DERIVED_CACHE";
+    cacheStatus: "MISS" | "UNVERIFIED_HIT";
     keySha256: string;
     mountedAtMs: number;
-  }>({ authority: "NONE", keySha256: "", mountedAtMs: 0 });
+  }>({
+    authority: "NONE",
+    cacheStatus: "MISS",
+    keySha256: "",
+    mountedAtMs: 0,
+  });
   const [previousPdfSource, setPreviousPdfSource] = useState<{
     canvas: HTMLCanvasElement;
     bounds: { x: number; y: number; width: number; height: number };
@@ -2659,6 +2665,7 @@ export const DrawingCanvas = forwardRef<
       setPdfSource(null);
       setPdfRasterEvidence({
         authority: "NONE",
+        cacheStatus: "MISS",
         keySha256: "",
         mountedAtMs: 0,
       });
@@ -2669,7 +2676,6 @@ export const DrawingCanvas = forwardRef<
     let alive = true;
     let opened: OpenPdfDocument | null = null;
     let renderCleanup: (() => void) | null = null;
-    let refineTimer: number | null = null;
     let firstPaintFrame: number | null = null;
     const controller = new AbortController();
     const ownedCanvases = new Set<HTMLCanvasElement>();
@@ -2692,7 +2698,12 @@ export const DrawingCanvas = forwardRef<
         : null;
     const rasterStorage = typeof caches === "undefined" ? null : caches;
     setPdfSource(null);
-    setPdfRasterEvidence({ authority: "NONE", keySha256: "", mountedAtMs: 0 });
+    setPdfRasterEvidence({
+      authority: "NONE",
+      cacheStatus: "MISS",
+      keySha256: "",
+      mountedAtMs: 0,
+    });
     setPdfMessage("PDF 배경을 준비하는 중입니다.");
 
     const mountRaster = ({
@@ -2702,7 +2713,7 @@ export const DrawingCanvas = forwardRef<
       keySha256 = "",
       pageViewport,
     }: {
-      authority: "PDFJS" | "SHA256_DERIVED_CACHE";
+      authority: "PDFJS" | "UNVERIFIED_DERIVED_CACHE";
       canvas: HTMLCanvasElement;
       canvasSize: { width: number; height: number };
       keySha256?: string;
@@ -2713,12 +2724,16 @@ export const DrawingCanvas = forwardRef<
         height: background.height,
       });
       setPdfSource({ canvas, bounds: sourceBounds, pageViewport });
-      setPdfRasterEvidence({
+      setPdfRasterEvidence((current) => ({
         authority,
-        keySha256,
+        cacheStatus:
+          authority === "UNVERIFIED_DERIVED_CACHE"
+            ? "UNVERIFIED_HIT"
+            : current.cacheStatus,
+        keySha256: keySha256 || current.keySha256,
         mountedAtMs: performance.now(),
-      });
-      if (firstPaintFrame === null)
+      }));
+      if (authority === "PDFJS" && firstPaintFrame === null)
         firstPaintFrame = window.requestAnimationFrame(() => {
           firstPaintFrame = null;
           if (alive)
@@ -2838,7 +2853,7 @@ export const DrawingCanvas = forwardRef<
         bitmap.close();
         if (!alive || controller.signal.aborted) return false;
         mountRaster({
-          authority: "SHA256_DERIVED_CACHE",
+          authority: "UNVERIFIED_DERIVED_CACHE",
           canvas,
           canvasSize: cached.canvasSize,
           keySha256: cached.keySha256,
@@ -2854,10 +2869,8 @@ export const DrawingCanvas = forwardRef<
     void (async () => {
       const restored = await restoreCachedRaster();
       if (restored) {
+        await renderFresh(false);
         finishPdfStage();
-        refineTimer = window.setTimeout(() => {
-          void renderFresh(false).catch(() => undefined);
-        }, 1_500);
         return;
       }
       await renderFresh(true);
@@ -2881,7 +2894,6 @@ export const DrawingCanvas = forwardRef<
     return () => {
       alive = false;
       controller.abort();
-      if (refineTimer !== null) window.clearTimeout(refineTimer);
       if (firstPaintFrame !== null)
         window.cancelAnimationFrame(firstPaintFrame);
       setPdfSource((current) =>
@@ -3598,6 +3610,7 @@ export const DrawingCanvas = forwardRef<
       data-active-canvas-id={activeCanvasId}
       data-pdf-current-mounted={pdfSource ? "true" : "false"}
       data-pdf-raster-authority={pdfRasterEvidence.authority}
+      data-pdf-raster-cache-status={pdfRasterEvidence.cacheStatus}
       data-pdf-raster-key-sha256={pdfRasterEvidence.keySha256}
       data-pdf-raster-mounted-at-ms={pdfRasterEvidence.mountedAtMs}
       data-pdf-raster-screen-pixel-ratio={

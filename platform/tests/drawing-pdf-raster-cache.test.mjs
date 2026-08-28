@@ -79,6 +79,7 @@ test("derived PDF raster cache is keyed by immutable identity and validates cont
   assert.deepEqual(restored.canvasSize, { width: 1600, height: 1200 });
   assert.match(restored.cacheKey, new RegExp(`^${key}/[0-9a-f]{64}$`));
   assert.match(restored.keySha256, /^[0-9a-f]{64}$/);
+  assert.equal(restored.sourcePixelAuthority, "UNVERIFIED_CACHE");
 
   const [storedKey, response] = [...memory.entries.entries()][0];
   const headers = new Headers(response.headers);
@@ -94,7 +95,7 @@ test("derived PDF raster cache is keyed by immutable identity and validates cont
   assert.equal(memory.deletes, 1);
 });
 
-test("same-dimension alternate pixels cannot replace the authority bound to the cache request", async () => {
+test("self-consistent same-dimension alternate pixels remain an unverified cache hint", async () => {
   const memory = memoryStorage();
   const original = new Blob(["original rendered pixels"], {
     type: "image/png",
@@ -115,19 +116,22 @@ test("same-dimension alternate pixels cannot replace the authority bound to the 
     await alternate.arrayBuffer(),
   );
   const headers = new Headers(response.headers);
-  headers.set(
-    "x-drawing-content-sha256",
-    [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join(""),
+  const digestHex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  headers.set("x-drawing-content-sha256", digestHex);
+  memory.entries.delete(requestKey);
+  memory.entries.set(
+    `${requestKey.slice(0, requestKey.lastIndexOf("/") + 1)}${digestHex}`,
+    new Response(alternate, { headers }),
   );
-  memory.entries.set(requestKey, new Response(alternate, { headers }));
 
-  assert.equal(
-    await rasterCache.readDrawingPdfRasterCache(memory.storage, input),
-    null,
+  const restored = await rasterCache.readDrawingPdfRasterCache(
+    memory.storage,
+    input,
   );
-  assert.equal(memory.deletes, 1);
+  assert.equal(await restored.blob.text(), "alternate rendered pixels");
+  assert.equal(restored.sourcePixelAuthority, "UNVERIFIED_CACHE");
 });
 
 test("derived PDF raster cache fails closed when storage or identity is unavailable", async () => {

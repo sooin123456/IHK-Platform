@@ -100,7 +100,12 @@ export async function readDrawingPdfRasterCache(
   storage: RasterCacheStorage | null,
   input: DrawingPdfRasterCacheInput,
 ): Promise<
-  (DrawingPdfRasterPayload & { cacheKey: string; keySha256: string }) | null
+  | (DrawingPdfRasterPayload & {
+      cacheKey: string;
+      keySha256: string;
+      sourcePixelAuthority: "UNVERIFIED_CACHE";
+    })
+  | null
 > {
   if (!storage) return null;
   let cache: RasterCache | null = null;
@@ -166,6 +171,7 @@ export async function readDrawingPdfRasterCache(
       pageViewport: { width: pageWidth, height: pageHeight, rotation },
       cacheKey: key,
       keySha256: await sha256(key),
+      sourcePixelAuthority: "UNVERIFIED_CACHE",
     };
   } catch {
     if (cache && key) await cache.delete(key).catch(() => false);

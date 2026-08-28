@@ -44,6 +44,7 @@ export type IfcModelViewer = {
   getViewState(): IfcCameraState;
   restoreViewState(state: IfcCameraState): void;
   setRemoteElements(expressIds: readonly number[]): void;
+  setFirstPaintLifecycleKey(lifecycleKey: string): void;
   setVisible(visible: boolean): void;
   dispose(): void;
   readonly renderedElementCount: number;
@@ -203,6 +204,7 @@ export function createIfcModelViewer({
   const elementMeshes = new Map<number, RenderedIfcMesh[]>();
   const geometryCache = new Map<number, THREE.BufferGeometry>();
   const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+  let activeFirstPaintLifecycleKey = firstPaintLifecycleKey;
   let firstUsableFrameMarked = false;
   const highlightMaterial = new THREE.MeshStandardMaterial({
     color: HIGHLIGHT_COLOR,
@@ -238,7 +240,11 @@ export function createIfcModelViewer({
         renderer.render(scene, camera);
         if (!firstUsableFrameMarked && elementMeshes.size > 0) {
           firstUsableFrameMarked = true;
-          markDrawingFirstUsable("ifc", performance, firstPaintLifecycleKey);
+          markDrawingFirstUsable(
+            "ifc",
+            performance,
+            activeFirstPaintLifecycleKey,
+          );
         }
       }
     },
@@ -343,6 +349,13 @@ export function createIfcModelViewer({
     visible = nextVisible;
     if (visible) resize();
     renderGate.visibilityChanged();
+  }
+
+  function setFirstPaintLifecycleKey(lifecycleKey: string) {
+    if (disposed || lifecycleKey === activeFirstPaintLifecycleKey) return;
+    activeFirstPaintLifecycleKey = lifecycleKey;
+    firstUsableFrameMarked = false;
+    render();
   }
 
   function focusElement(expressId: number) {
@@ -571,6 +584,7 @@ export function createIfcModelViewer({
     getViewState,
     restoreViewState,
     selectElement,
+    setFirstPaintLifecycleKey,
     setRemoteElements,
     setVisible,
     dispose,

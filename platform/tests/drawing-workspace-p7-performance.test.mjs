@@ -32,7 +32,11 @@ test("P7 rejects the old handwritten summary and validates only the runner-produ
     true,
   );
   assert.doesNotThrow(() =>
-    evidenceModule.validateDrawingP7PerformanceEvidence(runnerEvidence),
+    evidenceModule.inspectDrawingP7PerformanceEvidence(runnerEvidence),
+  );
+  assert.throws(
+    () => evidenceModule.validateDrawingP7PerformanceEvidence(runnerEvidence),
+    /standalone.*authority/i,
   );
 
   const oldSummary = structuredClone(runnerEvidence);
@@ -41,7 +45,7 @@ test("P7 rejects the old handwritten summary and validates only the runner-produ
   delete oldSummary.firstUsable.readiness;
   delete oldSummary.warm.rawSamples;
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(oldSummary),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(oldSummary),
     /schemaVersion|provenance|readiness|raw samples/,
   );
 });
@@ -50,7 +54,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   const rawMutation = structuredClone(runnerEvidence);
   rawMutation.warm.rawSamples.selection[0].durationMs += 1;
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(rawMutation),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(rawMutation),
     /runner Playwright capture authority/,
   );
 
@@ -60,8 +64,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   selectionMutation.provenance.captureSha256 =
     evidenceModule.drawingP7CaptureSha256(selectionMutation);
   assert.throws(
-    () =>
-      evidenceModule.validateDrawingP7PerformanceEvidence(selectionMutation),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(selectionMutation),
     /runner Playwright capture authority/,
   );
 
@@ -70,7 +73,7 @@ test("P7 raw timing, committed selection, and build provenance mutations fail cl
   buildMutation.provenance.captureSha256 =
     evidenceModule.drawingP7CaptureSha256(buildMutation);
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(buildMutation),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(buildMutation),
     /runner Playwright capture authority/,
   );
 });
@@ -121,9 +124,67 @@ test("P7 cannot promote fabricated one-millisecond timings without the runner Pl
     evidenceModule.drawingP7CaptureSha256(fabricated);
 
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(fabricated),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(fabricated),
     /Playwright capture|runner capture|raw capture/i,
   );
+});
+
+test("paired one-millisecond raw capture and evidence forgeries have no standalone execution authority", () => {
+  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
+  const savedCapture = readFileSync(capturePath);
+  try {
+    const fabricatedCapture = JSON.parse(savedCapture);
+    fabricatedCapture.source.commitSha =
+      evidenceModule.drawingP7SourceCommitSha();
+    fabricatedCapture.source.treeSha256 =
+      evidenceModule.drawingP7SourceTreeSha256();
+    fabricatedCapture.source.runnerSha256 = evidenceModule.drawingP7FileSha256(
+      new URL("../scripts/run-drawing-p7-performance.mjs", import.meta.url),
+    );
+    fabricatedCapture.source.configSha256 = evidenceModule.drawingP7FileSha256(
+      new URL("../playwright.p7-performance.config.ts", import.meta.url),
+    );
+    fabricatedCapture.source.build = {
+      serverSha256: evidenceModule.drawingP7FileSha256(
+        new URL("../build/server/index.js", import.meta.url),
+      ),
+      clientSha256: evidenceModule.drawingP7DirectorySha256(
+        fileURLToPath(new URL("../build/client", import.meta.url)),
+      ),
+    };
+    for (const stage of Object.values(fabricatedCapture.stages)) {
+      stage.durationMs = 1;
+      if ("startMs" in stage) {
+        stage.startMs = 0;
+        stage.endMs = 1;
+      }
+    }
+    fabricatedCapture.pdfRaster.mountedAtMs = 1;
+    for (const readiness of [
+      fabricatedCapture.coldCacheMiss.readiness,
+      fabricatedCapture.firstUsable.readiness,
+    ])
+      for (const key of Object.keys(readiness))
+        readiness[key] = key === "navigationStartMs" ? 0 : 1;
+    fabricatedCapture.warm.rawSamples.zoomMs.fill(1);
+    fabricatedCapture.warm.rawSamples.panMs.fill(1);
+    for (const sample of fabricatedCapture.warm.rawSamples.selection)
+      sample.durationMs = 1;
+    const fabricatedEvidence =
+      evidenceModule.drawingP7EvidenceFromPlaywrightCapture(fabricatedCapture);
+    writeFileSync(
+      capturePath,
+      `${JSON.stringify(fabricatedCapture, null, 2)}\n`,
+    );
+
+    assert.throws(
+      () =>
+        evidenceModule.validateDrawingP7PerformanceEvidence(fabricatedEvidence),
+      /standalone.*authority|immutable|signed receipt/i,
+    );
+  } finally {
+    writeFileSync(capturePath, savedCapture);
+  }
 });
 
 test("P7 records a raw cold cache-miss boundary and derives its NOT MET status", () => {
@@ -136,6 +197,17 @@ test("P7 records a raw cold cache-miss boundary and derives its NOT MET status",
     runnerEvidence.coldCacheMiss.durationMs,
     runnerEvidence.coldCacheMiss.readiness.usableFrameEndMs -
       runnerEvidence.coldCacheMiss.readiness.navigationStartMs,
+  );
+});
+
+test("the browser capture records cold status without asserting a fixed outcome", () => {
+  const source = readFileSync(
+    new URL("../e2e/drawing-workspace-p7-performance.spec.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /coldCacheMiss\.durationMs\s*>\s*2_500[\s\S]{0,180}toBe\("NOT MET"\)/,
   );
 });
 
@@ -184,18 +256,74 @@ test("the runner removes an early MET artifact when a later Playwright test exit
   }
 });
 
-test("P7 requires a verified first-visible raster cache hit with real pixel authority", () => {
-  assert.equal(runnerEvidence.pdfRaster.cacheStatus, "HIT");
-  assert.equal(runnerEvidence.pdfRaster.authority, "SHA256_DERIVED_CACHE");
+test("complete warm and interaction threshold misses remain durable NOT MET evidence", async () => {
+  const evidencePath = evidenceModule.P7_PERFORMANCE_EVIDENCE_PATH;
+  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
+  const savedEvidence = readFileSync(evidencePath);
+  const savedCapture = readFileSync(capturePath);
+  const baselineCapture = JSON.parse(savedCapture);
+  try {
+    for (const kind of ["firstUsable", "interaction"]) {
+      const status = await runnerModule.runDrawingP7PerformanceGate(
+        [],
+        process.env,
+        async (argv, environment) => {
+          if (argv[0] === "npm") return 0;
+          const capture = structuredClone(baselineCapture);
+          capture.runId = environment.P7_RUN_ID;
+          capture.source = {
+            commitSha: environment.P7_SOURCE_COMMIT_SHA,
+            treeSha256: environment.P7_SOURCE_TREE_SHA256,
+            runnerSha256: environment.P7_RUNNER_SHA256,
+            configSha256: environment.P7_CONFIG_SHA256,
+            build: {
+              serverSha256: environment.P7_BUILD_SERVER_SHA256,
+              clientSha256: environment.P7_BUILD_CLIENT_SHA256,
+            },
+          };
+          if (kind === "firstUsable")
+            capture.firstUsable.readiness.usableFrameEndMs = 2_500.1;
+          else
+            for (const sample of capture.warm.rawSamples.selection)
+              sample.durationMs = 16.8;
+          writeFileSync(
+            environment.P7_PLAYWRIGHT_CAPTURE_PATH,
+            `${JSON.stringify(capture, null, 2)}\n`,
+          );
+          return 0;
+        },
+      );
+      assert.equal(status, 1, `${kind} miss must fail the local gate`);
+      assert.equal(existsSync(evidencePath), true);
+      assert.equal(existsSync(capturePath), true);
+      const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+      assert.equal(evidence.status, "NOT MET");
+      assert.equal(
+        kind === "firstUsable"
+          ? evidence.firstUsable.status
+          : evidence.warm.status,
+        "NOT MET",
+      );
+    }
+  } finally {
+    writeFileSync(evidencePath, savedEvidence);
+    writeFileSync(capturePath, savedCapture);
+  }
+});
+
+test("P7 requires source-rendered PDF.js pixels and treats a cache hit as provisional", () => {
+  assert.equal(runnerEvidence.pdfRaster.cacheStatus, "UNVERIFIED_HIT");
+  assert.equal(runnerEvidence.pdfRaster.authority, "PDFJS");
   assert.match(runnerEvidence.pdfRaster.keySha256, /^[0-9a-f]{64}$/);
   assert.ok(runnerEvidence.pdfRaster.mountedAtMs > 0);
   assert.ok(runnerEvidence.pdfRaster.screenPixelRatio >= 1.5);
 
-  const miss = structuredClone(runnerEvidence);
-  miss.pdfRaster.cacheStatus = "MISS";
-  miss.provenance.captureSha256 = evidenceModule.drawingP7CaptureSha256(miss);
+  const provisional = structuredClone(runnerEvidence);
+  provisional.pdfRaster.authority = "UNVERIFIED_DERIVED_CACHE";
+  provisional.provenance.captureSha256 =
+    evidenceModule.drawingP7CaptureSha256(provisional);
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(miss),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(provisional),
     /runner Playwright capture authority/,
   );
 });
@@ -229,7 +357,7 @@ test("P7 derives readiness and p95 from raw samples instead of trusting summarie
     evidenceModule.drawingP7CaptureSha256(firstUsableMutation);
   assert.throws(
     () =>
-      evidenceModule.validateDrawingP7PerformanceEvidence(firstUsableMutation),
+      evidenceModule.inspectDrawingP7PerformanceEvidence(firstUsableMutation),
     /runner Playwright capture authority/,
   );
 
@@ -238,7 +366,7 @@ test("P7 derives readiness and p95 from raw samples instead of trusting summarie
   p95Mutation.provenance.captureSha256 =
     evidenceModule.drawingP7CaptureSha256(p95Mutation);
   assert.throws(
-    () => evidenceModule.validateDrawingP7PerformanceEvidence(p95Mutation),
+    () => evidenceModule.inspectDrawingP7PerformanceEvidence(p95Mutation),
     /runner Playwright capture authority/,
   );
 });
@@ -260,7 +388,7 @@ test("invalid evidence removes a stale MET artifact instead of preserving it", (
   assert.equal(existsSync(target), false);
 });
 
-test("the accepted artifact is derived from the external runner Playwright capture", () => {
+test("the runner artifact is inspectable but has no standalone execution authority", () => {
   const capture = JSON.parse(
     readFileSync(evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH, "utf8"),
   );
@@ -271,7 +399,11 @@ test("the accepted artifact is derived from the external runner Playwright captu
     runnerEvidence.provenance.playwrightCaptureSha256,
   );
   assert.doesNotThrow(() =>
-    evidenceModule.validateDrawingP7PerformanceEvidence(runnerEvidence),
+    evidenceModule.inspectDrawingP7PerformanceEvidence(runnerEvidence),
+  );
+  assert.throws(
+    () => evidenceModule.validateDrawingP7PerformanceEvidence(runnerEvidence),
+    /standalone.*authority/i,
   );
 });
 

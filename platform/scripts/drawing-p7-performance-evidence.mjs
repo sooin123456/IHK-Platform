@@ -48,7 +48,7 @@ const exactConditions = {
   coldCacheMiss:
     "fresh production-build Chromium context with empty derived raster storage navigates directly to the exact 10,000-object workspace; requires hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, visible PDF.js pixels, a ready visible IFC frame, and the next animation frame",
   firstUsable:
-    "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes plus the source-SHA-bound first-visible-v1 derived PDF raster cache; requires a verified derived-raster HIT, hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, mounted PDF pixels, a ready visible IFC frame, and the next animation frame; this does not substitute for the separately captured cold/cache-miss boundary whose status is independently derived",
+    "exact 10,000-object warm reopen after one untimed production navigation primes immutable application, PDF, and IFC response bytes; an unverified derived raster may display provisionally but does not satisfy readiness, which requires PDF.js pixels rendered from the original source plus hydration, exact authoritative-state confirmation, durable local edit bridge readiness, non-empty viewport projection, a ready visible IFC frame, and the next animation frame; this does not substitute for the separately captured cold/cache-miss boundary whose status is independently derived",
   warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
 };
 
@@ -518,13 +518,13 @@ function validateDrawingP7PerformanceEvidenceAgainstCapture(
   );
   assert.equal(
     evidence.pdfRaster.authority,
-    "SHA256_DERIVED_CACHE",
-    "derived raster authority",
+    "PDFJS",
+    "source-rendered PDF raster authority",
   );
   assert.equal(
     evidence.pdfRaster.cacheStatus,
-    "HIT",
-    "derived raster cache HIT",
+    "UNVERIFIED_HIT",
+    "derived raster cache is only a provisional hint",
   );
   assert.equal(evidence.pdfRaster.renderProfile, "first-visible-v1");
   assert.match(evidence.pdfRaster.keySha256, /^[0-9a-f]{64}$/);
@@ -732,6 +732,16 @@ export function validateDrawingP7PerformanceEvidence(
   evidence,
   expectedCommitSha = drawingP7SourceCommitSha(),
 ) {
+  inspectDrawingP7PerformanceEvidence(evidence, expectedCommitSha);
+  throw new Error(
+    "Standalone performance artifacts cannot establish execution authority without an external immutable or signed receipt; use the live production-build runner result.",
+  );
+}
+
+export function inspectDrawingP7PerformanceEvidence(
+  evidence,
+  expectedCommitSha = drawingP7SourceCommitSha(),
+) {
   const playwrightCapture = JSON.parse(
     readFileSync(P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH, "utf8"),
   );
@@ -787,7 +797,7 @@ export function finalizeDrawingP7PerformanceEvidence(
     );
     writeFileSync(temporaryPath, `${JSON.stringify(valid, null, 2)}\n`);
     renameSync(temporaryPath, targetPath);
-    return targetPath;
+    return valid;
   } catch (error) {
     rmSync(temporaryPath, { force: true });
     throw error;
@@ -795,10 +805,19 @@ export function finalizeDrawingP7PerformanceEvidence(
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  if (process.argv[2] !== "validate")
-    throw new Error("Usage: drawing-p7-performance-evidence.mjs validate");
-  validateDrawingP7PerformanceEvidence(
-    JSON.parse(readFileSync(P7_PERFORMANCE_EVIDENCE_PATH, "utf8")),
-  );
-  process.stdout.write(`${P7_PERFORMANCE_EVIDENCE_PATH}\n`);
+  if (process.argv[2] === "inspect") {
+    inspectDrawingP7PerformanceEvidence(
+      JSON.parse(readFileSync(P7_PERFORMANCE_EVIDENCE_PATH, "utf8")),
+    );
+    process.stdout.write(
+      `${P7_PERFORMANCE_EVIDENCE_PATH} (structure/build binding only; standalone execution authority unavailable)\n`,
+    );
+  } else if (process.argv[2] === "validate") {
+    validateDrawingP7PerformanceEvidence(
+      JSON.parse(readFileSync(P7_PERFORMANCE_EVIDENCE_PATH, "utf8")),
+    );
+  } else
+    throw new Error(
+      "Usage: drawing-p7-performance-evidence.mjs inspect|validate",
+    );
 }
