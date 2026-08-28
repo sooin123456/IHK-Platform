@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -28,24 +29,24 @@ function pngDimensions(bytes) {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
-function buildManifestReceipt() {
-  const assets = fileURLToPath(
-    new URL("../build/client/assets/", import.meta.url),
-  );
+function buildManifestReceipt({
+  clientBuildPath = fileURLToPath(
+    new URL("../build/client/", import.meta.url),
+  ),
+  serverBuildPath = fileURLToPath(
+    new URL("../build/server/index.js", import.meta.url),
+  ),
+} = {}) {
+  const assets = join(clientBuildPath, "assets");
   const manifests = readdirSync(assets).filter((name) =>
     /^manifest-[0-9A-Za-z_-]+\.js$/.test(name),
   );
   assert.equal(manifests.length, 1, "current client build manifest");
-  const server = fileURLToPath(
-    new URL("../build/server/index.js", import.meta.url),
-  );
-  assert.equal(existsSync(server), true, "current server build entry");
+  assert.equal(existsSync(serverBuildPath), true, "current server build entry");
   return {
     clientTree: {
       path: "platform/build/client",
-      sha256: drawingP7DirectorySha256(
-        fileURLToPath(new URL("../build/client/", import.meta.url)),
-      ),
+      sha256: drawingP7DirectorySha256(clientBuildPath),
     },
     clientManifest: {
       path: `platform/build/client/assets/${manifests[0]}`,
@@ -53,18 +54,18 @@ function buildManifestReceipt() {
     },
     serverEntry: {
       path: "platform/build/server/index.js",
-      sha256: sha256(readFileSync(server)),
+      sha256: sha256(readFileSync(serverBuildPath)),
     },
   };
 }
 
-export function buildDrawingP7VisualEvidence() {
+export function buildDrawingP7VisualEvidence(buildPaths) {
   return {
     schemaVersion: 1,
     authority: "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
     commit: drawingP7ReleaseCommit(),
     sourceTreeSha256: drawingP7ReleaseTreeSha256(),
-    buildManifest: buildManifestReceipt(),
+    buildManifest: buildManifestReceipt(buildPaths),
     artifacts: artifacts.map(([name, width, height]) => {
       const path = fileURLToPath(
         new URL(
@@ -85,14 +86,14 @@ export function buildDrawingP7VisualEvidence() {
   };
 }
 
-export function inspectDrawingP7VisualEvidence(evidence) {
+export function inspectDrawingP7VisualEvidence(evidence, buildPaths) {
   assert.equal(evidence.schemaVersion, 1);
   assert.equal(evidence.authority, "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1");
   assert.equal(evidence.commit, drawingP7ReleaseCommit());
   assert.equal(evidence.sourceTreeSha256, drawingP7ReleaseTreeSha256());
   assert.deepEqual(
     evidence.buildManifest,
-    buildManifestReceipt(),
+    buildManifestReceipt(buildPaths),
     "current client build binding",
   );
   assert.equal(evidence.artifacts.length, artifacts.length);

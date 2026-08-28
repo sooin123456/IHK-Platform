@@ -6,6 +6,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import {
+  cpSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -802,27 +803,35 @@ test("program PASS requires and accepts only a trusted signed completion receipt
 });
 
 test("visual receipt detects tampering anywhere in the client build tree", () => {
-  const evidence = visualModule.buildDrawingP7VisualEvidence();
-  const assets = new URL("../build/client/assets/", import.meta.url);
-  const asset = readdirSync(assets).find(
-    (name) =>
-      name.endsWith(".css") &&
-      name !== evidence.buildManifest.clientManifest?.path.split("/").at(-1),
-  );
-  assert.ok(asset, "non-manifest client asset");
-  const path = new URL(asset, assets);
-  const original = readFileSync(path);
+  const directory = mkdtempSync(join(tmpdir(), "p7-visual-build-"));
+  const clientBuildPath = join(directory, "client");
+  const serverBuildPath = join(directory, "server-index.js");
+  cpSync(new URL("../build/client/", import.meta.url), clientBuildPath, {
+    recursive: true,
+  });
+  cpSync(new URL("../build/server/index.js", import.meta.url), serverBuildPath);
+  const buildPaths = { clientBuildPath, serverBuildPath };
   try {
+    const evidence = visualModule.buildDrawingP7VisualEvidence(buildPaths);
+    const assets = join(clientBuildPath, "assets");
+    const asset = readdirSync(assets).find(
+      (name) =>
+        name.endsWith(".css") &&
+        name !== evidence.buildManifest.clientManifest?.path.split("/").at(-1),
+    );
+    assert.ok(asset, "non-manifest client asset");
+    const path = join(assets, asset);
+    const original = readFileSync(path);
     writeFileSync(
       path,
       Buffer.concat([original, Buffer.from("\n/* tamper */\n")]),
     );
     assert.throws(
-      () => visualModule.inspectDrawingP7VisualEvidence(evidence),
+      () => visualModule.inspectDrawingP7VisualEvidence(evidence, buildPaths),
       /client build|binding|tree/i,
     );
   } finally {
-    writeFileSync(path, original);
+    rmSync(directory, { recursive: true });
   }
 });
 
