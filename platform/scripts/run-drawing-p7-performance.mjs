@@ -37,8 +37,12 @@ export async function runDrawingP7PerformanceGate(
   args = process.argv.slice(2),
   environment = process.env,
   runner = execute,
+  {
+    evidencePath = P7_PERFORMANCE_EVIDENCE_PATH,
+    capturePath = P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+  } = {},
 ) {
-  removeDrawingP7FailedRunArtifacts(1);
+  removeDrawingP7FailedRunArtifacts(1, [evidencePath, capturePath]);
   const sourceCommitSha = drawingP7SourceCommitSha();
   const sourceTreeSha256 = drawingP7SourceTreeSha256();
   const buildStatus = await runner(["npm", "run", "build"], environment);
@@ -50,7 +54,7 @@ export async function runDrawingP7PerformanceGate(
     throw new Error("P7 source changed while its production build was created");
 
   const runId = randomUUID();
-  const rawCapturePath = `${P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH}.${runId}.tmp`;
+  const rawCapturePath = `${capturePath}.${runId}.tmp`;
   const provenance = {
     runId,
     sourceCommitSha,
@@ -96,19 +100,22 @@ export async function runDrawingP7PerformanceGate(
     );
     if (playwrightStatus !== 0) {
       removeDrawingP7FailedRunArtifacts(playwrightStatus, [
-        P7_PERFORMANCE_EVIDENCE_PATH,
-        P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+        evidencePath,
+        capturePath,
         rawCapturePath,
       ]);
       return playwrightStatus;
     }
-    renameSync(rawCapturePath, P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH);
-    const evidence = finalizeDrawingP7PerformanceEvidence(provenance);
+    renameSync(rawCapturePath, capturePath);
+    const evidence = finalizeDrawingP7PerformanceEvidence(provenance, {
+      capturePath,
+      targetPath: evidencePath,
+    });
     return evidence.status === "MET" ? 0 : 1;
   } catch (error) {
     removeDrawingP7FailedRunArtifacts(1, [
-      P7_PERFORMANCE_EVIDENCE_PATH,
-      P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+      evidencePath,
+      capturePath,
       rawCapturePath,
     ]);
     throw error;

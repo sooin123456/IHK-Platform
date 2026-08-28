@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test, { after } from "node:test";
+import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const evidenceModule =
@@ -16,18 +22,6 @@ const evidencePath = new URL(
   import.meta.url,
 );
 const runnerEvidence = JSON.parse(readFileSync(evidencePath, "utf8"));
-const suiteEvidenceBytes = readFileSync(evidencePath);
-const suiteCaptureBytes = readFileSync(
-  evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
-);
-
-after(() => {
-  writeFileSync(evidencePath, suiteEvidenceBytes);
-  writeFileSync(
-    evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
-    suiteCaptureBytes,
-  );
-});
 
 test("P7 rejects the old handwritten summary and validates only the runner-produced raw capture", () => {
   assert.equal(
@@ -142,8 +136,11 @@ test("P7 cannot promote fabricated one-millisecond timings without the runner Pl
 });
 
 test("paired one-millisecond raw capture and evidence forgeries have no standalone execution authority", () => {
-  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
-  const savedCapture = readFileSync(capturePath);
+  const directory = mkdtempSync(join(tmpdir(), "drawing-p7-forged-capture-"));
+  const capturePath = join(directory, "capture.json");
+  const savedCapture = readFileSync(
+    evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
+  );
   try {
     const fabricatedCapture = JSON.parse(savedCapture);
     fabricatedCapture.source.commitSha =
@@ -191,11 +188,15 @@ test("paired one-millisecond raw capture and evidence forgeries have no standalo
 
     assert.throws(
       () =>
-        evidenceModule.validateDrawingP7PerformanceEvidence(fabricatedEvidence),
+        evidenceModule.validateDrawingP7PerformanceEvidence(
+          fabricatedEvidence,
+          evidenceModule.drawingP7SourceCommitSha(),
+          capturePath,
+        ),
       /standalone.*authority|immutable|signed receipt/i,
     );
   } finally {
-    writeFileSync(capturePath, savedCapture);
+    rmSync(directory, { recursive: true });
   }
 });
 
@@ -247,10 +248,9 @@ test("a later Playwright failure removes evidence written earlier in the run", (
 });
 
 test("the runner removes an early MET artifact when a later Playwright test exits nonzero", async () => {
-  const evidencePath = evidenceModule.P7_PERFORMANCE_EVIDENCE_PATH;
-  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
-  const savedEvidence = readFileSync(evidencePath);
-  const savedCapture = readFileSync(capturePath);
+  const directory = mkdtempSync(join(tmpdir(), "drawing-p7-runner-failure-"));
+  const evidencePath = join(directory, "evidence.json");
+  const capturePath = join(directory, "capture.json");
   let temporaryCapturePath = "";
   try {
     const status = await runnerModule.runDrawingP7PerformanceGate(
@@ -263,23 +263,24 @@ test("the runner removes an early MET artifact when a later Playwright test exit
         writeFileSync(temporaryCapturePath, '{"firstUsableMs":1}\n');
         return 1;
       },
+      { evidencePath, capturePath },
     );
     assert.equal(status, 1);
     assert.equal(existsSync(evidencePath), false);
     assert.equal(existsSync(capturePath), false);
     assert.equal(existsSync(temporaryCapturePath), false);
   } finally {
-    writeFileSync(evidencePath, savedEvidence);
-    writeFileSync(capturePath, savedCapture);
+    rmSync(directory, { recursive: true });
   }
 });
 
 test("complete warm and interaction threshold misses remain durable NOT MET evidence", async () => {
-  const evidencePath = evidenceModule.P7_PERFORMANCE_EVIDENCE_PATH;
-  const capturePath = evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH;
-  const savedEvidence = readFileSync(evidencePath);
-  const savedCapture = readFileSync(capturePath);
-  const baselineCapture = JSON.parse(savedCapture);
+  const directory = mkdtempSync(join(tmpdir(), "drawing-p7-runner-miss-"));
+  const evidencePath = join(directory, "evidence.json");
+  const capturePath = join(directory, "capture.json");
+  const baselineCapture = JSON.parse(
+    readFileSync(evidenceModule.P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH),
+  );
   try {
     for (const kind of ["firstUsable", "interaction"]) {
       const status = await runnerModule.runDrawingP7PerformanceGate(
@@ -310,6 +311,7 @@ test("complete warm and interaction threshold misses remain durable NOT MET evid
           );
           return 0;
         },
+        { evidencePath, capturePath },
       );
       assert.equal(status, 1, `${kind} miss must fail the local gate`);
       assert.equal(existsSync(evidencePath), true);
@@ -324,8 +326,7 @@ test("complete warm and interaction threshold misses remain durable NOT MET evid
       );
     }
   } finally {
-    writeFileSync(evidencePath, savedEvidence);
-    writeFileSync(capturePath, savedCapture);
+    rmSync(directory, { recursive: true });
   }
 });
 

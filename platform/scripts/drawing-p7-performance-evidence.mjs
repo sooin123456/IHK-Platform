@@ -731,8 +731,9 @@ function validateDrawingP7PerformanceEvidenceAgainstCapture(
 export function validateDrawingP7PerformanceEvidence(
   evidence,
   expectedCommitSha = drawingP7SourceCommitSha(),
+  capturePath = P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
 ) {
-  inspectDrawingP7PerformanceEvidence(evidence, expectedCommitSha);
+  inspectDrawingP7PerformanceEvidence(evidence, expectedCommitSha, capturePath);
   throw new Error(
     "Standalone performance artifacts cannot establish execution authority without an external immutable or signed receipt; use the live production-build runner result.",
   );
@@ -741,9 +742,10 @@ export function validateDrawingP7PerformanceEvidence(
 export function inspectDrawingP7PerformanceEvidence(
   evidence,
   expectedCommitSha = drawingP7SourceCommitSha(),
+  capturePath = P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH,
 ) {
   const playwrightCapture = JSON.parse(
-    readFileSync(P7_PERFORMANCE_PLAYWRIGHT_CAPTURE_PATH, "utf8"),
+    readFileSync(capturePath, "utf8"),
   );
   return validateDrawingP7PerformanceEvidenceAgainstCapture(
     evidence,

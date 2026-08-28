@@ -14,10 +14,12 @@ export function drawingP7SourceTreeSha256(): string;
 export function validateDrawingP7PerformanceEvidence(
   evidence: unknown,
   expectedSourceCommitSha?: string,
+  capturePath?: string,
 ): never;
 export function inspectDrawingP7PerformanceEvidence(
   evidence: unknown,
   expectedSourceCommitSha?: string,
+  capturePath?: string,
 ): { status: "MET" | "NOT MET" };
 export function drawingP7EvidenceFromPlaywrightCapture(
   capture: unknown,
