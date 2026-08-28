@@ -198,6 +198,9 @@ export default function IfcPropertyBrowser({
   onViewerDispose,
 }: Props) {
   const [elements, setElements] = useState<IfcElement[]>([]);
+  const [elementsSourceKey, setElementsSourceKey] = useState<string | null>(
+    null,
+  );
   const [selected, setSelected] = useState<IfcElement | null>(null);
   const [properties, setProperties] = useState<DisplayProperty[]>([]);
   const [query, setQuery] = useState("");
@@ -216,7 +219,8 @@ export default function IfcPropertyBrowser({
   const selectionRequestRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
   const loadGenerationRef = useRef(0);
-  const handledFocusRequestRef = useRef<string | null>(null);
+  const handledFocusSelectionRef = useRef<string | null>(null);
+  const handledFocusCameraRef = useRef<string | null>(null);
   const loadedViewerInputRef = useRef<{
     api: IfcAPI;
     modelId: number;
@@ -264,6 +268,10 @@ export default function IfcPropertyBrowser({
     viewerRef.current = null;
     selectionRequestRef.current += 1;
     selectedIdRef.current = null;
+    setElements([]);
+    setElementsSourceKey(null);
+    setSelected(null);
+    setProperties([]);
     setViewerReady(false);
     setContextLost(false);
     setViewerPhase("loading");
@@ -337,6 +345,7 @@ export default function IfcPropertyBrowser({
         );
         if (!isCurrentLoad()) return;
         setElements(found);
+        setElementsSourceKey(sourceKey);
         setStatus(
           `요소 ${found.length.toLocaleString("ko-KR")}개를 찾았습니다.`,
         );
@@ -488,7 +497,12 @@ export default function IfcPropertyBrowser({
   }, [firstPaintLifecycleKey, sourceKey]);
 
   useEffect(() => {
-    if (!initialGlobalId || elements.length === 0) return;
+    if (
+      !initialGlobalId ||
+      elementsSourceKey !== sourceKey ||
+      elements.length === 0
+    )
+      return;
     const element = elements.find(
       (element) => element.globalId === initialGlobalId,
     );
@@ -500,10 +514,15 @@ export default function IfcPropertyBrowser({
     }
     if (selectedIdRef.current === element.expressId) return;
     void choose(element, "deep-link");
-  }, [elements, initialGlobalId]);
+  }, [elements, elementsSourceKey, initialGlobalId, sourceKey]);
 
   useEffect(() => {
-    if (!activeAnchor || !viewerReady) return;
+    if (
+      !activeAnchor ||
+      elementsSourceKey !== sourceKey ||
+      !viewerReady
+    )
+      return;
     const expressId = Number(activeAnchor.elementId);
     const element = elements.find((item) => item.expressId === expressId);
     if (!Number.isInteger(expressId) || !element) {
@@ -514,17 +533,16 @@ export default function IfcPropertyBrowser({
     }
     viewerRef.current?.restoreViewState(activeAnchor.camera);
     void choose(element, "anchor");
-  }, [activeAnchor, elements, viewerReady]);
+  }, [activeAnchor, elements, elementsSourceKey, sourceKey, viewerReady]);
 
   useEffect(() => {
     if (
       !focusRequest ||
-      handledFocusRequestRef.current === focusRequest.requestId ||
-      elements.length === 0 ||
-      !viewerReady
+      elementsSourceKey !== sourceKey ||
+      elements.length === 0
     )
       return;
-    handledFocusRequestRef.current = focusRequest.requestId;
+    const focusLifecycleKey = `${sourceKey}:${focusRequest.requestId}`;
     const byGlobalId = elements.find(
       (element) => element.globalId === focusRequest.ifcGlobalId,
     );
@@ -535,23 +553,33 @@ export default function IfcPropertyBrowser({
         ? elements.find((candidate) => candidate.expressId === expressId)
         : undefined);
     if (!element) {
-      setViewerStatus("연결된 IFC 요소를 이 파일에서 찾지 못했습니다.");
+      if (handledFocusSelectionRef.current !== focusLifecycleKey) {
+        handledFocusSelectionRef.current = focusLifecycleKey;
+        setViewerStatus("연결된 IFC 요소를 이 파일에서 찾지 못했습니다.");
+      }
       return;
     }
+    if (handledFocusSelectionRef.current !== focusLifecycleKey) {
+      handledFocusSelectionRef.current = focusLifecycleKey;
+      void choose(element, "focus-request");
+    }
+    if (!viewerReady) return;
+    if (handledFocusCameraRef.current === focusLifecycleKey) return;
+    handledFocusCameraRef.current = focusLifecycleKey;
     viewerRef.current?.focusElement(element.expressId);
     if (focusRequest.camera)
       viewerRef.current?.restoreViewState(focusRequest.camera);
-    void choose(element, "focus-request");
-  }, [elements, focusRequest, viewerReady]);
+  }, [elements, elementsSourceKey, focusRequest, sourceKey, viewerReady]);
 
   useEffect(() => {
+    if (elementsSourceKey !== sourceKey) return;
     const wanted = new Set(remoteGlobalIds);
     viewerRef.current?.setRemoteElements(
       elements.flatMap((element) =>
         wanted.has(element.globalId) ? [element.expressId] : [],
       ),
     );
-  }, [elements, remoteGlobalIds, viewerReady]);
+  }, [elements, elementsSourceKey, remoteGlobalIds, sourceKey, viewerReady]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");

@@ -207,6 +207,25 @@ test("controlled IFC focus frames the element before restoring its canonical cam
   );
 });
 
+test("controlled IFC focus selects semantic data before WebGL is ready and binds camera work to the current source", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /const \[elementsSourceKey, setElementsSourceKey\]/);
+  assert.match(
+    source,
+    /elementsSourceKey !== sourceKey[\s\S]*void choose\(element, "focus-request"\);[\s\S]*if \(!viewerReady\) return;[\s\S]*viewerRef\.current\?\.focusElement\(element\.expressId\)/,
+  );
+  assert.match(
+    source,
+    /const focusLifecycleKey = `\$\{sourceKey\}:\$\{focusRequest\.requestId\}`/,
+  );
+});
+
 test("IFC initialization is generation-fenced and stale loads dispose only owned resources", async () => {
   const source = await readFile(
     new URL(
