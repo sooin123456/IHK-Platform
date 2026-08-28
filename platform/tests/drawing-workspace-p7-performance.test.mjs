@@ -187,16 +187,22 @@ test("paired one-millisecond raw capture and evidence forgeries have no standalo
   }
 });
 
-test("P7 records a raw cold cache-miss boundary and derives its NOT MET status", () => {
+test("P7 records a raw cold cache-miss boundary and derives its threshold status", () => {
+  const { coldCacheMiss } = runnerEvidence;
+  const derivedStatus = (durationMs, targetMs) =>
+    durationMs <= targetMs ? "MET" : "NOT MET";
+
   assert.equal(runnerEvidence.schemaVersion, 4);
-  assert.equal(runnerEvidence.coldCacheMiss.cacheStatus, "MISS");
-  assert.ok(runnerEvidence.coldCacheMiss.durationMs > 2_500);
-  assert.equal(runnerEvidence.coldCacheMiss.targetMs, 2_500);
-  assert.equal(runnerEvidence.coldCacheMiss.status, "NOT MET");
+  assert.equal(coldCacheMiss.cacheStatus, "MISS");
+  assert.equal(coldCacheMiss.targetMs, 2_500);
   assert.equal(
-    runnerEvidence.coldCacheMiss.durationMs,
-    runnerEvidence.coldCacheMiss.readiness.usableFrameEndMs -
-      runnerEvidence.coldCacheMiss.readiness.navigationStartMs,
+    coldCacheMiss.status,
+    derivedStatus(coldCacheMiss.durationMs, coldCacheMiss.targetMs),
+  );
+  assert.equal(
+    coldCacheMiss.durationMs,
+    coldCacheMiss.readiness.usableFrameEndMs -
+      coldCacheMiss.readiness.navigationStartMs,
   );
 });
 
