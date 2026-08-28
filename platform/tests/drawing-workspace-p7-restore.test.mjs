@@ -20,13 +20,12 @@ function authority() {
     sourceServiceKey: "source-service-role-key-with-authority",
     targetServiceKey: "target-service-role-key-with-authority",
     sourceCommit: "c".repeat(40),
-    startedAt: "2026-08-28T05:10:00.000Z",
-    completedAt: "2026-08-28T05:20:00.000Z",
   };
 }
 
 function snapshot() {
   return {
+    systemIdentifier: "7641122334455667788",
     schema: { count: 40, digest: sha("1") },
     database: { count: 500, digest: sha("2") },
     storage: { count: 12, digest: sha("3") },
@@ -38,6 +37,11 @@ function snapshot() {
 
 test("restore inventory names the existing approval, BOQ, and material lineage tables", async () => {
   const source = await readFile(new URL(modulePath, import.meta.url), "utf8");
+  assert.match(source, /from pg_catalog\.pg_tables/);
+  assert.doesNotMatch(source, /const PUBLIC_TABLES/);
+  assert.match(source, /pg_catalog\.pg_control_system\(\)/);
+  assert.match(source, /response\.status === 404/);
+  assert.doesNotMatch(source, /NOT MET: storage download/);
   for (const table of [
     "lukas_qto_boq_approvals",
     "lukas_drawing_quantity_links",
@@ -92,12 +96,19 @@ test("provider-issued backup and restore identities gate PASS and recording", as
   const recorded = [];
   const value = authority();
   const evidence = await runManagedRestoreComparison(value, {
+    async getSourceCommit() {
+      return value.sourceCommit;
+    },
+    now() {
+      return "2026-08-28T05:20:00.000Z";
+    },
     async listBackups(projectRef, token) {
       assert.equal(projectRef, value.sourceProjectRef);
       assert.equal(token, value.managementAccessToken);
       return [
         {
           id: value.backupId,
+          is_physical_backup: true,
           status: "COMPLETED",
           inserted_at: "2026-08-28T05:00:00.000Z",
         },
@@ -106,9 +117,10 @@ test("provider-issued backup and restore identities gate PASS and recording", as
     async getProject(projectRef) {
       assert.equal(projectRef, value.targetProjectRef);
       return {
-        id: projectRef,
+        id: "provider-project-restore-identity",
+        ref: projectRef,
         status: "ACTIVE_HEALTHY",
-        inserted_at: "2026-08-28T05:05:00.000Z",
+        created_at: "2026-08-28T05:05:00.000Z",
       };
     },
     async captureDatabase(side) {
@@ -126,8 +138,12 @@ test("provider-issued backup and restore identities gate PASS and recording", as
   assert.equal(evidence.status, "PASS");
   assert.equal(evidence.provider.backupId, value.backupId);
   assert.equal(evidence.provider.restoreProjectRef, value.targetProjectRef);
-  assert.equal(evidence.rpoSeconds, 600);
-  assert.equal(evidence.rtoSeconds, 600);
+  assert.equal(
+    evidence.provider.restoreId,
+    "provider-project-restore-identity",
+  );
+  assert.equal(evidence.rpoSeconds, 300);
+  assert.equal(evidence.rtoSeconds, 900);
   assert.equal(recorded.length, 1);
 });
 
@@ -138,10 +154,17 @@ test("provider status or any digest mismatch stays NOT MET", async () => {
   const bad = snapshot();
   bad.yjs.digest = sha("9");
   const evidence = await runManagedRestoreComparison(value, {
+    async getSourceCommit() {
+      return value.sourceCommit;
+    },
+    now() {
+      return "2026-08-28T05:20:00.000Z";
+    },
     async listBackups() {
       return [
         {
           id: value.backupId,
+          is_physical_backup: true,
           status: "COMPLETED",
           inserted_at: "2026-08-28T05:00:00.000Z",
         },
@@ -149,9 +172,10 @@ test("provider status or any digest mismatch stays NOT MET", async () => {
     },
     async getProject() {
       return {
-        id: value.targetProjectRef,
+        id: "provider-project-restore-identity",
+        ref: value.targetProjectRef,
         status: "ACTIVE_HEALTHY",
-        inserted_at: "2026-08-28T05:05:00.000Z",
+        created_at: "2026-08-28T05:05:00.000Z",
       };
     },
     async captureDatabase(side) {
@@ -167,4 +191,53 @@ test("provider status or any digest mismatch stays NOT MET", async () => {
   assert.equal(evidence.status, "NOT MET");
   assert.deepEqual(evidence.comparison.mismatches, ["yjs"]);
   assert.equal(records, 1);
+});
+
+test("checkout mismatch and unissued target restore identity cannot PASS", async () => {
+  const { runManagedRestoreComparison } = await import(modulePath);
+  const value = authority();
+  const adapters = {
+    async getSourceCommit() {
+      return "d".repeat(40);
+    },
+    now() {
+      return "2026-08-28T05:20:00.000Z";
+    },
+    async listBackups() {
+      return [
+        {
+          id: value.backupId,
+          is_physical_backup: true,
+          status: "COMPLETED",
+          inserted_at: "2026-08-28T05:00:00.000Z",
+        },
+      ];
+    },
+    async getProject() {
+      return {
+        id: value.targetProjectRef,
+        ref: value.targetProjectRef,
+        status: "ACTIVE_HEALTHY",
+        created_at: "2026-08-28T05:05:00.000Z",
+      };
+    },
+    async captureDatabase() {
+      return snapshot();
+    },
+    async captureStorage() {
+      return snapshot().storage;
+    },
+    async record() {
+      assert.fail("unbound evidence must not be recorded");
+    },
+  };
+  await assert.rejects(
+    runManagedRestoreComparison(value, adapters),
+    /UNEXECUTED.*commit/i,
+  );
+  adapters.getSourceCommit = async () => value.sourceCommit;
+  adapters.record = async () => {};
+  const unissued = await runManagedRestoreComparison(value, adapters);
+  assert.equal(unissued.status, "NOT MET");
+  assert.equal(unissued.provider.status, "NOT MET");
 });

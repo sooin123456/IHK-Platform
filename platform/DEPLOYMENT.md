@@ -132,9 +132,13 @@ At least once per release, select a provider-issued managed backup in the Supaba
 dashboard/API and restore or clone it into a new, isolated Supabase project. A
 managed database restore does not restore Storage objects, so copy the source
 `lukas-qto` bucket to the isolated project through the approved backup procedure
-before comparison. Never point the target variables at production. Record the
-actual restore start/completion instants; the runner calculates RPO from the
-provider backup creation time and RTO from those instants.
+before comparison. Execute the rehearsal in an approved maintenance window: stop
+application/collaboration writers before the selected backup and keep them stopped
+until source and target captures finish, otherwise legitimate post-backup changes
+must produce `NOT MET`. Never point the target variables at production. The runner
+derives RPO from the provider backup and restored-project creation times, and RTO
+from provider project creation to the live completed comparison. It also requires
+the physical source/target PostgreSQL system identifier to match.
 
 Set all authorities out of band and run:
 
@@ -151,8 +155,6 @@ P7_RESTORE_TARGET_SUPABASE_URL='https://<isolated-ref>.supabase.co' \
 P7_RESTORE_SOURCE_SERVICE_ROLE_KEY='<source-service-role-key>' \
 P7_RESTORE_TARGET_SERVICE_ROLE_KEY='<isolated-service-role-key>' \
 P7_RESTORE_COMMIT='<40-char-release-commit>' \
-P7_RESTORE_STARTED_AT='<ISO-8601>' \
-P7_RESTORE_COMPLETED_AT='<ISO-8601>' \
 npm run release:drawing-workspace-p7:restore
 ```
 

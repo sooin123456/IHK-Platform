@@ -107,6 +107,15 @@ test("trusted purge is service-only and proves expiry, holds, and protected depe
     "lukas_qto_files",
   ])
     assert.match(sql, new RegExp(dependency, "i"));
+  const protectedEvidence = sql.slice(
+    sql.indexOf("v_protected:="),
+    sql.indexOf("v_status:=", sql.indexOf("v_protected:=")),
+  );
+  assert.doesNotMatch(
+    protectedEvidence,
+    /immutableFiles/i,
+    "ordinary immutable source bytes remain evidenced but do not create an endless hold",
+  );
   assert.match(
     sql,
     /grant execute on function public\.lukas_qto_purge_project[\s\S]*to service_role/i,

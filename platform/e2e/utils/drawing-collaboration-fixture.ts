@@ -23,12 +23,14 @@ type WorkspaceFixture = {
 
 export type DrawingFixture = {
   admin: SupabaseClient;
+  retentionClient: SupabaseClient;
   owner: TestUser;
   editor: TestUser;
   reviewer: TestUser;
   viewer: TestUser;
   nonMember: TestUser;
   projectId: string;
+  organizationId: string;
   pdfFileId: string;
   ifcFileId: string;
   revisedPdfFileId: string;
@@ -49,8 +51,10 @@ export type DrawingFixture = {
 
 async function cleanupDrawingResources(
   admin: DrawingFixture["admin"],
+  retentionClient: DrawingFixture["retentionClient"] | null,
   storagePaths: string[],
   projectId: string | null | undefined,
+  organizationId: string | null | undefined,
   users: TestUser[],
 ) {
   const cleanupErrors: Error[] = [];
@@ -76,14 +80,47 @@ async function cleanupDrawingResources(
     }
   };
 
-  // Cleanup dependency order: project cascade releases DB/user references,
-  // Storage removes immutable fixture bytes, then Auth users are removed.
+  // Cleanup dependency order: the product retention boundary authorizes the
+  // project cascade, Storage removes fixture bytes, then Auth users are removed.
   if (projectId) {
-    await attempt(
-      "project cleanup",
-      async () =>
-        await admin.from("lukas_qto_projects").delete().eq("id", projectId),
-    );
+    if (!organizationId || !retentionClient) {
+      cleanupErrors.push(
+        new Error("project cleanup: retention authority unavailable"),
+      );
+    } else {
+      await attempt("fixture retention policy", async () =>
+        retentionClient.rpc("lukas_qto_set_retention_policy", {
+          p_organization_id: organizationId,
+          p_archive_retention_days: 0,
+          p_approved_retention_days: 365,
+          p_reason: "Disposable E2E fixture cleanup",
+          p_request_id: randomUUID(),
+        }),
+      );
+      await attempt("fixture deletion request", async () =>
+        retentionClient.rpc("lukas_qto_request_project_deletion", {
+          p_organization_id: organizationId,
+          p_project_id: projectId,
+          p_reason: "Disposable E2E fixture cleanup",
+          p_request_id: randomUUID(),
+        }),
+      );
+      await attempt("trusted project purge", async () => {
+        const result = await admin.rpc("lukas_qto_purge_project", {
+          p_organization_id: organizationId,
+          p_project_id: projectId,
+          p_request_id: randomUUID(),
+          p_reason: "Disposable E2E fixture cleanup",
+        });
+        return result.error || result.data?.status !== "PURGED"
+          ? {
+              error:
+                result.error ??
+                new Error(`project held: ${result.data?.reason ?? "unknown"}`),
+            }
+          : { error: null };
+      });
+    }
   }
   if (storagePaths.length > 0) {
     await attempt("storage cleanup", () =>
@@ -395,6 +432,8 @@ export async function createDrawingFixture(options?: {
   });
   const createdUsers: TestUser[] = [];
   let createdProjectId: string | null = null;
+  let createdOrganizationId: string | null = null;
+  let ownerAuth: SupabaseClient | null = null;
   const storagePaths: string[] = [];
   const addUser = async (
     label: keyof ReturnType<typeof buildDrawingP3Identities>,
@@ -424,7 +463,7 @@ export async function createDrawingFixture(options?: {
       });
     if (linkError || !link.properties?.hashed_token)
       throw linkError ?? new Error("Could not create owner setup token");
-    const ownerAuth = createClient(url, anonKey, {
+    ownerAuth = createClient(url, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     const { error: verifyError } = await ownerAuth.auth.verifyOtp({
@@ -440,11 +479,12 @@ export async function createDrawingFixture(options?: {
         name: `1HK Drawing E2E ${runId}`,
         description: "Disposable maker-reviewer browser verification",
       })
-      .select("id")
+      .select("id,organization_id")
       .single();
     if (projectError || !project)
       throw projectError ?? new Error("Project setup failed");
     createdProjectId = project.id;
+    createdOrganizationId = project.organization_id;
 
     const { error: memberError } = await ownerAuth
       .from("lukas_qto_project_members")
@@ -611,12 +651,14 @@ export async function createDrawingFixture(options?: {
 
     return {
       admin,
+      retentionClient: ownerAuth,
       owner,
       editor,
       reviewer,
       viewer,
       nonMember,
       projectId: project.id,
+      organizationId: project.organization_id,
       pdfFileId,
       ifcFileId,
       revisedPdfFileId,
@@ -631,8 +673,10 @@ export async function createDrawingFixture(options?: {
     try {
       await cleanupDrawingResources(
         admin,
+        ownerAuth,
         storagePaths,
         createdProjectId,
+        createdOrganizationId,
         createdUsers,
       );
     } catch (cleanupError) {
@@ -1237,8 +1281,10 @@ export async function destroyDrawingFixture(
   if (!fixture) return;
   await cleanupDrawingResources(
     fixture.admin,
+    fixture.retentionClient,
     fixture.storagePaths,
     fixture.projectId,
+    fixture.organizationId,
     [
       fixture.owner,
       fixture.editor,

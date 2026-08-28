@@ -9,6 +9,14 @@ import {
 test("drawing E2E cleanup attempts every resource and reports residue risk", async () => {
   const calls = [];
   const admin = {
+    async rpc(name, args) {
+      assert.equal(name, "lukas_qto_purge_project");
+      calls.push(["purge", args.p_project_id]);
+      return {
+        data: { status: "HELD", reason: "project locked" },
+        error: null,
+      };
+    },
     storage: {
       from(bucket) {
         assert.equal(bucket, "lukas-qto");
@@ -20,18 +28,8 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
         };
       },
     },
-    from(table) {
-      assert.equal(table, "lukas_qto_projects");
-      return {
-        delete() {
-          return {
-            async eq(column, id) {
-              calls.push(["project", column, id]);
-              return { error: new Error("project locked") };
-            },
-          };
-        },
-      };
+    from() {
+      throw new Error("cleanup must not directly delete a project");
     },
     auth: {
       admin: {
@@ -44,16 +42,28 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
       },
     },
   };
+  const retentionClient = {
+    async rpc(name, args) {
+      calls.push([
+        "retention",
+        name,
+        args.p_project_id ?? args.p_organization_id,
+      ]);
+      return { error: null };
+    },
+  };
   const user = (id) => ({ id, email: `${id}@example.test` });
 
   await assert.rejects(
     destroyDrawingFixture({
       admin,
+      retentionClient,
       owner: user("owner"),
       reviewer: user("reviewer"),
       viewer: user("viewer"),
       nonMember: user("nonmember"),
       projectId: "project-1",
+      organizationId: "organization-1",
       pdfFileId: "pdf-1",
       ifcFileId: "ifc-1",
       revisedPdfFileId: "pdf-2",
@@ -67,7 +77,9 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
   );
 
   assert.deepEqual(calls, [
-    ["project", "id", "project-1"],
+    ["retention", "lukas_qto_set_retention_policy", "organization-1"],
+    ["retention", "lukas_qto_request_project_deletion", "project-1"],
+    ["purge", "project-1"],
     ["storage", "one.pdf", "two.ifc"],
     ["user", "owner"],
     ["user", "reviewer"],
@@ -79,6 +91,14 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
 test("P3 cleanup attempts room and aggregate fixture teardown without masking either", async () => {
   const calls = [];
   const admin = {
+    async rpc(name, args) {
+      assert.equal(name, "lukas_qto_purge_project");
+      calls.push(["purge", args.p_project_id]);
+      return {
+        data: { status: "HELD", reason: "project cleanup failed" },
+        error: null,
+      };
+    },
     storage: {
       from() {
         return {
@@ -109,17 +129,7 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
             };
           },
         };
-      assert.equal(table, "lukas_qto_projects");
-      return {
-        delete() {
-          return {
-            async eq(_column, id) {
-              calls.push(["project", id]);
-              return { error: new Error("project cleanup failed") };
-            },
-          };
-        },
-      };
+      throw new Error(`unexpected cleanup table: ${table}`);
     },
     auth: {
       admin: {
@@ -130,15 +140,27 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
       },
     },
   };
+  const retentionClient = {
+    async rpc(name, args) {
+      calls.push([
+        "retention",
+        name,
+        args.p_project_id ?? args.p_organization_id,
+      ]);
+      return { error: null };
+    },
+  };
   const user = (id) => ({ id, email: `${id}@example.test` });
   const fixture = {
     admin,
+    retentionClient,
     owner: user("owner"),
     editor: user("editor"),
     reviewer: user("reviewer"),
     viewer: user("viewer"),
     nonMember: user("nonmember"),
     projectId: "project-1",
+    organizationId: "organization-1",
     storagePaths: ["drawing.pdf", "model.ifc"],
   };
 
@@ -162,7 +184,9 @@ test("P3 cleanup attempts room and aggregate fixture teardown without masking ei
   assert.deepEqual(calls, [
     ["rooms", "project-1", "postgresql://not-used"],
     ["file-paths", "project_id", "project-1"],
-    ["project", "project-1"],
+    ["retention", "lukas_qto_set_retention_policy", "organization-1"],
+    ["retention", "lukas_qto_request_project_deletion", "project-1"],
+    ["purge", "project-1"],
     [
       "storage",
       "drawing.pdf",

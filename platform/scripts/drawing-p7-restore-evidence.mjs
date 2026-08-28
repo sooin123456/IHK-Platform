@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,24 +18,6 @@ const DOMAINS = [
   "yjs",
   "approvals",
   "lineage",
-];
-const PUBLIC_TABLES = [
-  "lukas_qto_projects",
-  "lukas_qto_files",
-  "lukas_drawing_documents",
-  "lukas_drawing_revisions",
-  "lukas_drawing_pages",
-  "lukas_drawing_canvases",
-  "lukas_drawing_layers",
-  "lukas_drawing_objects",
-  "lukas_drawing_object_sources",
-  "lukas_drawing_operations",
-  "lukas_drawing_snapshots",
-  "lukas_qto_retention_policy_versions",
-  "lukas_qto_retention_events",
-  "lukas_drawing_library_entries",
-  "lukas_drawing_library_versions",
-  "lukas_drawing_library_imports",
 ];
 const APPROVAL_TABLES = [
   "lukas_drawing_revision_approvals",
@@ -123,16 +106,6 @@ export function requireManagedRestoreAuthority(environment = process.env) {
     throw new Error("UNEXECUTED: source Supabase URL/ref mismatch");
   if (targetSupabaseUrl !== `https://${targetProjectRef}.supabase.co`)
     throw new Error("UNEXECUTED: target Supabase URL/ref mismatch");
-  const startedAt = timestamp(
-    required(environment, "P7_RESTORE_STARTED_AT"),
-    "P7_RESTORE_STARTED_AT",
-  );
-  const completedAt = timestamp(
-    required(environment, "P7_RESTORE_COMPLETED_AT"),
-    "P7_RESTORE_COMPLETED_AT",
-  );
-  if (Date.parse(completedAt) < Date.parse(startedAt))
-    throw new Error("UNEXECUTED: restore completion precedes start");
   return {
     organizationId,
     sourceProjectRef,
@@ -160,8 +133,6 @@ export function requireManagedRestoreAuthority(environment = process.env) {
       "P7_RESTORE_TARGET_SERVICE_ROLE_KEY",
     ),
     sourceCommit,
-    startedAt,
-    completedAt,
   };
 }
 
@@ -198,6 +169,11 @@ function normalizeBackups(value) {
 }
 
 export async function runManagedRestoreComparison(authority, adapters) {
+  const checkedOutCommit = await adapters.getSourceCommit();
+  if (checkedOutCommit !== authority.sourceCommit)
+    throw new Error(
+      "UNEXECUTED: P7 restore commit does not match the checkout",
+    );
   const backups = normalizeBackups(
     await adapters.listBackups(
       authority.sourceProjectRef,
@@ -212,12 +188,20 @@ export async function runManagedRestoreComparison(authority, adapters) {
     authority.targetProjectRef,
     authority.managementAccessToken,
   );
-  const providerPass =
+  const restoreCreatedAt = restoreProject?.created_at;
+  const measuredAt = timestamp(adapters.now(), "restore measurement time");
+  const providerIdentityPass =
     backup?.status === "COMPLETED" &&
+    backup?.is_physical_backup === true &&
     Boolean(backupCreatedAt) &&
-    restoreProject?.id === authority.targetProjectRef &&
+    typeof restoreProject?.id === "string" &&
+    restoreProject.id.length > 0 &&
+    restoreProject.id !== authority.targetProjectRef &&
+    restoreProject?.ref === authority.targetProjectRef &&
     ["ACTIVE_HEALTHY", "ACTIVE"].includes(restoreProject?.status) &&
-    Boolean(restoreProject?.inserted_at ?? restoreProject?.created_at);
+    Boolean(restoreCreatedAt) &&
+    Date.parse(restoreCreatedAt) >= Date.parse(backupCreatedAt) &&
+    Date.parse(measuredAt) >= Date.parse(restoreCreatedAt);
   const [sourceDatabase, targetDatabase, sourceStorage, targetStorage] =
     await Promise.all([
       adapters.captureDatabase("source", authority),
@@ -227,23 +211,29 @@ export async function runManagedRestoreComparison(authority, adapters) {
     ]);
   const source = { ...sourceDatabase, storage: sourceStorage };
   const target = { ...targetDatabase, storage: targetStorage };
+  const providerPass =
+    providerIdentityPass &&
+    typeof source.systemIdentifier === "string" &&
+    source.systemIdentifier.length > 0 &&
+    source.systemIdentifier === target.systemIdentifier;
   const comparison = compareRestoreSnapshots(source, target);
-  const rpoSeconds = backupCreatedAt
+  const rpoSeconds =
+    backupCreatedAt && restoreCreatedAt
+      ? Math.max(
+          0,
+          Math.round(
+            (Date.parse(restoreCreatedAt) - Date.parse(backupCreatedAt)) / 1000,
+          ),
+        )
+      : null;
+  const rtoSeconds = restoreCreatedAt
     ? Math.max(
         0,
         Math.round(
-          (Date.parse(authority.startedAt) - Date.parse(backupCreatedAt)) /
-            1000,
+          (Date.parse(measuredAt) - Date.parse(restoreCreatedAt)) / 1000,
         ),
       )
     : null;
-  const rtoSeconds = Math.max(
-    0,
-    Math.round(
-      (Date.parse(authority.completedAt) - Date.parse(authority.startedAt)) /
-        1000,
-    ),
-  );
   const evidence = {
     schemaVersion: 1,
     status: providerPass && comparison.status === "PASS" ? "PASS" : "NOT MET",
@@ -255,18 +245,20 @@ export async function runManagedRestoreComparison(authority, adapters) {
       backupId: backup?.id ?? null,
       backupStatus: backup?.status ?? null,
       backupCreatedAt: backupCreatedAt ?? null,
-      restoreProjectRef: restoreProject?.id ?? null,
+      restoreId: restoreProject?.id ?? null,
+      restoreProjectRef: restoreProject?.ref ?? null,
       restoreStatus: restoreProject?.status ?? null,
-      restoreCreatedAt:
-        restoreProject?.inserted_at ?? restoreProject?.created_at ?? null,
+      restoreCreatedAt: restoreCreatedAt ?? null,
+      physicalClusterSystemIdentifier: providerPass
+        ? source.systemIdentifier
+        : null,
     },
     source,
     target,
     comparison,
     rpoSeconds,
     rtoSeconds,
-    startedAt: authority.startedAt,
-    completedAt: authority.completedAt,
+    measuredAt,
   };
   await adapters.record(evidence, authority);
   return evidence;
@@ -328,7 +320,19 @@ async function captureDatabaseUrl(url) {
           coalesce(cmd,'')||':'||coalesce(qual,'')||':'||coalesce(with_check,'')
         from pg_catalog.pg_policies where schemaname in('public','private')
       ) catalog order by kind,identity`;
-    const data = await rowsForTables(sql, "public", PUBLIC_TABLES);
+    const applicationTables = await sql`
+      select tablename from pg_catalog.pg_tables
+      where schemaname='public'
+        and (tablename like 'lukas_qto_%' or tablename like 'lukas_drawing_%')
+      order by tablename`;
+    const [control] = await sql`
+      select system_identifier::text system_identifier
+      from pg_catalog.pg_control_system()`;
+    const data = await rowsForTables(
+      sql,
+      "public",
+      applicationTables.map((row) => row.tablename),
+    );
     const yjs = await rowsForTables(sql, "private", [
       "lukas_drawing_collaboration_states",
     ]);
@@ -339,6 +343,7 @@ async function captureDatabaseUrl(url) {
       digest: digest(rows.join("\n")),
     });
     return {
+      systemIdentifier: control?.system_identifier ?? null,
       schema: summary(canonicalRows(schemaRows)),
       database: summary(data),
       yjs: summary(yjs),
@@ -375,8 +380,15 @@ async function captureStorageUrl(postgresUrl, supabaseUrl, serviceKey) {
           },
         },
       );
+      if (response.status === 404) {
+        integrity = false;
+        verified.push(
+          `${file.storage_path}:${file.sha256}:${file.byte_size}:MISSING:0`,
+        );
+        continue;
+      }
       if (!response.ok)
-        throw new Error(`NOT MET: storage download ${response.status}`);
+        throw new Error(`UNEXECUTED: storage authority ${response.status}`);
       const bytes = Buffer.from(await response.arrayBuffer());
       const actual = digest(bytes);
       if (actual !== file.sha256 || bytes.byteLength !== Number(file.byte_size))
@@ -432,6 +444,12 @@ async function recordEvidence(evidence, authority) {
 }
 
 export const realRestoreAdapters = {
+  getSourceCommit: async () =>
+    execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: resolve(here, ".."),
+      encoding: "utf8",
+    }).trim(),
+  now: () => new Date().toISOString(),
   listBackups: (projectRef, token) =>
     managementGet(`/v1/projects/${projectRef}/database/backups`, token),
   getProject: (projectRef, token) =>

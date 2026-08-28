@@ -405,8 +405,7 @@ begin
     +(v_dependencies->>'drawingMaterialLinks')::bigint
     +(v_dependencies->>'materialTransactions')::bigint
     +(v_dependencies->>'publishedLibraryVersions')::bigint
-    +(v_dependencies->>'libraryImports')::bigint
-    +(v_dependencies->>'immutableFiles')::bigint;
+    +(v_dependencies->>'libraryImports')::bigint;
   v_status:=case
     when pg_catalog.now()<v_request.purge_after then 'retention_not_expired'
     when v_active_holds>0 then 'legal_hold_active'
