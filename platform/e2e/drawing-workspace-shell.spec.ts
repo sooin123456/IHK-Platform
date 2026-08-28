@@ -172,6 +172,111 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
   await expect(inspector.getByText(/WALL-EXT-01/)).toHaveCount(0);
 });
 
+test("tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes", async ({
+  page,
+}) => {
+  for (const viewport of [
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openPreview(page);
+
+    const canvas = page.getByLabel(/도면 화면/);
+    const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+    const inspector = page.getByRole("complementary", {
+      name: "속성 검사기",
+    });
+    const inspectorToggle = page.getByRole("button", {
+      name: "속성 검사기 열기",
+    });
+
+    await expect(canvas).toBeVisible();
+    await expect(tools).toBeVisible();
+    await expect(inspector).toBeHidden();
+    for (const target of await tools.getByRole("tab").all()) {
+      const bounds = await target.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height };
+      });
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+    await inspectorToggle.click();
+    await expect(inspector).toBeVisible();
+    await expect(tools).toBeHidden();
+
+    const inspectorButtons = inspector.getByRole("button");
+    for (const target of await inspectorButtons.all()) {
+      const bounds = await target.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height };
+      });
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+
+    await page
+      .getByRole("button", { name: "속성 검사기 숨기기" })
+      .click();
+    await expect(inspector).toBeHidden();
+    await expect(canvas).toBeFocused();
+
+    const zoom = Number(await canvas.getAttribute("data-viewport-zoom"));
+    const viewportX = Number(
+      await canvas.getAttribute("data-viewport-x"),
+    );
+    const viewportY = Number(
+      await canvas.getAttribute("data-viewport-y"),
+    );
+    await canvas.click({
+      position: {
+        x: viewportX + 450 * zoom,
+        y: viewportY + 310 * zoom,
+      },
+    });
+    await expect
+      .poll(() => canvas.getAttribute("data-selection-count"))
+      .not.toBe("0");
+    await expect(inspector).toBeVisible();
+    await expect(tools).toBeHidden();
+
+    const layout = await page.evaluate(() => ({
+      documentHeight: document.documentElement.scrollHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportHeight: document.documentElement.clientHeight,
+      viewportWidth: document.documentElement.clientWidth,
+      toolbar: (() => {
+        const element = document.querySelector('[aria-label="캔버스 도구"]');
+        return element
+          ? {
+              scrollWidth: element.scrollWidth,
+              clientWidth: element.clientWidth,
+              buttons: [...element.querySelectorAll("button")].map(
+                (button) => {
+                  const bounds = button.getBoundingClientRect();
+                  return { width: bounds.width, height: bounds.height };
+                },
+              ),
+            }
+          : null;
+      })(),
+    }));
+    expect(layout.documentHeight).toBeLessThanOrEqual(
+      layout.viewportHeight + 1,
+    );
+    expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.toolbar).not.toBeNull();
+    expect(layout.toolbar!.scrollWidth).toBeLessThanOrEqual(
+      layout.toolbar!.clientWidth,
+    );
+    for (const target of layout.toolbar!.buttons) {
+      expect(target.width).toBeGreaterThanOrEqual(44);
+      expect(target.height).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
   page,
 }) => {
@@ -586,6 +691,10 @@ test("architectural object tools remain accessible without toolbar overflow on d
     await semanticTrigger.click();
     await page.getByRole("menuitem", { name: "벽 도구" }).click();
     await expect(semanticTrigger).toBeFocused();
+    if (viewport.width === 768)
+      await page
+        .getByRole("button", { name: "왼쪽 도구 패널 숨기기" })
+        .click();
     const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
     const viewportX = Number(await surface.getAttribute("data-viewport-x"));
     const viewportY = Number(await surface.getAttribute("data-viewport-y"));

@@ -1662,6 +1662,7 @@ export type DrawingCanvasBackground =
     };
 
 export type DrawingCanvasHandle = {
+  focus: () => void;
   getViewport: () => Viewport;
   resetViewport: () => void;
   setViewport: (viewport: Viewport) => void;
@@ -2491,6 +2492,7 @@ export const DrawingCanvas = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
+      focus: () => hostRef.current?.focus(),
       getViewport: () => viewportRef.current,
       resetViewport,
       setViewport,

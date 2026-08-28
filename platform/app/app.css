@@ -161,3 +161,82 @@ body {
     @apply border-t-primary! border-l-primary!;
   }
 }
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .drawing-workspace {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .drawing-workspace-shell {
+    position: relative;
+    display: block;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .drawing-workspace-canvas {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .drawing-workspace-tools,
+  .drawing-workspace-inspector {
+    position: absolute;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    width: min(24rem, calc(100vw - 2rem));
+    max-height: none;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    box-shadow: 0 18px 40px rgb(0 0 0 / 0.35);
+  }
+
+  .drawing-workspace-tools {
+    left: max(0px, env(safe-area-inset-left));
+    border-right: 1px solid rgb(255 255 255 / 0.1);
+  }
+
+  .drawing-workspace-inspector {
+    right: max(0px, env(safe-area-inset-right));
+    border-left: 1px solid rgb(255 255 255 / 0.1);
+  }
+
+  .drawing-workspace-toolbar {
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    flex-wrap: nowrap;
+    max-width: calc(100% - 2rem);
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .drawing-workspace-toolbar:has([role="menu"]) {
+    overflow: visible;
+  }
+
+  .drawing-workspace-toolbar [data-slot="button"],
+  .drawing-workspace-dock-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .drawing-workspace-tools button,
+  .drawing-workspace-tools input:not([type="hidden"]),
+  .drawing-workspace-tools select,
+  .drawing-workspace-inspector button,
+  .drawing-workspace-inspector input:not([type="hidden"]),
+  .drawing-workspace-inspector select {
+    min-height: 44px;
+  }
+
+  .drawing-workspace-tools button,
+  .drawing-workspace-inspector button {
+    min-width: 44px;
+  }
+}

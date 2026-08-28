@@ -845,6 +845,7 @@ export default function DrawingWorkspaceClient({
   const [ifcActivated, setIfcActivated] = useState(false);
   const [narrowSplitTab, setNarrowSplitTab] = useState<"2d" | "3d">("2d");
   const [narrowLayout, setNarrowLayout] = useState(false);
+  const [tabletLayout, setTabletLayout] = useState(false);
   const [ifcSelection, setIfcSelection] = useState<IfcElementSelection | null>(
     null,
   );
@@ -1172,6 +1173,30 @@ export default function DrawingWorkspaceClient({
       setInspectorOpenOverride((current) => (current === true ? true : null)),
     [transientSelectedIdsKey],
   );
+  useEffect(() => {
+    if (!tabletLayout || !transientSelectedIdsKey) return;
+    setLeftDockOpen(false);
+    setInspectorOpenOverride(true);
+  }, [tabletLayout, transientSelectedIdsKey]);
+  const focusCanvas = useCallback(() => {
+    window.requestAnimationFrame(() => canvasRef.current?.focus());
+  }, []);
+  const toggleWorkspaceDock = useCallback(
+    (dock: "left" | "inspector") => {
+      if (dock === "left") {
+        const next = !leftDockOpen;
+        setLeftDockOpen(next);
+        if (tabletLayout) setInspectorOpenOverride(false);
+        if (tabletLayout && !next) focusCanvas();
+        return;
+      }
+      const next = !inspectorOpen;
+      setInspectorOpenOverride(next);
+      if (tabletLayout) setLeftDockOpen(false);
+      if (tabletLayout && !next) focusCanvas();
+    },
+    [focusCanvas, inspectorOpen, leftDockOpen, tabletLayout],
+  );
   awarenessSelectionRef.current = transient.selectedIds;
   const activeDrawingState = transient.state;
   const awarenessVisibleEntityIds = useMemo(
@@ -1448,6 +1473,16 @@ export default function DrawingWorkspaceClient({
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
     const update = () => setNarrowLayout(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia(
+      "(min-width: 768px) and (max-width: 1199px)",
+    );
+    const update = () => setTabletLayout(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
@@ -2517,8 +2552,7 @@ export default function DrawingWorkspaceClient({
       const dock = resolveDrawingWorkspaceDockShortcut(event);
       if (dock) {
         event.preventDefault();
-        if (dock === "left") setLeftDockOpen((open) => !open);
-        else setInspectorOpenOverride((open) => !(open ?? inspectorHasContent));
+        toggleWorkspaceDock(dock);
         return;
       }
       const shortcut = resolveDrawingWorkspaceShortcut(event);
@@ -2540,10 +2574,10 @@ export default function DrawingWorkspaceClient({
     copySelection,
     deleteSelection,
     duplicateSelection,
-    inspectorHasContent,
     moveSelection,
     pasteSelection,
     redo,
+    toggleWorkspaceDock,
     undo,
   ]);
 
@@ -3218,7 +3252,7 @@ export default function DrawingWorkspaceClient({
   );
 
   return (
-    <main className="flex min-h-screen flex-col bg-slate-950 text-slate-100 xl:h-dvh xl:min-h-0 xl:overflow-hidden xl:[contain:strict]">
+    <main className="drawing-workspace flex min-h-screen flex-col bg-slate-950 text-slate-100 xl:h-dvh xl:min-h-0 xl:overflow-hidden xl:[contain:strict]">
       {previewHarness?.verticalTest ||
       previewHarness?.p5IfcTest ||
       previewHarness?.p5PdfTest ? (
@@ -3746,11 +3780,11 @@ export default function DrawingWorkspaceClient({
       ) : null}
 
       <div
-        className={`grid min-h-0 flex-1 grid-cols-1 ${leftDockOpen && inspectorOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)_18rem]" : leftDockOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)]" : inspectorOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"} xl:overflow-hidden`}
+        className={`drawing-workspace-shell grid min-h-0 flex-1 grid-cols-1 ${leftDockOpen && inspectorOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)_18rem]" : leftDockOpen ? "xl:grid-cols-[15rem_minmax(0,1fr)]" : inspectorOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"} xl:overflow-hidden`}
       >
         <aside
           aria-label="도면 도구 패널"
-          className="order-2 flex min-h-0 max-h-[32rem] flex-col overflow-hidden border-b border-white/10 bg-slate-900 xl:order-1 xl:max-h-[calc(100vh-3.5rem)] xl:border-b-0 xl:border-r"
+          className="drawing-workspace-tools order-2 flex min-h-0 max-h-[32rem] flex-col overflow-hidden border-b border-white/10 bg-slate-900 xl:order-1 xl:max-h-[calc(100vh-3.5rem)] xl:border-b-0 xl:border-r"
           hidden={!leftDockOpen}
         >
           <div
@@ -4370,14 +4404,15 @@ export default function DrawingWorkspaceClient({
 
         <section
           aria-label="도면 캔버스"
-          className="relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 xl:min-h-0 xl:overflow-hidden"
+          className="drawing-workspace-canvas relative order-1 min-h-[34rem] min-w-0 bg-slate-950 xl:order-2 xl:min-h-0 xl:overflow-hidden"
           aria-busy={!outboxReady}
         >
-          <div className="absolute left-2 top-2 z-30 flex gap-1 rounded-md bg-slate-950/85 p-1 shadow-lg">
+          <div className="absolute left-2 top-2 z-50 flex gap-1 rounded-md bg-slate-950/85 p-1 shadow-lg">
             <Button
               aria-label={`왼쪽 도구 패널 ${leftDockOpen ? "숨기기" : "열기"}`}
               aria-pressed={leftDockOpen}
-              onClick={() => setLeftDockOpen((open) => !open)}
+              className="drawing-workspace-dock-toggle"
+              onClick={() => toggleWorkspaceDock("left")}
               size="icon"
               title={`왼쪽 도구 패널 ${leftDockOpen ? "숨기기" : "열기"} ([)`}
               variant="ghost"
@@ -4387,11 +4422,8 @@ export default function DrawingWorkspaceClient({
             <Button
               aria-label={`속성 검사기 ${inspectorOpen ? "숨기기" : "열기"}`}
               aria-pressed={inspectorOpen}
-              onClick={() =>
-                setInspectorOpenOverride((open) =>
-                  open === null ? !inspectorHasContent : !open,
-                )
-              }
+              className="drawing-workspace-dock-toggle"
+              onClick={() => toggleWorkspaceDock("inspector")}
               size="icon"
               title={`속성 검사기 ${inspectorOpen ? "숨기기" : "열기"} (])`}
               variant="ghost"
@@ -4704,7 +4736,7 @@ export default function DrawingWorkspaceClient({
 
           <nav
             aria-label="캔버스 도구"
-            className={`absolute bottom-4 left-1/2 max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
+            className={`drawing-workspace-toolbar absolute bottom-4 left-1/2 z-50 max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
           >
             <Button
               aria-label="선택 도구"
@@ -4902,7 +4934,7 @@ export default function DrawingWorkspaceClient({
 
         <aside
           aria-label="속성 검사기"
-          className="order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
+          className="drawing-workspace-inspector order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
           hidden={!inspectorOpen}
         >
           {collaborationEditNotice ? (
