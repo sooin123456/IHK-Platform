@@ -583,13 +583,185 @@ test("the exact 10k authoritative graph projects only viewport objects for rende
   );
 });
 
-test("the exact 10k render adapter removes quadratic host ordering", async () => {
+test("viewport projection keeps every visual edge that can cross a pan or zoom boundary", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const layerId = ids.layer;
+  const wallId = "10000000-0000-4000-8000-000000000801";
+  const openingId = "10000000-0000-4000-8000-000000000802";
+  const textId = "10000000-0000-4000-8000-000000000803";
+  const strokeId = "10000000-0000-4000-8000-000000000804";
+  const rotatedId = "10000000-0000-4000-8000-000000000805";
+  const objects = [
+    {
+      ...object(wallId),
+      geometry: {
+        type: "wall",
+        semanticVersion: 1,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        thicknessMillimeters: 400,
+        heightMillimeters: 3000,
+      },
+      style: inlineStyle,
+    },
+    {
+      ...object(openingId),
+      geometry: {
+        type: "opening",
+        semanticVersion: 1,
+        hostWallId: wallId,
+        offsetMillimeters: 10,
+        widthMillimeters: 20,
+        heightMillimeters: 2100,
+        sillHeightMillimeters: 0,
+        openingKind: "void",
+      },
+      style: inlineStyle,
+    },
+    {
+      ...object(textId),
+      geometry: {
+        type: "text",
+        origin: { x: 10, y: 0 },
+        text: "first\nsecond\nthird",
+        width: 90,
+      },
+      style: { ...inlineStyle, fontSize: 20 },
+    },
+    {
+      ...object(strokeId),
+      geometry: {
+        type: "line",
+        start: { x: 0, y: 300 },
+        end: { x: 100, y: 300 },
+      },
+      style: { ...inlineStyle, strokeWidth: 200 },
+    },
+    {
+      ...object(rotatedId),
+      geometry: {
+        type: "rectangle",
+        origin: { x: 200, y: 200 },
+        width: 40,
+        height: 20,
+        rotation: 45,
+      },
+      style: inlineStyle,
+    },
+  ];
+  const items = blocks.drawingCanvasRenderItems({
+    blockInstances: [],
+    layers: { [layerId]: { visible: true, locked: false, sortOrder: 0 } },
+    objects,
+  });
+  const project = (viewportBounds, zoom) =>
+    blocks
+      .drawingCanvasViewportProjection({
+        items,
+        layers: {
+          [layerId]: { visible: true, locked: false, sortOrder: 0 },
+        },
+        viewportBounds,
+        zoom,
+      })
+      .projectedItems.map(({ id }) => id);
+
+  assert.ok(
+    project({ x: 0, y: 150, width: 100, height: 10 }, 1).includes(openingId),
+    "the host-thickness opening cut crosses the viewport",
+  );
+  assert.ok(
+    project({ x: 0, y: 35, width: 100, height: 5 }, 32).includes(textId),
+    "styled multiline text crosses the zoomed viewport",
+  );
+  assert.ok(
+    project({ x: 0, y: 205, width: 100, height: 5 }, 0.05).includes(strokeId),
+    "world-space stroke width crosses the panned viewport",
+  );
+  assert.ok(
+    project({ x: 225, y: 205, width: 5, height: 5 }, 1).includes(rotatedId),
+    "the rotated rectangle edge crosses the viewport",
+  );
+  assert.ok(
+    project({ x: 0, y: 72.1, width: 100, height: 1 }, 1).includes(textId),
+    "screen-space selection extents preserve a just-outside visual",
+  );
+});
+
+test("host ordering work grows sub-quadratically without a machine clock", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const layerId = ids.layer;
+  function measuredIdReads(pairCount) {
+    let idReads = 0;
+    const objects = [];
+    for (let index = 0; index < pairCount; index += 1) {
+      const suffix = String(index + 1).padStart(12, "0");
+      const wallId = `90000000-0000-4000-8000-${suffix}`;
+      const openingId = `10000000-0000-4000-8000-${suffix}`;
+      for (const value of [
+        {
+          ...object(openingId),
+          geometry: {
+            type: "opening",
+            semanticVersion: 1,
+            hostWallId: wallId,
+            offsetMillimeters: 10,
+            widthMillimeters: 20,
+            heightMillimeters: 2100,
+            sillHeightMillimeters: 0,
+            openingKind: "door",
+          },
+          style: inlineStyle,
+        },
+        {
+          ...object(wallId),
+          geometry: {
+            type: "wall",
+            semanticVersion: 1,
+            start: { x: 0, y: index },
+            end: { x: 100, y: index },
+            thicknessMillimeters: 10,
+            heightMillimeters: 3000,
+          },
+          style: inlineStyle,
+        },
+      ]) {
+        const id = value.id;
+        Object.defineProperty(value, "id", {
+          enumerable: true,
+          get() {
+            idReads += 1;
+            return id;
+          },
+        });
+        objects.push(value);
+      }
+    }
+    const items = blocks.drawingCanvasRenderItems({
+      blockInstances: [],
+      layers: {
+        [layerId]: { visible: true, locked: false, sortOrder: 0 },
+      },
+      objects,
+    });
+    assert.equal(items.length, pairCount * 2);
+    return idReads;
+  }
+
+  const small = measuredIdReads(200);
+  const large = measuredIdReads(400);
+  assert.ok(
+    large < small * 3,
+    `doubling the hostile graph grew ID reads from ${small} to ${large}`,
+  );
+});
+
+test("the exact 10k render adapter retains every authoritative item", async () => {
   const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
   const { buildDrawingP4PerformanceFixture } =
     await import("../app/lukas/lib/drawing-p4-performance.ts");
   const layerId = "10000000-0000-4000-8000-000000000001";
   const fixture = buildDrawingP4PerformanceFixture(10_000, layerId);
-  const started = performance.now();
   const adapter = blocks.drawingCanvasRenderAdapter({
     blockInstances: [],
     layers: {
@@ -598,13 +770,8 @@ test("the exact 10k render adapter removes quadratic host ordering", async () =>
     objects: fixture.objects.map((item) => ({ ...item, style: item.style })),
     zoom: 1,
   });
-  const elapsed = performance.now() - started;
 
   assert.equal(adapter.items.length, 10_000);
-  assert.ok(
-    elapsed < 100,
-    `10,000 authoritative render items took ${elapsed.toFixed(1)}ms`,
-  );
 });
 
 test("a hosted opening inherits hidden host visibility across layers", async () => {

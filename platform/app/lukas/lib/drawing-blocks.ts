@@ -1,4 +1,8 @@
-import { geometryBounds } from "./drawing-geometry.ts";
+import {
+  DRAWING_SEMANTIC_RENDER_METRICS,
+  drawingSemanticLabelLayout,
+  geometryBounds,
+} from "./drawing-geometry.ts";
 import {
   drawingDimensionBoundsPoints,
   drawingLayoutCorners,
@@ -347,6 +351,93 @@ export type DrawingCanvasRenderItem =
       model: DrawingBlockRenderModel & { bounds: Bounds };
     };
 
+const DRAWING_SCREEN_RENDER_PADDING_PIXELS = 8;
+
+function expandBounds(bounds: Bounds, padding: number): Bounds {
+  return {
+    x: bounds.x - padding,
+    y: bounds.y - padding,
+    width: bounds.width + padding * 2,
+    height: bounds.height + padding * 2,
+  };
+}
+
+function unionBounds(...bounds: Bounds[]): Bounds {
+  const x = Math.min(...bounds.map((value) => value.x));
+  const y = Math.min(...bounds.map((value) => value.y));
+  const right = Math.max(...bounds.map((value) => value.x + value.width));
+  const bottom = Math.max(...bounds.map((value) => value.y + value.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function drawingObjectRenderBounds(
+  object: DrawingObject & { style: DrawingStyle },
+  objects: Readonly<Record<string, DrawingObject>>,
+): Bounds {
+  const { geometry, style } = object;
+  let bounds = geometryBounds(geometry, objects);
+  if (geometry.type === "text") {
+    const layout = drawingTextLayout(geometry, style.fontSize ?? 14);
+    bounds = pointsBounds(
+      drawingLayoutCorners(geometry.origin, layout.width, layout.height),
+    );
+  } else if (geometry.type === "dimension") {
+    bounds = pointsBounds(drawingDimensionBoundsPoints(geometry));
+  } else if (
+    geometry.type === "space" ||
+    geometry.type === "area" ||
+    geometry.type === "grid"
+  ) {
+    const label = drawingSemanticLabelLayout(geometry, object.name);
+    bounds = unionBounds(
+      bounds,
+      pointsBounds(
+        rectanglePoints(
+          { x: label.x, y: label.y },
+          label.width,
+          label.height,
+          label.rotation,
+        ),
+      ),
+    );
+    if (geometry.type === "grid") {
+      const radius =
+        DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius +
+        DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth / 2;
+      bounds = unionBounds(bounds, {
+        x: geometry.end.x - radius,
+        y: geometry.end.y - radius,
+        width: radius * 2,
+        height: radius * 2,
+      });
+    }
+  } else if (geometry.type === "opening") {
+    const host = objects[geometry.hostWallId];
+    if (host?.geometry.type === "wall")
+      bounds = expandBounds(
+        bounds,
+        (host.geometry.thicknessMillimeters +
+          DRAWING_SEMANTIC_RENDER_METRICS.openingCutExtra) /
+          2,
+      );
+  }
+  return expandBounds(bounds, style.strokeWidth / 2);
+}
+
+function drawingBlockRenderBounds(
+  model: DrawingBlockRenderModel & { bounds: Bounds },
+) {
+  const scale = Math.max(
+    Math.abs(model.instance.scaleX),
+    Math.abs(model.instance.scaleY),
+  );
+  const strokePadding =
+    (Math.max(...model.primitives.map(({ style }) => style.strokeWidth), 0) *
+      scale) /
+    2;
+  return expandBounds(model.bounds, strokePadding);
+}
+
 /**
  * Derives the canonical authored-order object set visible to every live
  * canvas consumer. Hosted openings inherit their host wall's layer
@@ -384,7 +475,7 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
   const sortedItems: DrawingCanvasRenderItem[] = [
     ...drawingVisibleCanvasObjects(input.objects, input.layers).map(
       (object) => ({
-        bounds: geometryBounds(object.geometry, objectMap),
+        bounds: drawingObjectRenderBounds(object, objectMap),
         id: object.id,
         kind: "object" as const,
         layerId: object.layerId,
@@ -395,7 +486,7 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
       input.layers[model.instance.layerId]?.visible
         ? [
             {
-              bounds: model.bounds,
+              bounds: drawingBlockRenderBounds(model),
               id: model.instance.id,
               kind: "block" as const,
               layerId: model.instance.layerId,
@@ -449,7 +540,10 @@ export function drawingCanvasViewportProjection(input: {
       ? []
       : input.viewportBounds
         ? input.items.filter((item) => {
-            const bounds = item.bounds;
+            const bounds = expandBounds(
+              item.bounds,
+              DRAWING_SCREEN_RENDER_PADDING_PIXELS / input.zoom,
+            );
             const viewport = input.viewportBounds!;
             return (
               bounds.x <= viewport.x + viewport.width &&

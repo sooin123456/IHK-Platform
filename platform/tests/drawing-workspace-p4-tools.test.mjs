@@ -522,6 +522,79 @@ test("selection resolves canonical geometry when the renderer supplies no hit hi
   assert.deepEqual(result.state.selectedIds, [wall.id]);
 });
 
+test("a renderer hit hint does not scan unrelated selection candidates", () => {
+  const candidateIds = Array.from(
+    { length: 1_850 },
+    (_, index) => `candidate-${index}`,
+  );
+  const preferredId = candidateIds[0];
+  let objectReads = 0;
+  const preferred = {
+    id: preferredId,
+    name: "Preferred",
+    layerId,
+    geometry: {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 100,
+      height: 100,
+      rotation: 0,
+    },
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const objects = new Proxy(
+    Object.fromEntries(
+      candidateIds.map((id, index) => [
+        id,
+        index === 0
+          ? preferred
+          : {
+              ...preferred,
+              id,
+              geometry: {
+                ...preferred.geometry,
+                origin: { x: index * 200, y: 0 },
+              },
+            },
+      ]),
+    ),
+    {
+      get(target, property, receiver) {
+        if (typeof property === "string" && property in target)
+          objectReads += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    },
+  );
+
+  const result = tools.drawingSelectionEventTransition(
+    tools.createDrawingSelectionState(),
+    {
+      type: "pointer_down",
+      candidateId: preferredId,
+      pointerId: 9,
+      screenPoint: { x: 50, y: 50 },
+      shiftKey: false,
+    },
+    {
+      actorId: "actor-a",
+      canEdit: true,
+      layers: { [layerId]: layer() },
+      objects,
+      orderedCandidateIds: candidateIds,
+      snap: { gridSize: 0 },
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  );
+
+  assert.deepEqual(result.state.selectedIds, [preferredId]);
+  assert.ok(
+    objectReads < 10,
+    `expected bounded object reads, got ${objectReads}`,
+  );
+});
+
 test("Canvas Shift selection and Awareness lock use the narrow-phase resolved target", () => {
   assert.equal(typeof tools.drawingCanvasSelectionPointerDown, "function");
   const under = {

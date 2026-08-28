@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -1226,14 +1227,14 @@ export default function DrawingWorkspaceClient({
     [activeDrawingState.objects, activeDrawingState.structure?.blockInstances],
   );
   const onCanvasSelectionChange = useCallback(
-    (ids: string[]) =>
-      setAuthorizedSelection(
-        ids.filter(
-          (id) =>
-            Boolean(activeDrawingState.objects[id]) ||
-            Boolean(activeDrawingState.structure?.blockInstances[id]),
-        ),
-      ),
+    (ids: string[]) => {
+      const authorizedIds = ids.filter(
+        (id) =>
+          Boolean(activeDrawingState.objects[id]) ||
+          Boolean(activeDrawingState.structure?.blockInstances[id]),
+      );
+      startTransition(() => setAuthorizedSelection(authorizedIds));
+    },
     [
       activeDrawingState.objects,
       activeDrawingState.structure?.blockInstances,
@@ -1701,7 +1702,7 @@ export default function DrawingWorkspaceClient({
         ? drawingStateFromBootstrap(bootstrap)
         : drawingStateFromRevision(revision);
       try {
-        setOutboxReady(false);
+        if (!previewMode) setOutboxReady(false);
         collaborationAdapterRef.current = null;
         collaborationCommandRef.current = null;
         clearAwareness();
@@ -1809,7 +1810,7 @@ export default function DrawingWorkspaceClient({
       setSaveState((current) => ({ ...current, online: false }));
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
-    setOutboxReady(false);
+    if (!previewMode) setOutboxReady(false);
     setLegacyOperationCount(0);
     setPersistenceState({ failed: false, volatileCount: 0 });
     setActiveTool("select");

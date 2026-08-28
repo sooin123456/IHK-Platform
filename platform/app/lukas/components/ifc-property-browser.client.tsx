@@ -642,6 +642,7 @@ export default function IfcPropertyBrowser({
           <div
             aria-label="IFC 3D 모델 화면"
             className="absolute inset-0"
+            data-viewer-phase={viewerPhase}
             ref={viewerContainerRef}
             role="img"
           />

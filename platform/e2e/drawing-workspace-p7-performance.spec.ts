@@ -6,7 +6,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { drawingCanvasRenderAdapter } from "../app/lukas/lib/drawing-blocks";
 import { buildDrawingP4PerformanceFixture } from "../app/lukas/lib/drawing-p4-performance";
 import {
-  drawingP7SourceCommitSha,
+  drawingP7CaptureSha256,
   writeDrawingP7PerformanceEvidence,
 } from "../scripts/drawing-p7-performance-evidence.mjs";
 
@@ -21,6 +21,12 @@ function percentile(values: number[], ratio: number) {
 
 function sha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function requiredEnvironment(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`P7 runner provenance is missing ${name}`);
+  return value;
 }
 
 async function stableSurfaceBox(surface: Locator) {
@@ -116,7 +122,7 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
 
   await page.goto(performancePath, { waitUntil: "domcontentloaded" });
   const surface = page.getByLabel(/도면 화면/);
-  await page.waitForFunction(
+  const readinessHandle = await page.waitForFunction(
     () => {
       const canvas = document.querySelector<HTMLElement>(
         '[aria-label*="도면 화면"]',
@@ -124,32 +130,54 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       const hydrated = document.querySelector(
         '[aria-label="미리보기 hydration 상태"]',
       );
-      return (
+      const ifcViewer = document.querySelector<HTMLElement>(
+        '[aria-label="IFC 3D 모델 화면"]',
+      );
+      const stageEnd = (name: string) => {
+        const entries = performance.getEntriesByName(
+          `drawing-workspace:${name}`,
+        );
+        const entry = entries.at(-1);
+        return entry ? entry.startTime + entry.duration : 0;
+      };
+      const ready =
         canvas?.dataset.renderedSemanticObjectCount === "10000" &&
         Number(canvas.dataset.projectedSemanticObjectCount) > 0 &&
-        hydrated?.textContent?.includes("준비됨")
-      );
+        canvas.dataset.pdfCurrentMounted === "true" &&
+        ifcViewer?.dataset.viewerPhase === "ready" &&
+        hydrated?.textContent?.includes("준비됨") &&
+        stageEnd("hydration") > 0 &&
+        stageEnd("pdf") > 0 &&
+        stageEnd("ifc") > 0;
+      if (!ready) return false;
+      const observed = performance.now();
+      return {
+        navigationStartMs: 0,
+        hydrationEndMs: stageEnd("hydration"),
+        authoritativeStateObservedMs: observed,
+        viewportProjectionObservedMs: observed,
+        pdfVisibleObservedMs: observed,
+        ifcVisibleObservedMs: observed,
+      };
     },
     undefined,
-    { timeout: 30_000 },
+    { timeout: 60_000 },
   );
-  const firstUsableMs = await page.evaluate(
+  const readiness = (await readinessHandle.jsonValue()) as {
+    navigationStartMs: number;
+    hydrationEndMs: number;
+    authoritativeStateObservedMs: number;
+    viewportProjectionObservedMs: number;
+    pdfVisibleObservedMs: number;
+    ifcVisibleObservedMs: number;
+  };
+  const usableFrameEndMs = await page.evaluate(
     () =>
       new Promise<number>((resolve) =>
         requestAnimationFrame(() => resolve(performance.now())),
       ),
   );
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            performance.getEntriesByName("drawing-workspace:pdf").length > 0 &&
-            performance.getEntriesByName("drawing-workspace:ifc").length > 0,
-        ),
-      { timeout: 60_000 },
-    )
-    .toBe(true);
+  const firstUsableMs = usableFrameEndMs - readiness.navigationStartMs;
   const workloadProjection = await surface.evaluate(async (element) => {
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
@@ -184,10 +212,23 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       mode: "zoom",
       zoom: [] as number[],
       pan: [] as number[],
-      selection: [] as number[],
+      selection: [] as Array<{
+        durationMs: number;
+        expectedObjectName: string;
+        committedObjectName: string;
+      }>,
+      expectedSelectionName: "",
+      pendingSelection: null as null | {
+        startedAt: number;
+        sample: {
+          durationMs: number;
+          expectedObjectName: string;
+          committedObjectName: string;
+        };
+      },
     };
     Object.assign(element, { __p7Performance: evidence });
-    const measure = (kind: "zoom" | "pan" | "selection") => {
+    const measure = (kind: "zoom" | "pan") => {
       const started = performance.now();
       requestAnimationFrame(() =>
         evidence[kind].push(performance.now() - started),
@@ -203,10 +244,24 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
       },
       { capture: true },
     );
-    element.addEventListener(
-      "pointerup",
+    window.addEventListener(
+      "pointerdown",
       () => {
-        if (evidence.mode === "selection") measure("selection");
+        if (evidence.mode !== "selection") return;
+        const started = performance.now();
+        const expectedObjectName = evidence.expectedSelectionName;
+        const sample = {
+          durationMs: 0,
+          expectedObjectName,
+          committedObjectName: "",
+        };
+        evidence.pendingSelection = { startedAt: started, sample };
+        requestAnimationFrame(() => {
+          sample.durationMs = performance.now() - started;
+          sample.committedObjectName = element.dataset.selectedObjectName ?? "";
+          evidence.selection.push(sample);
+          evidence.pendingSelection = null;
+        });
       },
       { capture: true },
     );
@@ -247,7 +302,15 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   ];
   for (let sample = 0; sample < 30; sample += 1) {
     const target = selectionTargets[sample % selectionTargets.length];
+    await surface.evaluate((element, expectedSelectionName) => {
+      (
+        element as HTMLElement & {
+          __p7Performance: { expectedSelectionName: string };
+        }
+      ).__p7Performance.expectedSelectionName = expectedSelectionName;
+    }, target.name);
     const point = await worldPoint(page, target.world);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
     await page.mouse.click(point.x, point.y);
     await expect(surface).toHaveAttribute(
       "data-selected-object-name",
@@ -262,7 +325,11 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
         __p7Performance: {
           zoom: number[];
           pan: number[];
-          selection: number[];
+          selection: Array<{
+            durationMs: number;
+            expectedObjectName: string;
+            committedObjectName: string;
+          }>;
         };
       }
     ).__p7Performance;
@@ -270,14 +337,24 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   expect(frames.zoom).toHaveLength(30);
   expect(frames.pan.length).toBeGreaterThanOrEqual(30);
   expect(frames.selection).toHaveLength(30);
+  expect(
+    frames.selection.every(
+      ({ committedObjectName, expectedObjectName }) =>
+        committedObjectName === expectedObjectName,
+    ),
+  ).toBe(true);
 
-  const stageDurations = await page.evaluate(() => {
-    const duration = (name: string) =>
-      Math.max(
-        ...performance
-          .getEntriesByName(`drawing-workspace:${name}`)
-          .map((entry) => entry.duration),
-      );
+  const stageIntervals = await page.evaluate(() => {
+    const interval = (name: string) => {
+      const entry = performance
+        .getEntriesByName(`drawing-workspace:${name}`)
+        .sort((left, right) => right.duration - left.duration)[0];
+      return {
+        startMs: entry.startTime,
+        endMs: entry.startTime + entry.duration,
+        durationMs: entry.duration,
+      };
+    };
     const navigation = performance.getEntriesByType(
       "navigation",
     )[0] as PerformanceNavigationTiming;
@@ -286,13 +363,13 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     )?.duration;
     return {
       ssr,
-      hydration: duration("hydration"),
-      styleResolution: duration("style-resolution"),
-      renderAdapter: duration("render-adapter"),
-      konvaMount: duration("konva-mount"),
-      snapHitPreparation: duration("snap-hit-preparation"),
-      pdf: duration("pdf"),
-      ifc: duration("ifc"),
+      hydration: interval("hydration"),
+      styleResolution: interval("style-resolution"),
+      renderAdapter: interval("render-adapter"),
+      konvaMount: interval("konva-mount"),
+      snapHitPreparation: interval("snap-hit-preparation"),
+      pdf: interval("pdf"),
+      ifc: interval("ifc"),
     };
   });
   const loaderMs = Number(
@@ -301,7 +378,10 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
   const p95Ms = {
     zoom: percentile(frames.zoom, 0.95),
     pan: percentile(frames.pan, 0.95),
-    selection: percentile(frames.selection, 0.95),
+    selection: percentile(
+      frames.selection.map(({ durationMs }) => durationMs),
+      0.95,
+    ),
   };
   const firstUsableStatus = firstUsableMs <= 2_500 ? "MET" : "NOT MET";
   const warmStatus =
@@ -310,10 +390,21 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     firstUsableStatus === "MET" && warmStatus === "MET" ? "MET" : "NOT MET";
   const hashes = deterministicHashes();
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: localStatus,
     authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-    sourceCommitSha: drawingP7SourceCommitSha(),
+    sourceCommitSha: requiredEnvironment("P7_SOURCE_COMMIT_SHA"),
+    provenance: {
+      runner: "P7_PLAYWRIGHT_PRODUCTION_BUILD_V2",
+      sourceTreeSha256: requiredEnvironment("P7_SOURCE_TREE_SHA256"),
+      runnerSha256: requiredEnvironment("P7_RUNNER_SHA256"),
+      configSha256: requiredEnvironment("P7_CONFIG_SHA256"),
+      build: {
+        serverSha256: requiredEnvironment("P7_BUILD_SERVER_SHA256"),
+        clientSha256: requiredEnvironment("P7_BUILD_CLIENT_SHA256"),
+      },
+      captureSha256: "",
+    },
     browserName,
     browserVersion: browser.version(),
     userAgent: await page.evaluate(() => navigator.userAgent),
@@ -345,48 +436,49 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
     },
     conditions: {
       firstUsable:
-        "cold exact 10,000-object document navigation after warming application, PDF, and IFC assets; usable after hydration, authoritative-state confirmation, non-empty viewport projection, and the next animation frame",
-      warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; event dispatch to next animation frame",
+        "exact 10,000-object document navigation with immutable application, PDF, and IFC response bytes already in the browser HTTP cache; usable after hydration, exact authoritative-state confirmation, non-empty viewport projection, mounted PDF pixels, ready visible IFC frame, and the next animation frame",
+      warm: "same mounted exact 10,000-object workspace after two zoom gestures and one pan gesture; earliest capture-phase input boundary to the next animation frame, with selection state committed in that frame",
     },
     stages: {
       loader: { authority: "LOCAL_PRODUCTION_SERVER", durationMs: loaderMs },
       ssr: {
         authority: "LOCAL_PRODUCTION_SERVER",
-        durationMs: stageDurations.ssr,
+        durationMs: stageIntervals.ssr,
       },
       hydration: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.hydration,
+        ...stageIntervals.hydration,
       },
       styleResolution: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.styleResolution,
+        ...stageIntervals.styleResolution,
       },
       renderAdapter: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.renderAdapter,
+        ...stageIntervals.renderAdapter,
       },
       konvaMount: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.konvaMount,
+        ...stageIntervals.konvaMount,
       },
       snapHitPreparation: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.snapHitPreparation,
+        ...stageIntervals.snapHitPreparation,
       },
       pdf: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.pdf,
+        ...stageIntervals.pdf,
       },
       ifc: {
         authority: "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-        durationMs: stageDurations.ifc,
+        ...stageIntervals.ifc,
       },
     },
     firstUsable: {
       durationMs: firstUsableMs,
       targetMs: 2_500,
       status: firstUsableStatus,
+      readiness: { ...readiness, usableFrameEndMs },
     },
     warm: {
       samples: {
@@ -395,12 +487,18 @@ test("P7 exact 10k whole workspace meets first-usable and warm-frame budgets wit
         selection: frames.selection.length,
       },
       p95Ms,
+      rawSamples: {
+        zoomMs: frames.zoom,
+        panMs: frames.pan,
+        selection: frames.selection,
+      },
       targetMs: 16.7,
       status: warmStatus,
     },
     determinism: { runs: 100, ...hashes },
     gates: { local: localStatus, productionRuntime: "UNEXECUTED" },
   };
+  evidence.provenance.captureSha256 = drawingP7CaptureSha256(evidence);
   const evidencePath = writeDrawingP7PerformanceEvidence(evidence);
   await test.info().attach("P7 whole-workspace performance evidence", {
     path: evidencePath,

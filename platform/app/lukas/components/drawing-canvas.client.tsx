@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import type { KonvaEventObject } from "konva/lib/Node";
@@ -1163,36 +1164,41 @@ function drawingSelectionCandidateAtPoint(
   preferredId: string | null,
   point: Point,
 ) {
+  const ordered = context.orderedCandidateIds ?? Object.keys(context.objects);
   if (preferredId && !selectableDrawingObject(context, preferredId))
     return undefined;
-  const ordered = context.orderedCandidateIds ?? Object.keys(context.objects);
-  const candidates = preferredId
-    ? [
-        preferredId,
-        ...[...ordered].reverse().filter((id) => id !== preferredId),
-      ]
-    : [...ordered].reverse();
-  return candidates
-    .map((id) => selectableDrawingObject(context, id))
-    .find(
-      (object) =>
-        object &&
-        pointInBounds(
-          point,
-          drawingSelectionHitBounds(
-            object.geometry,
-            context.viewport.zoom,
-            SELECTION_HIT_TOLERANCE_PIXELS,
-            context.objects,
-          ),
-        ) &&
-        drawingGeometryHitTest(
+  const matches = (id: string) => {
+    const object = selectableDrawingObject(context, id);
+    return object &&
+      pointInBounds(
+        point,
+        drawingSelectionHitBounds(
           object.geometry,
-          point,
-          SELECTION_HIT_TOLERANCE_PIXELS / context.viewport.zoom,
+          context.viewport.zoom,
+          SELECTION_HIT_TOLERANCE_PIXELS,
           context.objects,
         ),
-    );
+      ) &&
+      drawingGeometryHitTest(
+        object.geometry,
+        point,
+        SELECTION_HIT_TOLERANCE_PIXELS / context.viewport.zoom,
+        context.objects,
+      )
+      ? object
+      : undefined;
+  };
+  if (preferredId) {
+    const preferred = matches(preferredId);
+    if (preferred) return preferred;
+  }
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const id = ordered[index];
+    if (id === preferredId) continue;
+    const candidate = matches(id);
+    if (candidate) return candidate;
+  }
+  return undefined;
 }
 
 /** Expands canonical object bounds by a fixed screen-space hit tolerance. */
@@ -3072,6 +3078,10 @@ export const DrawingCanvas = forwardRef<
       })),
     [viewportProjection.hitItems],
   );
+  const orderedSelectionCandidateIds = useMemo(
+    () => selectionCandidates.map(({ id }) => id),
+    [selectionCandidates],
+  );
   const remoteSelections = awarenessPeers.flatMap((peer) =>
     drawingRemoteSelectionBounds(
       peer.selectedIds,
@@ -3147,7 +3157,7 @@ export const DrawingCanvas = forwardRef<
   function currentSelectionContext(): DrawingSelectionContext {
     return {
       ...selectionContextRef.current,
-      orderedCandidateIds: selectionCandidates.map(({ id }) => id),
+      orderedCandidateIds: orderedSelectionCandidateIds,
       viewport: viewportRef.current,
     };
   }
@@ -3182,6 +3192,79 @@ export const DrawingCanvas = forwardRef<
       if (pointInBounds(point, selectionCandidates[index].bounds))
         return selectionCandidates[index].id;
     return null;
+  }
+
+  function pointerForHostEvent(
+    event: Pick<PointerEvent, "clientX" | "clientY">,
+    host: HTMLElement,
+  ) {
+    const bounds = host.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+  }
+
+  function beginNativeSelection(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.focus();
+    if (
+      activeTool !== "select" ||
+      event.button !== 0 ||
+      spacePressedRef.current
+    )
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    const pointer = pointerForHostEvent(event, event.currentTarget);
+    const candidateId = candidateIdFor(pointer);
+    if (!candidateId || !blockInstancesById[candidateId]) {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      capturedSelectionTargetRef.current = event.currentTarget;
+    }
+    runSelectionPointerDown({
+      type: "pointer_down",
+      candidateId,
+      pointerId: event.pointerId,
+      screenPoint: pointer,
+      shiftKey: event.shiftKey,
+    });
+  }
+
+  function continueNativeSelection(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      activeTool !== "select" ||
+      (selectionRef.current.drag?.pointerId !== event.pointerId &&
+        selectionRef.current.marquee?.pointerId !== event.pointerId)
+    )
+      return;
+    event.stopPropagation();
+    const pointer = pointerForHostEvent(event, event.currentTarget);
+    onCursorWorldChange(screenToWorld(pointer, viewportRef.current));
+    runSelectionEvent({
+      type: "pointer_move",
+      pointerId: event.pointerId,
+      screenPoint: pointer,
+    });
+  }
+
+  function finishNativeSelection(
+    event: ReactPointerEvent<HTMLDivElement>,
+    type: "pointer_up" | "pointer_cancel",
+  ) {
+    if (
+      activeTool !== "select" ||
+      (selectionRef.current.drag?.pointerId !== event.pointerId &&
+        selectionRef.current.marquee?.pointerId !== event.pointerId)
+    )
+      return;
+    event.stopPropagation();
+    if (type === "pointer_up")
+      runSelectionEvent({
+        type,
+        pointerId: event.pointerId,
+        screenPoint: pointerForHostEvent(event, event.currentTarget),
+      });
+    else runSelectionEvent({ type, pointerId: event.pointerId });
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    capturedSelectionTargetRef.current = null;
   }
 
   function beginPan(event: KonvaEventObject<PointerEvent>) {
@@ -3389,8 +3472,13 @@ export const DrawingCanvas = forwardRef<
         spacePressedRef.current = false;
         setSpacePressed(false);
       }}
-      onPointerDown={(event) => event.currentTarget.focus()}
+      onPointerCancelCapture={(event) =>
+        finishNativeSelection(event, "pointer_cancel")
+      }
+      onPointerDownCapture={beginNativeSelection}
       onPointerLeave={() => onCursorWorldChange(null)}
+      onPointerMoveCapture={continueNativeSelection}
+      onPointerUpCapture={(event) => finishNativeSelection(event, "pointer_up")}
       ref={hostRef}
       tabIndex={0}
     >
