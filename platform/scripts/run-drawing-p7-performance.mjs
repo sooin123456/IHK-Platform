@@ -72,7 +72,6 @@ export async function runDrawingP7PerformanceGate(
   };
   const runnerEnvironment = {
     ...environment,
-    P7_PERFORMANCE_RUNNER_AUTHORITY: "P7_PLAYWRIGHT_PRODUCTION_BUILD_V3",
     P7_RUN_ID: runId,
     P7_PLAYWRIGHT_CAPTURE_PATH: rawCapturePath,
     P7_SOURCE_COMMIT_SHA: sourceCommitSha,
