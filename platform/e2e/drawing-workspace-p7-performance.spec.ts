@@ -107,6 +107,7 @@ async function measureFirstUsable(page: Page) {
         canvas?.dataset.renderedSemanticObjectCount === "10000" &&
         Number(canvas.dataset.projectedSemanticObjectCount) > 0 &&
         canvas.dataset.pdfCurrentMounted === "true" &&
+        canvas.dataset.pdfRasterAuthority === "PDFJS" &&
         ifcViewer?.dataset.viewerPhase === "ready" &&
         workspaceCanvas?.dataset.editReady === "true" &&
         hydrated?.textContent?.includes("준비됨") &&

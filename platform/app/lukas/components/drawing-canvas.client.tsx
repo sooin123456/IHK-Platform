@@ -2735,15 +2735,9 @@ export const DrawingCanvas = forwardRef<
       }));
       if (authority === "PDFJS" && firstPaintFrame === null)
         firstPaintFrame = window.requestAnimationFrame(() => {
-          firstPaintFrame = window.requestAnimationFrame(() => {
-            firstPaintFrame = null;
-            if (alive)
-              markDrawingFirstUsable(
-                "pdf",
-                performance,
-                firstPaintLifecycleKey,
-              );
-          });
+          firstPaintFrame = null;
+          if (alive)
+            markDrawingFirstUsable("pdf", performance, firstPaintLifecycleKey);
         });
       onPdfPageTransform?.(
         createDrawingPdfPageTransform({
