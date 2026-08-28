@@ -155,6 +155,7 @@ export function localP5SourceManifest() {
     {
       kind: "ifc",
       id: previewIfcFileId,
+      label: "합성 매핑 예제 · 원본 IFC 형상 아님",
       byteSize: 413_681,
       sha256: previewIfcSha256,
       fixtureSourceUrl: previewIfcFixtureSourceUrl,
@@ -1735,7 +1736,7 @@ export default function LocalDrawingWorkspacePreview({
         className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
         role="status"
       >
-        로컬 예제 데이터 · 브라우저 자동 복구
+        합성 매핑 예제 · 원본 IFC 형상 아님
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>

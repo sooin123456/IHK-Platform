@@ -6,6 +6,7 @@ import {
   IfcDerivativeManifestSchema,
   loadDrawingIfcDerivative,
   publishManagedIfcDerivativeObject,
+  validateManagedIfcDerivativePair,
 } from "../app/lukas/lib/drawing-workspace.server.ts";
 
 const ids = {
@@ -281,7 +282,7 @@ function objectsFor(...artifacts) {
   );
 }
 
-test("an approved revision keeps its pin after pending, failed, and ready appends", async () => {
+test("an approved revision keeps its pin and signs ready artifacts without a storage read", async () => {
   const first = artifact(1);
   const laterReady = artifact(4);
   const pending = {
@@ -331,12 +332,41 @@ test("an approved revision keeps its pin after pending, failed, and ready append
   assert.equal(loaded.manifestByteSize, first.row.manifest_byte_size);
   assert.equal(loaded.geometryByteSize, first.row.geometry_byte_size);
   assert.deepEqual(
-    client.calls.filter(([kind]) => kind === "fetch").map(([, url]) => url),
+    client.calls.filter(([kind]) => kind === "fetch"),
+    [],
+  );
+  assert.deepEqual(
+    client.calls.filter(([kind]) => kind === "sign"),
     [
-      `https://storage.test/internal/${first.row.manifest_storage_path}`,
-      `https://storage.test/internal/${first.row.geometry_storage_path}`,
+      ["sign", first.row.manifest_storage_path, 300],
+      ["sign", first.row.geometry_storage_path, 300],
     ],
   );
+});
+
+test("the ready route fails closed on tampered content-addressed metadata before signing", async () => {
+  const valid = artifact(1);
+  for (const row of [
+    {
+      ...valid.row,
+      geometry_storage_path: `projects/${ids.project}/ifc-derivatives/${sourceSha}/v1/not-the-geometry.glb`,
+    },
+    { ...valid.row, geometry_byte_size: 0 },
+  ]) {
+    const client = clientFor({
+      derivatives: [row],
+      objects: objectsFor(valid),
+    });
+    await assert.rejects(
+      loadDrawingIfcDerivative(client, file, {
+        id: ids.revision,
+        status: "draft",
+        version: 1,
+      }),
+      (error) => error instanceof Response && error.status === 409,
+    );
+    assert.deepEqual(client.calls, []);
+  }
 });
 
 test("a protected revision without an exact derivative binding fails closed", async () => {
@@ -466,18 +496,14 @@ test("GLB node identity requires canonical extras and every primitive claim", as
   ];
   for (const [name, selected] of cases)
     await context.test(name, async () => {
-      const client = clientFor({
-        derivatives: [selected.row],
-        objects: objectsFor(selected),
-      });
       await assert.rejects(
-        loadDrawingIfcDerivative(
-          client,
-          file,
-          { id: ids.revision, status: "draft", version: 1 },
-          { fetch: client.fetchImpl },
-        ),
-        (error) => error instanceof Response && error.status === 409,
+        validateManagedIfcDerivativePair({
+          sourceFileId: ids.source,
+          sourceSha256: sourceSha,
+          manifestBytes: selected.manifestBytes,
+          geometryBytes: selected.geometryBytes,
+        }),
+        /managed publication failed/i,
       );
     });
 });
@@ -505,17 +531,14 @@ test("GLB ifcExpressId matches the complete primitive ownership of a node", asyn
   ];
   const mixed = withManifestElements(first, mixedElements);
   await context.test("mixed node omits ifcExpressId", async () => {
-    const client = clientFor({
-      derivatives: [mixed.row],
-      objects: objectsFor(mixed),
-    });
-    const loaded = await loadDrawingIfcDerivative(
-      client,
-      file,
-      { id: ids.revision, status: "draft", version: 1 },
-      { fetch: client.fetchImpl },
+    await assert.doesNotReject(
+      validateManagedIfcDerivativePair({
+        sourceFileId: ids.source,
+        sourceSha256: sourceSha,
+        manifestBytes: mixed.manifestBytes,
+        geometryBytes: mixed.geometryBytes,
+      }),
     );
-    assert.equal(loaded.status, "ready");
   });
   await context.test("mixed node cannot claim one ifcExpressId", async () => {
     const selected = artifact(1, {
@@ -530,18 +553,14 @@ test("GLB ifcExpressId matches the complete primitive ownership of a node", asyn
       }),
     });
     const invalid = withManifestElements(selected, mixedElements);
-    const client = clientFor({
-      derivatives: [invalid.row],
-      objects: objectsFor(invalid),
-    });
     await assert.rejects(
-      loadDrawingIfcDerivative(
-        client,
-        file,
-        { id: ids.revision, status: "draft", version: 1 },
-        { fetch: client.fetchImpl },
-      ),
-      (error) => error instanceof Response && error.status === 409,
+      validateManagedIfcDerivativePair({
+        sourceFileId: ids.source,
+        sourceSha256: sourceSha,
+        manifestBytes: invalid.manifestBytes,
+        geometryBytes: invalid.geometryBytes,
+      }),
+      /managed publication failed/i,
     );
   });
   await context.test("single owner ifcExpressId must match", async () => {
@@ -555,23 +574,19 @@ test("GLB ifcExpressId matches the complete primitive ownership of a node", asyn
         ],
       }),
     });
-    const client = clientFor({
-      derivatives: [selected.row],
-      objects: objectsFor(selected),
-    });
     await assert.rejects(
-      loadDrawingIfcDerivative(
-        client,
-        file,
-        { id: ids.revision, status: "draft", version: 1 },
-        { fetch: client.fetchImpl },
-      ),
-      (error) => error instanceof Response && error.status === 409,
+      validateManagedIfcDerivativePair({
+        sourceFileId: ids.source,
+        sourceSha256: sourceSha,
+        manifestBytes: selected.manifestBytes,
+        geometryBytes: selected.geometryBytes,
+      }),
+      /managed publication failed/i,
     );
   });
 });
 
-test("the loader verifies actual manifest and official GLB errors before final signing", async (context) => {
+test("managed publication verifies canonical manifests and official GLB errors", async (context) => {
   const valid = artifact(1);
   const corrupt = artifact(1, { geometryBytes: new Uint8Array([1, 2, 3, 4]) });
   const external = artifact(1, {
@@ -637,104 +652,68 @@ test("the loader verifies actual manifest and official GLB errors before final s
   const cases = [
     [
       "substituted manifest",
-      valid,
-      {
-        ...objectsFor(valid),
-        [valid.row.manifest_storage_path]: new TextEncoder().encode("{}"),
-      },
+      new TextEncoder().encode("{}"),
+      valid.geometryBytes,
     ],
-    ["corrupt GLB", corrupt, objectsFor(corrupt)],
-    ["external GLB URI", external, objectsFor(external)],
+    ["corrupt GLB", corrupt.manifestBytes, corrupt.geometryBytes],
+    ["external GLB URI", external.manifestBytes, external.geometryBytes],
     [
       "primitive missing attributes",
-      missingAttributes,
-      objectsFor(missingAttributes),
+      missingAttributes.manifestBytes,
+      missingAttributes.geometryBytes,
     ],
     [
       "invalid accessor reference",
-      invalidAccessorReference,
-      objectsFor(invalidAccessorReference),
+      invalidAccessorReference.manifestBytes,
+      invalidAccessorReference.geometryBytes,
     ],
     [
       "invalid node reference",
-      invalidNodeReference,
-      objectsFor(invalidNodeReference),
+      invalidNodeReference.manifestBytes,
+      invalidNodeReference.geometryBytes,
     ],
-    ["invalid chunk length", invalidChunk, objectsFor(invalidChunk)],
+    [
+      "invalid chunk length",
+      invalidChunk.manifestBytes,
+      invalidChunk.geometryBytes,
+    ],
     [
       "truncated informational report",
-      truncatedReport,
-      objectsFor(truncatedReport),
+      truncatedReport.manifestBytes,
+      truncatedReport.geometryBytes,
     ],
     [
       "truncated report before invalid accessor",
-      truncatedBeforeInvalidAccessor,
-      objectsFor(truncatedBeforeInvalidAccessor),
+      truncatedBeforeInvalidAccessor.manifestBytes,
+      truncatedBeforeInvalidAccessor.geometryBytes,
     ],
   ];
-  for (const [name, selected, objects] of cases) {
+  for (const [name, manifestBytes, geometryBytes] of cases) {
     await context.test(name, async () => {
-      const client = clientFor({ derivatives: [selected.row], objects });
       await assert.rejects(
-        loadDrawingIfcDerivative(
-          client,
-          file,
-          { id: ids.revision, status: "draft", version: 1 },
-          { fetch: client.fetchImpl },
-        ),
-        (error) => error instanceof Response && error.status === 409,
-      );
-      assert.equal(
-        client.calls
-          .filter(([kind]) => kind === "sign")
-          .some(([, , ttl]) => ttl > 30),
-        false,
+        validateManagedIfcDerivativePair({
+          sourceFileId: ids.source,
+          sourceSha256: sourceSha,
+          manifestBytes,
+          geometryBytes,
+        }),
+        /managed publication failed/i,
       );
     });
   }
 });
 
-test("actual storage bytes exceeding metadata are aborted without materializing the object", async () => {
+test("managed publication rejects noncanonical manifest bytes before ready transition", async () => {
   const valid = artifact(1);
-  let pulls = 0;
-  let cancelled = false;
-  const client = clientFor({
-    derivatives: [valid.row],
-    objects: objectsFor(valid),
-  });
-  client.fetchImpl = async (_url, init) => {
-    client.calls.push(["bounded-fetch", init]);
-    const chunk = new Uint8Array(valid.row.manifest_byte_size);
-    return new Response(
-      new ReadableStream({
-        pull(controller) {
-          pulls += 1;
-          controller.enqueue(chunk);
-          if (pulls > 2) controller.close();
-        },
-        cancel() {
-          cancelled = true;
-        },
-      }),
-      { status: 200 },
-    );
-  };
   await assert.rejects(
-    loadDrawingIfcDerivative(
-      client,
-      file,
-      { id: ids.revision, status: "draft", version: 1 },
-      { fetch: client.fetchImpl },
-    ),
-    (error) => error instanceof Response && error.status === 409,
+    validateManagedIfcDerivativePair({
+      sourceFileId: ids.source,
+      sourceSha256: sourceSha,
+      manifestBytes: new Uint8Array([...valid.manifestBytes, 0x20]),
+      geometryBytes: valid.geometryBytes,
+    }),
+    /managed publication failed/i,
   );
-  assert.equal(cancelled, true);
-  assert.ok(
-    pulls <= 3,
-    `stream pulled ${pulls} chunks after exceeding metadata`,
-  );
-  const boundedCall = client.calls.find(([kind]) => kind === "bounded-fetch");
-  assert.match(boundedCall?.[1]?.headers?.Range ?? "", /^bytes=0-/);
 });
 
 test("the loader refuses oversized artifact metadata before download", async () => {
@@ -948,10 +927,11 @@ test("pair publication reconciles exact content-addressed artifacts", async () =
     storage,
     {
       projectId: ids.project,
+      sourceFileId: ids.source,
       sourceSha256: sourceSha,
       version: 6,
-      manifestBytes,
-      geometryBytes,
+      manifestBytes: artifact(6).manifestBytes,
+      geometryBytes: artifact(6).geometryBytes,
     },
     { fetch: fetchImpl },
   );
@@ -959,10 +939,11 @@ test("pair publication reconciles exact content-addressed artifacts", async () =
     storage,
     {
       projectId: ids.project,
+      sourceFileId: ids.source,
       sourceSha256: sourceSha,
       version: 6,
-      manifestBytes,
-      geometryBytes,
+      manifestBytes: artifact(6).manifestBytes,
+      geometryBytes: artifact(6).geometryBytes,
     },
     { fetch: fetchImpl },
   );
@@ -1022,6 +1003,7 @@ test("pair publication retains an exact orphan when its peer is corrupt", async 
       storage,
       {
         projectId: ids.project,
+        sourceFileId: ids.source,
         sourceSha256: sourceSha,
         version: 7,
         manifestBytes,

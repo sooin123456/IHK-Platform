@@ -409,15 +409,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       status: 500,
     });
 
-  const signedLinks = await Promise.all(
-    (files ?? []).map(async (file) => {
-      const { data: signed } = await client.storage
-        .from("lukas-qto")
-        .createSignedUrl(file.storage_path, 300);
-      return [file.id, signed?.signedUrl ?? null] as const;
-    }),
-  );
-
   return {
     project,
     files: files ?? [],
@@ -435,7 +426,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     preflightArtifacts: preflightArtifacts ?? [],
     preflightApprovals: preflightApprovalRows ?? [],
     materialPlans: materialPlans ?? [],
-    signedUrls: Object.fromEntries(signedLinks),
     publicShareEnabled: true,
     isStaff: user.app_metadata.role === "hangil_staff",
     isOwner: project.owner_id === user.id,
@@ -2027,14 +2017,12 @@ export default function Project({
                               3D·속성 보기
                             </Link>
                           ) : null}
-                          {loaderData.signedUrls[file.id] ? (
-                            <a
-                              className="font-medium text-[#3024d8]"
-                              href={loaderData.signedUrls[file.id] ?? "#"}
-                            >
-                              다운로드
-                            </a>
-                          ) : null}
+                          <a
+                            className="font-medium text-[#3024d8]"
+                            href={`/projects/${loaderData.project.id}/files/${file.id}/download`}
+                          >
+                            다운로드
+                          </a>
                         </div>
                       </div>
                       <details className="mt-3 text-xs text-muted-foreground">
@@ -2084,16 +2072,12 @@ export default function Project({
                                   3D·속성 보기
                                 </Link>
                               ) : null}
-                              {loaderData.signedUrls[file.id] ? (
-                                <a
-                                  className="text-primary underline underline-offset-4"
-                                  href={loaderData.signedUrls[file.id] ?? "#"}
-                                >
-                                  다운로드
-                                </a>
-                              ) : (
-                                "링크 생성 실패"
-                              )}
+                              <a
+                                className="text-primary underline underline-offset-4"
+                                href={`/projects/${loaderData.project.id}/files/${file.id}/download`}
+                              >
+                                다운로드
+                              </a>
                             </span>
                           </td>
                         </tr>
@@ -2228,10 +2212,12 @@ export default function Project({
             </div>
             <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-[#17124a] p-5 text-white sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-semibold">승인 물량으로 내역·직접공사비 만들기</p>
+                <p className="font-semibold">
+                  승인 물량으로 내역·직접공사비 만들기
+                </p>
                 <p className="mt-1 text-sm leading-6 text-indigo-100">
-                  품목과 고객 보유 단가를 연결하고, 계산식·Element ID 근거가 남는
-                  검증 내역서를 작성합니다.
+                  품목과 고객 보유 단가를 연결하고, 계산식·Element ID 근거가
+                  남는 검증 내역서를 작성합니다.
                 </p>
               </div>
               <Button

@@ -266,6 +266,17 @@ test("current canonical preview opens the integrated PDF and IFC split without q
   assert.doesNotMatch(source, /canonicalP5\s*\?\s*p5PreviewHarness/);
 });
 
+test("synthetic IFC preview is visibly labeled as a non-original mapping example", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/screens/local-drawing-workspace-preview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /합성 매핑 예제 · 원본 IFC 형상 아님/);
+});
+
 test("awareness harness preserves the canonical integrated workspace", async () => {
   const loaded = unwrapRouteData(
     await preview.loader({

@@ -4,12 +4,12 @@ import test from "node:test";
 
 import routes from "../app/routes.ts";
 
-const workspaceView =
-  await import("../app/lukas/lib/drawing-workspace-view.ts").catch(() => null);
-const workspaceServer =
-  await import("../app/lukas/lib/drawing-workspace.server.ts").catch(
-    () => ({}),
-  );
+const workspaceView = await import(
+  "../app/lukas/lib/drawing-workspace-view.ts"
+).catch(() => null);
+const workspaceServer = await import(
+  "../app/lukas/lib/drawing-workspace.server.ts"
+).catch(() => ({}));
 
 function flatten(routesToFlatten) {
   return routesToFlatten.flatMap((route) => [
@@ -43,6 +43,16 @@ test("workspace route is additive and keeps the collaboration room", () => {
       ],
     ],
   );
+});
+
+test("project original-file download is an authenticated resource route", () => {
+  const registered = flatten(routes).find(
+    (route) => route.path === "/projects/:projectId/files/:fileId/download",
+  );
+  assert.deepEqual(registered && [registered.path, registered.file], [
+    "/projects/:projectId/files/:fileId/download",
+    "lukas/screens/project-file-download.ts",
+  ]);
 });
 
 test("collaboration room exposes an accessible link to the additive workspace", async () => {
@@ -387,7 +397,7 @@ test("client module loading resolves, rejects, and ignores completion after disp
   assert.deepEqual(disposed, [{ status: "loading" }]);
 });
 
-test("IFC workspace surface pairs a blank overlay with the signed existing viewer", () => {
+test("IFC workspace surface never accepts a raw source URL", () => {
   assert.ok(workspaceView);
   const surface = workspaceView.drawingWorkspaceSurface({
     file: {
@@ -401,14 +411,9 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
     sourceUrl: "https://storage.test/model",
   });
   assert.deepEqual(surface, {
-    layout: "ifc_split",
+    layout: "canvas",
     background: { kind: "blank", width: 841, height: 594 },
-    ifcViewer: {
-      byteSize: 2048,
-      fileName: "model.ifc",
-      signedUrl: "https://storage.test/model",
-      sourceKey: "00000000-0000-4000-8000-000000000003",
-    },
+    ifcViewer: null,
     sourceError: null,
   });
   assert.equal(
@@ -423,7 +428,7 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
       page: null,
       sourceUrl: null,
     }).sourceError,
-    "IFC 원본 화면을 불러올 수 없습니다.",
+    null,
   );
   for (const changes of [
     { immutable: true, sourceUrl: null },
@@ -440,12 +445,12 @@ test("IFC workspace surface pairs a blank overlay with the signed existing viewe
       page: null,
       sourceUrl: changes.sourceUrl,
     });
-    assert.equal(failedClosed.layout, "canvas");
-    assert.equal(failedClosed.ifcViewer, null);
-    assert.equal(
-      failedClosed.sourceError,
-      "IFC 원본 화면을 불러올 수 없습니다.",
-    );
+    assert.deepEqual(failedClosed, {
+      layout: "canvas",
+      background: { kind: "blank", width: 841, height: 594 },
+      ifcViewer: null,
+      sourceError: null,
+    });
   }
 });
 
@@ -547,7 +552,9 @@ test("workspace route wires the verified source bundle and controlled IFC surfac
   assert.match(shell, /2D 도면/);
   assert.match(shell, /IFC 3D/);
   assert.match(shell, /분할 보기/);
-  assert.match(shell, /IFC 원본 선택/);
+  assert.match(shell, /IFC 파일 선택/);
+  assert.match(shell, /검증된 IFC 파생물 보기/);
+  assert.doesNotMatch(shell, /byteSize=\{selectedIfc\.byteSize\}/);
   assert.match(shell, /<IfcViewer/);
   assert.doesNotMatch(shell, /target="_blank"/);
   assert.equal(canvas.match(/drawingPanGestureTransition\(/g)?.length, 4);

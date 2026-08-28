@@ -10,7 +10,11 @@ import {
 } from "./drawing-workspace.types.ts";
 
 type RevisionStatus =
-  "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
+  | "draft"
+  | "review_requested"
+  | "reviewed"
+  | "approved"
+  | "superseded";
 
 export type DrawingWorkspaceViewMode = "2d" | "3d" | "split";
 
@@ -284,11 +288,7 @@ export function drawingRevisionDecisionFields(input: {
 
 type WorkspaceSurfaceInput = {
   file: {
-    id: string;
     kind: "pdf" | "ifc";
-    immutable: boolean;
-    originalFilename: string;
-    byteSize: number;
   };
   page: {
     width: number;
@@ -304,25 +304,12 @@ export function drawingWorkspaceSurface(input: WorkspaceSurfaceInput) {
     width: input.page?.width ?? 841,
     height: input.page?.height ?? 594,
   };
-  if (input.file.kind === "ifc" && input.file.immutable && input.sourceUrl) {
-    return {
-      layout: "ifc_split" as const,
-      background: blank,
-      ifcViewer: {
-        byteSize: input.file.byteSize,
-        fileName: input.file.originalFilename,
-        signedUrl: input.sourceUrl,
-        sourceKey: input.file.id,
-      },
-      sourceError: null,
-    };
-  }
   if (input.file.kind === "ifc")
     return {
       layout: "canvas" as const,
       background: blank,
       ifcViewer: null,
-      sourceError: "IFC 원본 화면을 불러올 수 없습니다.",
+      sourceError: null,
     };
   if (input.page && input.page.backgroundPdfPage !== null) {
     return {

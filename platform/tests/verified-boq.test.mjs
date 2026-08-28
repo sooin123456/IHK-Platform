@@ -637,6 +637,46 @@ test("IFC browser route exposes only a verified derivative render bundle", () =>
   assert.match(ifcRoute, /renderBundle=\{loaderData\.renderBundle\}/);
   assert.doesNotMatch(ifcRoute, /createSignedUrl\(file\.storage_path/);
   assert.doesNotMatch(ifcRoute, /signedUrl=\{loaderData\.signedUrl\}/);
+  assert.doesNotMatch(ifcRoute, /file\.byte_size > 200 \* 1024 \* 1024/);
+});
+
+test("IFC derivative generation is non-destructive while failure remains distinct", () => {
+  const browser = readFileSync(
+    new URL(
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    browser,
+    /const generating = derivative\?\.status === "pending"/,
+  );
+  assert.match(browser, /setViewerPhase\(generating \? "loading" : "error"\)/);
+  assert.match(browser, /setError\(generating \? null : message\)/);
+  assert.doesNotMatch(browser, /byteSize/);
+});
+
+test("project file rows defer original-file capabilities to the authenticated download route", () => {
+  const projectRoute = readFileSync(
+    new URL("../app/lukas/screens/project.tsx", import.meta.url),
+    "utf8",
+  );
+  const downloadRoute = readFileSync(
+    new URL("../app/lukas/screens/project-file-download.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(projectRoute, /signedUrls/);
+  assert.doesNotMatch(projectRoute, /createSignedUrl\(file\.storage_path/);
+  assert.match(
+    projectRoute,
+    /\/projects\/\$\{loaderData\.project\.id\}\/files\/\$\{file\.id\}\/download/,
+  );
+  assert.match(
+    downloadRoute,
+    /drawingContext\(\s*request,\s*params\.projectId!/,
+  );
+  assert.match(downloadRoute, /resolveProjectFileDownload/);
 });
 
 test("customer-owned price resources import from strict UTF-8 CSV", () => {

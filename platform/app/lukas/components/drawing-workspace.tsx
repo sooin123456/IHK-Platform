@@ -1565,11 +1565,7 @@ export default function DrawingWorkspaceClient({
     : "2d";
   const surface = drawingWorkspaceSurface({
     file: {
-      id: file.id,
       kind: file.kind,
-      immutable: file.immutable,
-      originalFilename: file.original_filename,
-      byteSize: file.byte_size,
     },
     page: page
       ? {
@@ -1626,7 +1622,7 @@ export default function DrawingWorkspaceClient({
         import("./ifc-property-browser.client").then(
           (module) => module.default,
         ),
-      errorMessage: "IFC 원본 화면을 불러오지 못했습니다.",
+      errorMessage: "검증된 IFC 파생물 화면을 불러오지 못했습니다.",
       onState: setIfcModule,
     });
   }, [ifcActivated]);
@@ -3886,7 +3882,7 @@ export default function DrawingWorkspaceClient({
             ))}
           </div>
           <label className="flex min-h-10 items-center gap-2 text-xs font-semibold text-slate-300">
-            IFC 원본 선택
+            IFC 파일 선택
             <select
               aria-label="IFC 원본 선택"
               className="min-h-10 max-w-64 rounded-md border border-white/15 bg-slate-950 px-2 text-sm text-white"
@@ -4920,7 +4916,7 @@ export default function DrawingWorkspaceClient({
                     : undefined
                 }
               >
-                <h2 className="text-sm font-bold">IFC 원본 보기</h2>
+                <h2 className="text-sm font-bold">검증된 IFC 파생물 보기</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   GlobalId 연결을 기준으로 2D 객체와 IFC 요소를 함께 찾습니다.
                 </p>
@@ -4967,7 +4963,6 @@ export default function DrawingWorkspaceClient({
                 ) : IfcViewer ? (
                   <div className="mt-4">
                     <IfcViewer
-                      byteSize={selectedIfc.byteSize}
                       compact={activeView === "split"}
                       fileName={selectedIfc.originalFilename}
                       firstPaintLifecycleKey={firstPaintLifecycleKey}

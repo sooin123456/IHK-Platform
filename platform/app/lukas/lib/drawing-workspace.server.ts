@@ -3267,7 +3267,6 @@ export async function loadDrawingIfcDerivative(
         status: 409,
       },
     );
-  const storage = client.storage.from("lukas-qto");
   if (
     !Number.isSafeInteger(row.manifest_byte_size) ||
     row.manifest_byte_size < 1 ||
@@ -3279,41 +3278,7 @@ export async function loadDrawingIfcDerivative(
     throw new Response("IFC derivative 크기 증거가 올바르지 않습니다.", {
       status: 409,
     });
-  const manifestBytes = await downloadIfcDerivativeBytes(
-    storage,
-    row.manifest_storage_path,
-    row.manifest_byte_size,
-    row.manifest_sha256,
-    runtime.fetch ?? fetch,
-  );
-  const geometryBytes = await downloadIfcDerivativeBytes(
-    storage,
-    row.geometry_storage_path,
-    row.geometry_byte_size,
-    row.geometry_sha256,
-    runtime.fetch ?? fetch,
-  );
-  let storedManifest: IfcDerivativeManifest;
-  try {
-    storedManifest = IfcDerivativeManifestSchema.parse(
-      JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes),
-      ),
-    );
-    if (
-      canonicalIfcDerivativeJson(storedManifest) !==
-        canonicalIfcDerivativeJson(manifest.data) ||
-      storedManifest.source.fileId !== file.id ||
-      storedManifest.source.sha256 !== file.sha256 ||
-      storedManifest.geometry.sha256 !== row.geometry_sha256
-    )
-      throw new Error("Manifest authority differs");
-    await validateSelfContainedGlb(geometryBytes, storedManifest);
-  } catch {
-    throw new Response("IFC derivative 실제 artifact가 올바르지 않습니다.", {
-      status: 409,
-    });
-  }
+  const storage = client.storage.from("lukas-qto");
   const [manifestResult, geometryResult] = await Promise.all([
     storage.createSignedUrl(row.manifest_storage_path, 300),
     storage.createSignedUrl(row.geometry_storage_path, 300),
@@ -3415,6 +3380,7 @@ export async function publishManagedIfcDerivativePair(
   storage: ManagedIfcDerivativeStorage,
   input: {
     projectId: string;
+    sourceFileId: string;
     sourceSha256: string;
     version: number;
     manifestBytes: Uint8Array;
@@ -3447,7 +3413,49 @@ export async function publishManagedIfcDerivativePair(
     },
     runtime,
   );
+  await validateManagedIfcDerivativePair({
+    sourceFileId: input.sourceFileId,
+    sourceSha256: input.sourceSha256,
+    manifestBytes: input.manifestBytes,
+    geometryBytes: input.geometryBytes,
+  });
   return { manifest, geometry };
+}
+
+/**
+ * Ready-transition authority. Pair publication has already reconciled both
+ * immutable objects byte-for-byte; validate their canonical relationship once
+ * here instead of downloading a full GLB for every viewer request.
+ */
+export async function validateManagedIfcDerivativePair(input: {
+  sourceFileId: string;
+  sourceSha256: string;
+  manifestBytes: Uint8Array;
+  geometryBytes: Uint8Array;
+}) {
+  Uuid.parse(input.sourceFileId);
+  Sha256.parse(input.sourceSha256);
+  let manifest: IfcDerivativeManifest;
+  try {
+    const serializedManifest = new TextDecoder("utf-8", { fatal: true }).decode(
+      input.manifestBytes,
+    );
+    manifest = IfcDerivativeManifestSchema.parse(
+      JSON.parse(serializedManifest),
+    );
+    if (serializedManifest !== canonicalIfcDerivativeJson(manifest))
+      throw new Error("IFC derivative manifest is not canonical");
+    if (
+      manifest.source.fileId !== input.sourceFileId ||
+      manifest.source.sha256 !== input.sourceSha256 ||
+      manifest.geometry.sha256 !==
+        createHash("sha256").update(input.geometryBytes).digest("hex")
+    )
+      throw new Error("IFC derivative manifest lineage differs");
+    await validateSelfContainedGlb(input.geometryBytes, manifest);
+  } catch {
+    throw new Error("IFC derivative managed publication failed");
+  }
 }
 
 export async function loadDrawingWorkspaceSourceBundle(

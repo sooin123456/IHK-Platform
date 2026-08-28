@@ -50,13 +50,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .eq("project_id", project.id)
     .single();
   if (!file || file.kind !== "ifc")
-    throw new Response("IFC 원본을 찾을 수 없습니다.", { status: 404 });
-  if (file.byte_size > 200 * 1024 * 1024)
-    throw new Response(
-      "200MB를 초과하는 IFC는 현재 웹에서 열 수 없습니다. 파일을 분할하거나 경량화한 뒤 다시 등록해 주세요.",
-      { status: 413 },
-    );
-
+    throw new Response("IFC 파일을 찾을 수 없습니다.", { status: 404 });
   const derivative = await loadDrawingIfcDerivative(
     client as unknown as DrawingWorkspaceClient,
     file as DrawingWorkspaceFile,
@@ -94,23 +88,26 @@ export default function IfcBrowser({ loaderData }: Route.ComponentProps) {
       </Link>
       <header className="mt-5 flex flex-col gap-3 border-b pb-8 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-primary">IFC 3D·원본 탐색</p>
+          <p className="text-sm font-medium text-primary">IFC 3D·검증 파생물</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
             모델을 보고 요소와 속성을 확인합니다.
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            {loaderData.project.name} · 이 화면은 IFC를 브라우저에서만 읽습니다.
-            수량을 새로 계산하거나 원본을 바꾸지 않습니다.
+            {loaderData.project.name} · 검증된 IFC 파생물로 요소와 속성을
+            확인합니다. 수량을 새로 계산하거나 원본을 바꾸지 않습니다.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm">
           <FileSearch className="size-4 text-primary" />
-          <span>{(loaderData.file.byte_size / 1024 / 1024).toFixed(1)} MB</span>
+          <span>
+            {loaderData.derivative.status === "ready"
+              ? `${(loaderData.derivative.geometryByteSize / 1024 / 1024).toFixed(1)} MB GLB`
+              : "파생물 생성 상태 확인 중"}
+          </span>
         </div>
       </header>
       <div className="mt-8">
         <IfcPropertyBrowser
-          byteSize={loaderData.file.byte_size}
           derivative={loaderData.derivative}
           fileName={loaderData.file.original_filename}
           initialGlobalId={loaderData.requestedGlobalId}

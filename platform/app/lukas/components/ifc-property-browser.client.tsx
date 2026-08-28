@@ -52,8 +52,6 @@ type IfcElement = Omit<IfcRenderElement, "name" | "properties"> & {
 };
 
 type Props = {
-  /** Legacy metadata retained while server callers migrate to renderBundle. */
-  byteSize?: number;
   compact?: boolean;
   fileName: string;
   sourceKey: string;
@@ -170,7 +168,6 @@ function unavailableIfcDerivativeMessage(
 }
 
 export default function IfcPropertyBrowser({
-  byteSize = 0,
   compact = false,
   fileName,
   sourceKey: originalSourceKey,
@@ -240,13 +237,14 @@ export default function IfcPropertyBrowser({
     const descriptor = renderBundleRef.current;
     if (!descriptor) {
       const message = unavailableIfcDerivativeMessage(derivative);
+      const generating = derivative?.status === "pending";
       setElements([]);
       setElementsSourceKey(null);
       setViewerReady(false);
-      setViewerPhase("error");
+      setViewerPhase(generating ? "loading" : "error");
       setViewerStatus(message);
-      setError(message);
-      setStatus("읽기에 실패했습니다.");
+      setError(generating ? null : message);
+      setStatus(generating ? "파생물 생성 중입니다." : "읽기에 실패했습니다.");
       finishIfcStage();
       return;
     }
@@ -573,8 +571,8 @@ export default function IfcPropertyBrowser({
               <Cuboid className="size-4 text-primary" /> IFC 3D 모델
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              원본 형상만 표시합니다. 화면 조작이나 선택은 IFC 파일과 물량을
-              변경하지 않습니다.
+              검증된 IFC 파생 형상을 표시합니다. 화면 조작이나 선택은 원본 IFC
+              파일과 물량을 변경하지 않습니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -631,9 +629,10 @@ export default function IfcPropertyBrowser({
                   </button>
                 ) : null}
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {byteSize > 75 * 1024 * 1024
+                  {(renderBundle?.derivative.geometryByteSize ?? 0) >
+                  75 * 1024 * 1024
                     ? "검증된 GLB가 75MB를 넘으면 요소·속성만 표시합니다."
-                    : "3D가 열리지 않아도 아래 요소 목록과 원본 속성은 계속 사용할 수 있습니다."}
+                    : "3D가 열리지 않아도 아래 요소 목록과 검증된 파생 속성은 계속 사용할 수 있습니다."}
                 </p>
               </div>
             </div>
@@ -747,7 +746,7 @@ export default function IfcPropertyBrowser({
             <div>
               <h2 className="font-semibold">선택 요소 속성</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                IFC 원본에 기록된 값을 그대로 표시합니다. 계산하거나 추정하지
+                검증된 IFC 파생물에 기록된 값을 표시합니다. 계산하거나 추정하지
                 않습니다.
               </p>
             </div>
@@ -812,7 +811,7 @@ export default function IfcPropertyBrowser({
                   ))
                 ) : (
                   <div className="p-5 text-sm text-muted-foreground">
-                    요소를 선택하면 원본 속성이 나타납니다.
+                    요소를 선택하면 검증된 파생 속성이 나타납니다.
                   </div>
                 )}
               </dl>

@@ -257,7 +257,6 @@ export default function DrawingRoomClient({
                     }
                   : null
               }
-              byteSize={file.byte_size}
               derivative={ifcDerivative}
               fileName={file.original_filename}
               focusRequest={ifcFocusRequest}
