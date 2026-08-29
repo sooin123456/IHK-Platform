@@ -1,16 +1,16 @@
 # P7 Task 7 — current release audit
 
-Document set: `78c5055f-b021-4e55-acb5-0b53bfe83274:1b0a27027803b403b67d3d1c90fe479b3d1b9d96:a125db408bc7fcf5d5b73fb829c7d7ca6d8075a88efd6582a54fd1c9bef35d1b`
-Source commit: `1b0a27027803b403b67d3d1c90fe479b3d1b9d96`
-Source tree SHA-256: `a125db408bc7fcf5d5b73fb829c7d7ca6d8075a88efd6582a54fd1c9bef35d1b`
+Document set: `dd46e79e-060c-4747-96bf-e3dd0c5d069c:bc218e693dd9f400d2f57caf4ba16761e1c92e6d:c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936`
+Source commit: `bc218e693dd9f400d2f57caf4ba16761e1c92e6d`
+Source tree SHA-256: `c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936`
 Overall: **UNEXECUTED**
-Requirements: **34 PASS / 0 NOT_MET / 14 UNEXECUTED**
+Requirements: **35 PASS / 0 NOT_MET / 13 UNEXECUTED**
 
 ## Current source-bound performance
 
-- warm reopen: 1699.9ms (MET)
-- cold/cache-miss: 2154.6ms (MET)
-- warm p95: zoom 0.2ms, pan 0.2ms, selection 9.0ms (MET)
+- warm reopen: 1719.9ms (MET)
+- cold/cache-miss: 2168.9ms (MET)
+- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.6ms (MET)
 
 ## Exact requirement ledger
 
@@ -25,7 +25,7 @@ Requirements: **34 PASS / 0 NOT_MET / 14 UNEXECUTED**
 | `vertical.blank_or_pdf_open` | local | **PASS** | node.p0_p7 |
 | `vertical.layers_visibility_lock` | local | **PASS** | node.p0_p7 |
 | `vertical.issue_object_link` | local | **PASS** | node.p0_p7 |
-| `vertical.two_browser_realtime` | local | **UNEXECUTED** | browser.p3_multiplayer |
+| `vertical.two_browser_realtime` | local | **PASS** | browser.p3_multiplayer |
 | `vertical.viewer_editor_roles` | local | **PASS** | node.p0_p7 |
 | `source.pdf_ifc_sha_immutable` | production | **UNEXECUTED** | production authority not supplied |
 | `p2.pages_canvas_styles_blocks` | local | **PASS** | node.p0_p7 |

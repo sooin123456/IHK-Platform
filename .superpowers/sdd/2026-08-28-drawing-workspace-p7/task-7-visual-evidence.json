@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "authority": "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
-  "commit": "1b0a27027803b403b67d3d1c90fe479b3d1b9d96",
-  "sourceTreeSha256": "a125db408bc7fcf5d5b73fb829c7d7ca6d8075a88efd6582a54fd1c9bef35d1b",
+  "commit": "bc218e693dd9f400d2f57caf4ba16761e1c92e6d",
+  "sourceTreeSha256": "c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936",
   "buildManifest": {
     "clientTree": {
       "path": "platform/build/client",
-      "sha256": "9afdbc88a1876702a7b43b861fbc08fa096ed9b606169400bf477656b715a8fe"
+      "sha256": "b3705525cf10eebbf139194a05ba834c53f7c4bcd1b5b37cef3bd353c9826706"
     },
     "clientManifest": {
-      "path": "platform/build/client/assets/manifest-e240be08.js",
-      "sha256": "6b48f093f6bde55bdbc2cba5369be7810ab60751d9ce22f31ff641458edac0a1"
+      "path": "platform/build/client/assets/manifest-5f9bd38b.js",
+      "sha256": "92fd93f6042b011418e199360d45a769e9996636fbf7a85c542c136687fcee4c"
     },
     "serverEntry": {
       "path": "platform/build/server/index.js",
-      "sha256": "ca1efb20a2aa719c5b7782101c495c873bfa124221d640478372caa0f46c786d"
+      "sha256": "8364c20bc481c48ded5c1e1c438c404095f463d7a1cc061f1db861597eb0de43"
     }
   },
   "artifacts": [
@@ -22,20 +22,20 @@
       "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-desktop-1280x720.png",
       "width": 1280,
       "height": 720,
-      "sha256": "81ae64bcee5c60569f3d033cf428a763779e1f2cc0d667a1c426cf2d5301f4ed"
+      "sha256": "5c0b473290a48ceaeb5266a84733a987f61bd858e424c7059153ca6141777b65"
     },
     {
       "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-tablet-portrait-768x1024.png",
       "width": 768,
       "height": 1024,
-      "sha256": "0713f9538f3f78b12dcdd1cbc3673dbd46f78cdd636dcdc7c0d3bded107eadf0"
+      "sha256": "c43a20cc25754907bf61f84b0babb7a6167a9abea3a4276af6a0b5bf70dc1ee9"
     },
     {
       "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-tablet-landscape-1024x768.png",
       "width": 1024,
       "height": 768,
-      "sha256": "00d7f5d130c90d514ede58f768c4d351e0aa47471defa2a5a9b13ab70ed73566"
+      "sha256": "4e75dd18d44ca8442af6882e1f48648f8998f5c7206608baf31f5ff02ee44ff3"
     }
   ],
-  "recordedAt": "2026-08-29T02:23:22.296Z"
+  "recordedAt": "2026-08-29T03:36:44.602Z"
 }
