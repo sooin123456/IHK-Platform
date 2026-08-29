@@ -1139,6 +1139,14 @@ revoke all on function
   private.lukas_qto_projects_entitlement_guard(),
   private.lukas_drawing_library_versions_entitlement_guard()
 from public,anon,authenticated,service_role;
+-- These helpers are invoked directly by authenticated RLS policies below.
+-- PostgreSQL checks EXECUTE before evaluating a policy expression even when the
+-- helper itself is SECURITY DEFINER.
+grant execute on function
+  private.lukas_qto_organization_manager(uuid),
+  private.lukas_qto_organization_library_access(uuid),
+  private.lukas_qto_project_feature_active(uuid,text)
+to authenticated,service_role;
 revoke all on function
   private.lukas_drawing_workspace_capability_pre_entitlement(uuid),
   private.lukas_drawing_workspace_capability(uuid),

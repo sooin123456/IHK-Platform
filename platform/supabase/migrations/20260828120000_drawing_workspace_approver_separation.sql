@@ -18,8 +18,28 @@ alter table public.lukas_drawing_revisions
   );
 
 alter table public.lukas_drawing_revision_approvals
-  drop constraint lukas_drawing_revision_approvals_decision_check,
-  drop constraint lukas_drawing_revision_approvals_revision_id_subject_version_key;
+  drop constraint lukas_drawing_revision_approvals_decision_check;
+do $$
+declare v_constraint name;
+begin
+  select c.conname into v_constraint
+  from pg_catalog.pg_constraint c
+  where c.conrelid='public.lukas_drawing_revision_approvals'::pg_catalog.regclass
+    and c.contype='u'
+    and (select pg_catalog.array_agg(a.attname::text order by key.ordinality)
+      from pg_catalog.unnest(c.conkey) with ordinality as key(attnum,ordinality)
+      join pg_catalog.pg_attribute a
+        on a.attrelid=c.conrelid and a.attnum=key.attnum
+    )=array['revision_id','subject_version']::text[];
+  if v_constraint is null then
+    raise exception 'Drawing revision approval stage constraint is unavailable';
+  end if;
+  execute pg_catalog.format(
+    'alter table public.lukas_drawing_revision_approvals drop constraint %I',
+    v_constraint
+  );
+end;
+$$;
 alter table public.lukas_drawing_revision_approvals
   add constraint lukas_drawing_revision_approvals_decision_check
     check(decision in('reviewed','approved','rejected')),

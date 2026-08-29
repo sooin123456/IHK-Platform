@@ -138,6 +138,10 @@ test("library access and feature quotas are enforced at the database boundary", 
   assert.match(sql, /lukas_qto_organization_library_access/i);
   assert.match(sql, /lukas_drawing_library_versions_entitlement_guard/i);
   assert.match(sql, /lukas_qto_projects_entitlement_guard/i);
+  assert.match(
+    sql,
+    /grant execute on function[\s\S]*private\.lukas_qto_organization_manager\(uuid\)[\s\S]*private\.lukas_qto_organization_library_access\(uuid\)[\s\S]*private\.lukas_qto_project_feature_active\(uuid,text\)[\s\S]*to authenticated,service_role/i,
+  );
   assert.match(sql, /organization_library/i);
   assert.match(sql, /drawing_workspace/i);
   assert.match(
@@ -935,7 +939,7 @@ test("real PostgreSQL organization authority is optional locally and required mo
       "real PostgreSQL gate needs one append-only administration event",
     );
     const [migrationAuthority] = await sql`
-      select pg_catalog.has_table_privilege(pg_catalog.current_user,
+      select pg_catalog.has_table_privilege(current_user,
         'public.lukas_qto_organization_admin_events','UPDATE') can_update`;
     assert.equal(
       migrationAuthority.can_update,
@@ -1071,7 +1075,7 @@ test("real PostgreSQL organization authority is optional locally and required mo
           await transaction`select public.lukas_qto_set_organization_entitlement(
             ${scope.organization_id},${entitlement.plan},${entitlement.seat_limit},
             ${entitlement.project_limit},${entitlement.library_version_limit},${entitlement.trial_ends_at},
-            ${JSON.stringify(features)}::jsonb,'real PostgreSQL entitlement proof',${crypto.randomUUID()})`;
+            ${transaction.json(features)},'real PostgreSQL entitlement proof',${crypto.randomUUID()})`;
           await operation(transaction);
           throw rollback;
         });
@@ -1127,6 +1131,11 @@ test("real PostgreSQL organization authority is optional locally and required mo
     assert.equal(disabledBoqRows.length, 0);
     assert.equal(disabledPriceBookRows.length, 0);
     for (const [table, row] of Object.entries(materialRows)) {
+      const insertRow = { ...row };
+      if (table === "lukas_qto_material_plans")
+        insertRow.baseline_factor_id = null;
+      if (table === "lukas_qto_material_transactions")
+        insertRow.carbon_factor_id = null;
       let disabledRows;
       const readFailure = await beginEntitlementProof(
         entitlementWith("quantity_lineage", false),
@@ -1153,13 +1162,15 @@ test("real PostgreSQL organization authority is optional locally and required mo
              select (pg_catalog.jsonb_populate_record(
                null::public.${table},$1::jsonb || pg_catalog.jsonb_build_object(
                  'id',$2::text,'created_by',$3::text))).*`,
-            [JSON.stringify(row), crypto.randomUUID(), scope.owner_id],
+            [transaction.json(insertRow), crypto.randomUUID(), scope.owner_id],
           );
         },
       );
       assert.match(
         String(writeFailure?.message ?? writeFailure),
-        /row-level security|policy/i,
+        table === "lukas_qto_material_transactions"
+          ? /row-level security|policy|material plan does not belong/i
+          : /row-level security|policy/i,
         `${table} direct insert must be denied`,
       );
     }
