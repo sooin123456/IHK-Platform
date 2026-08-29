@@ -14,7 +14,9 @@ async function openCurrentWorkspace(page: Page, requireVisibleIfc = true) {
     { waitUntil: "domcontentloaded" },
   );
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
-  await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /왼쪽 도구 패널/ }),
+  ).toBeVisible();
   await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);
   if (requireVisibleIfc)
     await expect(
@@ -72,10 +74,11 @@ test("current desktop release view is canvas-first, split-source capable, and ke
   );
 
   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
-  await page.keyboard.press("[");
   await expect(tools).toBeHidden();
   await page.keyboard.press("[");
   await expect(tools).toBeVisible();
+  await page.keyboard.press("[");
+  await expect(tools).toBeHidden();
   await page.keyboard.press("]");
   await expect(
     page.getByRole("complementary", { name: "속성 검사기" }),
@@ -104,6 +107,10 @@ for (const viewport of [
     const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
     const inspector = page.getByRole("complementary", { name: "속성 검사기" });
     await expect(drawing).toBeVisible();
+    if (viewport.width >= 1024) {
+      await expect(tools).toBeHidden();
+      await page.keyboard.press("[");
+    }
     await expect(tools).toBeVisible();
     await expect(inspector).toBeHidden();
     for (const target of await tools.getByRole("tab").all()) {

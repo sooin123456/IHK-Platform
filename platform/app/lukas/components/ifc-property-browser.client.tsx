@@ -732,7 +732,7 @@ export default function IfcPropertyBrowser({
             </p>
           </div>
           <div
-            aria-label="IFC 요소 검색 결과"
+            aria-label="IFC 요소 결과 목록"
             className="max-h-[58vh] overflow-y-auto p-2"
             role="region"
           >
