@@ -3678,6 +3678,17 @@ export default function DrawingWorkspaceClient({
           {previewHarness.verticalTest ? (
             <>
               <button
+                onClick={() => {
+                  const object = Object.values(
+                    drawingStateRef.current.objects,
+                  ).find((candidate) => candidate.geometry.type === "line");
+                  if (object) setAuthorizedSelection([object.id]);
+                }}
+                type="button"
+              >
+                P4 첫 선 객체 선택
+              </button>
+              <button
                 onClick={() => void runVerticalInvalidShrink()}
                 type="button"
               >

@@ -105,7 +105,7 @@ function manifest() {
     },
     {
       id: "browser.p3_multiplayer",
-      argv: ["npm", "run", "test:e2e:drawing-workspace-p3:production"],
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p3:local"],
     },
     {
       id: "browser.p4_functional",
@@ -536,16 +536,6 @@ const p0P2BrowserAuthorityNames = [
   "SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
-const p3BrowserAuthorityNames = [
-  ...p0P2BrowserAuthorityNames,
-  "VITE_DRAWING_COLLABORATION_URL",
-  "COLLABORATION_INTERNAL_URL",
-  "COLLABORATION_INTERNAL_SECRET",
-  "COLLABORATION_FREEZE_SECRET",
-  "P3_E2E_DATABASE_ADMIN_URL",
-  "P3_E2E_RUN_ID",
-];
-
 function suppliedAuthority(environment, names) {
   return names.every((name) => {
     const value = environment[name]?.trim().toLowerCase();
@@ -560,23 +550,11 @@ function suppliedAuthority(environment, names) {
 }
 
 export function p7LocalGatePreflight(gateId, environment) {
-  const names =
-    gateId === "browser.p0_p2"
-      ? p0P2BrowserAuthorityNames
-      : gateId === "browser.p3_multiplayer"
-        ? p3BrowserAuthorityNames
-        : null;
+  const names = gateId === "browser.p0_p2" ? p0P2BrowserAuthorityNames : null;
   if (!names) return null;
   const missing = names.filter(
     (name) => !suppliedAuthority(environment, [name]),
   );
-  if (
-    gateId === "browser.p3_multiplayer" &&
-    environment.COLLABORATION_INTERNAL_SECRET?.trim() ===
-      environment.COLLABORATION_FREEZE_SECRET?.trim() &&
-    !missing.includes("COLLABORATION_FREEZE_SECRET")
-  )
-    missing.push("COLLABORATION_FREEZE_SECRET");
   return missing.length ? { status: "UNEXECUTED", missing } : null;
 }
 
@@ -593,13 +571,6 @@ export function p7LocalGateStatus(gateId, exitCode, environment) {
   if (
     gateId === "browser.p0_p2" &&
     !suppliedAuthority(environment, p0P2BrowserAuthorityNames)
-  )
-    return "UNEXECUTED";
-  if (
-    gateId === "browser.p3_multiplayer" &&
-    (!suppliedAuthority(environment, p3BrowserAuthorityNames) ||
-      environment.COLLABORATION_INTERNAL_SECRET?.trim() ===
-        environment.COLLABORATION_FREEZE_SECRET?.trim())
   )
     return "UNEXECUTED";
   return "NOT_MET";

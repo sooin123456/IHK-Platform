@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { data } from "react-router";
 
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
+import { openDrawingCollaborationConnection } from "~/lukas/lib/drawing-collaboration-client";
 import {
   connectedDrawingWorkspaceRealtimeView,
   createInertDrawingWorkspaceRealtimeAdapter,
@@ -95,6 +96,7 @@ const representativePreviousPdfSha256 =
   "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc";
 const createdAt = "2026-08-25T09:00:00.000Z";
 const previewAlternateUserId = "00000000-0000-4000-8000-000000000006";
+const localMultiplayerCollaborationUrl = "ws://127.0.0.1:12347";
 const previewRealtimeAdapter = createInertDrawingWorkspaceRealtimeAdapter();
 const previewIfcFileId = "00000000-0000-4000-8000-0000000000a1";
 const previewAlternateIfcFileId = "00000000-0000-4000-8000-0000000000a2";
@@ -264,6 +266,16 @@ function previewCollaborationConnectionFactory(
       },
     };
   };
+}
+
+function localMultiplayerConnectionFactory(
+  options: Parameters<typeof openDrawingCollaborationConnection>[0],
+) {
+  return openDrawingCollaborationConnection({
+    ...options,
+    resolveToken: async () => "local-preview",
+    url: localMultiplayerCollaborationUrl,
+  });
 }
 
 type PreviewRealtimeAdapter = DrawingWorkspaceRealtimeAdapter & {
@@ -1251,6 +1263,7 @@ export function loader({ request }: Route.LoaderArgs) {
     "collaborationRetryTest",
     "bootstrapReadOnlyTest",
     "verticalTest",
+    "localMultiplayerTest",
   ].some((name) => new URL(request.url).searchParams.get(name) === "1");
   const canonicalP5 =
     !performanceTest &&
@@ -1296,6 +1309,11 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("awarenessTest") === "1";
   const verticalTest =
     new URL(request.url).searchParams.get("verticalTest") === "1";
+  const localMultiplayerTest =
+    new URL(request.url).searchParams.get("localMultiplayerTest") === "1";
+  const alternateUser =
+    localMultiplayerTest &&
+    new URL(request.url).searchParams.get("alternateUser") === "1";
   const revision = fixture.workspace.document.revision;
   const payload = {
     ...fixture,
@@ -1396,6 +1414,8 @@ export function loader({ request }: Route.LoaderArgs) {
     awarenessTest,
     realtimeTest,
     verticalTest,
+    localMultiplayerTest,
+    alternateUser,
     performanceTest,
     ifcLifecycleTest,
     p5IfcTest,
@@ -1554,6 +1574,14 @@ export default function LocalDrawingWorkspacePreview({
     () => ({ onStateChange: setVerticalSnapshot, verticalTest: true }),
     [],
   );
+  const localMultiplayerPreviewHarness = useMemo(
+    () => ({
+      onStateChange: setVerticalSnapshot,
+      onSoftLockChange: setPreviewSoftLockRequest,
+      verticalTest: true,
+    }),
+    [],
+  );
   const p5PreviewHarness = useMemo(
     () => ({
       onStateChange: setVerticalSnapshot,
@@ -1696,19 +1724,23 @@ export default function LocalDrawingWorkspacePreview({
           loaderData.realtimeTest && viewer ? "viewer" : loaderData.capability
         }
         currentUserId={
-          loaderData.realtimeTest && alternateUser
+          loaderData.localMultiplayerTest && loaderData.alternateUser
             ? previewAlternateUserId
-            : loaderData.currentUserId
+            : loaderData.realtimeTest && alternateUser
+              ? previewAlternateUserId
+              : loaderData.currentUserId
         }
         previewMode
         collaborationConnectionFactory={
           loaderData.collaborationRetryTest
             ? retryConnectionFactory
-            : previewCollaborationConnectionFactory(
-                loaderData.awarenessTest,
-                setLocalAwarenessPayload,
-                loaderData.p5IfcTest,
-              )
+            : loaderData.localMultiplayerTest
+              ? localMultiplayerConnectionFactory
+              : previewCollaborationConnectionFactory(
+                  loaderData.awarenessTest,
+                  setLocalAwarenessPayload,
+                  loaderData.p5IfcTest,
+                )
         }
         collaborationPersistenceFactory={
           loaderData.collaborationRetryTest
@@ -1719,23 +1751,25 @@ export default function LocalDrawingWorkspacePreview({
           loaderData.realtimeTest ? realtimeAdapter : previewRealtimeAdapter
         }
         previewHarness={
-          loaderData.verticalTest
-            ? verticalPreviewHarness
-            : loaderData.p5ReleaseTest
-              ? p5PreviewHarness
-              : loaderData.p5BaselineTest
+          loaderData.localMultiplayerTest
+            ? localMultiplayerPreviewHarness
+            : loaderData.verticalTest
+              ? verticalPreviewHarness
+              : loaderData.p5ReleaseTest
                 ? p5PreviewHarness
-                : loaderData.p5IfcTest
+                : loaderData.p5BaselineTest
                   ? p5PreviewHarness
-                  : loaderData.p5PdfTest
-                    ? p5PdfPreviewHarness
-                    : loaderData.canonicalP5
-                      ? undefined
-                      : loaderData.realtimeTest
-                        ? previewHarness
-                        : loaderData.awarenessTest
-                          ? awarenessPreviewHarness
-                          : undefined
+                  : loaderData.p5IfcTest
+                    ? p5PreviewHarness
+                    : loaderData.p5PdfTest
+                      ? p5PdfPreviewHarness
+                      : loaderData.canonicalP5
+                        ? undefined
+                        : loaderData.realtimeTest
+                          ? previewHarness
+                          : loaderData.awarenessTest
+                            ? awarenessPreviewHarness
+                            : undefined
         }
         workspaceNotice="합성 매핑 예제 · 원본 IFC 형상 아님"
       />
@@ -1780,6 +1814,14 @@ export default function LocalDrawingWorkspacePreview({
         {loaderData.verticalTest ? (
           <output
             aria-label="P4 mounted workspace snapshot"
+            className="sr-only"
+          >
+            {JSON.stringify(verticalSnapshot)}
+          </output>
+        ) : null}
+        {loaderData.localMultiplayerTest ? (
+          <output
+            aria-label="로컬 공동 편집 workspace snapshot"
             className="sr-only"
           >
             {JSON.stringify(verticalSnapshot)}

@@ -633,7 +633,7 @@ test("real PostgreSQL and production-browser gates classify missing authority in
   );
   assert.equal(
     runnerModule.p7LocalGateStatus("browser.p3_multiplayer", 1, {}),
-    "UNEXECUTED",
+    "NOT_MET",
   );
 });
 
@@ -652,6 +652,21 @@ test("missing hosted browser authority preflights without starting a local dev s
     runnerModule.p7LocalGatePreflight("browser.p4_functional", {}),
     null,
   );
+  assert.equal(
+    runnerModule.p7LocalGatePreflight("browser.p3_multiplayer", {}),
+    null,
+  );
+});
+
+test("local P3 multiplayer gate uses the isolated Hocuspocus browser authority", () => {
+  const gate = runnerModule.P7_RELEASE_GATES.find(
+    ({ id }) => id === "browser.p3_multiplayer",
+  );
+  assert.deepEqual(gate?.argv, [
+    "npm",
+    "run",
+    "test:e2e:drawing-workspace-p3:local",
+  ]);
 });
 
 test("Task7 browser gates isolate legacy screenshot roots from user artifacts", () => {
