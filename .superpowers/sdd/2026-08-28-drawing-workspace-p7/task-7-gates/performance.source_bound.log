@@ -165,7 +165,7 @@ build/client/assets/index-BdWKcC-a.js                                527.24 kB �
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 4.46s
+✓ built in 4.42s
   ⚠️  Future Flag Warning: Route middleware support is changing in React Router v8.
      You can use the `future.v8_middleware` flag to opt in early.
      -> https://reactrouter.com/v7/upgrading/future#futurev8_middleware
@@ -206,24 +206,24 @@ build/client/assets/nprogress-BgDCIyLK.css
 build/server/assets/server-build-BFr3RwrV.css
 
 The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
-(node:74480) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(node:79656) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
 Prerender (data): /sitemap.xml -> build/client/sitemap.xml.data
 Prerender (resource): /sitemap.xml -> build/client/sitemap.xml
 Prerender (data): /robots.txt -> build/client/robots.txt.data
 Prerender (resource): /robots.txt -> build/client/robots.txt
-✓ built in 1.05s
-[WebServer] (node:74544) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+✓ built in 1.04s
+[WebServer] (node:79719) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 [WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
 
 [WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
 
-[WebServer] (node:74544) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+[WebServer] (node:79719) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 
 
 Running 3 tests using 1 worker
 
-(node:74545) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:79725) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
 
 

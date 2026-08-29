@@ -1,16 +1,16 @@
 # P7 Task 7 — current release audit
 
-Document set: `52cae422-1b9d-4fd6-a7b0-5a849678e8df:bb36ca0167937bd616f0bf28f5b4f8260f421d74:2bc87839e236593bf140667f951407ef22fb1a02c31a3af47e684a1c310cbbbe`
-Source commit: `bb36ca0167937bd616f0bf28f5b4f8260f421d74`
-Source tree SHA-256: `2bc87839e236593bf140667f951407ef22fb1a02c31a3af47e684a1c310cbbbe`
+Document set: `e67c1ed8-9961-4b70-872b-af91d421fb73:375bcbebb8a4746c60e69af74e556d098fe255a4:4e3b585437e8ac5c9a4dadc1ae958babc036eeabb20154a20fbc23acc24e5f9b`
+Source commit: `375bcbebb8a4746c60e69af74e556d098fe255a4`
+Source tree SHA-256: `4e3b585437e8ac5c9a4dadc1ae958babc036eeabb20154a20fbc23acc24e5f9b`
 Overall: **UNEXECUTED**
 Requirements: **34 PASS / 0 NOT_MET / 14 UNEXECUTED**
 
 ## Current source-bound performance
 
-- warm reopen: 1709.4ms (MET)
-- cold/cache-miss: 2220.7ms (MET)
-- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.2ms (MET)
+- warm reopen: 1722.3ms (MET)
+- cold/cache-miss: 2222.8ms (MET)
+- warm p95: zoom 0.2ms, pan 0.2ms, selection 7.6ms (MET)
 
 ## Exact requirement ledger
 
