@@ -31,7 +31,14 @@ test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", as
   assert.match(config, /process\.env\.E2E_BASE_URL/);
   assert.match(config, /webServer:\s*remote\s*\?\s*undefined/);
 
-  for (const role of ["owner", "reviewer", "viewer", "nonMember"])
+  for (const role of [
+    "owner",
+    "editor",
+    "reviewer",
+    "approver",
+    "viewer",
+    "nonMember",
+  ])
     assert.match(fixture, new RegExp(`\\b${role}\\b`));
   assert.match(fixture, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(fixture, /value === "\[SENSITIVE\]"/);
@@ -42,8 +49,11 @@ test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", as
 
   assert.match(
     spec,
-    /maker requests review and a separate reviewer approves it in realtime/,
+    /editor submits, reviewer checks, and a separate approver decides in realtime/,
   );
+  assert.match(spec, /fixture\.editor/);
+  assert.match(spec, /fixture\.reviewer/);
+  assert.match(spec, /fixture\.approver/);
   assert.match(spec, /getByLabel\("검토 결정"\)\.selectOption\("approved"\)/);
   assert.match(spec, /getByRole\("region", \{ name: "승인 기록" \}\)/);
   assert.match(spec, /real IFC element and camera/);

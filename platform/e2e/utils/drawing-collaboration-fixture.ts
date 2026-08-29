@@ -27,6 +27,7 @@ export type DrawingFixture = {
   owner: TestUser;
   editor: TestUser;
   reviewer: TestUser;
+  approver: TestUser;
   viewer: TestUser;
   nonMember: TestUser;
   projectId: string;
@@ -481,14 +482,14 @@ export async function createDrawingFixture(options?: {
   let ownerAuth: SupabaseClient | null = null;
   const storagePaths: string[] = [];
   const addUser = async (
-    label: keyof ReturnType<typeof buildDrawingP3Identities>,
+    label: keyof ReturnType<typeof buildDrawingP3Identities> | "approver",
   ) => {
     const fixtureLabel = label === "nonMember" ? "nonmember" : label;
     const user = await createUser(
       admin,
       fixtureLabel,
       runId,
-      p3Identities?.[label],
+      label === "approver" ? undefined : p3Identities?.[label],
     );
     createdUsers.push(user);
     return user;
@@ -498,6 +499,7 @@ export async function createDrawingFixture(options?: {
     const owner = await addUser("owner");
     const editor = await addUser("editor");
     const reviewer = await addUser("reviewer");
+    const approver = await addUser("approver");
     const viewer = await addUser("viewer");
     const nonMember = await addUser("nonMember");
 
@@ -522,7 +524,7 @@ export async function createDrawingFixture(options?: {
       .insert({
         owner_id: owner.id,
         name: `1HK Drawing E2E ${runId}`,
-        description: "Disposable maker-reviewer browser verification",
+        description: "Disposable editor-reviewer-approver browser verification",
       })
       .select("id,organization_id")
       .single();
@@ -536,6 +538,7 @@ export async function createDrawingFixture(options?: {
       .insert([
         { project_id: project.id, user_id: editor.id, role: "estimator" },
         { project_id: project.id, user_id: reviewer.id, role: "reviewer" },
+        { project_id: project.id, user_id: approver.id, role: "reviewer" },
         { project_id: project.id, user_id: viewer.id, role: "viewer" },
       ]);
     if (memberError) throw memberError;
@@ -700,6 +703,7 @@ export async function createDrawingFixture(options?: {
       owner,
       editor,
       reviewer,
+      approver,
       viewer,
       nonMember,
       projectId: project.id,
@@ -1332,6 +1336,7 @@ export async function destroyDrawingFixture(
       fixture.owner,
       fixture.editor,
       fixture.reviewer,
+      fixture.approver,
       fixture.viewer,
       fixture.nonMember,
     ].filter((user): user is TestUser => Boolean(user)),
