@@ -1,16 +1,16 @@
 # 1HK Drawing Workspace P0–P7 current implementation matrix
 
-Document set: `dd46e79e-060c-4747-96bf-e3dd0c5d069c:bc218e693dd9f400d2f57caf4ba16761e1c92e6d:c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936`
-Source commit: `bc218e693dd9f400d2f57caf4ba16761e1c92e6d`
-Source tree SHA-256: `c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936`
+Document set: `cadc4819-152a-47e7-abdb-f32ddda8e716:17f7f49f85f69d30b66210ce267559b9c7769a33:29f5ba562212016741adf64ab54c774e3cd021c4ca7f43f82dce89a22d258635`
+Source commit: `17f7f49f85f69d30b66210ce267559b9c7769a33`
+Source tree SHA-256: `29f5ba562212016741adf64ab54c774e3cd021c4ca7f43f82dce89a22d258635`
 Overall: **UNEXECUTED**
-Requirements: **35 PASS / 0 NOT_MET / 13 UNEXECUTED**
+Requirements: **36 PASS / 0 NOT_MET / 12 UNEXECUTED**
 
 ## Current source-bound performance
 
-- warm reopen: 1719.9ms (MET)
-- cold/cache-miss: 2168.9ms (MET)
-- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.6ms (MET)
+- warm reopen: 1709.8ms (MET)
+- cold/cache-miss: 2306.2ms (MET)
+- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.4ms (MET)
 
 ## Exact requirement ledger
 
@@ -60,7 +60,7 @@ Requirements: **35 PASS / 0 NOT_MET / 13 UNEXECUTED**
 | `production.three_real_users` | production | **UNEXECUTED** | production authority not supplied |
 | `production.mounted_route_actions` | production | **UNEXECUTED** | production authority not supplied |
 | `production.export_audit` | production | **UNEXECUTED** | production authority not supplied |
-| `release.regression_p0_p7` | local | **UNEXECUTED** | browser.p0_p2 + browser.p3_multiplayer + browser.p4_functional + browser.p5_release + browser.p6_release |
+| `release.regression_p0_p7` | local | **PASS** | browser.p0_p2 + browser.p3_multiplayer + browser.p4_functional + browser.p5_release + browser.p6_release |
 | `release.typecheck_build_collaboration` | local | **PASS** | application.typecheck_build + application.build + collaboration.typecheck_build + collaboration.build |
 | `release.license_lock_notices` | local | **PASS** | license.permissive_policy |
 | `release.no_rayon_assets_or_copy` | local | **PASS** | license.closure |

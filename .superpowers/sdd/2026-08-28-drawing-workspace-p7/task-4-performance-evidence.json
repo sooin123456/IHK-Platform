@@ -5,16 +5,16 @@
   "sourceCommitSha": "17f7f49f85f69d30b66210ce267559b9c7769a33",
   "provenance": {
     "runner": "P7_PLAYWRIGHT_PRODUCTION_BUILD_V3",
-    "runId": "527fd189-1db9-4595-b293-f1e8060c118e",
+    "runId": "ebdbcfa4-20dc-48b5-ac1d-909226fd8623",
     "sourceTreeSha256": "2792358a64b93d490a9d7cea98b52605524a19c0ea63c0a9a36f928bd2dd93fc",
     "runnerSha256": "d008b6bd0cbad108c3183a487e87b7f3a75c638aaeacc42d6a92775036ee677c",
     "configSha256": "05b08b871eb320a47c28f9eccc9391c5dbf140f6d24c5604c2c7bf59185cf5f5",
     "build": {
       "serverSha256": "8364c20bc481c48ded5c1e1c438c404095f463d7a1cc061f1db861597eb0de43",
-      "clientSha256": "61d660f5e3544a5d8cdd53aeb12f11ee77cc228b08c2b07d81ab47ad21c36d19"
+      "clientSha256": "cc1eca801e831c55afb74c51cfa518efc6a759f516bea98a99f172b8d6df6c75"
     },
-    "playwrightCaptureSha256": "ee5fd7e041e2974b38d4d582c17999019f93be14b156c6f9ded5cffaef46b69d",
-    "captureSha256": "5c0a295e00bd06235b66a6170a20229553360761258821cbe2309fe51489d4a3"
+    "playwrightCaptureSha256": "c687e6c219591273e39389d7d83b9d35b56ace6e129b8a165b598192404cecd7",
+    "captureSha256": "82839f0ebd2ff13ede2addd35973bb8c7f743def02929f687605e14a17d65fb1"
   },
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
@@ -29,7 +29,7 @@
   },
   "memory": {
     "totalBytes": 38654705664,
-    "freeBytesAtMeasurement": 5085659136
+    "freeBytesAtMeasurement": 5537710080
   },
   "workload": {
     "objects": 10000,
@@ -55,18 +55,18 @@
   },
   "coldCacheMiss": {
     "cacheStatus": "MISS",
-    "durationMs": 2143.800000011921,
+    "durationMs": 2306.199999988079,
     "targetMs": 2500,
     "status": "MET",
     "readiness": {
       "navigationStartMs": 0,
-      "hydrationEndMs": 1146.5999999642372,
-      "editReadyObservedMs": 2135.899999976158,
-      "authoritativeStateObservedMs": 2135.899999976158,
-      "viewportProjectionObservedMs": 2135.899999976158,
-      "pdfVisibleObservedMs": 2135.899999976158,
-      "ifcVisibleObservedMs": 2135.899999976158,
-      "usableFrameEndMs": 2143.800000011921
+      "hydrationEndMs": 1307.5,
+      "editReadyObservedMs": 2300.199999988079,
+      "authoritativeStateObservedMs": 2300.199999988079,
+      "viewportProjectionObservedMs": 2300.199999988079,
+      "pdfVisibleObservedMs": 2300.199999988079,
+      "ifcVisibleObservedMs": 2300.199999988079,
+      "usableFrameEndMs": 2306.199999988079
     }
   },
   "pdfRaster": {
@@ -74,74 +74,74 @@
     "cacheStatus": "UNVERIFIED_HIT",
     "renderProfile": "first-visible-v1",
     "keySha256": "d88d60be929ccb629703d75f2e63113e6fb2e323e3fe5b8ae42cfd39f6a29c3d",
-    "mountedAtMs": 1686.7999999523163,
+    "mountedAtMs": 1695.5999999642372,
     "screenPixelRatio": 3.0769230769230775
   },
   "stages": {
     "loader": {
       "authority": "LOCAL_PRODUCTION_SERVER",
-      "durationMs": 344.0009170000003
+      "durationMs": 337.27625000000035
     },
     "ssr": {
       "authority": "LOCAL_PRODUCTION_SERVER",
-      "durationMs": 202.487
+      "durationMs": 207.172
     },
     "hydration": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 630.7999999523163,
-      "endMs": 864.5,
-      "durationMs": 233.70000004768372
+      "startMs": 629.6999999880791,
+      "endMs": 857.7999999523163,
+      "durationMs": 228.0999999642372
     },
     "styleResolution": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 852.2999999523163,
-      "endMs": 855,
-      "durationMs": 2.700000047683716
+      "startMs": 842.5999999642372,
+      "endMs": 846.1999999880791,
+      "durationMs": 3.600000023841858
     },
     "renderAdapter": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 892.6999999880791,
-      "endMs": 927,
-      "durationMs": 34.30000001192093
+      "startMs": 885.5999999642372,
+      "endMs": 920.6999999880791,
+      "durationMs": 35.10000002384186
     },
     "konvaMount": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 890.5,
-      "endMs": 955.5999999642372,
-      "durationMs": 65.09999996423721
+      "startMs": 883.3999999761581,
+      "endMs": 948.6999999880791,
+      "durationMs": 65.30000001192093
     },
     "snapHitPreparation": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 975.8999999761581,
-      "endMs": 979,
+      "startMs": 968.8999999761581,
+      "endMs": 972,
       "durationMs": 3.100000023841858
     },
     "pdf": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 1138.2999999523163,
-      "endMs": 1676.3999999761581,
-      "durationMs": 538.1000000238419
+      "startMs": 1131.5,
+      "endMs": 1685,
+      "durationMs": 553.5
     },
     "ifc": {
       "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-      "startMs": 936.0999999642372,
-      "endMs": 1259.699999988079,
-      "durationMs": 323.60000002384186
+      "startMs": 929.6999999880791,
+      "endMs": 1254.699999988079,
+      "durationMs": 325
     }
   },
   "firstUsable": {
-    "durationMs": 1700.8999999761581,
+    "durationMs": 1709.7999999523163,
     "targetMs": 2500,
     "status": "MET",
     "readiness": {
       "navigationStartMs": 0,
-      "hydrationEndMs": 864.5,
-      "editReadyObservedMs": 1687.8999999761581,
-      "authoritativeStateObservedMs": 1687.8999999761581,
-      "viewportProjectionObservedMs": 1687.8999999761581,
-      "pdfVisibleObservedMs": 1687.8999999761581,
-      "ifcVisibleObservedMs": 1687.8999999761581,
-      "usableFrameEndMs": 1700.8999999761581
+      "hydrationEndMs": 857.7999999523163,
+      "editReadyObservedMs": 1696.699999988079,
+      "authoritativeStateObservedMs": 1696.699999988079,
+      "viewportProjectionObservedMs": 1696.699999988079,
+      "pdfVisibleObservedMs": 1696.699999988079,
+      "ifcVisibleObservedMs": 1696.699999988079,
+      "usableFrameEndMs": 1709.7999999523163
     }
   },
   "warm": {
@@ -153,162 +153,82 @@
     "p95Ms": {
       "zoom": 0.19999998807907104,
       "pan": 0.20000004768371582,
-      "selection": 8.800000011920929
+      "selection": 8.399999976158142
     },
     "rawSamples": {
       "zoomMs": [
+        0.09999996423721313,
         0.19999998807907104,
         0.10000002384185791,
+        0.09999996423721313,
+        0,
+        0.10000002384185791,
+        0.10000002384185791,
+        0.10000002384185791,
+        0.10000002384185791,
+        0.09999996423721313,
+        0.10000002384185791,
+        0.10000002384185791,
+        0,
+        0.09999996423721313,
         0.19999998807907104,
         0.10000002384185791,
-        0,
+        0.10000002384185791,
+        0.09999996423721313,
         0.10000002384185791,
         0.10000002384185791,
         0,
-        0.10000002384185791,
-        0.09999996423721313,
-        0.09999996423721313,
-        0.10000002384185791,
         0,
-        0,
-        0.09999996423721313,
-        0.09999996423721313,
-        0.10000002384185791,
-        0,
-        0,
-        0.09999996423721313,
-        0.10000002384185791,
-        0.20000004768371582,
-        0,
-        0.09999996423721313,
-        0,
-        0.09999996423721313,
+        0.19999998807907104,
         0.10000002384185791,
         0.10000002384185791,
         0.09999996423721313,
+        0.10000002384185791,
+        0.09999996423721313,
+        0.10000002384185791,
         0
       ],
       "panMs": [
-        0.30000001192092896,
+        0.2999999523162842,
+        0.09999996423721313,
+        0.19999998807907104,
+        0.09999996423721313,
+        0.19999998807907104,
+        0.19999998807907104,
+        0.10000002384185791,
+        0,
+        0.19999998807907104,
         0.09999996423721313,
         0.09999996423721313,
+        0.09999996423721313,
+        0.09999996423721313,
+        0.09999996423721313,
+        0.09999996423721313,
+        0.10000002384185791,
+        0.19999998807907104,
+        0.19999998807907104,
+        0.19999998807907104,
+        0,
+        0.10000002384185791,
+        0.10000002384185791,
+        0.10000002384185791,
+        0.10000002384185791,
         0.20000004768371582,
         0.09999996423721313,
-        0.09999996423721313,
-        0.10000002384185791,
-        0.09999996423721313,
-        0.19999998807907104,
-        0.10000002384185791,
-        0.10000002384185791,
         0.19999998807907104,
         0.19999998807907104,
-        0.19999998807907104,
+        0,
         0.10000002384185791,
-        0.19999998807907104,
-        0.09999996423721313,
-        0.19999998807907104,
-        0.10000002384185791,
-        0.10000002384185791,
-        0.10000002384185791,
-        0.10000002384185791,
-        0.09999996423721313,
-        0.10000002384185791,
-        0.09999996423721313,
-        0.09999996423721313,
-        0.09999996423721313,
-        0.10000002384185791,
-        0.09999996423721313,
-        0.09999996423721313,
-        0.10000002384185791
+        0.09999996423721313
       ],
       "selection": [
         {
-          "durationMs": 8.600000023841858,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.5,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.300000011920929,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.199999988079071,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.199999988079071,
+          "durationMs": 7.100000023841858,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
         {
           "durationMs": 7.399999976158142,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.599999964237213,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.300000011920929,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 9.300000011920929,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.300000011920929,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.699999988079071,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.5,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.600000023841858,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.300000011920929,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.199999988079071,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.399999976158142,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 6.700000047683716,
-          "expectedObjectName": "P4 selection 1",
-          "committedObjectName": "P4 selection 1"
-        },
-        {
-          "durationMs": 7.699999988079071,
           "expectedObjectName": "P4 selection 2",
           "committedObjectName": "P4 selection 2"
         },
@@ -318,32 +238,52 @@
           "committedObjectName": "P4 selection 1"
         },
         {
+          "durationMs": 6.699999988079071,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.399999976158142,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 6.300000011920929,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
           "durationMs": 7.5,
-          "expectedObjectName": "P4 selection 2",
-          "committedObjectName": "P4 selection 2"
-        },
-        {
-          "durationMs": 7.100000023841858,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
         {
-          "durationMs": 8.400000035762787,
+          "durationMs": 6.5,
           "expectedObjectName": "P4 selection 2",
           "committedObjectName": "P4 selection 2"
         },
         {
-          "durationMs": 7.699999988079071,
+          "durationMs": 7.5,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
         {
-          "durationMs": 7.599999964237213,
+          "durationMs": 6.600000023841858,
           "expectedObjectName": "P4 selection 2",
           "committedObjectName": "P4 selection 2"
         },
         {
-          "durationMs": 7.300000011920929,
+          "durationMs": 7.899999976158142,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 7.199999988079071,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.400000035762787,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
@@ -353,22 +293,82 @@
           "committedObjectName": "P4 selection 2"
         },
         {
-          "durationMs": 7.200000047683716,
+          "durationMs": 7.5,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
         {
-          "durationMs": 8.800000011920929,
+          "durationMs": 7.699999988079071,
           "expectedObjectName": "P4 selection 2",
           "committedObjectName": "P4 selection 2"
         },
         {
-          "durationMs": 7.299999952316284,
+          "durationMs": 8.399999976158142,
           "expectedObjectName": "P4 selection 1",
           "committedObjectName": "P4 selection 1"
         },
         {
-          "durationMs": 8.699999988079071,
+          "durationMs": 7.5,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 8.5,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 6.700000047683716,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.300000011920929,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 6.299999952316284,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 8.300000011920929,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 7.600000023841858,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.399999976158142,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 7.399999976158142,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.400000035762787,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 5.699999988079071,
+          "expectedObjectName": "P4 selection 2",
+          "committedObjectName": "P4 selection 2"
+        },
+        {
+          "durationMs": 7.399999976158142,
+          "expectedObjectName": "P4 selection 1",
+          "committedObjectName": "P4 selection 1"
+        },
+        {
+          "durationMs": 7.400000035762787,
           "expectedObjectName": "P4 selection 2",
           "committedObjectName": "P4 selection 2"
         }

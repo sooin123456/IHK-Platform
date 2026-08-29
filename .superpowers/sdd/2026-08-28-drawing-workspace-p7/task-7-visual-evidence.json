@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "authority": "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
-  "commit": "bc218e693dd9f400d2f57caf4ba16761e1c92e6d",
-  "sourceTreeSha256": "c2d41aeb5010b71c15276a847bc2607f48d10171955fe8076c905e3eced64936",
+  "commit": "17f7f49f85f69d30b66210ce267559b9c7769a33",
+  "sourceTreeSha256": "29f5ba562212016741adf64ab54c774e3cd021c4ca7f43f82dce89a22d258635",
   "buildManifest": {
     "clientTree": {
       "path": "platform/build/client",
-      "sha256": "b3705525cf10eebbf139194a05ba834c53f7c4bcd1b5b37cef3bd353c9826706"
+      "sha256": "cc1eca801e831c55afb74c51cfa518efc6a759f516bea98a99f172b8d6df6c75"
     },
     "clientManifest": {
       "path": "platform/build/client/assets/manifest-5f9bd38b.js",
@@ -37,5 +37,5 @@
       "sha256": "4e75dd18d44ca8442af6882e1f48648f8998f5c7206608baf31f5ff02ee44ff3"
     }
   ],
-  "recordedAt": "2026-08-29T03:36:44.602Z"
+  "recordedAt": "2026-08-29T04:29:12.477Z"
 }
