@@ -94,14 +94,7 @@ function manifest() {
     },
     {
       id: "browser.p0_p2",
-      argv: [
-        "./node_modules/.bin/playwright",
-        "test",
-        "e2e/drawing-workspace.spec.ts",
-        "e2e/drawing-workspace-p2.spec.ts",
-        "--project=chromium",
-        "--workers=1",
-      ],
+      argv: ["npm", "run", "test:e2e:drawing-workspace-p0-p2:local"],
     },
     {
       id: "browser.p3_multiplayer",
@@ -530,12 +523,6 @@ export function p7ProductionGateStatus(
   return "NOT_MET";
 }
 
-const p0P2BrowserAuthorityNames = [
-  "E2E_BASE_URL",
-  "SUPABASE_URL",
-  "SUPABASE_ANON_KEY",
-  "SUPABASE_SERVICE_ROLE_KEY",
-];
 function suppliedAuthority(environment, names) {
   return names.every((name) => {
     const value = environment[name]?.trim().toLowerCase();
@@ -550,12 +537,9 @@ function suppliedAuthority(environment, names) {
 }
 
 export function p7LocalGatePreflight(gateId, environment) {
-  const names = gateId === "browser.p0_p2" ? p0P2BrowserAuthorityNames : null;
-  if (!names) return null;
-  const missing = names.filter(
-    (name) => !suppliedAuthority(environment, [name]),
-  );
-  return missing.length ? { status: "UNEXECUTED", missing } : null;
+  void gateId;
+  void environment;
+  return null;
 }
 
 export function p7LocalGateStatus(gateId, exitCode, environment) {
@@ -566,11 +550,6 @@ export function p7LocalGateStatus(gateId, exitCode, environment) {
       "DRAWING_P7_REAL_DATABASE_URL",
       "P7_REAL_POSTGRES_DATABASE_URL",
     ])
-  )
-    return "UNEXECUTED";
-  if (
-    gateId === "browser.p0_p2" &&
-    !suppliedAuthority(environment, p0P2BrowserAuthorityNames)
   )
     return "UNEXECUTED";
   return "NOT_MET";

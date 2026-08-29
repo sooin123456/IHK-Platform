@@ -637,17 +637,9 @@ test("real PostgreSQL and production-browser gates classify missing authority in
   );
 });
 
-test("missing hosted browser authority preflights without starting a local dev server", () => {
+test("local browser authorities do not require hosted credentials", () => {
   assert.equal(typeof runnerModule.p7LocalGatePreflight, "function");
-  assert.deepEqual(runnerModule.p7LocalGatePreflight("browser.p0_p2", {}), {
-    status: "UNEXECUTED",
-    missing: [
-      "E2E_BASE_URL",
-      "SUPABASE_URL",
-      "SUPABASE_ANON_KEY",
-      "SUPABASE_SERVICE_ROLE_KEY",
-    ],
-  });
+  assert.equal(runnerModule.p7LocalGatePreflight("browser.p0_p2", {}), null);
   assert.equal(
     runnerModule.p7LocalGatePreflight("browser.p4_functional", {}),
     null,
@@ -655,6 +647,21 @@ test("missing hosted browser authority preflights without starting a local dev s
   assert.equal(
     runnerModule.p7LocalGatePreflight("browser.p3_multiplayer", {}),
     null,
+  );
+});
+
+test("local P0-P2 gate uses the isolated preview browser authority", () => {
+  const gate = runnerModule.P7_RELEASE_GATES.find(
+    ({ id }) => id === "browser.p0_p2",
+  );
+  assert.deepEqual(gate?.argv, [
+    "npm",
+    "run",
+    "test:e2e:drawing-workspace-p0-p2:local",
+  ]);
+  assert.equal(
+    runnerModule.p7LocalGateStatus("browser.p0_p2", 1, {}),
+    "NOT_MET",
   );
 });
 

@@ -20,6 +20,7 @@
     "test:e2e:drawing:production": "playwright test e2e/drawing-collaboration.spec.ts --project=chromium",
     "test:e2e:drawing-workspace:production": "playwright test e2e/drawing-workspace.spec.ts --project=chromium",
     "test:e2e:drawing-workspace-p2:production": "playwright test e2e/drawing-workspace-p2.spec.ts --project=chromium",
+    "test:e2e:drawing-workspace-p0-p2:local": "playwright test e2e/drawing-workspace-local-p0-p2.spec.ts --config=playwright.p4-functional.config.ts --project=chromium --workers=1",
     "test:e2e:drawing-workspace-p3:local": "playwright test e2e/drawing-workspace-local-multiplayer.spec.ts --config=playwright.p4-functional.config.ts --project=chromium --workers=1",
     "test:e2e:drawing-workspace-p3:production": "playwright test e2e/drawing-workspace-p3.spec.ts --project=chromium",
     "test:e2e:drawing-workspace-p4:local": "node scripts/run-drawing-p4-functional.mjs",
