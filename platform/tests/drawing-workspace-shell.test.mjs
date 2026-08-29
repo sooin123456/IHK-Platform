@@ -156,7 +156,7 @@ test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first 
 
 test("workspace makes modes, tools, and business lineage visible without icon guesswork", async () => {
   const html = renderWorkspace();
-  assert.match(html, /aria-label="작업 보기"/);
+  assert.match(html, /aria-label="도면 작업실 보기"/);
   assert.match(html, />2D 도면</);
   assert.match(html, />IFC 3D</);
   assert.match(html, />분할 보기</);

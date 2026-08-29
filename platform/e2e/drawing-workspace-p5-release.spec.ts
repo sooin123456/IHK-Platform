@@ -26,11 +26,14 @@ async function sourceByteEvidence(page: Page) {
     id: string;
     byteSize: number;
     sha256: string;
-    signedUrl: string;
+    signedUrl?: string;
+    fixtureSourceUrl?: string;
   }>;
   const evidence = [];
   for (const row of rows) {
-    const response = await page.request.get(row.signedUrl);
+    const fixtureUrl = row.signedUrl ?? row.fixtureSourceUrl;
+    expect(fixtureUrl).toBeTruthy();
+    const response = await page.request.get(fixtureUrl!);
     expect(response.ok()).toBe(true);
     const bytes = await response.body();
     evidence.push({

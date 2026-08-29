@@ -3873,7 +3873,7 @@ export default function DrawingWorkspaceClient({
           보기
         </span>
         <div
-          aria-label="작업 보기"
+          aria-label="도면 작업실 보기"
           className="flex rounded-lg border border-white/15 bg-slate-950/60 p-1 shadow-inner"
           role="group"
         >
