@@ -323,6 +323,7 @@ test("10k objects, 2k links, one IFC, and one compare-page baseline records hone
   await expect(page.getByText("3D 요소 115개를 표시했습니다.")).toBeVisible({
     timeout: 60_000,
   });
+  await page.getByLabel("IFC 요소 검색").fill("2863");
   await page
     .getByRole("button", {
       name: /NZ-PFC Channels beam:300PFC40\.1:691733 #2863/,
