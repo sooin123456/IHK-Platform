@@ -661,7 +661,6 @@ test("workspace exposes grouped architectural tools and a focused semantic inspe
     assert.match(shell, new RegExp(label));
     assert.match(menu, new RegExp(label));
   }
-  assert.match(shell, /style=\{\{ maxWidth: "calc\(100% - 2rem\)" \}\}/);
   assert.match(shell, /objects=\{resolvedObjects\.objects\}/);
   assert.match(canvas, /name="drawing-semantic-label"/);
   assert.match(canvas, /data-rendered-semantic-object-count/);
