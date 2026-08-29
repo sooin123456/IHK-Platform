@@ -33,6 +33,7 @@ import type {
   DrawingTable,
 } from "~/lukas/lib/drawing-workspace.types";
 import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
+import { adaptIfcRenderBundleDescriptor } from "~/lukas/lib/ifc-render-descriptor";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
 import { buildDrawingP4PerformanceFixture } from "~/lukas/lib/drawing-p4-performance";
@@ -1593,12 +1594,18 @@ export default function LocalDrawingWorkspacePreview({
     const selectedIfc = lifecycleSourceBundle?.catalog.find(
       (item) => item.kind === "ifc" && item.id === loaderData.selectedIfcFileId,
     );
+    const renderBundle = adaptIfcRenderBundleDescriptor(
+      lifecycleSourceBundle?.ifc,
+    );
     return [
       revision.id,
       lifecycleSourceBundle?.pdf?.id ?? "no-pdf",
       lifecycleSourceBundle?.pdf?.sha256 ?? "no-pdf-sha",
       selectedIfc?.id ?? "no-ifc",
       selectedIfc?.sha256 ?? "no-ifc-sha",
+      renderBundle?.derivative.version ?? "no-ifc-revision",
+      renderBundle?.derivative.manifestSha256 ?? "no-ifc-manifest",
+      renderBundle?.derivative.geometrySha256 ?? "no-ifc-glb",
     ].join(":");
   }, [
     lifecycleSourceBundle,
