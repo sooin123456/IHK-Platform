@@ -1,15 +1,15 @@
 # 1HK Drawing Workspace P0–P7 current implementation matrix
 
-Document set: `484d62ea-925c-414b-a29a-220a0e9f7c6f:67d501dbb5c6afd119bbe989fc407fb05bea84c5:06d941be8774aa4610ec9109222ed80a50e7da3f0ca56ee2ffaddf3f927556bb`
-Source commit: `67d501dbb5c6afd119bbe989fc407fb05bea84c5`
-Source tree SHA-256: `06d941be8774aa4610ec9109222ed80a50e7da3f0ca56ee2ffaddf3f927556bb`
-Overall: **NOT_MET**
-Requirements: **33 PASS / 1 NOT_MET / 14 UNEXECUTED**
+Document set: `b0ff63e9-2047-4342-89c1-ca767cba85b0:8b2deb2be26c246182b90ead7c04006901c5c0fb:2a847efaaee2b075347b3e3c18d3facdc6f2e73accae9bf19a71bd816239f5dd`
+Source commit: `8b2deb2be26c246182b90ead7c04006901c5c0fb`
+Source tree SHA-256: `2a847efaaee2b075347b3e3c18d3facdc6f2e73accae9bf19a71bd816239f5dd`
+Overall: **UNEXECUTED**
+Requirements: **34 PASS / 0 NOT_MET / 14 UNEXECUTED**
 
 ## Current source-bound performance
 
-- warm reopen: 1841.4ms (MET)
-- cold/cache-miss: 2275.1ms (MET)
+- warm reopen: 1696.4ms (MET)
+- cold/cache-miss: 2155.7ms (MET)
 - warm p95: zoom 0.2ms, pan 0.2ms, selection 7.7ms (MET)
 
 ## Exact requirement ledger
@@ -62,7 +62,7 @@ Requirements: **33 PASS / 1 NOT_MET / 14 UNEXECUTED**
 | `production.export_audit` | production | **UNEXECUTED** | production authority not supplied |
 | `release.regression_p0_p7` | local | **UNEXECUTED** | browser.p0_p2 + browser.p3_multiplayer + browser.p4_functional + browser.p5_release + browser.p6_release |
 | `release.typecheck_build_collaboration` | local | **PASS** | application.typecheck_build + application.build + collaboration.typecheck_build + collaboration.build |
-| `release.license_lock_notices` | local | **NOT_MET** | license.permissive_policy |
+| `release.license_lock_notices` | local | **PASS** | license.permissive_policy |
 | `release.no_rayon_assets_or_copy` | local | **PASS** | license.closure |
 
 The program is not complete. Every NOT_MET and UNEXECUTED requirement must remain fail-closed.
