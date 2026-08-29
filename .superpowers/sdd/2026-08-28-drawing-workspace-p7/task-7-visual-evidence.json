@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "authority": "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
-  "commit": "8b2deb2be26c246182b90ead7c04006901c5c0fb",
-  "sourceTreeSha256": "2a847efaaee2b075347b3e3c18d3facdc6f2e73accae9bf19a71bd816239f5dd",
+  "commit": "bb36ca0167937bd616f0bf28f5b4f8260f421d74",
+  "sourceTreeSha256": "2bc87839e236593bf140667f951407ef22fb1a02c31a3af47e684a1c310cbbbe",
   "buildManifest": {
     "clientTree": {
       "path": "platform/build/client",
-      "sha256": "a91f0aa5734c7d61f1f1bd07803309ac0e4717f9de579e19d980af3b92b7aba9"
+      "sha256": "34fb190ce61dbc48b6e1b20c4cf11b78d896c689faf4390687333e0902846543"
     },
     "clientManifest": {
-      "path": "platform/build/client/assets/manifest-26d9bb8f.js",
-      "sha256": "a880b299124a38635cf58d621e47d7615a0c0320654937d8cd47acda4cb5ceb5"
+      "path": "platform/build/client/assets/manifest-9041ff8a.js",
+      "sha256": "f32613bf3c1790b20dc44101b3eb713d05d8c7c5b55bc9013b3a3a011eff1a20"
     },
     "serverEntry": {
       "path": "platform/build/server/index.js",
-      "sha256": "aaa06d9b4ed7a4de0f16b9c73a5fe0c2b493bfdf853318a05bcd4a4f4a095727"
+      "sha256": "d0778906bd7bff68bacaa659d838b3e4c0e4d8e7890d6b2833552e9f60ca723c"
     }
   },
   "artifacts": [
@@ -22,7 +22,7 @@
       "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-desktop-1280x720.png",
       "width": 1280,
       "height": 720,
-      "sha256": "781ba848aac37187fbed71282d4f1e63fd5a1cb600932b21ea108925ceebf353"
+      "sha256": "8e3c8dfd2542145ea5d04d98935e3b669fbe2be5d3d0cf1739c18e055c29d453"
     },
     {
       "path": ".superpowers/sdd/2026-08-28-drawing-workspace-p7/task-7-tablet-portrait-768x1024.png",
@@ -37,5 +37,5 @@
       "sha256": "00d7f5d130c90d514ede58f768c4d351e0aa47471defa2a5a9b13ab70ed73566"
     }
   ],
-  "recordedAt": "2026-08-29T00:24:03.855Z"
+  "recordedAt": "2026-08-29T00:59:35.170Z"
 }

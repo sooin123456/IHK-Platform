@@ -1,25 +1,25 @@
-✔ organization invitations have exact expiry, acceptance, revocation, and retry authority (2.447084ms)
-✔ plans, seats, trials, quotas, and feature entitlements are immutable versions (1.079208ms)
-✔ role and entitlement changes are append-only audited and direct privilege escalation is fenced (0.904833ms)
-✔ project membership and organization move are exact RPC authorities (1.313417ms)
-✔ organization administration list RPCs expose deterministic bounded keysets (1.615ms)
-✔ library access and feature quotas are enforced at the database boundary (1.138167ms)
-✔ quantity and BOQ reads and RPCs are fenced by quantity_lineage entitlement (4.956042ms)
-✔ PGlite executes exact invitation, seat, audit, and cross-organization authorities (891.028917ms)
-✔ PGlite feature versions fence drawing and collaboration database authorities (613.654125ms)
-✔ PGlite conservatively rejects every approved and lineage project move (603.128625ms)
-✖ real PostgreSQL organization authority is optional locally and required mode never becomes synthetic PASS (0.809292ms)
-✔ retention migration replaces project deletion with guarded archive authority (3.240125ms)
-✔ policy, hold, lifecycle, and restore evidence are append-only organization records (1.681833ms)
-✔ trusted purge is service-only and proves expiry, holds, and protected dependencies (1.48825ms)
-✔ restore records bind provider identity, database, storage, Yjs, approval, and lineage evidence (0.692792ms)
-✔ PGlite archives and holds approved project evidence through exact organization RPCs (1004.277291ms)
-✔ PGlite preserves immutable manifest until Storage deletion is proven (756.053542ms)
-✔ PGlite export evidence is exact, idempotent, append-only, and cross-org denied (688.096916ms)
-✔ PGlite preserves Revit download evidence as append-only after Task 5 (664.397375ms)
-✔ PGlite restore recording retries one request and permits a new rehearsal (647.927333ms)
-✔ PGlite legal hold blocks trusted purge until release and empty dependency proof (677.881208ms)
-✖ real PostgreSQL proves retention RLS, grants, and invoker guards (0.464542ms)
+✔ organization invitations have exact expiry, acceptance, revocation, and retry authority (2.486125ms)
+✔ plans, seats, trials, quotas, and feature entitlements are immutable versions (0.921625ms)
+✔ role and entitlement changes are append-only audited and direct privilege escalation is fenced (0.920834ms)
+✔ project membership and organization move are exact RPC authorities (1.159208ms)
+✔ organization administration list RPCs expose deterministic bounded keysets (1.627167ms)
+✔ library access and feature quotas are enforced at the database boundary (1.170084ms)
+✔ quantity and BOQ reads and RPCs are fenced by quantity_lineage entitlement (5.121958ms)
+✔ PGlite executes exact invitation, seat, audit, and cross-organization authorities (879.920375ms)
+✔ PGlite feature versions fence drawing and collaboration database authorities (616.081042ms)
+✔ PGlite conservatively rejects every approved and lineage project move (590.363916ms)
+✖ real PostgreSQL organization authority is optional locally and required mode never becomes synthetic PASS (0.9525ms)
+✔ retention migration replaces project deletion with guarded archive authority (2.937083ms)
+✔ policy, hold, lifecycle, and restore evidence are append-only organization records (1.537625ms)
+✔ trusted purge is service-only and proves expiry, holds, and protected dependencies (1.521459ms)
+✔ restore records bind provider identity, database, storage, Yjs, approval, and lineage evidence (0.633875ms)
+✔ PGlite archives and holds approved project evidence through exact organization RPCs (978.522791ms)
+✔ PGlite preserves immutable manifest until Storage deletion is proven (737.454209ms)
+✔ PGlite export evidence is exact, idempotent, append-only, and cross-org denied (686.40675ms)
+✔ PGlite preserves Revit download evidence as append-only after Task 5 (655.695833ms)
+✔ PGlite restore recording retries one request and permits a new rehearsal (655.478458ms)
+✔ PGlite legal hold blocks trusted purge until release and empty dependency proof (668.06625ms)
+✖ real PostgreSQL proves retention RLS, grants, and invoker guards (0.476667ms)
 ℹ tests 22
 ℹ suites 0
 ℹ pass 20
@@ -27,12 +27,12 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 4582.947208
+ℹ duration_ms 4515.951541
 
 ✖ failing tests:
 
 test at tests/drawing-workspace-p7-organization-admin-database.test.mjs:818:1
-✖ real PostgreSQL organization authority is optional locally and required mode never becomes synthetic PASS (0.809292ms)
+✖ real PostgreSQL organization authority is optional locally and required mode never becomes synthetic PASS (0.9525ms)
   AssertionError [ERR_ASSERTION]: DRAWING_P7_REAL_DATABASE_URL is required
       at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/drawing-workspace-p0-p1/platform/tests/drawing-workspace-p7-organization-admin-database.test.mjs:822:26)
       at Test.runInAsyncScope (node:async_hooks:226:14)
@@ -50,7 +50,7 @@ test at tests/drawing-workspace-p7-organization-admin-database.test.mjs:818:1
   }
 
 test at tests/drawing-workspace-p7-retention-database.test.mjs:798:3
-✖ real PostgreSQL proves retention RLS, grants, and invoker guards (0.464542ms)
+✖ real PostgreSQL proves retention RLS, grants, and invoker guards (0.476667ms)
   AssertionError [ERR_ASSERTION]: P7_REAL_POSTGRES_DATABASE_URL is required
       at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/drawing-workspace-p0-p1/platform/tests/drawing-workspace-p7-retention-database.test.mjs:801:18)
       at Test.runInAsyncScope (node:async_hooks:226:14)
