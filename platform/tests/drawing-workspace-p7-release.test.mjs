@@ -226,6 +226,22 @@ test("P7 release manifest covers every required authority and gathers all result
   ]);
 });
 
+test("P7 database gates replay a fresh chain and execute every real PostgreSQL authority", () => {
+  const byId = new Map(
+    runnerModule.P7_RELEASE_GATES.map((gate) => [gate.id, gate.argv]),
+  );
+  assert.ok(
+    byId
+      .get("database.pglite")
+      .includes("tests/drawing-workspace-fresh-migrations.test.mjs"),
+  );
+  assert.ok(
+    byId
+      .get("database.real_postgres")
+      .includes("tests/drawing-workspace-p7-library-database.test.mjs"),
+  );
+});
+
 test("P7 evidence is source and child-receipt bound and cannot pass with cold or production gaps", () => {
   assert.equal(
     typeof evidenceModule.validateDrawingP7ReleaseEvidence,

@@ -61,6 +61,7 @@ function manifest() {
       argv: [
         "node",
         "--test",
+        "tests/drawing-workspace-fresh-migrations.test.mjs",
         "tests/drawing-workspace-database-runtime.test.mjs",
         "tests/drawing-workspace-p7-library-database.test.mjs",
         "tests/drawing-workspace-p7-retention-database.test.mjs",
@@ -75,6 +76,7 @@ function manifest() {
         "DRAWING_P7_REQUIRE_REAL_POSTGRES=1",
         "node",
         "--test",
+        "tests/drawing-workspace-p7-library-database.test.mjs",
         "tests/drawing-workspace-p7-retention-database.test.mjs",
         "tests/drawing-workspace-p7-organization-admin-database.test.mjs",
       ],
