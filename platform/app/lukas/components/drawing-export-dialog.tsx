@@ -28,11 +28,14 @@ type ExportStatus =
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 
-type DrawingExportDialogProps = {
+export type DrawingExportDialogProps = {
   auditRequired?: boolean;
   createdAt: string;
   documentState: DrawingDocumentSnapshot;
   fileId: string;
+  hideTrigger?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
   projectId: string;
   revisionId: string;
   sourceUrl: string | null;
@@ -347,16 +350,25 @@ export function DrawingExportDialog({
   createdAt,
   documentState,
   fileId,
+  hideTrigger = false,
+  onOpenChange,
+  open: controlledOpen,
   projectId,
   revisionId,
   sourceUrl,
   title,
 }: DrawingExportDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [scale, setScale] = useState<1 | 2 | 4>(2);
   const [currentModelOnly, setCurrentModelOnly] = useState(false);
-  const [includeBackground, setIncludeBackground] = useState(false);
+  const [includeBackground, setIncludeBackground] = useState(() =>
+    Boolean(
+      documentState.activeCanvasId &&
+        documentState.structure?.canvases[documentState.activeCanvasId]
+          ?.background,
+    ),
+  );
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
   const activeOperationRef = useRef<DrawingExportOperation | null>(null);
   const mountedRef = useRef(true);
@@ -364,6 +376,7 @@ export function DrawingExportDialog({
     ? documentState.structure?.canvases[documentState.activeCanvasId]
     : undefined;
   const exporting = status.kind === "working";
+  const open = controlledOpen ?? internalOpen;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -439,7 +452,8 @@ export function DrawingExportDialog({
     <Dialog
       onOpenChange={(nextOpen) => {
         if (!nextOpen) activeOperationRef.current?.cancel();
-        setOpen(nextOpen);
+        if (controlledOpen === undefined) setInternalOpen(nextOpen);
+        onOpenChange?.(nextOpen);
         if (nextOpen) {
           setIncludeBackground(Boolean(activeCanvas?.background));
           setStatus({ kind: "idle" });
@@ -447,11 +461,13 @@ export function DrawingExportDialog({
       }}
       open={open}
     >
-      <DialogTrigger asChild>
-        <Button type="button" variant="secondary">
-          내보내기
-        </Button>
-      </DialogTrigger>
+      {hideTrigger ? null : (
+        <DialogTrigger asChild>
+          <Button type="button" variant="secondary">
+            내보내기
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>도면 내보내기</DialogTitle>

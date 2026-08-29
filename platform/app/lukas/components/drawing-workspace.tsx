@@ -1,5 +1,7 @@
 import {
+  lazy,
   startTransition,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -211,7 +213,7 @@ import {
   DrawingCommandMenu,
   type DrawingCommandId,
 } from "./drawing-command-menu";
-import { DrawingExportDialog } from "./drawing-export-dialog";
+import type { DrawingExportDialogProps } from "./drawing-export-dialog";
 import { DrawingInspector } from "./drawing-inspector";
 import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
@@ -244,6 +246,42 @@ type CanvasModule = typeof import("./drawing-canvas.client");
 type CanvasComponent = CanvasModule["DrawingCanvas"];
 type IfcModule = typeof import("./ifc-property-browser.client");
 type IfcComponent = IfcModule["default"];
+
+const LazyDrawingExportDialog = lazy(() =>
+  import("./drawing-export-dialog").then(({ DrawingExportDialog }) => ({
+    default: DrawingExportDialog,
+  })),
+);
+
+function DrawingExportLauncher(props: DrawingExportDialogProps) {
+  const [requested, setRequested] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        onClick={() => {
+          setRequested(true);
+          setOpen(true);
+        }}
+        type="button"
+        variant="secondary"
+      >
+        내보내기
+      </Button>
+      {requested ? (
+        <Suspense fallback={null}>
+          <LazyDrawingExportDialog
+            {...props}
+            hideTrigger
+            onOpenChange={setOpen}
+            open={open}
+          />
+        </Suspense>
+      ) : null}
+    </>
+  );
+}
 
 type WorkspaceLayer = NonNullable<
   DrawingWorkspace["document"]
@@ -3807,7 +3845,7 @@ export default function DrawingWorkspaceClient({
             store={awarenessStoreRef.current}
           />
           <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
-          <DrawingExportDialog
+          <DrawingExportLauncher
             auditRequired={!previewMode}
             createdAt={drawingDocument.created_at}
             documentState={drawingState}

@@ -11,6 +11,23 @@ import * as fixtureHelpers from "../e2e/utils/drawing-collaboration-fixture.ts";
 const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
 
+test("P2 workspace defers the export implementation until the user requests it", async () => {
+  const [workspace, exportDialog] = await Promise.all([
+    read("app/lukas/components/drawing-workspace.tsx"),
+    read("app/lukas/components/drawing-export-dialog.tsx"),
+  ]);
+
+  assert.doesNotMatch(
+    workspace,
+    /import\s+\{\s*DrawingExportDialog\s*\}\s+from\s+["']\.\/drawing-export-dialog["']/,
+  );
+  assert.match(workspace, /lazy\(\(\)\s*=>\s*import\(["']\.\/drawing-export-dialog["']\)/);
+  assert.match(workspace, /DrawingExportLauncher/);
+  assert.match(exportDialog, /open\?: boolean/);
+  assert.match(exportDialog, /onOpenChange\?: \(open: boolean\) => void/);
+  assert.match(exportDialog, /hideTrigger\?: boolean/);
+});
+
 function callName(node) {
   if (!ts.isCallExpression(node)) return null;
   const expression = node.expression;
