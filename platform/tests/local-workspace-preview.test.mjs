@@ -45,6 +45,16 @@ test("production and non-loopback requests never bypass authentication", () => {
   );
 });
 
+test("the local product-review command serves the built client instead of the dev shell", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    packageJson.scripts["preview:drawing-workspace"],
+    "npm run build && NODE_ENV=development SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=local-drawing-preview PORT=${PORT:-5175} npm run start",
+  );
+});
+
 test("the preview route stays outside the authenticated workspace layout", async () => {
   const [routes, login, preview] = await Promise.all([
     readFile(new URL("../app/routes.ts", import.meta.url), "utf8"),
