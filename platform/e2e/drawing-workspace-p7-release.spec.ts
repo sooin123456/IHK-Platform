@@ -56,6 +56,21 @@ test("current desktop release view is canvas-first, split-source capable, and ke
   expect(evidence.drawing?.height).toBeGreaterThan(600);
   expect(evidence.canvases).toBeGreaterThanOrEqual(3);
 
+  const toolbar = page.getByRole("navigation", { name: "캔버스 도구" });
+  const twoDimensionalPanel = page.locator("#drawing-split-panel-2d");
+  const [toolbarBounds, twoDimensionalBounds] = await Promise.all([
+    toolbar.boundingBox(),
+    twoDimensionalPanel.boundingBox(),
+  ]);
+  expect(toolbarBounds).not.toBeNull();
+  expect(twoDimensionalBounds).not.toBeNull();
+  if (!toolbarBounds || !twoDimensionalBounds)
+    throw new Error("Split workspace toolbar has no layout bounds");
+  expect(toolbarBounds.x).toBeGreaterThanOrEqual(twoDimensionalBounds.x + 8);
+  expect(toolbarBounds.x + toolbarBounds.width).toBeLessThanOrEqual(
+    twoDimensionalBounds.x + twoDimensionalBounds.width - 8,
+  );
+
   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
   await page.keyboard.press("[");
   await expect(tools).toBeHidden();

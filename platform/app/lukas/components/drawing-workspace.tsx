@@ -5011,7 +5011,11 @@ export default function DrawingWorkspaceClient({
           <nav
             aria-label="캔버스 도구"
             className={`drawing-workspace-toolbar absolute bottom-4 left-1/2 z-50 -translate-x-1/2 flex-nowrap items-center justify-start gap-0.5 overflow-x-auto rounded-2xl border border-white/15 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur ${activeView === "3d" || (activeView === "split" && narrowLayout && narrowSplitTab === "3d") ? "hidden" : "flex"}`}
-            style={{ maxWidth: "calc(100% - 2rem)" }}
+            style={
+              activeView === "split" && !narrowLayout
+                ? { left: "25%", maxWidth: "calc(50% - 1rem)" }
+                : { maxWidth: "calc(100% - 2rem)" }
+            }
           >
             <span
               aria-label="캔버스 작성 도구"
