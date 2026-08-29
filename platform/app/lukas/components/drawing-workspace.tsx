@@ -446,6 +446,77 @@ export function resolveDrawingWorkspaceSplitDockState(input: {
   };
 }
 
+export type DrawingWorkspaceLineageStage =
+  | "source"
+  | "object"
+  | "issue"
+  | "approval"
+  | "quantity";
+
+/** Keeps the selected object's next missing business link deterministic. */
+export function drawingWorkspaceLineageProgress(input: {
+  hasApproval: boolean;
+  hasIssue: boolean;
+  hasObject: boolean;
+  hasQuantity: boolean;
+  hasSource: boolean;
+}): {
+  completed: number;
+  next: DrawingWorkspaceLineageStage | null;
+  total: number;
+} {
+  const stages: Array<[DrawingWorkspaceLineageStage, boolean]> = [
+    ["source", input.hasSource],
+    ["object", input.hasObject],
+    ["issue", input.hasIssue],
+    ["approval", input.hasApproval],
+    ["quantity", input.hasQuantity],
+  ];
+  return {
+    completed: stages.filter(([, linked]) => linked).length,
+    next: input.hasObject
+      ? (stages.find(([, linked]) => !linked)?.[0] ?? null)
+      : "object",
+    total: stages.length,
+  };
+}
+
+const drawingWorkspaceLineageNextAction: Record<
+  DrawingWorkspaceLineageStage,
+  { description: string; href: string; label: string; title: string }
+> = {
+  source: {
+    title: "다음 작업 · 원본 근거 연결",
+    description: "PDF 영역 또는 IFC 요소를 이 객체의 변경 근거로 연결하세요.",
+    href: "#drawing-inspector-source",
+    label: "원본 근거 연결로 이동",
+  },
+  object: {
+    title: "다음 작업 · 객체 선택",
+    description: "캔버스에서 업무 계보를 확인할 도면 객체를 선택하세요.",
+    href: "#drawing-split-panel-2d",
+    label: "캔버스로 이동",
+  },
+  issue: {
+    title: "다음 작업 · 검토 이슈 연결",
+    description: "변경 사유와 담당자가 남도록 기존 이슈를 연결하세요.",
+    href: "#drawing-inspector-issues-title",
+    label: "이슈 연결로 이동",
+  },
+  approval: {
+    title: "다음 작업 · 검토 및 승인",
+    description: "저장된 개정을 검토 요청하고 역할에 따라 승인 결정을 남기세요.",
+    href: "#drawing-review-controls",
+    label: "검토 제어로 이동",
+  },
+  quantity: {
+    title: "다음 작업 · 물량·금액 연결",
+    description: "승인된 객체의 확정 수량을 만들고 BOQ 내역에 연결하세요.",
+    href: "#drawing-quantity-title",
+    label: "수량 계보로 이동",
+  },
+};
+
 /** Resolves only shortcuts owned by the drawing workspace. */
 export function resolveDrawingWorkspaceShortcut(
   event: DrawingShortcutEvent,
@@ -1640,7 +1711,7 @@ export default function DrawingWorkspaceClient({
   }, [selectedIfcChoice, viewMode]);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 1023px)");
+    const media = window.matchMedia("(max-width: 767px)");
     const update = () => setNarrowLayout(media.matches);
     update();
     media.addEventListener("change", update);
@@ -3169,6 +3240,29 @@ export default function DrawingWorkspaceClient({
         (source) => source.objectId === selectedDrawingObjectId,
       )
     : [];
+  const selectedObjectHasIssue = Boolean(
+    selectedDrawingObjectId &&
+      revision.issueLinks.some(
+        (link) => link.object_id === selectedDrawingObjectId,
+      ),
+  );
+  const selectedObjectHasApproval =
+    effectiveRevisionStatus === "approved" ||
+    effectiveRevisionStatus === "superseded";
+  const selectedObjectHasQuantity = drawingObjectHasQuantityLineage(
+    quantityLineage?.rows,
+    selectedDrawingObjectId,
+  );
+  const selectedObjectLineage = drawingWorkspaceLineageProgress({
+    hasApproval: selectedObjectHasApproval,
+    hasIssue: selectedObjectHasIssue,
+    hasObject: Boolean(selectedDrawingObjectId),
+    hasQuantity: selectedObjectHasQuantity,
+    hasSource: selectedObjectSources.length > 0,
+  });
+  const selectedObjectLineageAction = selectedObjectLineage.next
+    ? drawingWorkspaceLineageNextAction[selectedObjectLineage.next]
+    : null;
   const mayMutateSources =
     canMutateDrawingObjectSources({
       capability: effectiveCapability,
@@ -3728,7 +3822,11 @@ export default function DrawingWorkspaceClient({
             </>
           ) : null}
           {reviewControls.requestReview ? (
-            <Form method="post" onSubmit={prepareReviewSubmission}>
+            <Form
+              id="drawing-review-controls"
+              method="post"
+              onSubmit={prepareReviewSubmission}
+            >
               <input name="intent" type="hidden" value="request_review" />
               <input name="revision_id" type="hidden" value={revision.id} />
               <input
@@ -4043,7 +4141,7 @@ export default function DrawingWorkspaceClient({
         {activeView === "split" ? (
           <div
             aria-label="분할 보기 패널"
-            className="ml-auto flex rounded-md border border-white/15 p-1 lg:hidden"
+            className="ml-auto flex rounded-md border border-white/15 p-1 md:hidden"
             role="tablist"
           >
             {(
@@ -4745,7 +4843,7 @@ export default function DrawingWorkspaceClient({
           <div
             className={
               activeView === "split"
-                ? "grid h-full min-h-[34rem] lg:grid-cols-[minmax(20rem,1fr)_minmax(20rem,1fr)] xl:min-h-0"
+                ? "grid h-full min-h-[34rem] md:grid-cols-[minmax(20rem,1fr)_minmax(20rem,1fr)] xl:min-h-0"
                 : "h-full min-h-[34rem] xl:min-h-0"
             }
           >
@@ -4755,7 +4853,7 @@ export default function DrawingWorkspaceClient({
                   ? "drawing-split-tab-2d"
                   : undefined
               }
-              className={`min-h-0 min-w-0 ${activeView === "3d" ? "hidden" : activeView === "split" && narrowSplitTab === "3d" ? "hidden lg:block" : "block"}`}
+              className={`min-h-0 min-w-0 ${activeView === "3d" ? "hidden" : activeView === "split" && narrowSplitTab === "3d" ? "hidden md:block" : "block"}`}
               hidden={
                 activeView === "split" &&
                 narrowLayout &&
@@ -4946,7 +5044,7 @@ export default function DrawingWorkspaceClient({
                     ? "drawing-split-tab-3d"
                     : undefined
                 }
-                className={`max-h-[calc(100vh-4rem)] min-w-0 overflow-auto border-t border-white/10 bg-background p-4 text-foreground lg:border-l lg:border-t-0 ${activeView === "2d" ? "hidden" : activeView === "split" && narrowSplitTab === "2d" ? "hidden lg:block" : "block"}`}
+                className={`max-h-[calc(100vh-4rem)] min-w-0 overflow-auto border-t border-white/10 bg-background p-4 text-foreground md:border-l md:border-t-0 ${activeView === "2d" ? "hidden" : activeView === "split" && narrowSplitTab === "2d" ? "hidden md:block" : "block"}`}
                 hidden={
                   activeView === "split" &&
                   narrowLayout &&
@@ -5245,44 +5343,67 @@ export default function DrawingWorkspaceClient({
             <p className="mt-1 text-xs text-slate-400">
               속성부터 근거·검토·물량까지 한 흐름으로 확인합니다.
             </p>
-            <ol
-              aria-label="업무 계보"
-              className="mt-3 grid grid-cols-5 overflow-hidden rounded-md border border-white/10 bg-slate-950/70 text-center text-[10px] font-semibold"
-            >
-              {(
-                [
-                  ["원본", selectedObjectSources.length > 0],
-                  ["객체", Boolean(selectedDrawingObjectId)],
+            <div aria-label="업무 계보">
+              <ol
+                aria-label="선택 객체 업무 계보"
+                className="mt-3 grid grid-cols-5 overflow-hidden rounded-md border border-white/10 bg-slate-950/70 text-center text-[10px] font-semibold"
+              >
+                {(
                   [
-                    "이슈",
-                    revision.issueLinks.some(
-                      (link) => link.object_id === selectedDrawingObjectId,
-                    ),
-                  ],
-                  [
-                    "승인",
-                    effectiveRevisionStatus === "approved" ||
-                      effectiveRevisionStatus === "superseded",
-                  ],
-                  [
-                    "물량·금액",
-                    drawingObjectHasQuantityLineage(
-                      quantityLineage?.rows,
-                      selectedDrawingObjectId,
-                    ),
-                  ],
-                ] as const
-              ).map(([step, linked]) => (
-                <li
-                  className={`border-r border-white/10 px-1 py-2 last:border-r-0 ${linked ? "bg-emerald-500/15 text-emerald-200" : "text-slate-500"}`}
-                  data-lineage-step={step}
-                  data-lineage-state={linked ? "linked" : "empty"}
-                  key={step}
-                >
-                  {step}
-                </li>
-              ))}
-            </ol>
+                    ["원본", selectedObjectSources.length > 0],
+                    ["객체", Boolean(selectedDrawingObjectId)],
+                    ["이슈", selectedObjectHasIssue],
+                    ["승인", selectedObjectHasApproval],
+                    ["물량·금액", selectedObjectHasQuantity],
+                  ] as const
+                ).map(([step, linked]) => (
+                  <li
+                    className={`border-r border-white/10 px-1 py-2 last:border-r-0 ${linked ? "bg-emerald-500/15 text-emerald-200" : "text-slate-500"}`}
+                    data-lineage-step={step}
+                    data-lineage-state={linked ? "linked" : "empty"}
+                    key={step}
+                  >
+                    {step}
+                    <span className="mt-1 block text-[9px] font-medium">
+                      {linked ? "연결됨" : "대기"}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <div
+                className="mt-2 rounded-lg border border-indigo-400/25 bg-indigo-500/10 p-2.5"
+                role="status"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold text-indigo-200">
+                      계보 {selectedObjectLineage.completed}/
+                      {selectedObjectLineage.total}
+                    </p>
+                    <p className="mt-0.5 text-xs font-bold text-white">
+                      {selectedDrawingObjectId
+                        ? selectedObjectLineageAction?.title ??
+                          "업무 계보 연결 완료"
+                        : "객체를 선택해 업무 계보 시작"}
+                    </p>
+                  </div>
+                  {selectedObjectLineageAction ? (
+                    <a
+                      className="shrink-0 rounded-md bg-indigo-500 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                      href={selectedObjectLineageAction.href}
+                    >
+                      {selectedObjectLineageAction.label}
+                    </a>
+                  ) : null}
+                </div>
+                <p className="mt-1.5 text-[10px] leading-4 text-slate-300">
+                  {selectedDrawingObjectId
+                    ? selectedObjectLineageAction?.description ??
+                      "원본 근거부터 BOQ 연결까지 모두 추적할 수 있습니다."
+                    : "객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다."}
+                </p>
+              </div>
+            </div>
           </header>
           {collaborationEditNotice ? (
             <p
@@ -5300,6 +5421,7 @@ export default function DrawingWorkspaceClient({
           <section
             aria-label="선택 객체 원본 근거"
             className="mb-3 rounded-lg border border-white/15 bg-slate-950/60 p-3 text-xs"
+            id="drawing-inspector-source"
           >
             <h2 className="font-bold text-white">선택 객체 원본 근거</h2>
             {!mayMutateSources ? (

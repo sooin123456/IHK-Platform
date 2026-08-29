@@ -181,6 +181,72 @@ test("workspace makes modes, tools, and business lineage visible without icon gu
   assert.match(html, /aria-label="업무 계보"/);
   for (const step of ["원본", "객체", "이슈", "승인", "물량·금액"])
     assert.match(html, new RegExp(`data-lineage-step="${step}"[^>]*>${step}<`));
+  assert.match(html, /aria-label="선택 객체 업무 계보"/);
+  assert.match(html, /객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다/);
+});
+
+test("business lineage points to the earliest missing link", () => {
+  const summarize = workspaceModule.drawingWorkspaceLineageProgress;
+  assert.equal(typeof summarize, "function");
+  assert.deepEqual(
+    summarize({
+      hasApproval: false,
+      hasIssue: false,
+      hasObject: false,
+      hasQuantity: false,
+      hasSource: false,
+    }),
+    {
+      completed: 0,
+      next: "object",
+      total: 5,
+    },
+  );
+  assert.deepEqual(
+    summarize({
+      hasApproval: false,
+      hasIssue: false,
+      hasObject: true,
+      hasQuantity: false,
+      hasSource: false,
+    }),
+    {
+      completed: 1,
+      next: "source",
+      total: 5,
+    },
+  );
+  assert.deepEqual(
+    summarize({
+      hasApproval: true,
+      hasIssue: true,
+      hasObject: true,
+      hasQuantity: true,
+      hasSource: true,
+    }),
+    {
+      completed: 5,
+      next: null,
+      total: 5,
+    },
+  );
+});
+
+test("split view remains a real two-pane workspace on tablet widths", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /window\.matchMedia\("\(max-width: 767px\)"\)/);
+  assert.match(source, /md:grid-cols-\[minmax\(20rem,1fr\)_minmax\(20rem,1fr\)\]/);
+  assert.match(
+    source,
+    /aria-label="분할 보기 패널"[^>]*className="[^"]*md:hidden/,
+  );
+  assert.doesNotMatch(
+    source,
+    /aria-label="분할 보기 패널"[^>]*className="[^"]*lg:hidden/,
+  );
 });
 
 test("tablet toolbar gives labeled tools their intrinsic width", async () => {
