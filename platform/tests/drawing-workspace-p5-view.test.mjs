@@ -158,6 +158,30 @@ test("IFC focus treats supplied GlobalId as authoritative and only uses expressI
   );
 });
 
+test("IFC element results stay bounded while retaining a focused element outside the first page", () => {
+  const elements = Array.from({ length: 115 }, (_, index) => ({
+    expressId: index + 1,
+  }));
+  assert.deepEqual(
+    ifcPropertyBrowser
+      .visibleIfcElementResults(elements, 50, null)
+      .map((element) => element.expressId),
+    Array.from({ length: 50 }, (_, index) => index + 1),
+  );
+  const focused = ifcPropertyBrowser.visibleIfcElementResults(
+    elements,
+    50,
+    115,
+  );
+  assert.equal(focused.length, 51);
+  assert.equal(focused.at(-1)?.expressId, 115);
+  assert.equal(new Set(focused.map((element) => element.expressId)).size, 51);
+  assert.deepEqual(
+    ifcPropertyBrowser.visibleIfcElementResults(elements, 115, 40),
+    elements,
+  );
+});
+
 test("IFC first-usable geometry requires a mapped visible finite nonempty rendered mesh", () => {
   const root = new THREE.Group();
   const mesh = new THREE.Mesh(

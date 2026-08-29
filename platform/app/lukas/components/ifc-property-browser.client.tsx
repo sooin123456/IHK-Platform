@@ -77,6 +77,26 @@ type Props = {
 
 type ViewerPhase = "loading" | "ready" | "skipped" | "empty" | "error";
 
+const IFC_ELEMENT_RESULT_PAGE_SIZE = 50;
+
+/** Bounds the accessible result tree while keeping a focused item discoverable. */
+export function visibleIfcElementResults<T extends { expressId: number }>(
+  elements: readonly T[],
+  limit: number,
+  selectedExpressId: number | null,
+) {
+  const visible = elements.slice(0, Math.max(0, Math.floor(limit)));
+  if (
+    selectedExpressId === null ||
+    visible.some((element) => element.expressId === selectedExpressId)
+  )
+    return visible;
+  const selected = elements.find(
+    (element) => element.expressId === selectedExpressId,
+  );
+  return selected ? [...visible, selected] : visible;
+}
+
 type IfcFetchEntry = {
   consumers: number;
   controller: AbortController;
@@ -201,6 +221,9 @@ export default function IfcPropertyBrowser({
   const [selected, setSelected] = useState<IfcElement | null>(null);
   const [properties, setProperties] = useState<DisplayProperty[]>([]);
   const [query, setQuery] = useState("");
+  const [visibleResultLimit, setVisibleResultLimit] = useState(
+    IFC_ELEMENT_RESULT_PAGE_SIZE,
+  );
   const [status, setStatus] = useState("IFC 파일을 준비하고 있습니다.");
   const [error, setError] = useState<string | null>(null);
   const [viewerReady, setViewerReady] = useState(false);
@@ -530,6 +553,19 @@ export default function IfcPropertyBrowser({
         .includes(normalized),
     );
   }, [elements, query]);
+  const visibleElements = useMemo(
+    () =>
+      visibleIfcElementResults(
+        filtered,
+        visibleResultLimit,
+        selected?.expressId ?? null,
+      ),
+    [filtered, selected?.expressId, visibleResultLimit],
+  );
+  const hiddenElementCount = Math.max(
+    0,
+    filtered.length - visibleElements.length,
+  );
 
   function choose(
     element: IfcElement,
@@ -679,7 +715,10 @@ export default function IfcPropertyBrowser({
               <input
                 aria-label="IFC 요소 검색"
                 className="h-11 w-full rounded-lg border bg-background pl-9 pr-3 text-sm"
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setVisibleResultLimit(IFC_ELEMENT_RESULT_PAGE_SIZE);
+                }}
                 placeholder="이름, 유형, #ID 검색"
                 value={query}
               />
@@ -692,7 +731,11 @@ export default function IfcPropertyBrowser({
               {status}
             </p>
           </div>
-          <div className="max-h-[58vh] overflow-y-auto p-2">
+          <div
+            aria-label="IFC 요소 검색 결과"
+            className="max-h-[58vh] overflow-y-auto p-2"
+            role="region"
+          >
             {error ? (
               <div
                 aria-live="assertive"
@@ -712,7 +755,7 @@ export default function IfcPropertyBrowser({
                 요소 목록을 준비하고 있습니다.
               </div>
             ) : null}
-            {filtered.map((element) => (
+            {visibleElements.map((element) => (
               <button
                 className={`block w-full rounded-xl px-3 py-3 text-left transition ${selected?.expressId === element.expressId ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
                 key={element.expressId}
@@ -731,6 +774,20 @@ export default function IfcPropertyBrowser({
               <p className="p-5 text-center text-sm text-muted-foreground">
                 검색 조건에 맞는 요소가 없습니다.
               </p>
+            ) : null}
+            {hiddenElementCount > 0 ? (
+              <button
+                aria-label={`IFC 요소 ${Math.min(IFC_ELEMENT_RESULT_PAGE_SIZE, hiddenElementCount)}개 더 보기`}
+                className="mt-2 min-h-11 w-full rounded-xl border border-dashed px-3 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() =>
+                  setVisibleResultLimit(
+                    (current) => current + IFC_ELEMENT_RESULT_PAGE_SIZE,
+                  )
+                }
+                type="button"
+              >
+                더 보기 · {visibleElements.length}/{filtered.length}개 표시
+              </button>
             ) : null}
           </div>
         </section>

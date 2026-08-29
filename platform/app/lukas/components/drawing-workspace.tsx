@@ -430,6 +430,22 @@ export function resolveDrawingWorkspaceDockShortcut(event: {
   return null;
 }
 
+/** Keeps split panes usable on compact desktops without hiding object lineage. */
+export function resolveDrawingWorkspaceSplitDockState(input: {
+  enteringSplit: boolean;
+  inspectorOpen: boolean;
+  leftDockOpen: boolean;
+  viewportWidth: number;
+}) {
+  return {
+    leftDockOpen:
+      input.enteringSplit && input.viewportWidth < 1440
+        ? false
+        : input.leftDockOpen,
+    inspectorOpen: input.inspectorOpen,
+  };
+}
+
 /** Resolves only shortcuts owned by the drawing workspace. */
 export function resolveDrawingWorkspaceShortcut(
   event: DrawingShortcutEvent,
@@ -1576,6 +1592,19 @@ export default function DrawingWorkspaceClient({
   const activeView: DrawingWorkspaceViewMode = selectedIfcChoice
     ? viewMode
     : "2d";
+  const previousActiveViewRef = useRef<DrawingWorkspaceViewMode | null>(null);
+  useEffect(() => {
+    const enteringSplit =
+      activeView === "split" && previousActiveViewRef.current !== "split";
+    previousActiveViewRef.current = activeView;
+    const next = resolveDrawingWorkspaceSplitDockState({
+      enteringSplit,
+      inspectorOpen,
+      leftDockOpen,
+      viewportWidth: window.innerWidth,
+    });
+    if (next.leftDockOpen !== leftDockOpen) setLeftDockOpen(next.leftDockOpen);
+  }, [activeView, inspectorOpen, leftDockOpen]);
   const surface = drawingWorkspaceSurface({
     file: {
       kind: file.kind,

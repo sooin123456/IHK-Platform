@@ -237,6 +237,38 @@ test("workspace dock shortcuts recover both desktop docks outside editable contr
   assert.equal(resolve({ key: "Escape", target: null }), null);
 });
 
+test("split view preserves the lineage inspector and collapses only the left dock on compact desktop widths", () => {
+  const resolve = workspaceModule.resolveDrawingWorkspaceSplitDockState;
+  assert.equal(typeof resolve, "function");
+  assert.deepEqual(
+    resolve({
+      enteringSplit: true,
+      leftDockOpen: true,
+      inspectorOpen: true,
+      viewportWidth: 1280,
+    }),
+    { leftDockOpen: false, inspectorOpen: true },
+  );
+  assert.deepEqual(
+    resolve({
+      enteringSplit: true,
+      leftDockOpen: true,
+      inspectorOpen: true,
+      viewportWidth: 1600,
+    }),
+    { leftDockOpen: true, inspectorOpen: true },
+  );
+  assert.deepEqual(
+    resolve({
+      enteringSplit: false,
+      leftDockOpen: true,
+      inspectorOpen: false,
+      viewportWidth: 1280,
+    }),
+    { leftDockOpen: true, inspectorOpen: false },
+  );
+});
+
 test("page and layer creation fail closed before the durable bridge is ready", async () => {
   const html = renderWorkspace();
   assert.doesNotMatch(html, /<details[^>]*>.*페이지 만들기/s);
