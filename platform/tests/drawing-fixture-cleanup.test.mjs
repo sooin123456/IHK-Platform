@@ -47,7 +47,9 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
     destroyDrawingFixture({
       admin,
       owner: user("owner"),
+      editor: user("editor"),
       reviewer: user("reviewer"),
+      approver: user("approver"),
       viewer: user("viewer"),
       nonMember: user("nonmember"),
       projectId: "project-1",
@@ -67,7 +69,9 @@ test("drawing E2E cleanup attempts every resource and reports residue risk", asy
     ["storage", "one.pdf", "two.ifc"],
     ["project", "id", "project-1"],
     ["user", "owner"],
+    ["user", "editor"],
     ["user", "reviewer"],
+    ["user", "approver"],
     ["user", "viewer"],
     ["user", "nonmember"],
   ]);

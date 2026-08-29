@@ -20,65 +20,57 @@ test.describe.serial("1HK drawing collaboration", () => {
     await destroyDrawingFixture(fixture);
   });
 
-  test("maker requests review and a separate reviewer approves it in realtime", async ({
+  test("editor submits, reviewer checks, and a separate approver decides in realtime", async ({
     browser,
   }) => {
+    expect(
+      new Set([fixture.editor.id, fixture.reviewer.id, fixture.approver.id])
+        .size,
+    ).toBe(3);
     const path = `/projects/${fixture.projectId}/drawings/${fixture.pdfFileId}`;
-    const ownerContext = await browser.newContext();
+    const editorContext = await browser.newContext();
     const reviewerContext = await browser.newContext();
-    const ownerPage = await authenticateContext(
+    const approverContext = await browser.newContext();
+    const editorPage = await authenticateContext(
       fixture,
-      ownerContext,
-      fixture.owner,
+      editorContext,
+      fixture.editor,
       baseUrl,
       path,
     );
 
-    await expect(ownerPage.getByTestId("pdf-canvas")).toBeVisible();
-    await ownerPage.getByRole("button", { name: "영역 지정" }).click();
-    const canvas = ownerPage.getByTestId("pdf-canvas");
+    await expect(editorPage.getByTestId("pdf-canvas")).toBeVisible();
+    await editorPage.getByRole("button", { name: "영역 지정" }).click();
+    const canvas = editorPage.getByTestId("pdf-canvas");
     const box = await canvas.boundingBox();
     if (!box) throw new Error("PDF canvas has no layout box");
-    await ownerPage.mouse.move(
+    await editorPage.mouse.move(
       box.x + box.width * 0.2,
       box.y + box.height * 0.2,
     );
-    await ownerPage.mouse.down();
-    await ownerPage.mouse.move(
+    await editorPage.mouse.down();
+    await editorPage.mouse.move(
       box.x + box.width * 0.55,
       box.y + box.height * 0.45,
     );
-    await ownerPage.mouse.up();
-    await expect(ownerPage.getByText("1쪽 영역을 선택했습니다.")).toBeVisible();
+    await editorPage.mouse.up();
+    await expect(
+      editorPage.getByText("1쪽 영역을 선택했습니다."),
+    ).toBeVisible();
 
-    await ownerPage.getByLabel("이슈 제목").fill("창호 치수 확인 E2E");
-    await ownerPage.getByLabel("기한").first().fill("2099-12-31");
-    await ownerPage.getByLabel("담당자").selectOption(fixture.reviewer.id);
-    await ownerPage.getByRole("button", { name: "이슈 만들기" }).click();
-    await ownerPage.getByRole("button", { name: /창호 치수 확인 E2E/ }).click();
-    await ownerPage
+    await editorPage.getByLabel("이슈 제목").fill("창호 치수 확인 E2E");
+    await editorPage.getByLabel("기한").first().fill("2099-12-31");
+    await editorPage.getByRole("button", { name: "이슈 만들기" }).click();
+    await editorPage
+      .getByRole("button", { name: /창호 치수 확인 E2E/ })
+      .click();
+    await editorPage
       .getByRole("button", { name: "선택한 도면 근거 연결" })
       .click();
-    await expect(ownerPage.getByText("PDF 영역 근거")).toBeVisible();
-    await expect(ownerPage.locator('input[id^="due-"]')).toHaveValue(
+    await expect(editorPage.getByText("PDF 영역 근거")).toBeVisible();
+    await expect(editorPage.locator('input[id^="due-"]')).toHaveValue(
       "2099-12-31",
     );
-    await ownerPage.getByLabel("상태").selectOption("in_progress");
-    await ownerPage.getByRole("button", { name: /저장/ }).first().click();
-    await ownerPage.getByLabel("상태").selectOption("resolution_requested");
-    await ownerPage.getByRole("button", { name: /저장/ }).first().click();
-    await expect(
-      ownerPage.getByText("다른 검토자가 승인 또는 반려해야 합니다"),
-    ).toBeVisible();
-    await ownerPage.goto(
-      `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`,
-    );
-    await expect(ownerPage.getByText("개정 도면 재검토 1건")).toBeVisible();
-    await expect(
-      ownerPage.getByText(
-        "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
-      ),
-    ).toBeVisible();
 
     const reviewerPage = await authenticateContext(
       fixture,
@@ -87,10 +79,56 @@ test.describe.serial("1HK drawing collaboration", () => {
       baseUrl,
       path,
     );
-    await reviewerPage.goto(`${baseUrl}/notifications`);
-    await expect(reviewerPage.getByText("창호 치수 확인 E2E")).toBeVisible();
-    await expect(reviewerPage.getByText(/안 읽음 [1-9]/)).toBeVisible();
-    const unreadButtons = reviewerPage.getByRole("button", {
+    await reviewerPage
+      .getByRole("button", { name: /창호 치수 확인 E2E/ })
+      .click();
+    await reviewerPage
+      .locator('select[id^="assignee-"]')
+      .selectOption(fixture.editor.id);
+    await reviewerPage.getByRole("button", { name: "지정" }).click();
+    await reviewerPage.getByLabel("댓글").fill("검토 완료: 치수 근거 확인");
+    await reviewerPage.getByRole("button", { name: "등록" }).click();
+
+    await editorPage.reload();
+    await editorPage
+      .getByRole("button", { name: /창호 치수 확인 E2E/ })
+      .click();
+    await editorPage.getByLabel("상태").selectOption("in_progress");
+    await editorPage.getByRole("button", { name: /저장/ }).first().click();
+    await editorPage.getByLabel("상태").selectOption("resolution_requested");
+    await editorPage.getByRole("button", { name: /저장/ }).first().click();
+    await expect(
+      editorPage.getByText("다른 검토자가 승인 또는 반려해야 합니다"),
+    ).toBeVisible();
+    await editorPage.goto(
+      `${baseUrl}/projects/${fixture.projectId}/drawings/${fixture.revisedPdfFileId}`,
+    );
+    await expect(editorPage.getByText("개정 도면 재검토 1건")).toBeVisible();
+    await expect(
+      editorPage.getByText(
+        "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
+      ),
+    ).toBeVisible();
+
+    await reviewerPage.reload();
+    await reviewerPage
+      .getByRole("button", { name: /창호 치수 확인 E2E/ })
+      .click();
+    await reviewerPage
+      .locator('select[id^="assignee-"]')
+      .selectOption(fixture.approver.id);
+    await reviewerPage.getByRole("button", { name: "지정" }).click();
+
+    const approverPage = await authenticateContext(
+      fixture,
+      approverContext,
+      fixture.approver,
+      baseUrl,
+      "/notifications",
+    );
+    await expect(approverPage.getByText("창호 치수 확인 E2E")).toBeVisible();
+    await expect(approverPage.getByText(/안 읽음 [1-9]/)).toBeVisible();
+    const unreadButtons = approverPage.getByRole("button", {
       name: "읽음 처리",
     });
     for (
@@ -101,34 +139,33 @@ test.describe.serial("1HK drawing collaboration", () => {
       await unreadButtons.first().click();
       await expect(unreadButtons).toHaveCount(remaining - 1);
     }
-    await expect(reviewerPage.getByText("안 읽음 0")).toBeVisible();
-    await reviewerPage.goto(`${baseUrl}${path}`);
-    await reviewerPage
+    await expect(approverPage.getByText("안 읽음 0")).toBeVisible();
+    await approverPage.goto(`${baseUrl}${path}`);
+    await approverPage
       .getByRole("button", { name: /창호 치수 확인 E2E/ })
       .click();
-    await reviewerPage.getByLabel("댓글").fill("검토 완료: 치수 근거 확인");
-    await reviewerPage.getByRole("button", { name: "등록" }).click();
-    await reviewerPage.getByLabel("검토 결정").selectOption("approved");
-    await reviewerPage
+    await approverPage.getByLabel("검토 결정").selectOption("approved");
+    await approverPage
       .getByLabel("검토 의견")
       .fill("PDF 영역과 수정 의견을 확인해 승인합니다.");
-    await reviewerPage.getByRole("button", { name: "결정 기록" }).click();
-    await expect(reviewerPage.getByText("완료", { exact: true })).toBeVisible();
+    await approverPage.getByRole("button", { name: "결정 기록" }).click();
+    await expect(approverPage.getByText("완료", { exact: true })).toBeVisible();
     await expect(
-      reviewerPage.getByRole("region", { name: "승인 기록" }),
+      approverPage.getByRole("region", { name: "승인 기록" }),
     ).toContainText("PDF 영역과 수정 의견을 확인해 승인합니다.");
-    await expect(ownerPage.getByText("완료", { exact: true })).toBeVisible({
+    await expect(editorPage.getByText("완료", { exact: true })).toBeVisible({
       timeout: 15_000,
     });
     await expect(
-      ownerPage.getByText("검토 완료: 치수 근거 확인"),
+      editorPage.getByText("검토 완료: 치수 근거 확인"),
     ).toBeVisible();
     await expect(
-      ownerPage.getByRole("region", { name: "변경 기록" }),
+      editorPage.getByRole("region", { name: "변경 기록" }),
     ).toContainText("상태 변경");
 
-    await ownerContext.close();
+    await editorContext.close();
     await reviewerContext.close();
+    await approverContext.close();
   });
 
   test("maker binds a real IFC element and camera to an issue", async ({
@@ -168,26 +205,27 @@ test.describe.serial("1HK drawing collaboration", () => {
   });
 
   test("database rejects approval bypasses and preserves a rejected decision", async () => {
-    const owner = await authenticateApiClient(fixture, fixture.owner);
+    const editor = await authenticateApiClient(fixture, fixture.editor);
     const reviewer = await authenticateApiClient(fixture, fixture.reviewer);
+    const approver = await authenticateApiClient(fixture, fixture.approver);
     const viewer = await authenticateApiClient(fixture, fixture.viewer);
 
     const createReviewRequest = async (withAnchor: boolean) => {
-      const { data: issue, error: issueError } = await owner
+      const { data: issue, error: issueError } = await editor
         .from("lukas_drawing_issues")
         .insert({
           project_id: fixture.projectId,
           title: `승인 보안 E2E ${crypto.randomUUID()}`,
           description: "실제 RLS와 트리거 반례 검증",
           priority: "normal",
-          created_by: fixture.owner.id,
+          created_by: fixture.editor.id,
         })
         .select("id,project_id,version,status")
         .single();
       if (issueError || !issue)
         throw issueError ?? new Error("Issue setup failed");
       if (withAnchor) {
-        const { error: anchorError } = await owner
+        const { error: anchorError } = await editor
           .from("lukas_drawing_issue_anchors")
           .insert({
             issue_id: issue.id,
@@ -200,20 +238,29 @@ test.describe.serial("1HK drawing collaboration", () => {
             width: 0.2,
             height: 0.2,
             label: "승인 보안 근거",
-            created_by: fixture.owner.id,
+            created_by: fixture.editor.id,
           });
         if (anchorError) throw anchorError;
       }
-      const { data: inProgress, error: progressError } = await owner
+      const { data: assigned, error: assignmentError } = await reviewer
         .from("lukas_drawing_issues")
-        .update({ status: "in_progress" })
+        .update({ assignee_user_id: fixture.editor.id })
         .eq("id", issue.id)
         .eq("version", issue.version)
         .select("id,project_id,version,status")
         .single();
+      if (assignmentError || !assigned)
+        throw assignmentError ?? new Error("Editor assignment failed");
+      const { data: inProgress, error: progressError } = await editor
+        .from("lukas_drawing_issues")
+        .update({ status: "in_progress" })
+        .eq("id", issue.id)
+        .eq("version", assigned.version)
+        .select("id,project_id,version,status")
+        .single();
       if (progressError || !inProgress)
         throw progressError ?? new Error("Progress transition failed");
-      const { data: requested, error: requestError } = await owner
+      const { data: requested, error: requestError } = await editor
         .from("lukas_drawing_issues")
         .update({ status: "resolution_requested" })
         .eq("id", issue.id)
@@ -232,12 +279,12 @@ test.describe.serial("1HK drawing collaboration", () => {
       subject_version: rejectIssue.version,
       note: "검토 반례 확인",
     };
-    const { error: selfApprovalError } = await owner
+    const { error: selfApprovalError } = await editor
       .from("lukas_drawing_issue_approvals")
       .insert({
         ...approvalInput,
         decision: "approved",
-        reviewer_id: fixture.owner.id,
+        reviewer_id: fixture.editor.id,
       });
     expect(selfApprovalError).toBeTruthy();
 
@@ -251,24 +298,24 @@ test.describe.serial("1HK drawing collaboration", () => {
       });
     expect(staleError).toBeTruthy();
 
-    const { data: rejected, error: rejectError } = await reviewer
+    const { data: rejected, error: rejectError } = await approver
       .from("lukas_drawing_issue_approvals")
       .insert({
         ...approvalInput,
         decision: "rejected",
-        reviewer_id: fixture.reviewer.id,
+        reviewer_id: fixture.approver.id,
       })
       .select("id,decision,note")
       .single();
     expect(rejectError).toBeNull();
     expect(rejected?.decision).toBe("rejected");
-    const { data: rejectedIssue } = await reviewer
+    const { data: rejectedIssue } = await approver
       .from("lukas_drawing_issues")
       .select("status")
       .eq("id", rejectIssue.id)
       .single();
     expect(rejectedIssue?.status).toBe("in_progress");
-    const { error: updateApprovalError } = await reviewer
+    const { error: updateApprovalError } = await approver
       .from("lukas_drawing_issue_approvals")
       .update({ note: "변조" })
       .eq("id", rejected!.id);
@@ -282,9 +329,9 @@ test.describe.serial("1HK drawing collaboration", () => {
       decision: "approved" as const,
       note: "거부돼야 하는 승인",
     };
-    const { error: missingAnchorError } = await reviewer
+    const { error: missingAnchorError } = await approver
       .from("lukas_drawing_issue_approvals")
-      .insert({ ...restrictedInput, reviewer_id: fixture.reviewer.id });
+      .insert({ ...restrictedInput, reviewer_id: fixture.approver.id });
     expect(missingAnchorError).toBeTruthy();
 
     const viewerIssue = await createReviewRequest(true);
@@ -299,7 +346,7 @@ test.describe.serial("1HK drawing collaboration", () => {
         reviewer_id: fixture.viewer.id,
       });
     expect(viewerApprovalError).toBeTruthy();
-    const { error: directCloseError } = await owner
+    const { error: directCloseError } = await editor
       .from("lukas_drawing_issues")
       .update({ status: "closed" })
       .eq("id", restrictedIssue.id)

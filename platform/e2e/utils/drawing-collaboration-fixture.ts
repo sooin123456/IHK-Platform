@@ -13,7 +13,9 @@ type TestUser = { id: string; email: string };
 export type DrawingFixture = {
   admin: SupabaseClient;
   owner: TestUser;
+  editor: TestUser;
   reviewer: TestUser;
+  approver: TestUser;
   viewer: TestUser;
   nonMember: TestUser;
   projectId: string;
@@ -152,7 +154,9 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
 
   try {
     const owner = await addUser("owner");
+    const editor = await addUser("editor");
     const reviewer = await addUser("reviewer");
+    const approver = await addUser("approver");
     const viewer = await addUser("viewer");
     const nonMember = await addUser("nonmember");
 
@@ -177,7 +181,7 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
       .insert({
         owner_id: owner.id,
         name: `1HK Drawing E2E ${runId}`,
-        description: "Disposable maker-reviewer browser verification",
+        description: "Disposable editor-reviewer-approver browser verification",
       })
       .select("id")
       .single();
@@ -188,7 +192,9 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     const { error: memberError } = await ownerAuth
       .from("lukas_qto_project_members")
       .insert([
+        { project_id: project.id, user_id: editor.id, role: "estimator" },
         { project_id: project.id, user_id: reviewer.id, role: "reviewer" },
+        { project_id: project.id, user_id: approver.id, role: "reviewer" },
         { project_id: project.id, user_id: viewer.id, role: "viewer" },
       ]);
     if (memberError) throw memberError;
@@ -309,7 +315,9 @@ export async function createDrawingFixture(): Promise<DrawingFixture> {
     return {
       admin,
       owner,
+      editor,
       reviewer,
+      approver,
       viewer,
       nonMember,
       projectId: project.id,
@@ -393,6 +401,13 @@ export async function destroyDrawingFixture(
     fixture.admin,
     fixture.storagePaths,
     fixture.projectId,
-    [fixture.owner, fixture.reviewer, fixture.viewer, fixture.nonMember],
+    [
+      fixture.owner,
+      fixture.editor,
+      fixture.reviewer,
+      fixture.approver,
+      fixture.viewer,
+      fixture.nonMember,
+    ],
   );
 }
