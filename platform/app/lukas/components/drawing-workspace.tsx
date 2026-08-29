@@ -858,6 +858,7 @@ type Props = {
   };
   projectId: string;
   previewMode?: boolean;
+  workspaceNotice?: string;
   realtimeAdapter?: DrawingWorkspaceRealtimeAdapter;
   previewHarness?: {
     onInvalidate?: () => void;
@@ -937,6 +938,7 @@ export default function DrawingWorkspaceClient({
   collaborationRoom,
   projectId,
   previewMode = false,
+  workspaceNotice,
   realtimeAdapter,
   previewHarness,
   collaborationBootstrap,
@@ -4189,6 +4191,14 @@ export default function DrawingWorkspaceClient({
               </button>
             ))}
           </div>
+        ) : null}
+        {workspaceNotice ? (
+          <p
+            className="rounded-full bg-amber-300 px-3 py-1.5 text-xs font-bold text-slate-950"
+            role="status"
+          >
+            {workspaceNotice}
+          </p>
         ) : null}
       </div>
 

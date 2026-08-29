@@ -93,6 +93,19 @@ test("compact desktop keeps the top bar single-row without hiding primary action
   await expect(
     ifcResults.getByRole("button", { name: "IFC 요소 8개 더 보기" }),
   ).toContainText("8/115개 표시");
+  const fixtureNotice = page
+    .locator('[role="status"]')
+    .filter({ hasText: "합성 매핑 예제 · 원본 IFC 형상 아님" })
+    .first();
+  const noticeLayout = await fixtureNotice.evaluate((element) => ({
+    position: getComputedStyle(element).position,
+    bottom: element.getBoundingClientRect().bottom,
+  }));
+  const ifcPanelTop = await page
+    .getByRole("complementary", { name: "IFC 3D 원본" })
+    .evaluate((element) => element.getBoundingClientRect().top);
+  expect(noticeLayout.position).toBe("static");
+  expect(noticeLayout.bottom).toBeLessThanOrEqual(ifcPanelTop);
   await expect(page.locator("vite-error-overlay")).toHaveCount(0);
   expect(consoleErrors).toEqual([]);
 });

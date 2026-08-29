@@ -1737,12 +1737,16 @@ export default function LocalDrawingWorkspacePreview({
                           ? awarenessPreviewHarness
                           : undefined
         }
+        workspaceNotice="합성 매핑 예제 · 원본 IFC 형상 아님"
       />
       <aside
-        className="fixed bottom-3 right-3 z-50 rounded-full bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg"
+        className={
+          loaderData.ifcLifecycleTest
+            ? "fixed bottom-3 right-3 z-50 rounded-lg bg-slate-900 p-3 text-sm text-white shadow-lg"
+            : "sr-only"
+        }
         role="status"
       >
-        합성 매핑 예제 · 원본 IFC 형상 아님
         <output aria-label="미리보기 hydration 상태" className="sr-only">
           {hydrated ? "준비됨" : "준비 중"}
         </output>
