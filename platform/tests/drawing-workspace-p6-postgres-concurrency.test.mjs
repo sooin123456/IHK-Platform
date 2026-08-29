@@ -74,7 +74,19 @@ function adapter(sql) {
       return sql.unsafe(text);
     },
     async query(text, parameters = []) {
-      return { rows: [...(await sql.unsafe(text, parameters))] };
+      const jsonParameters = new Set(
+        [...text.matchAll(/\$(\d+)::jsonb/g)].map((match) => Number(match[1])),
+      );
+      const typedParameters = parameters.map((value, index) => {
+        if (!jsonParameters.has(index + 1) || typeof value !== "string")
+          return value;
+        try {
+          return sql.json(JSON.parse(value));
+        } catch {
+          return value;
+        }
+      });
+      return { rows: [...(await sql.unsafe(text, typedParameters))] };
     },
   };
 }
@@ -562,21 +574,6 @@ test(
         await assertSqlState(putBoqLink(makerA, "0.4", options), code);
       }
 
-      const exactRace = await Promise.all([
-        putBoqLink(makerA, "0.4"),
-        putBoqLink(makerB, "0.4"),
-      ]);
-      assert.equal(exactRace[0][0].id, p6Ids.boqLink);
-      assert.deepEqual(exactRace[1][0], exactRace[0][0]);
-      await assertSqlState(
-        putBoqLink(roleClient, "0.4", { actor: p6Ids.otherMaker }),
-        "P6O01",
-      );
-      await assertSqlState(
-        putBoqLink(makerA, "0.7", { id: overLinkId }),
-        "P6B04",
-      );
-
       const mismatchedRace = await Promise.allSettled([
         putBoqLink(makerA, "0.1", { id: p6Ids.secondBoqLink }),
         putBoqLink(makerB, "0.2", { id: p6Ids.secondBoqLink }),
@@ -601,6 +598,21 @@ test(
           ${p6Ids.secondBoqLink}::uuid,${mismatchWinner.version}
         )
       `,
+      );
+
+      const exactRace = await Promise.all([
+        putBoqLink(makerA, "0.4"),
+        putBoqLink(makerB, "0.4"),
+      ]);
+      assert.equal(exactRace[0][0].id, p6Ids.boqLink);
+      assert.deepEqual(exactRace[1][0], exactRace[0][0]);
+      await assertSqlState(
+        putBoqLink(roleClient, "0.4", { actor: p6Ids.otherMaker }),
+        "P6O01",
+      );
+      await assertSqlState(
+        putBoqLink(makerA, "0.7", { id: overLinkId }),
+        "P6B04",
       );
 
       const updateRace = await Promise.allSettled([
@@ -1008,11 +1020,14 @@ test(
         "P6O01",
       );
 
+      await owner.unsafe("vacuum analyze public.lukas_drawing_quantity_links");
+      await owner.unsafe("vacuum analyze public.lukas_drawing_boq_links");
+      await owner.unsafe("vacuum analyze public.lukas_drawing_material_links");
       await owner.unsafe("set enable_seqscan=off");
       try {
         const explainQuantity = await owner`
           explain (format json,costs off)
-          select * from public.lukas_drawing_quantity_links
+          select drawing_object_id from public.lukas_drawing_quantity_links
           where project_id=${p6Ids.project}::uuid
             and drawing_revision_id=${p6Ids.revision}::uuid
             and drawing_object_id=${p6Ids.wall}::uuid
@@ -1023,7 +1038,7 @@ test(
         );
         const explainSnapshot = await owner`
           explain (format json,costs off)
-          select * from public.lukas_drawing_quantity_links
+          select drawing_snapshot_sha256 from public.lukas_drawing_quantity_links
           where drawing_revision_id=${p6Ids.revision}::uuid
             and project_id=${p6Ids.project}::uuid
             and drawing_revision_version=7
@@ -1035,7 +1050,7 @@ test(
         );
         const explainBoq = await owner`
           explain (format json,costs off)
-          select * from public.lukas_drawing_boq_links
+          select boq_version_id from public.lukas_drawing_boq_links
           where project_id=${p6Ids.project}::uuid
             and quantity_link_id=${p6Ids.quantityLink}::uuid
         `;
@@ -1045,7 +1060,7 @@ test(
         );
         const explainMaterial = await owner`
           explain (format json,costs off)
-          select * from public.lukas_drawing_material_links
+          select material_plan_id from public.lukas_drawing_material_links
           where project_id=${p6Ids.project}::uuid
             and material_plan_id=${p6Ids.materialPlan}::uuid
         `;
@@ -1090,7 +1105,7 @@ test(
           'lukas_drawing_quantity_links_object_fk_idx'
         ) group by c.relname order by c.relname
       `;
-      assert.deepEqual(indexColumns, [
+      assert.deepEqual([...indexColumns], [
         {
           relname: "lukas_drawing_quantity_links_object_fk_idx",
           columns: ["drawing_object_id", "drawing_revision_id", "project_id"],
