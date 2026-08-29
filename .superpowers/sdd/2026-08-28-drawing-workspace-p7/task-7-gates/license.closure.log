@@ -1,13 +1,13 @@
-✔ drawing editor dependencies are permissive and noticed (2.69275ms)
-✔ the official glTF validator ships its exact Apache license and upstream notices (1.528459ms)
-✔ drawing export uses the exact unmodified MIT pdf-lib dependency (15.198083ms)
-✔ drawing collaboration pins its MIT protocol closure without direct transport or state packages (21.013875ms)
-✔ viewer delegates PDF.js primitives to the shared renderer (0.473917ms)
-✔ document replacement cancels an active renderer before destruction (0.435208ms)
-✔ PDF pages use the shared client renderer (0.4915ms)
-✔ shared PDF opening stops before starting an aborted load (0.247792ms)
-✔ P7 release inspects the actual drawing dependency closure and notices (4.840042ms)
-✔ 1HK product source and public assets contain no Rayon name or asset (70.141625ms)
+✔ drawing editor dependencies are permissive and noticed (2.612208ms)
+✔ the official glTF validator ships its exact Apache license and upstream notices (1.273583ms)
+✔ drawing export uses the exact unmodified MIT pdf-lib dependency (15.379625ms)
+✔ drawing collaboration pins its MIT protocol closure without direct transport or state packages (20.293291ms)
+✔ viewer delegates PDF.js primitives to the shared renderer (0.448542ms)
+✔ document replacement cancels an active renderer before destruction (0.363916ms)
+✔ PDF pages use the shared client renderer (0.486125ms)
+✔ shared PDF opening stops before starting an aborted load (0.270458ms)
+✔ P7 release inspects the actual drawing dependency closure and notices (5.169ms)
+✔ 1HK product source and public assets contain no Rayon name or asset (70.794417ms)
 ℹ tests 10
 ℹ suites 0
 ℹ pass 10
@@ -15,4 +15,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 164.919417
+ℹ duration_ms 164.657292

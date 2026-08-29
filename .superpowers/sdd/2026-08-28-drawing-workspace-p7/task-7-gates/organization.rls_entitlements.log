@@ -1,17 +1,17 @@
-✔ organization library mutations accept stable authority inputs only (12.23575ms)
-✔ workspace template drafts have no polymorphic entity and imports keep exact optional revision (0.3745ms)
-✔ organization library search is bounded and cursor identity is exact (0.310667ms)
-✔ every mutation binds the route organization into database authority (0.229042ms)
-✔ organization library route is mounted in authenticated navigation (0.418875ms)
-✔ organization administration accepts stable bounded authority inputs only (41.382958ms)
-✔ every organization mutation binds the route organization into one exact RPC (0.282583ms)
-✔ project features are revalidated from the exact project organization (1.162791ms)
-✔ organization administration is mounted and project membership no longer scans all users (0.6045ms)
-✔ registered and unregistered invitation delivery uses one neutral fail-closed provider path (0.306583ms)
-✔ workspace dashboard hides organization administration from ordinary members (0.214625ms)
-✔ organization invitations, projects, and destinations continue beyond 100 exact rows (1.6685ms)
-✔ invitation login and magic-link preserve the exact safe acceptance return (0.221334ms)
-✔ IFC and quantity lineage feature flags are revalidated by route actions and loaders (0.575375ms)
+✔ organization library mutations accept stable authority inputs only (13.089542ms)
+✔ workspace template drafts have no polymorphic entity and imports keep exact optional revision (0.38875ms)
+✔ organization library search is bounded and cursor identity is exact (0.2895ms)
+✔ every mutation binds the route organization into database authority (0.225125ms)
+✔ organization library route is mounted in authenticated navigation (0.358625ms)
+✔ organization administration accepts stable bounded authority inputs only (37.556416ms)
+✔ every organization mutation binds the route organization into one exact RPC (0.287167ms)
+✔ project features are revalidated from the exact project organization (1.179208ms)
+✔ organization administration is mounted and project membership no longer scans all users (0.5485ms)
+✔ registered and unregistered invitation delivery uses one neutral fail-closed provider path (0.286708ms)
+✔ workspace dashboard hides organization administration from ordinary members (0.213833ms)
+✔ organization invitations, projects, and destinations continue beyond 100 exact rows (1.667375ms)
+✔ invitation login and magic-link preserve the exact safe acceptance return (0.225666ms)
+✔ IFC and quantity lineage feature flags are revalidated by route actions and loaders (0.547375ms)
 ℹ tests 14
 ℹ suites 0
 ℹ pass 14
@@ -19,4 +19,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 95.369583
+ℹ duration_ms 95.17075
