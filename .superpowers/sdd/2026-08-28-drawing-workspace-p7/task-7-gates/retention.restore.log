@@ -1,18 +1,18 @@
-✔ project exports are append-only, exact-byte hashed, and RPC-authorized (1.210959ms)
-✔ every actual project export response crosses the audit boundary (0.584791ms)
-✔ Revit release download keeps its existing server-side append-only SHA audit (0.522417ms)
-✔ anonymous Revit redirect records through the trusted ledger and fails closed (23.099417ms)
-✔ server export helper hashes the exact response bytes and fails closed (3.84925ms)
-✔ restore inventory names the existing approval, BOQ, and material lineage tables (2.553625ms)
-✔ missing managed authorities produce explicit UNEXECUTED evidence (8.530084ms)
-✔ source and isolated restore must match every retained evidence domain (0.574708ms)
-✔ provider-issued backup and restore identities gate PASS and recording (0.484042ms)
-✔ provider status or any digest mismatch stays NOT MET (0.215041ms)
-✔ checkout mismatch and unissued target restore identity cannot PASS (0.247042ms)
-✔ retention forms accept only stable identities and bounded policy values (39.423542ms)
-✔ every admin mutation binds route organization into one exact RPC (0.434875ms)
-✔ retention administration is mounted and archived projects leave the active workspace (0.594958ms)
-✔ organization retention project listing exhausts deterministic ID pages beyond 100 (7.677333ms)
+✔ project exports are append-only, exact-byte hashed, and RPC-authorized (1.196458ms)
+✔ every actual project export response crosses the audit boundary (0.593917ms)
+✔ Revit release download keeps its existing server-side append-only SHA audit (0.533083ms)
+✔ anonymous Revit redirect records through the trusted ledger and fails closed (22.389917ms)
+✔ server export helper hashes the exact response bytes and fails closed (3.532334ms)
+✔ restore inventory names the existing approval, BOQ, and material lineage tables (2.627167ms)
+✔ missing managed authorities produce explicit UNEXECUTED evidence (8.7455ms)
+✔ source and isolated restore must match every retained evidence domain (0.709334ms)
+✔ provider-issued backup and restore identities gate PASS and recording (0.503166ms)
+✔ provider status or any digest mismatch stays NOT MET (0.194583ms)
+✔ checkout mismatch and unissued target restore identity cannot PASS (0.220834ms)
+✔ retention forms accept only stable identities and bounded policy values (38.801708ms)
+✔ every admin mutation binds route organization into one exact RPC (0.443125ms)
+✔ retention administration is mounted and archived projects leave the active workspace (0.655542ms)
+✔ organization retention project listing exhausts deterministic ID pages beyond 100 (7.739416ms)
 ℹ tests 15
 ℹ suites 0
 ℹ pass 15
@@ -20,4 +20,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 96.917625
+ℹ duration_ms 95.674833

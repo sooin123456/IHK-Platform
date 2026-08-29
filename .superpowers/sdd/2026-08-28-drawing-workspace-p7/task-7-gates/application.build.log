@@ -29,7 +29,7 @@ Generated an empty chunk: "material-control-export".
 Generated an empty chunk: "project-file-download".
 rendering chunks...
 computing gzip size...
-build/client/.vite/manifest.json                                      51.27 kB │ gzip:   4.91 kB
+build/client/.vite/manifest.json                                      52.78 kB │ gzip:   5.01 kB
 build/client/assets/pdf.worker.min-CHFwMXne.mjs                    1,262.40 kB
 build/client/assets/nprogress-BgDCIyLK.css                             1.09 kB │ gzip:   0.44 kB
 build/client/assets/root-DvfjdYGf.css                                119.34 kB │ gzip:  20.45 kB
@@ -92,7 +92,7 @@ build/client/assets/createLucideIcon-BZ9BShHy.js                       0.90 kB �
 build/client/assets/context-b_sKfFyi.js                                0.99 kB │ gzip:   0.60 kB
 build/client/assets/organization-invitation-accept-B-a4NnDT.js         1.01 kB │ gzip:   0.63 kB
 build/client/assets/preload-helper-BXl3LOEh.js                         1.11 kB │ gzip:   0.65 kB
-build/client/assets/workspace-tD14PhcX.js                              1.20 kB │ gzip:   0.74 kB
+build/client/assets/workspace-C79bDEvg.js                              1.23 kB │ gzip:   0.76 kB
 build/client/assets/badge-CJPprxvM.js                                  1.25 kB │ gzip:   0.62 kB
 build/client/assets/pdf-page-renderer.client-B9iCft46.js               1.61 kB │ gzip:   0.88 kB
 build/client/assets/button-DBtJmC4Y.js                                 1.66 kB │ gzip:   0.76 kB
@@ -102,8 +102,8 @@ build/client/assets/join-M5ekrhVn.js                                   2.13 kB �
 build/client/assets/magic-link-CoeTYse1.js                             2.15 kB │ gzip:   1.17 kB
 build/client/assets/workspace-preview-room-CCa7D7Vd.js                 2.26 kB │ gzip:   1.23 kB
 build/client/assets/privacy-Dj1WwLts.js                                2.32 kB │ gzip:   1.26 kB
-build/client/assets/workspace-preview-C7c6jxKH.js                      2.36 kB │ gzip:   1.21 kB
-build/client/assets/dialog-BulQ6BBM.js                                 2.39 kB │ gzip:   0.91 kB
+build/client/assets/workspace-preview-JDMFODM9.js                      2.39 kB │ gzip:   1.23 kB
+build/client/assets/dialog-B0mF0QHE.js                                 2.43 kB │ gzip:   0.92 kB
 build/client/assets/index-D4H_6QEE.js                                  2.51 kB │ gzip:   1.21 kB
 build/client/assets/drawing-runtime-ClZV_rH6.js                        2.55 kB │ gzip:   1.28 kB
 build/client/assets/index-D5drsK32.js                                  2.57 kB │ gzip:   1.09 kB
@@ -118,42 +118,44 @@ build/client/assets/project-drawings-L_E5VsDI.js                       3.80 kB �
 build/client/assets/posts-DdumhFS7.js                                  3.85 kB │ gzip:   1.83 kB
 build/client/assets/information-requirements-BzVmAFnq.js               3.96 kB │ gzip:   1.80 kB
 build/client/assets/suggestion-pilot-BZvffJxI.js                       4.27 kB │ gzip:   2.01 kB
+build/client/assets/index-BWRIs05z.js                                  5.21 kB │ gzip:   2.01 kB
 build/client/assets/element-identities-DG3HaD7l.js                     5.40 kB │ gzip:   1.96 kB
 build/client/assets/shared-project-CAbT7lW3.js                         5.57 kB │ gzip:   2.26 kB
-build/client/assets/sheet-DiZy8fqa.js                                  5.65 kB │ gzip:   2.24 kB
+build/client/assets/sheet-Dm6gs6mE.js                                  5.69 kB │ gzip:   2.26 kB
 build/client/assets/inquiry-CL5Lo6HZ.js                                6.24 kB │ gzip:   2.55 kB
-build/client/assets/navigation.layout-CpeoCyBk.js                      6.49 kB │ gzip:   2.48 kB
+build/client/assets/navigation.layout-B6VuyVu0.js                      6.53 kB │ gzip:   2.50 kB
 build/client/assets/preflight-artifact-BFbnlQzw.js                     6.61 kB │ gzip:   2.37 kB
 build/client/assets/organization-retention-DkTDmtGF.js                 6.99 kB │ gzip:   2.23 kB
-build/client/assets/drawing-workspace-BRBNGEuW.js                      7.12 kB │ gzip:   2.92 kB
+build/client/assets/drawing-workspace-BkL17l-M.js                      7.15 kB │ gzip:   2.94 kB
 build/client/assets/pdf-drawing-viewer.client-C5qm-jJo.js              7.54 kB │ gzip:   3.17 kB
 build/client/assets/takeoff-artifact-COKKyAUc.js                       7.56 kB │ gzip:   2.62 kB
 build/client/assets/download-DPLv5EVD.js                               8.24 kB │ gzip:   3.25 kB
 build/client/assets/organization-drawing-library-yl_0X8I1.js           8.42 kB │ gzip:   2.73 kB
 build/client/assets/organization-settings-CuTocZBM.js                 11.37 kB │ gzip:   3.24 kB
-build/client/assets/local-drawing-workspace-preview-XHWRr9z7.js       13.99 kB │ gzip:   4.59 kB
+build/client/assets/local-drawing-workspace-preview-BkA4ecfn.js       13.97 kB │ gzip:   4.58 kB
 build/client/assets/home-B8jbHIN0.js                                  14.75 kB │ gzip:   5.12 kB
 build/client/assets/material-control-CI7mXNyd.js                      20.37 kB │ gzip:   6.64 kB
-build/client/assets/workspace-dashboard-Ch274gCQ.js                   20.85 kB │ gzip:   6.24 kB
+build/client/assets/workspace-dashboard-CWILKz8G.js                   20.85 kB │ gzip:   6.24 kB
 build/client/assets/workspace-preview-room.client-BVfX_hlE.js         23.06 kB │ gzip:   7.14 kB
+build/client/assets/drawing-export-dialog-DHTBn9zH.js                 24.13 kB │ gzip:   8.50 kB
 build/client/assets/utils-Cd13OnTz.js                                 24.84 kB │ gzip:   7.89 kB
+build/client/assets/Combination-CMHOj-NP.js                           24.92 kB │ gzip:   8.98 kB
 build/client/assets/drawing-room-DQZVUkvo.js                          26.25 kB │ gzip:   7.13 kB
 build/client/assets/ifc-model-viewer.client-B9xoVABT.js               27.35 kB │ gzip:   7.70 kB
-build/client/assets/hocuspocus-provider.esm-CSPcBn8G.js               28.82 kB │ gzip:   7.74 kB
-build/client/assets/index-BtkFs1FS.js                                 29.91 kB │ gzip:  10.50 kB
+build/client/assets/hocuspocus-provider.esm-D9FjSdyA.js               28.79 kB │ gzip:   7.74 kB
 build/client/assets/verified-boq-xHctziMl.js                          35.87 kB │ gzip:   8.73 kB
-build/client/assets/root-BtLYvlTe.js                                  43.33 kB │ gzip:  13.65 kB
+build/client/assets/root-CMmRI-LQ.js                                  43.36 kB │ gzip:  13.67 kB
 build/client/assets/GLTFLoader-DioKWlvO.js                            45.13 kB │ gzip:  13.71 kB
 build/client/assets/project-files-CXWs3n8S.js                         45.22 kB │ gzip:  10.70 kB
-build/client/assets/dropdown-menu-DVqklS_f.js                         49.76 kB │ gzip:  16.96 kB
+build/client/assets/dropdown-menu-BhraWVqj.js                         49.77 kB │ gzip:  16.97 kB
 build/client/assets/index-CFEKd020.js                                 60.06 kB │ gzip:  14.39 kB
 build/client/assets/chunk-62JRHF6Z-B7B74IfD.js                       131.93 kB │ gzip:  44.37 kB
-build/client/assets/index-B-MVyfM2.js                                225.79 kB │ gzip:  60.21 kB
+build/client/assets/index-CM4LJqG-.js                                225.80 kB │ gzip:  60.22 kB
 build/client/assets/entry.client-jIcEhpEo.js                         234.90 kB │ gzip:  73.26 kB
 build/client/assets/ifc-property-browser.client-Hn6JLzeV.js          246.56 kB │ gzip:  67.66 kB
 build/client/assets/three.module-BxyD2sgA.js                         349.73 kB │ gzip:  85.58 kB
-build/client/assets/drawing-canvas.client-q2kFhtkZ.js                370.55 kB │ gzip: 113.72 kB
-build/client/assets/drawing-workspace-D8KYU7lA.js                    433.87 kB │ gzip: 123.10 kB
+build/client/assets/drawing-canvas.client-C4kAUVkZ.js                370.53 kB │ gzip: 113.71 kB
+build/client/assets/drawing-workspace-DZzDnEol.js                    411.60 kB │ gzip: 116.24 kB
 build/client/assets/pdf-DMRcuM1e.js                                  434.00 kB │ gzip: 128.93 kB
 build/client/assets/index-BdWKcC-a.js                                527.24 kB │ gzip: 210.03 kB
 
@@ -161,7 +163,7 @@ build/client/assets/index-BdWKcC-a.js                                527.24 kB �
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 4.43s
+✓ built in 4.46s
   ⚠️  Future Flag Warning: Route middleware support is changing in React Router v8.
      You can use the `future.v8_middleware` flag to opt in early.
      -> https://reactrouter.com/v7/upgrading/future#futurev8_middleware
@@ -187,7 +189,7 @@ rendering chunks...
 [plugin vite:reporter] 
 (!) /Users/h/Documents/GoAgent/.worktrees/drawing-workspace-p0-p1/platform/app/lukas/components/ifc-property-browser.client.tsx is dynamically imported by /Users/h/Documents/GoAgent/.worktrees/drawing-workspace-p0-p1/platform/app/lukas/components/drawing-workspace.tsx but also statically imported by /Users/h/Documents/GoAgent/.worktrees/drawing-workspace-p0-p1/platform/app/lukas/screens/ifc-browser.tsx, dynamic import will not move module into another chunk.
 
-build/server/.vite/manifest.json                                   2.27 kB
+build/server/.vite/manifest.json                                   2.95 kB
 build/server/assets/nprogress-BgDCIyLK.css                         1.09 kB
 build/server/assets/server-build-DvfjdYGf.css                    119.34 kB
 build/server/assets/drawing-canvas.client-lD_WUNU2.js              0.06 kB
@@ -195,17 +197,21 @@ build/server/assets/workspace-preview-room.client-9CyKfGv2.js      0.07 kB
 build/server/assets/pdf-page-renderer.client-CuLmpHpX.js           0.13 kB
 build/server/assets/resend-client.server-DUz3qED0.js               0.13 kB
 build/server/assets/supa-admin-client.server-B_ddS2Pj.js           0.20 kB
-build/server/index.js                                          1,971.80 kB
+build/server/index.js                                              1.14 kB
+build/server/assets/drawing-export-dialog-B9vmKuUr.js             45.91 kB
+build/server/assets/server-build-CbOT9CT7.js                   1,929.28 kB
 
 ✓ 2 assets cleaned from React Router server build.
 build/client/assets/nprogress-BgDCIyLK.css
 build/server/assets/server-build-DvfjdYGf.css
+✓ 1 asset moved from React Router server build to client assets.
+build/client/assets/server-build-DvfjdYGf.css
 
 The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
-(node:38874) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(node:43392) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
 Prerender (data): /sitemap.xml -> build/client/sitemap.xml.data
 Prerender (resource): /sitemap.xml -> build/client/sitemap.xml
 Prerender (data): /robots.txt -> build/client/robots.txt.data
 Prerender (resource): /robots.txt -> build/client/robots.txt
-✓ built in 1.06s
+✓ built in 1.07s
