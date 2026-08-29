@@ -182,6 +182,11 @@ test("IFC element results stay bounded while retaining a focused element outside
   );
 });
 
+test("split IFC review starts with a compact result batch without shrinking the full viewer", () => {
+  assert.equal(ifcPropertyBrowser.ifcElementResultPageSize(true), 8);
+  assert.equal(ifcPropertyBrowser.ifcElementResultPageSize(false), 50);
+});
+
 test("IFC first-usable geometry requires a mapped visible finite nonempty rendered mesh", () => {
   const root = new THREE.Group();
   const mesh = new THREE.Mesh(

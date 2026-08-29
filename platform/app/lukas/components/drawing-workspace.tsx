@@ -3749,23 +3749,24 @@ export default function DrawingWorkspaceClient({
           </output>
         </aside>
       ) : null}
-      <header className="flex min-h-14 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-2 py-1.5 sm:px-3">
+      <header className="drawing-workspace-topbar flex min-h-14 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900 px-2 py-1.5 sm:px-3">
         <Link
           aria-label="협업 도면실로 돌아가기"
           className="inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white"
           to={roomUrl}
         >
-          <ArrowLeft className="size-4" /> 협업 도면실
+          <ArrowLeft className="size-4" />
+          <span className="drawing-workspace-topbar-label">협업 도면실</span>
         </Link>
-        <div className="min-w-0 flex-1 border-l border-white/10 pl-3">
+        <div className="drawing-workspace-topbar-title min-w-0 flex-1 border-l border-white/10 pl-3">
           <h1 className="truncate text-sm font-bold">
             {drawingDocument.title}
           </h1>
-          <p className="truncate text-xs text-slate-400">
+          <p className="drawing-workspace-topbar-subtitle truncate text-xs text-slate-400">
             도면 작업실 · {file.original_filename}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="drawing-workspace-topbar-actions flex flex-wrap items-center gap-1">
           <span
             aria-label={`저장 상태: ${saveStatus}`}
             className={`inline-flex min-h-9 items-center gap-1 px-2 text-xs ${saveStatus === "저장됨" ? "text-emerald-300" : saveStatus === "충돌 검토 필요" ? "text-red-300" : "text-amber-300"}`}
@@ -3776,10 +3777,16 @@ export default function DrawingWorkspaceClient({
           </span>
           <span
             aria-label={`실시간 상태: ${realtime.message}`}
-            className={`inline-flex min-h-9 items-center px-2 text-xs ${realtime.phase === "connected" ? "text-emerald-300" : realtime.phase === "disconnected" ? "text-amber-300" : "text-slate-300"}`}
+            className={`drawing-workspace-presence-status inline-flex min-h-9 items-center px-2 text-xs ${realtime.phase === "connected" ? "text-emerald-300" : realtime.phase === "disconnected" ? "text-amber-300" : "text-slate-300"}`}
             role="status"
           >
-            {realtime.message}
+            <span
+              aria-hidden="true"
+              className="drawing-workspace-status-dot size-2 rounded-full bg-current"
+            />
+            <span className="drawing-workspace-status-message">
+              {realtime.message}
+            </span>
           </span>
           <DrawingCollaborationConnectionStatus
             phase={collaborationPhase}

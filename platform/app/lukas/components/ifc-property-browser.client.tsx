@@ -78,6 +78,13 @@ type Props = {
 type ViewerPhase = "loading" | "ready" | "skipped" | "empty" | "error";
 
 const IFC_ELEMENT_RESULT_PAGE_SIZE = 50;
+const IFC_COMPACT_ELEMENT_RESULT_PAGE_SIZE = 8;
+
+export function ifcElementResultPageSize(compact: boolean) {
+  return compact
+    ? IFC_COMPACT_ELEMENT_RESULT_PAGE_SIZE
+    : IFC_ELEMENT_RESULT_PAGE_SIZE;
+}
 
 /** Bounds the accessible result tree while keeping a focused item discoverable. */
 export function visibleIfcElementResults<T extends { expressId: number }>(
@@ -221,8 +228,9 @@ export default function IfcPropertyBrowser({
   const [selected, setSelected] = useState<IfcElement | null>(null);
   const [properties, setProperties] = useState<DisplayProperty[]>([]);
   const [query, setQuery] = useState("");
+  const resultPageSize = ifcElementResultPageSize(compact);
   const [visibleResultLimit, setVisibleResultLimit] = useState(
-    IFC_ELEMENT_RESULT_PAGE_SIZE,
+    resultPageSize,
   );
   const [status, setStatus] = useState("IFC 파일을 준비하고 있습니다.");
   const [error, setError] = useState<string | null>(null);
@@ -253,6 +261,8 @@ export default function IfcPropertyBrowser({
   visibleRef.current = visible;
   const renderBundleRef = useRef(renderBundle);
   renderBundleRef.current = renderBundle;
+
+  useEffect(() => setVisibleResultLimit(resultPageSize), [resultPageSize]);
 
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
@@ -717,7 +727,7 @@ export default function IfcPropertyBrowser({
                 className="h-11 w-full rounded-lg border bg-background pl-9 pr-3 text-sm"
                 onChange={(event) => {
                   setQuery(event.target.value);
-                  setVisibleResultLimit(IFC_ELEMENT_RESULT_PAGE_SIZE);
+                  setVisibleResultLimit(resultPageSize);
                 }}
                 placeholder="이름, 유형, #ID 검색"
                 value={query}
@@ -777,11 +787,11 @@ export default function IfcPropertyBrowser({
             ) : null}
             {hiddenElementCount > 0 ? (
               <button
-                aria-label={`IFC 요소 ${Math.min(IFC_ELEMENT_RESULT_PAGE_SIZE, hiddenElementCount)}개 더 보기`}
+                aria-label={`IFC 요소 ${Math.min(resultPageSize, hiddenElementCount)}개 더 보기`}
                 className="mt-2 min-h-11 w-full rounded-xl border border-dashed px-3 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() =>
                   setVisibleResultLimit(
-                    (current) => current + IFC_ELEMENT_RESULT_PAGE_SIZE,
+                    (current) => current + resultPageSize,
                   )
                 }
                 type="button"

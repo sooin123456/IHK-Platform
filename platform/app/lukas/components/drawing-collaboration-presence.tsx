@@ -41,7 +41,7 @@ export function DrawingCollaborationParticipants({
       className="flex min-w-0 items-center gap-1"
       role="status"
     >
-      <span className="shrink-0 text-xs text-slate-300">
+      <span className="drawing-workspace-participant-count shrink-0 text-xs text-slate-300">
         {peers.length + 1}명
       </span>
       <ul className="flex min-w-0 items-center gap-1" aria-label="참여자 목록">
@@ -87,10 +87,14 @@ export function DrawingCollaborationConnectionStatus({
   return (
     <span
       aria-label={`공동 편집 상태: ${phase}`}
-      className={`inline-flex min-h-9 items-center px-2 text-xs ${phase === "connected" ? "text-emerald-300" : phase === "degraded" ? "text-amber-300" : "text-slate-300"}`}
+      className={`drawing-workspace-presence-status inline-flex min-h-9 items-center px-2 text-xs ${phase === "connected" ? "text-emerald-300" : phase === "degraded" ? "text-amber-300" : "text-slate-300"}`}
       role="status"
     >
-      {message}
+      <span
+        aria-hidden="true"
+        className="drawing-workspace-status-dot size-2 rounded-full bg-current"
+      />
+      <span className="drawing-workspace-status-message">{message}</span>
     </span>
   );
 }

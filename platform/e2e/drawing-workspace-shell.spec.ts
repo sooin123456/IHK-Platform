@@ -52,6 +52,51 @@ async function stableSemanticCount(page: Page) {
   return Number(previous);
 }
 
+test("compact desktop keeps the top bar single-row without hiding primary actions", async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.setViewportSize({ width: 898, height: 800 });
+  await openPreview(page, `${awarenessTestPreviewPath}&view=split`);
+
+  const header = page.locator("main.drawing-workspace > header");
+  const bounds = await header.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    height: element.getBoundingClientRect().height,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(bounds.height).toBeLessThanOrEqual(64);
+  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth + 1);
+  await expect(
+    header.getByText(/도면 작업실 ·/, { exact: false }),
+  ).toBeHidden();
+  for (const status of [
+    header.getByRole("status", { name: /실시간 상태:/ }),
+    header.getByRole("status", { name: /공동 편집 상태:/ }),
+  ]) {
+    const statusBounds = await status.boundingBox();
+    expect(statusBounds?.width).toBeLessThanOrEqual(24);
+  }
+  await expect(
+    header.getByRole("link", { name: "협업 도면실로 돌아가기" }),
+  ).toBeVisible();
+  await expect(header.getByRole("button", { name: "실행 취소" })).toBeVisible();
+  await expect(header.getByRole("button", { name: "다시 실행" })).toBeVisible();
+  await expect(header.getByRole("button", { name: /내보내기/ })).toBeVisible();
+  await expect(header.getByRole("button", { name: "검토 요청" })).toBeVisible();
+
+  const ifcResults = page.getByRole("region", { name: "IFC 요소 결과 목록" });
+  await expect(ifcResults.getByRole("button")).toHaveCount(9);
+  await expect(
+    ifcResults.getByRole("button", { name: "IFC 요소 8개 더 보기" }),
+  ).toContainText("8/115개 표시");
+  await expect(page.locator("vite-error-overlay")).toHaveCount(0);
+  expect(consoleErrors).toEqual([]);
+});
+
 test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
   page,
 }) => {

@@ -430,7 +430,7 @@ test("local preview uses project-owned drawing copy", () => {
 test("local preview exposes its inert connected realtime state in the workspace top bar", () => {
   assert.match(
     renderWorkspace(),
-    /aria-label="실시간 상태: 실시간 연결됨"[^>]*>[^<]*실시간 연결됨/,
+    /aria-label="실시간 상태: 실시간 연결됨"[^>]*>[\s\S]*?class="drawing-workspace-status-message">실시간 연결됨<\/span>/,
   );
 });
 
