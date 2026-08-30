@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -20,17 +21,67 @@ const vite = await createServer({
   server: { middlewareMode: true },
 });
 
-const [drawingEntry, navigationLayout, projectDrawings, workspaceDashboard] =
-  await Promise.all([
-    vite
-      .ssrLoadModule("/app/lukas/lib/drawing-entry.ts")
-      .catch(() => ({})),
-    vite.ssrLoadModule("/app/core/layouts/navigation.layout.tsx"),
-    vite.ssrLoadModule("/app/lukas/screens/project-drawings.tsx"),
-    vite.ssrLoadModule("/app/lukas/components/workspace-dashboard.tsx"),
-  ]);
+const actionClientFactoryKey = "__drawingEntryActionClientFactory";
+globalThis[actionClientFactoryKey] = () => {
+  throw new Error("Upload action test client is not configured.");
+};
+const actionVite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  plugins: [
+    {
+      enforce: "pre",
+      load(id) {
+        if (id === "\0virtual:drawing-entry-action-client")
+          return `export default (...args) => globalThis[${JSON.stringify(actionClientFactoryKey)}](...args);`;
+      },
+      name: "drawing-entry-action-client",
+      resolveId(source) {
+        if (source.endsWith("/app/core/lib/supa-client.server"))
+          return "\0virtual:drawing-entry-action-client";
+      },
+    },
+  ],
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
 
-test.after(() => vite.close());
+const [
+  drawingEntry,
+  navigationLayout,
+  projectDrawings,
+  projectScreen,
+  workspaceDashboard,
+  projectAction,
+] = await Promise.all([
+  vite.ssrLoadModule("/app/lukas/lib/drawing-entry.ts"),
+  vite.ssrLoadModule("/app/core/layouts/navigation.layout.tsx"),
+  vite.ssrLoadModule("/app/lukas/screens/project-drawings.tsx"),
+  vite.ssrLoadModule("/app/lukas/screens/project.tsx"),
+  vite.ssrLoadModule("/app/lukas/components/workspace-dashboard.tsx"),
+  actionVite.ssrLoadModule("/app/lukas/screens/project.tsx"),
+]);
+
+test.after(async () => {
+  delete globalThis[actionClientFactoryKey];
+  await Promise.all([vite.close(), actionVite.close()]);
+});
+
+const navigationRoute = routes.find(
+  (route) => route.file === "core/layouts/navigation.layout.tsx",
+);
+const privateWorkspaceRoute = navigationRoute?.children?.find(
+  (route) => route.file === "core/layouts/private.layout.tsx",
+);
+const notificationsRoute = privateWorkspaceRoute?.children?.find(
+  (route) => route.file === "lukas/screens/drawing-notifications.tsx",
+);
+const publicNewsRoute = navigationRoute?.children?.find(
+  (route) => route.file === "features/blog/screens/posts.tsx",
+);
 
 function withTheme(children) {
   return React.createElement(
@@ -40,10 +91,21 @@ function withTheme(children) {
   );
 }
 
-async function renderNavigationRoute({ id, path, url }) {
+async function renderNavigationRoute({ ancestors = [], leaf, url }) {
   function Sentinel() {
     return React.createElement("p", null, "ROUTE-CONTENT-SENTINEL");
   }
+
+  let matchedRoute = {
+    id: leaf.id ?? leaf.file,
+    path: leaf.path,
+    Component: Sentinel,
+  };
+  for (const ancestor of [...ancestors].reverse())
+    matchedRoute = {
+      id: ancestor.id ?? ancestor.file,
+      children: [matchedRoute],
+    };
 
   const layout = React.createElement(navigationLayout.default, {
     loaderData: { userPromise: Promise.resolve({ user: null }) },
@@ -51,10 +113,10 @@ async function renderNavigationRoute({ id, path, url }) {
   const router = createMemoryRouter(
     [
       {
-        id: "navigation-shell",
+        id: navigationRoute.id ?? navigationRoute.file,
         path: "/",
         element: layout,
-        children: [{ id, path, Component: Sentinel }],
+        children: [matchedRoute],
       },
     ],
     { initialEntries: [url] },
@@ -64,6 +126,139 @@ async function renderNavigationRoute({ id, path, url }) {
   );
   await stream.allReady;
   return new Response(stream).text();
+}
+
+function renderProjectForm() {
+  const loaderData = {
+    project: {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "1HK 테스트 프로젝트",
+      description: null,
+      workflow_status: "confirmed",
+      contact_name: null,
+      contact_phone: null,
+    },
+    files: [],
+    reviews: [],
+    shares: [],
+    suggestions: [],
+    suggestionDecisions: [],
+    suggestionEvaluation: [],
+    takeoffArtifacts: [],
+    takeoffApprovals: [],
+    fileRevisions: [],
+    preflightArtifacts: [],
+    preflightApprovals: [],
+    materialPlans: [],
+    publicShareEnabled: true,
+    isStaff: false,
+    isOwner: true,
+    suggestionPilotEnabled: false,
+  };
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/projects/:projectId/files",
+        element: React.createElement(projectScreen.default, { loaderData }),
+      },
+    ],
+    {
+      initialEntries: [
+        "/projects/00000000-0000-4000-8000-000000000001/files?kind=pdf",
+      ],
+    },
+  );
+  return renderToStaticMarkup(
+    withTheme(React.createElement(RouterProvider, { router })),
+  );
+}
+
+function uploadActionFixture(createdFileId) {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const ownerId = "00000000-0000-4000-8000-000000000002";
+  const userId = "00000000-0000-4000-8000-000000000003";
+  const observations = {
+    metadataInserts: [],
+    priorFileFilters: [],
+    storageUploads: [],
+  };
+
+  function query(result, onEq) {
+    const chain = {
+      eq(column, value) {
+        onEq?.(column, value);
+        return chain;
+      },
+      limit() {
+        return chain;
+      },
+      maybeSingle: async () => result,
+      order() {
+        return chain;
+      },
+      select() {
+        return chain;
+      },
+      single: async () => result,
+    };
+    return chain;
+  }
+
+  const client = {
+    auth: {
+      getUser: async () => ({
+        data: {
+          user: { id: userId, is_anonymous: false, app_metadata: {} },
+        },
+      }),
+    },
+    from(table) {
+      if (table === "lukas_qto_projects")
+        return query({ data: { id: projectId, owner_id: ownerId } });
+      if (table === "lukas_qto_files")
+        return {
+          insert(row) {
+            observations.metadataInserts.push(row);
+            return {
+              select() {
+                return {
+                  single: async () => ({
+                    data: { id: createdFileId },
+                    error: null,
+                  }),
+                };
+              },
+            };
+          },
+          select() {
+            return query({ data: null, error: null }, (column, value) =>
+              observations.priorFileFilters.push([column, value]),
+            );
+          },
+        };
+      throw new Error(`Unexpected table: ${table}`);
+    },
+    storage: {
+      from(bucket) {
+        return {
+          async remove() {
+            throw new Error("Successful upload must not roll back storage.");
+          },
+          async upload(path, bytes, options) {
+            observations.storageUploads.push({
+              bucket,
+              path,
+              bytes: Buffer.from(bytes),
+              options,
+            });
+            return { error: null };
+          },
+        };
+      },
+    },
+  };
+
+  return { client, observations, ownerId, projectId, userId };
 }
 
 function renderComponent(Component, props, url = "/workspace") {
@@ -110,11 +305,14 @@ function workspaceFixture({ drawingId = "file-a", previewMode = false } = {}) {
   };
 }
 
-test("private-workspace route matches remove the public navigation and footer", async () => {
+test("a real non-workspace private match removes public navigation and footer", async () => {
+  assert.ok(navigationRoute);
+  assert.equal(privateWorkspaceRoute?.id, "private-workspace");
+  assert.ok(notificationsRoute);
   const html = await renderNavigationRoute({
-    id: "private-workspace",
-    path: "projects/:projectId/drawings/:fileId/workspace",
-    url: "/projects/project-a/drawings/file-a/workspace",
+    ancestors: [privateWorkspaceRoute],
+    leaf: notificationsRoute,
+    url: notificationsRoute.path,
   });
 
   assert.match(html, /ROUTE-CONTENT-SENTINEL/);
@@ -123,10 +321,11 @@ test("private-workspace route matches remove the public navigation and footer", 
 });
 
 test("public route matches retain the marketing navigation and footer", async () => {
+  assert.ok(navigationRoute);
+  assert.ok(publicNewsRoute);
   const html = await renderNavigationRoute({
-    id: "public-news",
-    path: "news",
-    url: "/news",
+    leaf: publicNewsRoute,
+    url: publicNewsRoute.path,
   });
 
   assert.match(html, /ROUTE-CONTENT-SENTINEL/);
@@ -142,7 +341,21 @@ test("PDF is an upload kind with page-based help and exact browser acceptance", 
     ".pdf,application/pdf",
   );
   assert.equal(drawingEntry.fileMatchesProjectKind?.("pdf", "A-101.PDF"), true);
-  assert.equal(drawingEntry.fileMatchesProjectKind?.("pdf", "A-101.ifc"), false);
+  assert.equal(
+    drawingEntry.fileMatchesProjectKind?.("pdf", "A-101.ifc"),
+    false,
+  );
+});
+
+test("project upload form renders the selected PDF option, help, and exact accept", () => {
+  const html = renderProjectForm();
+
+  assert.match(html, /<option value="pdf" selected="">PDF 도면<\/option>/);
+  assert.match(html, /id="kind-help"[^>]*>[^<]*페이지[^<]*\.pdf[^<]*<\/p>/);
+  assert.match(
+    html,
+    /<input[^>]*accept="\.pdf,application\/pdf"[^>]*id="source_file"/,
+  );
 });
 
 test("IFC upload matching and browser acceptance remain supported", () => {
@@ -152,7 +365,10 @@ test("IFC upload matching and browser acceptance remain supported", () => {
     ".ifc,application/octet-stream",
   );
   assert.equal(drawingEntry.fileMatchesProjectKind?.("ifc", "MODEL.IFC"), true);
-  assert.equal(drawingEntry.fileMatchesProjectKind?.("ifc", "MODEL.pdf"), false);
+  assert.equal(
+    drawingEntry.fileMatchesProjectKind?.("ifc", "MODEL.pdf"),
+    false,
+  );
 });
 
 test("drawing uploads enter the exact file workspace while other uploads return", () => {
@@ -176,20 +392,96 @@ test("drawing uploads enter the exact file workspace while other uploads return"
   );
 });
 
+test("real project upload action persists source bytes and redirects by created kind", async () => {
+  const cases = [
+    {
+      createdFileId: "00000000-0000-4000-8000-000000000011",
+      filename: "A-101.PDF",
+      kind: "pdf",
+      mime: "application/pdf",
+      source: "%PDF-1.7\n1HK drawing\n",
+      location:
+        "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000011/workspace",
+    },
+    {
+      createdFileId: "00000000-0000-4000-8000-000000000012",
+      filename: "MODEL.IFC",
+      kind: "ifc",
+      mime: "application/octet-stream",
+      source: "ISO-10303-21;\nEND-ISO-10303-21;\n",
+      location:
+        "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000012/workspace",
+    },
+    {
+      createdFileId: "00000000-0000-4000-8000-000000000013",
+      filename: "quantity.csv",
+      kind: "qto_csv",
+      mime: "text/csv",
+      source: "element_id,quantity\n1,2\n",
+      location: "/projects/00000000-0000-4000-8000-000000000001",
+    },
+  ];
+
+  for (const fixture of cases) {
+    const { client, observations, projectId, userId } = uploadActionFixture(
+      fixture.createdFileId,
+    );
+    globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+    const formData = new FormData();
+    formData.set("intent", "upload");
+    formData.set("kind", fixture.kind);
+    formData.set(
+      "source_file",
+      new File([fixture.source], fixture.filename, { type: fixture.mime }),
+    );
+
+    const response = await projectAction.action({
+      request: new Request(`http://app.test/projects/${projectId}`, {
+        method: "POST",
+        body: formData,
+      }),
+      params: { projectId },
+    });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), fixture.location);
+    assert.equal(observations.storageUploads.length, 1);
+    assert.equal(observations.metadataInserts.length, 1);
+    const stored = observations.storageUploads[0];
+    const metadata = observations.metadataInserts[0];
+    assert.equal(stored.bucket, "lukas-qto");
+    assert.deepEqual(stored.bytes, Buffer.from(fixture.source));
+    assert.deepEqual(stored.options, {
+      contentType: fixture.mime,
+      upsert: false,
+    });
+    assert.equal(metadata.project_id, projectId);
+    assert.equal(metadata.uploaded_by, userId);
+    assert.equal(metadata.kind, fixture.kind);
+    assert.equal(metadata.original_filename, fixture.filename);
+    assert.equal(metadata.content_type, fixture.mime);
+    assert.equal(metadata.byte_size, Buffer.byteLength(fixture.source));
+    assert.equal(
+      metadata.sha256,
+      createHash("sha256").update(fixture.source).digest("hex"),
+    );
+    assert.equal(metadata.immutable, true);
+    assert.equal(metadata.storage_path, stored.path);
+    assert.deepEqual(observations.priorFileFilters.slice(-1)[0], [
+      "kind",
+      fixture.kind,
+    ]);
+  }
+});
+
 test("private route tree retains both the legacy room and the workspace", () => {
-  const navigation = routes.find(
-    (route) => route.file === "core/layouts/navigation.layout.tsx",
+  const registered = privateWorkspaceRoute?.children?.map(
+    (route) => route.path,
   );
-  const privateWorkspace = navigation?.children?.find(
-    (route) => route.id === "private-workspace",
-  );
-  const registered = privateWorkspace?.children?.map((route) => route.path);
 
   assert.ok(registered?.includes("/projects/:projectId/drawings/:fileId"));
   assert.ok(
-    registered?.includes(
-      "/projects/:projectId/drawings/:fileId/workspace",
-    ),
+    registered?.includes("/projects/:projectId/drawings/:fileId/workspace"),
   );
 });
 
