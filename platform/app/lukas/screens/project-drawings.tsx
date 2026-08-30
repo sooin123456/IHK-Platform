@@ -8,6 +8,10 @@ import {
   drawingContext,
   listDrawingFiles,
 } from "~/lukas/lib/drawing-collaboration.server";
+import {
+  drawingUploadPath,
+  drawingWorkspacePath,
+} from "~/lukas/lib/drawing-entry";
 
 export const meta: Route.MetaFunction = ({ data }) => [
   {
@@ -52,7 +56,7 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
         <div className="flex flex-wrap gap-2">
           <Link
             className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
-            to={`/projects/${loaderData.project.id}/files?kind=ifc#upload`}
+            to={drawingUploadPath(loaderData.project.id)}
           >
             <Upload className="size-4" /> 도면 추가
           </Link>
@@ -86,7 +90,7 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
               <Link
                 className="group flex min-h-52 flex-col rounded-3xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                 key={file.id}
-                to={`/projects/${loaderData.project.id}/drawings/${file.id}`}
+                to={drawingWorkspacePath(loaderData.project.id, file.id)}
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -103,7 +107,7 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
                   {fileSize(file.byte_size)} · {new Date(file.created_at).toLocaleDateString("ko-KR")}
                 </p>
                 <span className="mt-auto pt-6 text-sm font-semibold text-primary">
-                  협업 작업실 열기 →
+                  도면 작업실 열기 →
                 </span>
               </Link>
             );

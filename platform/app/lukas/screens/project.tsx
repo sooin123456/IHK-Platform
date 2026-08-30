@@ -56,17 +56,14 @@ import {
   buildSuggestionEvaluation,
   buildSuggestionFeedbackExport,
 } from "~/lukas/lib/suggestion-feedback.server";
+import {
+  fileMatchesProjectKind,
+  projectFileKindPolicy,
+  projectFileKinds,
+  projectUploadDestination,
+  type ProjectFileKind,
+} from "~/lukas/lib/drawing-entry";
 import { storageObjectPath } from "~/lukas/lib/storage-object-key.server";
-
-const fileKinds = [
-  "ifc",
-  "qto_csv",
-  "element_ledger",
-  "formwork_ledger",
-  "estimate",
-  "mapping",
-  "other",
-] as const;
 
 const reviewStatuses = ["open", "in_review", "resolved", "blocked"] as const;
 const suggestionDecisions = ["accepted", "rejected", "deferred"] as const;
@@ -117,48 +114,7 @@ function asFile(value: FormDataEntryValue | null): File | null {
 }
 
 function kindLabel(kind: string) {
-  const labels: Record<string, string> = {
-    ifc: "IFC 모델",
-    qto_csv: "QTO CSV",
-    element_ledger: "요소 원장",
-    formwork_ledger: "거푸집 Face 원장",
-    estimate: "내역서",
-    mapping: "매핑표",
-    other: "기타",
-  };
-  return labels[kind] ?? kind;
-}
-
-const fileKindHelp: Record<(typeof fileKinds)[number], string> = {
-  ifc: "Revit에서 내보낸 .ifc 모델",
-  qto_csv: "분류별 수량을 모은 QTO .csv",
-  element_ledger: "객체별 수량표(element-ledger.csv)",
-  formwork_ledger: "거푸집 면적 검토표 .csv",
-  estimate: "검토할 내역서 .csv 또는 Excel",
-  mapping: "내역과 모델을 연결하는 매핑 .csv",
-  other: "그 밖의 계산 근거 파일",
-};
-
-const fileKindAccept: Record<(typeof fileKinds)[number], string | undefined> = {
-  ifc: ".ifc,application/octet-stream",
-  qto_csv: ".csv,text/csv",
-  element_ledger: ".csv,text/csv",
-  formwork_ledger: ".csv,text/csv",
-  estimate:
-    ".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  mapping: ".csv,text/csv",
-  other: undefined,
-};
-
-function fileMatchesKind(kind: (typeof fileKinds)[number], filename: string) {
-  const lower = filename.trim().toLowerCase();
-  if (kind === "other") return true;
-  if (kind === "ifc") return lower.endsWith(".ifc");
-  if (kind === "estimate")
-    return [".csv", ".xls", ".xlsx"].some((extension) =>
-      lower.endsWith(extension),
-    );
-  return lower.endsWith(".csv");
+  return projectFileKindPolicy[kind as ProjectFileKind]?.label ?? kind;
 }
 
 function statusLabel(status: string) {
@@ -1176,14 +1132,14 @@ export async function action({ request, params }: Route.ActionArgs) {
       { error: "업로드할 파일을 선택하세요." },
       { status: 400, headers },
     );
-  if (!fileKinds.includes(kind as (typeof fileKinds)[number])) {
+  if (!projectFileKinds.includes(kind as ProjectFileKind)) {
     return data({ error: "파일 종류를 선택하세요." }, { status: 400, headers });
   }
-  const validatedKind = kind as (typeof fileKinds)[number];
-  if (!fileMatchesKind(validatedKind, file.name)) {
+  const validatedKind = kind as ProjectFileKind;
+  if (!fileMatchesProjectKind(validatedKind, file.name)) {
     return data(
       {
-        error: `${kindLabel(validatedKind)}에 맞는 파일을 선택하세요. ${fileKindHelp[validatedKind]}`,
+        error: `${kindLabel(validatedKind)}에 맞는 파일을 선택하세요. ${projectFileKindPolicy[validatedKind].help}`,
       },
       { status: 400, headers },
     );
@@ -1404,7 +1360,15 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
   }
 
-  return redirect(returnPath, { headers });
+  return redirect(
+    projectUploadDestination({
+      fileId: createdFile.id,
+      kind: validatedKind,
+      projectId: project.id,
+      returnPath,
+    }),
+    { headers },
+  );
 }
 
 export default function Project({
@@ -1415,15 +1379,15 @@ export default function Project({
   const navigation = useNavigation();
   const [searchParams] = useSearchParams();
   const requestedUploadKind = searchParams.get("kind");
-  const [uploadKind, setUploadKind] = useState<(typeof fileKinds)[number]>(
+  const [uploadKind, setUploadKind] = useState<ProjectFileKind>(
     () =>
-      fileKinds.includes(requestedUploadKind as (typeof fileKinds)[number])
-        ? (requestedUploadKind as (typeof fileKinds)[number])
+      projectFileKinds.includes(requestedUploadKind as ProjectFileKind)
+        ? (requestedUploadKind as ProjectFileKind)
         : "ifc",
   );
   useEffect(() => {
-    if (fileKinds.includes(requestedUploadKind as (typeof fileKinds)[number]))
-      setUploadKind(requestedUploadKind as (typeof fileKinds)[number]);
+    if (projectFileKinds.includes(requestedUploadKind as ProjectFileKind))
+      setUploadKind(requestedUploadKind as ProjectFileKind);
   }, [requestedUploadKind]);
   const uploadBusy =
     navigation.state !== "idle" &&
@@ -1917,26 +1881,26 @@ export default function Project({
                     name="kind"
                     onChange={(event) =>
                       setUploadKind(
-                        event.currentTarget.value as (typeof fileKinds)[number],
+                        event.currentTarget.value as ProjectFileKind,
                       )
                     }
                     required
                     value={uploadKind}
                   >
-                    {fileKinds.map((kind) => (
+                    {projectFileKinds.map((kind) => (
                       <option key={kind} value={kind}>
                         {kindLabel(kind)}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-muted-foreground" id="kind-help">
-                    {fileKindHelp[uploadKind]}
+                    {projectFileKindPolicy[uploadKind].help}
                   </p>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="source_file">파일</Label>
                   <Input
-                    accept={fileKindAccept[uploadKind]}
+                    accept={projectFileKindPolicy[uploadKind].accept}
                     className="min-h-11"
                     disabled={uploadBusy}
                     id="source_file"

@@ -33,6 +33,10 @@ import {
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import { cn } from "~/core/lib/utils";
+import {
+  drawingUploadPath,
+  drawingWorkspacePath,
+} from "~/lukas/lib/drawing-entry";
 
 type ProjectMetric = {
   fileCount: number;
@@ -112,8 +116,8 @@ function formatDate(value: string) {
 
 function projectHref(projectId: string, metric: ProjectMetric | undefined) {
   if (metric?.latestDrawingId)
-    return `/projects/${projectId}/drawings/${metric.latestDrawingId}`;
-  return `/projects/${projectId}/files?kind=ifc#upload`;
+    return drawingWorkspacePath(projectId, metric.latestDrawingId);
+  return drawingUploadPath(projectId);
 }
 
 function NewProjectDialog({ actionError }: { actionError?: string }) {
