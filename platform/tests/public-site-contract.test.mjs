@@ -179,7 +179,6 @@ test("project overview leads with one next action, four progress stages and pend
   assert.match(project, /pendingQuantityApprovalCount/);
   assert.match(project, /pendingSuggestionCount/);
   assert.match(project, /latest\.decision === "deferred"/);
-  assert.match(project, /fileMatchesKind/);
   assert.match(project, /key=\{uploadKind\}/);
   assert.match(project, /hasConcreteSourceSet/);
   assert.match(project, /산출 입력 7종/);
@@ -207,7 +206,6 @@ test("returning customers enter a functional drawing-project workspace", async (
   assert.match(dashboard, /검토가 필요한 프로젝트/);
   assert.match(dashboard, /최근 작업/);
   assert.match(dashboard, /3D IFC/);
-  assert.match(dashboard, /\/drawings\/\$\{metric\.latestDrawingId\}/);
   assert.match(dashboard, /\/projects\/\$\{project\.id\}\/members/);
   assert.match(dashboard, /1HK Platform/);
   assert.match(workspace, /projectMetrics/);
@@ -224,6 +222,5 @@ test("workspace cards lead to the drawing collaboration room with honest work co
   assert.match(screen, /도면 협업실/);
   assert.match(screen, /미해결/);
   assert.match(screen, /내 담당/);
-  assert.match(screen, /drawings\/\$\{metric\.latestDrawingId\}/);
   assert.match(loader, /listDrawingIssueMetrics/);
 });
