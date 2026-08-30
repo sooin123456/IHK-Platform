@@ -1,16 +1,16 @@
 # 1HK Drawing Workspace P0–P7 current implementation matrix
 
-Document set: `af26e3ab-265d-4833-8c90-7a3a53d80bd4:cebd389e62a58256219a292ebdbb8d1fbb15d2f4:da9196c0aa0e8527220ff51c47919a4f34563d8580f608c8684345008d302782`
-Source commit: `cebd389e62a58256219a292ebdbb8d1fbb15d2f4`
-Source tree SHA-256: `da9196c0aa0e8527220ff51c47919a4f34563d8580f608c8684345008d302782`
+Document set: `4be9175c-9fe4-40c8-96a1-66dbaabb009b:6bf871cc6d5985529fa82f8e673dc65749c33ae6:ab1c00bf51e6fb5c06d6b271723914198dc3f39a6babca02b51b4b3592472b26`
+Source commit: `6bf871cc6d5985529fa82f8e673dc65749c33ae6`
+Source tree SHA-256: `ab1c00bf51e6fb5c06d6b271723914198dc3f39a6babca02b51b4b3592472b26`
 Overall: **UNEXECUTED**
 Requirements: **36 PASS / 0 NOT_MET / 12 UNEXECUTED**
 
 ## Current source-bound performance
 
-- warm reopen: 1704.5ms (MET)
-- cold/cache-miss: 2287.4ms (MET)
-- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.2ms (MET)
+- warm reopen: 1677.2ms (MET)
+- cold/cache-miss: 2231.6ms (MET)
+- warm p95: zoom 0.2ms, pan 0.2ms, selection 8.6ms (MET)
 
 ## Exact requirement ledger
 

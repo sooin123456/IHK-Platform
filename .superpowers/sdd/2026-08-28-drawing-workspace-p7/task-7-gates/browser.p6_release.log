@@ -1,0 +1,17 @@
+[WebServer] (node:13654) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
+
+[WebServer] (node:13654) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+
+Running 2 tests using 1 worker
+
+(node:13658) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/2] [chromium] › e2e/drawing-workspace-p6.spec.ts:26:1 › P6 preview smoke keeps exact 10k/2k immutable evidence and split focus
+[2/2] [chromium] › e2e/drawing-workspace-p6.spec.ts:64:1 › two preview contexts preserve fixture state across reload
+  2 passed (5.1s)

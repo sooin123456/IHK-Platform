@@ -1,0 +1,24 @@
+
+> supaplate@1.0 test:e2e:drawing-workspace-p3:local
+> playwright test e2e/drawing-workspace-local-multiplayer.spec.ts --config=playwright.p4-functional.config.ts --project=chromium --workers=1
+
+[WebServer] (node:13364) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
+
+[WebServer] (node:13364) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+(node:13343) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:13369) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+(node:13369) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+[1/1] [chromium] › e2e/drawing-workspace-local-multiplayer.spec.ts:53:3 › 1HK local Hocuspocus multiplayer authority › two isolated browsers share cursor, object creation, and movement
+  1 passed (4.6s)

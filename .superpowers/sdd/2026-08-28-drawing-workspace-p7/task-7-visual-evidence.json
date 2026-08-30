@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "authority": "P7_CURRENT_BUILD_VISUAL_ARTIFACTS_V1",
-  "commit": "cebd389e62a58256219a292ebdbb8d1fbb15d2f4",
-  "sourceTreeSha256": "da9196c0aa0e8527220ff51c47919a4f34563d8580f608c8684345008d302782",
+  "commit": "6bf871cc6d5985529fa82f8e673dc65749c33ae6",
+  "sourceTreeSha256": "ab1c00bf51e6fb5c06d6b271723914198dc3f39a6babca02b51b4b3592472b26",
   "buildManifest": {
     "clientTree": {
       "path": "platform/build/client",
-      "sha256": "2e0be122776b58ab8f744c05bf25a219739864de85b75533ea40c6f136ed480d"
+      "sha256": "a526b6b1ac9369d0948aac01a26a08d77c702cbad9e79b6b7665c6acddc1bee0"
     },
     "clientManifest": {
-      "path": "platform/build/client/assets/manifest-4c088aa5.js",
-      "sha256": "8d3e2d80b7b7e23965022e7384e3c2e062ba0179090a067b907353593fbfdcde"
+      "path": "platform/build/client/assets/manifest-45149ca0.js",
+      "sha256": "94844a0c429b942e85869f51cc7f1805e542ee2a3fd210495e69c5199e9fdc33"
     },
     "serverEntry": {
       "path": "platform/build/server/index.js",
-      "sha256": "d7f80a9afe8763480629d19ed3da4893266bf646b7235bbfb622fe5ea35db797"
+      "sha256": "b63f5b917c3b002d23232a2bdb6a91445e0bcdffc1d3fc6b50160d252af2ab7c"
     }
   },
   "artifacts": [
@@ -37,5 +37,5 @@
       "sha256": "4e75dd18d44ca8442af6882e1f48648f8998f5c7206608baf31f5ff02ee44ff3"
     }
   ],
-  "recordedAt": "2026-08-29T04:39:45.242Z"
+  "recordedAt": "2026-08-30T03:41:15.873Z"
 }

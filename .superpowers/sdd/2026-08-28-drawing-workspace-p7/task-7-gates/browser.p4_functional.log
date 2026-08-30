@@ -1,0 +1,36 @@
+
+> supaplate@1.0 test:e2e:drawing-workspace-p4:local
+> node scripts/run-drawing-p4-functional.mjs
+
+[WebServer] (node:13451) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
+
+[WebServer] (node:13451) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+(node:13422) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 13 tests using 1 worker
+
+(node:13456) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:130:1 › P4 populated preview exports every semantic object
+[2/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:187:1 › hidden host visibility excludes hosted openings from every mounted semantic surface and restores them
+[3/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:300:1 › capability loss releases a real local lease without renewal resurrection
+[4/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:340:1 › mounted bridge preserves a rapid hosted-wall keyboard burst
+[5/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:419:1 › semantic inspector preserves a dirty field across an unrelated authoritative projection
+[6/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:446:1 › semantic inspector blocks same-field projections and clears on cancel, selection, and deletion
+[7/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:490:1 › P4 integrated architectural authoring, conflict, restore, permissions, freeze, and durable export vertical
+[8/13] [chromium] › e2e/drawing-workspace-p4.spec.ts:1011:1 › P4 awareness exposes semantic selection and lock
+(node:13456) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+[9/13] [chromium] › e2e/drawing-yjs-indexeddb.spec.ts:175:1 › offline command bridge recovers 100 ordered operations and stops at the real action-ack boundary
+[10/13] [chromium] › e2e/drawing-yjs-indexeddb.spec.ts:511:1 › source link unlink and undo survive a real IndexedDB crash and reopen without clipboard evidence
+[11/13] [chromium] › e2e/drawing-yjs-indexeddb.spec.ts:976:1 › compacted add undo lineage restores a pending redo after a real IndexedDB realm crash
+[12/13] [chromium] › e2e/drawing-yjs-indexeddb.spec.ts:1209:1 › valid frozen adapter recovery survives version-change close
+[13/13] [chromium] › e2e/drawing-yjs-indexeddb.spec.ts:1391:1 › two browser realms recover the same durable ID as one canonical operation
+  13 passed (1.0m)

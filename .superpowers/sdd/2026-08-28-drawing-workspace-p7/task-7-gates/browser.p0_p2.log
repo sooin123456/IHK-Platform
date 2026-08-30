@@ -1,0 +1,23 @@
+
+> supaplate@1.0 test:e2e:drawing-workspace-p0-p2:local
+> playwright test e2e/drawing-workspace-local-p0-p2.spec.ts --config=playwright.p4-functional.config.ts --project=chromium --workers=1
+
+[WebServer] (node:13302) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
+
+[WebServer] (node:13302) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+
+Running 4 tests using 1 worker
+
+(node:13307) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/4] [chromium] › e2e/drawing-workspace-local-p0-p2.spec.ts:93:1 › local P0 layer visibility changes
+[2/4] [chromium] › e2e/drawing-workspace-local-p0-p2.spec.ts:100:1 › local P0 layer lock changes
+[3/4] [chromium] › e2e/drawing-workspace-local-p0-p2.spec.ts:107:1 › local P0 primitive reloads from IndexedDB
+[4/4] [chromium] › e2e/drawing-workspace-local-p0-p2.spec.ts:137:1 › local P0-P2 vertical authors, structures, reuses, exports, and enforces viewer access
+  4 passed (17.6s)

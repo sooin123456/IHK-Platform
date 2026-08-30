@@ -1,0 +1,32 @@
+
+> supaplate@1.0 test:e2e:drawing-workspace-p5:local
+> P5_RELEASE_PRODUCTION_BUILD=1 playwright test e2e/drawing-workspace-p5.spec.ts e2e/drawing-workspace-p5-release.spec.ts --config=playwright.p5-release.config.ts --project=chromium --workers=1 --grep-invert "source swap during a pending verified manifest load"
+
+[WebServer] (node:13557) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.
+
+[WebServer] (node:13557) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+
+
+Running 13 tests using 1 worker
+
+(node:13567) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/13] [chromium] › e2e/drawing-workspace-p5-release.spec.ts:79:1 › canonical P5 entry exposes one coherent PDF and IFC workflow without debug controls
+[2/13] [chromium] › e2e/drawing-workspace-p5-release.spec.ts:178:1 › offline unlink and undo survive reopen, acknowledge, and remain denied to Viewer
+[3/13] [chromium] › e2e/drawing-workspace-p5-release.spec.ts:291:1 › 10k objects, 2k links, one IFC, and one compare-page baseline records honest evidence
+[4/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:49:1 › manual P5 PDF preview serves current and opt-in predecessor bytes without interception
+[5/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:80:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial
+[6/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:280:1 › a non-current PDF mode queues one fresh capability while cancellation is pending
+[7/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:396:1 › a failed PDF capability settles until a new user selection retries
+[8/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:465:1 › disabling PDF compare cancels pending predecessor work and clears transient resources
+[9/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:503:1 › mounted PDF inspector uses operation commands for exact link and unlink
+[10/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:543:1 › mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries cached GLB without refetch
+[11/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:634:1 › cold split paints the fitted IFC model without a manual fit
+[12/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:694:1 › narrow split view uses accessible tabs and two browsers preserve independent shareable modes
+[13/13] [chromium] › e2e/drawing-workspace-p5.spec.ts:735:1 › drawing and IFC GlobalId focus is bidirectional while remote selections stay renderer-local
+  13 passed (23.7s)

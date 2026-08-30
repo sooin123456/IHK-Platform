@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "MEASURED",
   "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "4deb7ef8fad6f6ca83c64dac3ffd9f385b10b8c0",
+  "sourceCommitSha": "6bf871cc6d5985529fa82f8e673dc65749c33ae6",
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
   "viewport": {
@@ -16,14 +16,17 @@
     "activeComparePages": 1
   },
   "lifecycle": {
-    "ifcFetches": 1,
+    "manifestFetches": 1,
+    "geometryFetches": 1,
+    "rawIfcFetches": 0,
     "ifcCanvasesAfterUnmount": 0,
     "ifcOwnedDisposals": 1,
     "ifcContextLossRequests": 1
   },
+  "derivativeGeometryAuthority": "SYNTHETIC_MAPPING_FIXTURE_NOT_SOURCE_FAITHFUL",
   "sourceObservation": {
     "observedBy": "browser_mutation_workflow",
-    "runId": "0faa2ebf-16dd-487c-b64e-0fd69b3f7f95",
+    "runId": "84fe2c0c-20cc-42a9-a22d-7050bb891eb6",
     "before": [
       {
         "kind": "pdf_current",
@@ -89,7 +92,7 @@
       }
     ]
   },
-  "firstUsableMs": 13709.299999952316,
+  "firstUsableMs": 3579.100000023842,
   "firstUsableTargetMs": 2500,
   "firstUsableTargetStatus": "NOT MET",
   "p7SixtyFpsGate": "UNEXECUTED",
