@@ -76,8 +76,16 @@ function SourceCard({
                     {line?.itemCode ?? "품목"} {line?.itemName ?? ""} · 배분{" "}
                     {link.allocationFactor} · OCC V{link.version}
                   </span>
-                  {link.evidenceHrefs.length ? (
+                  {link.workspaceHref || link.evidenceHrefs.length ? (
                     <span className="flex flex-wrap gap-2">
+                      {link.workspaceHref ? (
+                        <Link
+                          className="font-semibold text-primary underline"
+                          to={link.workspaceHref}
+                        >
+                          도면 작업실 열기
+                        </Link>
+                      ) : null}
                       {link.evidenceHrefs.map((evidence) => (
                         <Link
                           className="font-semibold text-primary underline"

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
+import { z } from "zod";
+
 import {
   applyDrawingCommand,
   copyDrawingSelection,
@@ -3547,15 +3549,20 @@ test("action contract maps stable database conflict codes to 409 and validation 
     },
   );
 
-  const validation = await handleWorkspaceMutation({
-    client: raceClient,
-    projectId: ids.project,
-    capability: "editor",
-    workspace: { ...loadedWorkspace(), document: null },
-    form: form({ intent: "unknown" }),
-  });
-  assert.equal(validation.status, 400);
-  assert.equal(validation.body.kind, "validation");
+  await assert.rejects(
+    handleWorkspaceMutation({
+      client: raceClient,
+      projectId: ids.project,
+      capability: "editor",
+      workspace: { ...loadedWorkspace(), document: null },
+      form: form({ intent: "unknown" }),
+    }),
+    (error) => {
+      assert.ok(error instanceof z.ZodError);
+      assert.deepEqual(error.issues[0]?.path, ["intent"]);
+      return true;
+    },
+  );
 
   const rpcFailure = await handleWorkspaceMutation({
     client: {

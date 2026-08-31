@@ -912,16 +912,32 @@ function sameJsonValue(left: unknown, right: unknown): boolean {
   );
 }
 
+function workspaceMutationValidationError(field: string, message: string) {
+  return new z.ZodError([
+    {
+      code: "custom",
+      path: [field],
+      message,
+    },
+  ]);
+}
+
 function parseExactPayload(schema: z.ZodTypeAny, value: unknown): unknown {
   const parsed = schema.parse(value);
   if (!sameJsonValue(parsed, value))
-    throw new Error("도면 작업 도메인 JSON에 허용되지 않은 필드가 있습니다.");
+    throw workspaceMutationValidationError(
+      "operation_json",
+      "도면 작업 도메인 JSON에 허용되지 않은 필드가 있습니다.",
+    );
   return parsed;
 }
 
 function parseOperation(value: unknown): DrawingOperationInput {
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("도면 작업 JSON 형식이 올바르지 않습니다.");
+    throw workspaceMutationValidationError(
+      "operation_json",
+      "도면 작업 JSON 형식이 올바르지 않습니다.",
+    );
   const keys = Object.keys(value).sort();
   if (
     !(
@@ -931,7 +947,10 @@ function parseOperation(value: unknown): DrawingOperationInput {
         keys.every((key, index) => key === exactHistoryOperationKeys[index]))
     )
   )
-    throw new Error("도면 작업에 허용되지 않은 필드가 있습니다.");
+    throw workspaceMutationValidationError(
+      "operation_json",
+      "도면 작업에 허용되지 않은 필드가 있습니다.",
+    );
   const operation = DrawingOperationInputSchema.parse(value);
   parseExactPayload(OperationPayloadSchemas[operation.type], operation.forward);
   const expectedInverse =
@@ -1129,23 +1148,33 @@ function assertAllowedFormFields(
 ) {
   for (const key of form.keys())
     if (!allowedFormFields[intent].has(key as never))
-      throw new Error("요청에 허용되지 않은 필드가 있습니다.");
+      throw workspaceMutationValidationError(
+        key,
+        "요청에 허용되지 않은 필드가 있습니다.",
+      );
 }
 
 function jsonFormValue(form: FormData, name: string): unknown {
   const value = form.get(name);
-  if (typeof value !== "string") throw new Error("도면 작업 JSON이 없습니다.");
+  if (typeof value !== "string")
+    throw workspaceMutationValidationError(name, "도면 작업 JSON이 없습니다.");
   try {
     return JSON.parse(value);
   } catch {
-    throw new Error("도면 작업 JSON 형식이 올바르지 않습니다.");
+    throw workspaceMutationValidationError(
+      name,
+      "도면 작업 JSON 형식이 올바르지 않습니다.",
+    );
   }
 }
 
 export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
   const intent = form.get("intent");
   if (typeof intent !== "string" || !(intent in allowedFormFields))
-    throw new Error("지원하지 않는 도면 작업입니다.");
+    throw workspaceMutationValidationError(
+      "intent",
+      "지원하지 않는 도면 작업입니다.",
+    );
   const knownIntent = intent as keyof typeof allowedFormFields;
   assertAllowedFormFields(form, knownIntent);
 
@@ -3462,9 +3491,9 @@ export async function loadDrawingIfcDerivative(
     !manifestResult.data?.signedUrl ||
     !geometryResult.data?.signedUrl
   )
-    throw new Response("IFC derivative 파일을 열지 못했습니다.", {
-      status: 500,
-    });
+    throw new DrawingWorkspaceSourceUnavailableError(
+      "IFC derivative 파일을 열지 못했습니다.",
+    );
   return {
     status: "ready",
     version: row.version,
@@ -3909,7 +3938,9 @@ export async function loadDrawingWorkspaceSourceBundle(
       .from("lukas-qto")
       .createSignedUrl(file.storage_path, 300);
     if (error || !data?.signedUrl)
-      throw new Response("도면 원본을 열지 못했습니다.", { status: 500 });
+      throw new DrawingWorkspaceSourceUnavailableError(
+        "도면 원본을 열지 못했습니다.",
+      );
     const descriptor: DrawingWorkspacePdfSourceDescriptor = {
       ...drawingWorkspaceSourceCatalogItem(file),
       kind: "pdf",
@@ -4126,6 +4157,13 @@ export class DrawingWorkspaceRetryableError extends Error {
   }
 }
 
+export class DrawingWorkspaceSourceUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DrawingWorkspaceSourceUnavailableError";
+  }
+}
+
 const drawingConflictCodes = new Set([
   "23505",
   "23P01",
@@ -4206,8 +4244,7 @@ export async function createDrawingDocumentIdempotent(
       p_project_id: Uuid.parse(projectId),
       p_source_file_id: parsed.sourceFile?.id ?? null,
       p_title: parsed.title,
-      p_blank:
-        parsed.sourceFile?.kind !== "pdf" || parsed.mode === "blank",
+      p_blank: parsed.sourceFile?.kind !== "pdf" || parsed.mode === "blank",
       p_client_request_id: parsed.clientRequestId,
       p_library_version_id: parsed.libraryVersionId ?? null,
     },
@@ -4874,6 +4911,10 @@ function assertCurrentWorkspaceRevision(
 
 function assertDraftWorkspace(workspace: DrawingWorkspaceState) {
   const revision = workspace.document?.revision;
+  if (revision?.status === "approved" || revision?.status === "superseded")
+    throw new DrawingWorkspaceRejectedError(
+      "승인된 개정은 변경할 수 없습니다.",
+    );
   if (
     !revision ||
     (revision.status !== undefined && revision.status !== "draft")
@@ -5086,6 +5127,14 @@ export async function handleWorkspaceMutation({
     };
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (error instanceof z.ZodError) throw error;
+    if (
+      !(error instanceof DrawingWorkspaceConflictError) &&
+      !(error instanceof DrawingWorkspaceRejectedError) &&
+      !(error instanceof DrawingWorkspaceRetryableError) &&
+      !(error instanceof DrawingWorkspaceRpcError)
+    )
+      throw error;
     const kind =
       error instanceof DrawingWorkspaceConflictError
         ? "conflict"
@@ -5141,11 +5190,9 @@ export async function handleWorkspaceMutation({
         ok: false,
         kind,
         error:
-          kind === "rejected"
-            ? "도면 대상은 사용할 수 없습니다."
-            : error instanceof Error
-              ? error.message
-              : "도면 작업을 저장하지 못했습니다.",
+          error instanceof Error
+            ? error.message
+            : "도면 작업을 저장하지 못했습니다.",
       },
     };
   }

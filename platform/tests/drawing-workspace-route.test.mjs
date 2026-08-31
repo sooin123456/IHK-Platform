@@ -263,6 +263,143 @@ test("workspace action failures use the bounded Korean recovery union", async ()
   }
 });
 
+test("workspace action retains review freeze and estimate client request IDs", () => {
+  const requestId = workspaceScreen.actionRequestId;
+  assert.equal(typeof requestId, "function");
+  const review = new FormData();
+  review.set("intent", "request_review");
+  review.set("freeze_request_id", ids.file);
+  assert.equal(requestId(review), ids.file);
+  const estimate = new FormData();
+  estimate.set("intent", "bind_drawing_estimate");
+  estimate.set("client_request_id", ids.document);
+  assert.equal(requestId(estimate), ids.document);
+});
+
+test("general action workspace loading bounds validation, conflict, and retry failures", async () => {
+  const load = workspaceScreen.loadDrawingWorkspaceActionScope;
+  assert.equal(typeof load, "function");
+  const validation = await load(async () => {
+    throw new z.ZodError([
+      {
+        code: "invalid_type",
+        expected: "string",
+        path: ["workspaceId"],
+        message: "Required",
+      },
+    ]);
+  }, ids.file);
+  assert.equal(validation.ok, false);
+  assert.equal(validation.failure.status, 400);
+  assert.deepEqual(validation.failure.body.fieldErrors, {
+    workspaceId: ["입력값이 올바르지 않습니다."],
+  });
+  for (const [error, status, kind] of [
+    [
+      new workspaceServer.DrawingWorkspaceConflictError("stale"),
+      409,
+      "conflict",
+    ],
+    [
+      new workspaceServer.DrawingWorkspaceRetryableError("retry"),
+      503,
+      "retryable",
+    ],
+  ]) {
+    const result = await load(async () => {
+      throw error;
+    }, ids.file);
+    assert.equal(result.ok, false);
+    assert.equal(result.failure.status, status);
+    assert.equal(result.failure.body.kind, kind);
+    assert.equal(result.failure.body.requestId, ids.file);
+  }
+});
+
+test("real mutation failures retain Zod fields, unknown secrecy, and approved-revision recovery", async () => {
+  const workspace = {
+    primarySource: null,
+    templateCandidates: [],
+    document: null,
+  };
+  let validationError;
+  try {
+    const invalid = new FormData();
+    invalid.set("intent", "create_layer");
+    await workspaceServer.handleWorkspaceMutation({
+      client: {},
+      projectId: ids.project,
+      capability: "editor",
+      workspace,
+      form: invalid,
+    });
+  } catch (error) {
+    validationError = error;
+  }
+  const validation = await workspaceScreen.drawingWorkspaceActionErrorResponse(
+    validationError,
+    { requestId: ids.file },
+  );
+  assert.equal(validation.status, 400);
+  assert.equal(validation.body.kind, "validation");
+  assert.ok(Object.keys(validation.body.fieldErrors).length > 0);
+
+  let unknownError;
+  try {
+    const create = new FormData();
+    create.set("intent", "create_document");
+    create.set("title", "A-101");
+    create.set("document_mode", "blank");
+    await workspaceServer.handleWorkspaceMutation({
+      client: {
+        async rpc() {
+          throw new TypeError("server-only transport detail");
+        },
+      },
+      projectId: ids.project,
+      capability: "editor",
+      workspace,
+      form: create,
+    });
+  } catch (error) {
+    unknownError = error;
+  }
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const unknown = await workspaceScreen.drawingWorkspaceActionErrorResponse(
+      unknownError,
+      { requestId: ids.file },
+    );
+    assert.equal(unknown.status, 500);
+    assert.equal(unknown.body.kind, "unknown");
+    assert.doesNotMatch(unknown.body.error, /transport detail/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  const approvedWorkspace = {
+    ...workspace,
+    document: { revision: { status: "approved" } },
+  };
+  const createLayer = new FormData();
+  createLayer.set("intent", "create_layer");
+  createLayer.set("name", "마감");
+  const rejected = await workspaceServer.handleWorkspaceMutation({
+    client: {},
+    projectId: ids.project,
+    capability: "editor",
+    workspace: approvedWorkspace,
+    form: createLayer,
+  });
+  const approved = await workspaceScreen.drawingWorkspaceActionErrorResponse(
+    new workspaceServer.DrawingWorkspaceRejectedError(rejected.body.error),
+    { requestId: ids.file },
+  );
+  assert.equal(approved.status, 409);
+  assert.match(approved.body.error, /새 개정/);
+});
+
 test("source-free BOQ focus accepts an exact tuple without inventing evidence", () => {
   const parse = workspaceScreen.parseDrawingWorkspaceLineageSearch;
   assert.equal(typeof parse, "function");
@@ -398,9 +535,64 @@ test("object issue scope validates object to revision to document to project", a
     }),
     (error) => error instanceof Response && error.status === 404,
   );
+
+  const retrying = scopeQueryClient(
+    {},
+    {
+      lukas_drawing_objects: {
+        code: "40001",
+        message: "serialization detail",
+      },
+    },
+  );
+  let retryError;
+  try {
+    await workspaceScreen.assertDrawingObjectIssueScope(retrying, {
+      projectId: ids.project,
+      documentId: ids.document,
+      revisionId: "00000000-0000-4000-8000-000000000005",
+      objectId: ids.file,
+    });
+  } catch (error) {
+    retryError = error;
+  }
+  const bounded = await workspaceScreen.drawingWorkspaceActionErrorResponse(
+    retryError,
+    { requestId: ids.file },
+  );
+  assert.equal(bounded.status, 503);
+  assert.equal(bounded.body.requestId, ids.file);
+
+  const disconnected = scopeQueryClient(
+    {},
+    {
+      lukas_drawing_objects: {
+        code: "PGRST000",
+        message: "database connection unavailable",
+      },
+    },
+  );
+  let disconnectedError;
+  try {
+    await workspaceScreen.assertDrawingObjectIssueScope(disconnected, {
+      projectId: ids.project,
+      documentId: ids.document,
+      revisionId: "00000000-0000-4000-8000-000000000005",
+      objectId: ids.file,
+    });
+  } catch (error) {
+    disconnectedError = error;
+  }
+  const disconnectedBounded =
+    await workspaceScreen.drawingWorkspaceActionErrorResponse(
+      disconnectedError,
+      { requestId: ids.file },
+    );
+  assert.equal(disconnectedBounded.status, 503);
+  assert.equal(disconnectedBounded.body.requestId, ids.file);
 });
 
-function scopeQueryClient(rows) {
+function scopeQueryClient(rows, errors = {}) {
   const calls = [];
   return {
     calls,
@@ -419,7 +611,10 @@ function scopeQueryClient(rows) {
           const row = rows[table] ?? null;
           const matches =
             row && filters.every(([column, value]) => row[column] === value);
-          return { data: matches ? row : null, error: null };
+          return {
+            data: matches ? row : null,
+            error: errors[table] ?? null,
+          };
         },
       };
       return query;

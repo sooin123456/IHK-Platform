@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { createServer } from "vite";
 
 import {
@@ -49,7 +52,89 @@ const vite = await createServer({
 const verifiedBoqScreen = await vite
   .ssrLoadModule("/app/lukas/screens/verified-boq.tsx")
   .catch(() => ({}));
+const verifiedBoqDrawingSources = await vite
+  .ssrLoadModule("/app/lukas/components/verified-boq-drawing-sources.tsx")
+  .catch(() => ({}));
 test.after(() => vite.close());
+
+test("verified BOQ renders a source-free canonical workspace link independently of evidence", () => {
+  const projectId = "40000000-0000-4000-8000-000000000001";
+  const documentId = "40000000-0000-4000-8000-000000000002";
+  const revisionId = "40000000-0000-4000-8000-000000000003";
+  const objectId = "40000000-0000-4000-8000-000000000004";
+  const versionId = "40000000-0000-4000-8000-000000000005";
+  const lineId = "40000000-0000-4000-8000-000000000006";
+  const workspaceHref = `/projects/${projectId}/workspaces/${documentId}?revision=${revisionId}&object=${objectId}&boq=${versionId}&line=${lineId}`;
+  const html = renderToStaticMarkup(
+    createElement(RouterProvider, {
+      router: createMemoryRouter(
+        [
+          {
+            path: "/",
+            element: createElement(
+              verifiedBoqDrawingSources.VerifiedBoqDrawingSources,
+              {
+                boqVersionId: versionId,
+                editable: false,
+                lines: [
+                  {
+                    id: lineId,
+                    itemCode: "A-101",
+                    itemName: "벽체",
+                    unit: "m2",
+                  },
+                ],
+                rows: [
+                  {
+                    quantity: {
+                      id: "40000000-0000-4000-8000-000000000007",
+                      projectId,
+                      drawingRevisionId: revisionId,
+                      drawingRevisionVersion: 2,
+                      drawingSnapshotSha256: "a".repeat(64),
+                      drawingObjectId: objectId,
+                      drawingObjectLineageId: objectId,
+                      drawingObjectVersion: 3,
+                      objectFingerprint: "b".repeat(64),
+                      measurementKind: "area",
+                      rawQuantity: "4.75",
+                      unit: "m2",
+                      measurementRuleVersion: "P4_MEASUREMENT_V1",
+                      createdBy: "40000000-0000-4000-8000-000000000008",
+                      createdAt: "2026-09-01T00:00:00.000Z",
+                    },
+                    allocationTotal: "1",
+                    links: [
+                      {
+                        id: "40000000-0000-4000-8000-000000000009",
+                        projectId,
+                        quantityLinkId: "40000000-0000-4000-8000-000000000007",
+                        boqVersionId: versionId,
+                        boqLineId: lineId,
+                        allocationFactor: "1",
+                        version: 1,
+                        createdBy: "40000000-0000-4000-8000-000000000008",
+                        updatedBy: "40000000-0000-4000-8000-000000000008",
+                        createdAt: "2026-09-01T00:00:00.000Z",
+                        updatedAt: "2026-09-01T00:00:00.000Z",
+                        workspaceHref,
+                        evidenceHrefs: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ),
+          },
+        ],
+        { initialEntries: ["/"] },
+      ),
+    }),
+  );
+  assert.match(html, /도면 작업실 열기/);
+  assert.equal(html.includes(workspaceHref.replaceAll("&", "&amp;")), true);
+  assert.doesNotMatch(html, /PDF 근거 열기|IFC 근거 열기/);
+});
 
 test("verified BOQ return path accepts only the exact same-project canonical workspace", () => {
   const parse = verifiedBoqScreen.parseVerifiedBoqReturnTo;

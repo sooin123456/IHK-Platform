@@ -1211,7 +1211,75 @@ test("approved source-free BOQ lineage needs no evidence-file query", async () =
     "lukas_qto_boq_versions",
     "lukas_qto_boq_lines",
     "lukas_drawing_boq_links",
+    "lukas_drawing_snapshots",
+    "lukas_drawing_revision_approvals",
+    "lukas_qto_boq_approvals",
+    "lukas_drawing_object_sources",
   ]);
+});
+
+test("workspace resolution rejects draft, unhashed, and unapproved lineage", async () => {
+  const ids = {
+    project: "00000000-0000-4000-8000-000000000031",
+    revision: "00000000-0000-4000-8000-000000000032",
+    object: "00000000-0000-4000-8000-000000000033",
+    boq: "00000000-0000-4000-8000-000000000034",
+    line: "00000000-0000-4000-8000-000000000035",
+    document: "00000000-0000-4000-8000-000000000036",
+    file: null,
+  };
+  for (const overrides of [
+    { revision: { status: "draft" } },
+    { boqVersion: { status: "draft" } },
+    { boqVersion: { result_sha256: null } },
+    { drawingApproval: null },
+    { boqApproval: null },
+    { snapshot: null },
+  ])
+    await assert.rejects(
+      resolveDrawingWorkspaceEntry(exactEntryClient(ids, overrides), {
+        projectId: ids.project,
+        revisionId: ids.revision,
+        objectId: ids.object,
+        boqVersionId: ids.boq,
+        boqLineId: ids.line,
+      }),
+      /연결된 도면 근거/,
+    );
+});
+
+test("workspace resolution cannot omit an existing active evidence source", async () => {
+  const ids = {
+    project: "00000000-0000-4000-8000-000000000031",
+    revision: "00000000-0000-4000-8000-000000000032",
+    object: "00000000-0000-4000-8000-000000000033",
+    boq: "00000000-0000-4000-8000-000000000034",
+    line: "00000000-0000-4000-8000-000000000035",
+    document: "00000000-0000-4000-8000-000000000036",
+    file: null,
+  };
+  await assert.rejects(
+    resolveDrawingWorkspaceEntry(
+      exactEntryClient(ids, {
+        objectSource: {
+          id: "00000000-0000-4000-8000-00000000003a",
+          project_id: ids.project,
+          revision_id: ids.revision,
+          object_id: ids.object,
+          source_file_id: "00000000-0000-4000-8000-00000000003b",
+          status: "active",
+        },
+      }),
+      {
+        projectId: ids.project,
+        revisionId: ids.revision,
+        objectId: ids.object,
+        boqVersionId: ids.boq,
+        boqLineId: ids.line,
+      },
+    ),
+    /연결된 도면 근거/,
+  );
 });
 
 test("1.1 RPC input parser keeps fixed authoritative fields and rejects injection", () => {
@@ -1482,7 +1550,11 @@ test("verified BOQ Drawing links resolve exact immutable workspace ancestry in b
   assert.equal(page.rows[0].allocationTotal, "1");
   assert.equal(
     page.rows[0].links[0].workspaceHref,
-    `/projects/${p6Ids.project}/drawings/${file}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${file}&view=2d`,
+    `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${file}&view=2d`,
+  );
+  assert.equal(
+    page.rows[0].links[0].evidenceHrefs[0].href,
+    `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${file}&view=2d`,
   );
 });
 
@@ -1520,7 +1592,14 @@ test("verified BOQ Drawing source fallback is bound to the exact revision and ob
     }),
     { projectId: p6Ids.project, boqVersionId: p6Ids.version },
   );
-  assert.match(page.rows[0].links[0].workspaceHref, new RegExp(exactFile));
+  assert.equal(
+    page.rows[0].links[0].workspaceHref,
+    `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${exactFile}&view=2d`,
+  );
+  assert.match(
+    page.rows[0].links[0].evidenceHrefs[0].href,
+    new RegExp(exactFile),
+  );
 });
 
 test("PDF document entry keeps its pathname while IFC evidence opens exact split focus", async () => {
@@ -1555,20 +1634,43 @@ test("PDF document entry keeps its pathname while IFC evidence opens exact split
     { projectId: p6Ids.project, boqVersionId: p6Ids.version },
   );
   const link = page.rows[0].links[0];
-  assert.equal(link.workspaceHref, null);
+  assert.equal(
+    link.workspaceHref,
+    `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${pdfFile}&view=2d`,
+  );
   assert.deepEqual(
     link.evidenceHrefs.map((row) => [row.sourceKind, row.href]),
     [
       [
         "pdf_region",
-        `/projects/${p6Ids.project}/drawings/${pdfFile}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${pdfFile}&view=2d`,
+        `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${pdfFile}&view=2d`,
       ],
       [
         "ifc_element",
-        `/projects/${p6Ids.project}/drawings/${pdfFile}/workspace?document=${document}&revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${ifcFile}&view=split&ifc=${ifcFile}`,
+        `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${ifcFile}&view=split&ifc=${ifcFile}`,
       ],
     ],
   );
+});
+
+test("verified BOQ source-free links expose the canonical workspace without a file query", async () => {
+  const document = "00000000-0000-4000-8000-000000000126";
+  const client = listClient({
+    quantities: [quantityFixture()],
+    links: [drawingLinkFixture(p6Ids.quantity)],
+    revisions: [{ id: p6Ids.revision, document_id: document }],
+    documents: [{ id: document, source_file_id: null }],
+  });
+  const page = await listVerifiedBoqDrawingSources(client, {
+    projectId: p6Ids.project,
+    boqVersionId: p6Ids.version,
+  });
+  assert.equal(
+    page.rows[0].links[0].workspaceHref,
+    `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}`,
+  );
+  assert.deepEqual(page.rows[0].links[0].evidenceHrefs, []);
+  assert.equal(client.tables.includes("lukas_qto_files"), false);
 });
 
 test("bulk evidence resolution fetches the complete bounded entry and anchor file union", async () => {
@@ -2697,13 +2799,15 @@ function lineageClient() {
   };
 }
 
-function exactEntryClient(ids) {
+function exactEntryClient(ids, overrides = {}) {
   const calls = [];
-  const rows = {
+  const defaults = {
     lukas_drawing_revisions: {
       id: ids.revision,
       document_id: ids.document,
       project_id: ids.project,
+      status: "approved",
+      version: 2,
     },
     lukas_drawing_documents: {
       id: ids.document,
@@ -2714,8 +2818,18 @@ function exactEntryClient(ids) {
       id: ids.object,
       revision_id: ids.revision,
       project_id: ids.project,
+      lineage_id: p6Ids.lineage,
+      version: 3,
+      status: "active",
     },
-    lukas_qto_boq_versions: { id: ids.boq, project_id: ids.project },
+    lukas_qto_boq_versions: {
+      id: ids.boq,
+      project_id: ids.project,
+      status: "approved",
+      input_state_sha256: P6_SHA_A,
+      result_sha256: P6_SHA_B,
+      manifest_sha256: P6_SHA_A,
+    },
     lukas_qto_boq_lines: {
       id: ids.line,
       version_id: ids.boq,
@@ -2730,19 +2844,76 @@ function exactEntryClient(ids) {
         id: "00000000-0000-4000-8000-000000000039",
         drawing_revision_id: ids.revision,
         drawing_object_id: ids.object,
+        drawing_revision_version: 2,
+        drawing_snapshot_sha256: P6_SHA_B,
+        drawing_object_lineage_id: p6Ids.lineage,
+        drawing_object_version: 3,
       },
     },
-    lukas_drawing_object_sources: {
-      id: "00000000-0000-4000-8000-00000000003a",
-      project_id: ids.project,
-      revision_id: ids.revision,
-      object_id: ids.object,
-      source_file_id: ids.file,
-      status: "active",
-    },
+    lukas_drawing_object_sources: ids.file
+      ? {
+          id: "00000000-0000-4000-8000-00000000003a",
+          project_id: ids.project,
+          revision_id: ids.revision,
+          object_id: ids.object,
+          source_file_id: ids.file,
+          status: "active",
+        }
+      : null,
     lukas_qto_files: ids.file
       ? { id: ids.file, project_id: ids.project, immutable: true, kind: "pdf" }
       : null,
+    lukas_drawing_snapshots: {
+      id: "00000000-0000-4000-8000-00000000003c",
+      revision_id: ids.revision,
+      project_id: ids.project,
+      revision_version: 2,
+      sha256: P6_SHA_B,
+      schema_version: 2,
+    },
+    lukas_drawing_revision_approvals: {
+      id: "00000000-0000-4000-8000-00000000003d",
+      revision_id: ids.revision,
+      project_id: ids.project,
+      subject_version: 2,
+      snapshot_sha256: P6_SHA_B,
+      decision: "approved",
+    },
+    lukas_qto_boq_approvals: {
+      id: "00000000-0000-4000-8000-00000000003e",
+      version_id: ids.boq,
+      decision: "approved",
+    },
+  };
+  const rows = {
+    ...defaults,
+    lukas_drawing_revisions: {
+      ...defaults.lukas_drawing_revisions,
+      ...overrides.revision,
+    },
+    lukas_qto_boq_versions: {
+      ...defaults.lukas_qto_boq_versions,
+      ...overrides.boqVersion,
+    },
+    lukas_drawing_snapshots:
+      overrides.snapshot === null
+        ? null
+        : { ...defaults.lukas_drawing_snapshots, ...overrides.snapshot },
+    lukas_drawing_revision_approvals:
+      overrides.drawingApproval === null
+        ? null
+        : {
+            ...defaults.lukas_drawing_revision_approvals,
+            ...overrides.drawingApproval,
+          },
+    lukas_qto_boq_approvals:
+      overrides.boqApproval === null
+        ? null
+        : { ...defaults.lukas_qto_boq_approvals, ...overrides.boqApproval },
+    lukas_drawing_object_sources:
+      "objectSource" in overrides
+        ? overrides.objectSource
+        : defaults.lukas_drawing_object_sources,
   };
   return {
     calls,
@@ -2768,6 +2939,16 @@ function exactEntryClient(ids) {
                 ? row
                 : null,
             error: null,
+          };
+        },
+        async maybeSingle() {
+          return query.single();
+        },
+        async limit() {
+          const result = await query.single();
+          return {
+            data: result.data ? [result.data] : [],
+            error: result.error,
           };
         },
       };
@@ -2968,7 +3149,9 @@ function listClient({
 }) {
   return {
     limits: [],
+    tables: [],
     from(table) {
+      this.tables.push(table);
       const rows =
         table === "lukas_drawing_quantity_links"
           ? quantities

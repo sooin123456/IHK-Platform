@@ -234,6 +234,10 @@ test("estimate result rail exposes the approved binding control names", () => {
     html,
     /<button[^>]*type="submit"[^>]*>\s*내역 연결\s*<\/button>/,
   );
+  assert.match(
+    html,
+    /<input[^>]*type="hidden"[^>]*name="client_request_id"[^>]*value="[0-9a-f-]{36}"/,
+  );
 });
 
 test("workspace shell mounts accessible result and intact object inspector panels", async () => {

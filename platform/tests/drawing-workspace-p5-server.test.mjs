@@ -144,7 +144,7 @@ function sourceWorkspace(file = workspaceFile()) {
   };
 }
 
-function sourceBundleClient(rows, revisionEdges = []) {
+function sourceBundleClient(rows, revisionEdges = [], options = {}) {
   const calls = [];
   return {
     calls,
@@ -182,7 +182,7 @@ function sourceBundleClient(rows, revisionEdges = []) {
                     table === "lukas_drawing_revision_ifc_derivatives"
                   ? []
                   : rows,
-            error: null,
+            error: table === options.errorTable ? { message: "db down" } : null,
           });
         },
       };
@@ -194,6 +194,8 @@ function sourceBundleClient(rows, revisionEdges = []) {
         return {
           async createSignedUrl(path, expiresIn) {
             calls.push(["sign", path, expiresIn]);
+            if (options.signError)
+              return { data: null, error: { message: "storage down" } };
             return {
               data: { signedUrl: `https://storage.test/${path}` },
               error: null,
@@ -204,6 +206,31 @@ function sourceBundleClient(rows, revisionEdges = []) {
     },
   };
 }
+
+test("only signed source capability failures use the panel-local unavailable error", async () => {
+  const primary = workspaceFile();
+  await assert.rejects(
+    workspaceServer.loadDrawingWorkspaceSourceBundle(
+      sourceBundleClient([primary], [], { signError: true }),
+      sourceWorkspace(primary),
+      null,
+    ),
+    (error) =>
+      error instanceof workspaceServer.DrawingWorkspaceSourceUnavailableError,
+  );
+  await assert.rejects(
+    workspaceServer.loadDrawingWorkspaceSourceBundle(
+      sourceBundleClient([primary], [], { errorTable: "lukas_qto_files" }),
+      sourceWorkspace(primary),
+      null,
+    ),
+    (error) =>
+      error instanceof Error &&
+      !(
+        error instanceof workspaceServer.DrawingWorkspaceSourceUnavailableError
+      ),
+  );
+});
 
 test("PDF source bundle exposes exact predecessor metadata without signing it", async () => {
   const current = workspaceFile();

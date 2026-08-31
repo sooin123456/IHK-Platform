@@ -37,6 +37,7 @@ import {
   DrawingWorkspaceRejectedError,
   DrawingWorkspaceRetryableError,
   DrawingWorkspaceRpcError,
+  DrawingWorkspaceSourceUnavailableError,
   handleWorkspaceMutation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceMeasurementState,
@@ -103,12 +104,13 @@ export function parseDrawingWorkspaceLineageSearch(
   }
 }
 
-function actionRequestId(form: FormData) {
+export function actionRequestId(form: FormData) {
   for (const name of [
     "request_id",
     "client_request_id",
     "link_id",
     "comment_id",
+    "freeze_request_id",
   ]) {
     const value = form.get(name);
     if (typeof value === "string" && drawingEstimateUuid.test(value))
@@ -260,6 +262,40 @@ export async function drawingWorkspaceActionErrorResponse(
   };
 }
 
+export async function loadDrawingWorkspaceActionScope<T>(
+  load: () => Promise<T>,
+  requestId: string,
+) {
+  try {
+    return { ok: true as const, workspace: await load() };
+  } catch (error) {
+    return {
+      ok: false as const,
+      failure: await drawingWorkspaceActionErrorResponse(error, { requestId }),
+    };
+  }
+}
+
+function objectIssueScopeQueryError(error: unknown) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : null;
+  const message =
+    typeof error === "object" && error !== null && "message" in error
+      ? String(error.message)
+      : "도면 객체 범위를 확인하지 못했습니다.";
+  if (
+    code === "40001" ||
+    code === "40P01" ||
+    code === "PGRST000" ||
+    code === "PGRST001" ||
+    code === "PGRST002"
+  )
+    return new DrawingWorkspaceRetryableError(message);
+  return new Error(message);
+}
+
 export async function assertDrawingObjectIssueScope(
   client: DrawingWorkspaceDatabaseClient,
   input: {
@@ -277,14 +313,15 @@ export async function assertDrawingObjectIssueScope(
       objectId: z.string().uuid(),
     })
     .parse(input);
-  const { data: object } = await client
+  const { data: object, error: objectError } = await client
     .from("lukas_drawing_objects")
     .select("id,revision_id,project_id")
     .eq("id", ids.objectId)
     .eq("revision_id", ids.revisionId)
     .eq("project_id", ids.projectId)
     .maybeSingle();
-  const { data: revision } = object
+  if (objectError) throw objectIssueScopeQueryError(objectError);
+  const { data: revision, error: revisionError } = object
     ? await client
         .from("lukas_drawing_revisions")
         .select("id,document_id,project_id")
@@ -292,15 +329,17 @@ export async function assertDrawingObjectIssueScope(
         .eq("document_id", ids.documentId)
         .eq("project_id", ids.projectId)
         .maybeSingle()
-    : { data: null };
-  const { data: document } = revision
+    : { data: null, error: null };
+  if (revisionError) throw objectIssueScopeQueryError(revisionError);
+  const { data: document, error: documentError } = revision
     ? await client
         .from("lukas_drawing_documents")
         .select("id,project_id")
         .eq("id", ids.documentId)
         .eq("project_id", ids.projectId)
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+  if (documentError) throw objectIssueScopeQueryError(documentError);
   if (!object || !revision || !document)
     throw new Response("연결할 도면 객체를 찾을 수 없습니다.", {
       status: 404,
@@ -578,7 +617,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       error: null,
     };
   } catch (error) {
-    if (error instanceof Response && error.status < 500) throw error;
+    if (
+      !(error instanceof DrawingWorkspaceSourceUnavailableError) &&
+      !(
+        error instanceof Error &&
+        error.name === "DrawingWorkspaceSourceUnavailableError"
+      )
+    )
+      throw error;
     console.error("Drawing workspace source failed", {
       workspaceId: workspace.document?.id ?? params.workspaceId,
       error,
@@ -760,11 +806,21 @@ export async function action({ request, params }: Route.ActionArgs) {
       return data(bounded.body, { status: bounded.status, headers });
     }
   }
-  const workspace = await loadDrawingWorkspace(client, {
-    projectId: project.id,
-    workspaceId: params.workspaceId!,
-    revisionId: searchParams.get("revision") ?? undefined,
-  });
+  const loaded = await loadDrawingWorkspaceActionScope(
+    () =>
+      loadDrawingWorkspace(client, {
+        projectId: project.id,
+        workspaceId: params.workspaceId!,
+        revisionId: searchParams.get("revision") ?? undefined,
+      }),
+    requestId,
+  );
+  if (!loaded.ok)
+    return data(loaded.failure.body, {
+      status: loaded.failure.status,
+      headers,
+    });
+  const workspace = loaded.workspace;
   if (intent === "create_drawing_quantity_link") {
     await assertProjectOrganizationFeature(
       client as any,
@@ -917,7 +973,18 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Response("도면 객체에 이슈를 연결할 권한이 없습니다.", {
           status: 403,
         });
-      if (!workspace.document || workspace.document.revision.status !== "draft")
+      if (!workspace.document)
+        throw new DrawingWorkspaceConflictError(
+          "초안 개정에서만 이슈를 연결할 수 있습니다.",
+        );
+      if (
+        workspace.document.revision.status === "approved" ||
+        workspace.document.revision.status === "superseded"
+      )
+        throw new DrawingWorkspaceRejectedError(
+          "승인된 개정은 변경할 수 없습니다.",
+        );
+      if (workspace.document.revision.status !== "draft")
         throw new DrawingWorkspaceConflictError(
           "초안 개정에서만 이슈를 연결할 수 있습니다.",
         );

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Form, Link } from "react-router";
 
 import type { DrawingEstimateSummary } from "~/lukas/lib/drawing-estimate";
@@ -59,6 +60,7 @@ export function DrawingEstimateResultRail({
   summary,
   workspaceId,
 }: Props) {
+  const [clientRequestId] = useState(() => crypto.randomUUID());
   const mayBind = capability === "admin" || capability === "editor";
   const evidenceGapCount = summary.rows.filter(
     (row) => row.state === "missing_evidence",
@@ -102,6 +104,11 @@ export function DrawingEstimateResultRail({
             method="post"
           >
             <input name="intent" type="hidden" value="bind_drawing_estimate" />
+            <input
+              name="client_request_id"
+              type="hidden"
+              value={clientRequestId}
+            />
             <input
               name="drawing_revision_id"
               type="hidden"

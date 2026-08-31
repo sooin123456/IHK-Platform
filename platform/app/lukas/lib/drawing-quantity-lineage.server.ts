@@ -792,7 +792,7 @@ export async function resolveDrawingWorkspaceEntry(
     const revision = await exactRow(
       userClient,
       "lukas_drawing_revisions",
-      "id,document_id,project_id",
+      "id,document_id,project_id,status,version",
       [
         ["id", parsed.revisionId],
         ["project_id", parsed.projectId],
@@ -808,16 +808,26 @@ export async function resolveDrawingWorkspaceEntry(
         ["project_id", parsed.projectId],
       ],
     );
-    await Promise.all([
-      exactRow(userClient, "lukas_drawing_objects", "id", [
-        ["id", parsed.objectId],
-        ["revision_id", parsed.revisionId],
-        ["project_id", parsed.projectId],
-      ]),
-      exactRow(userClient, "lukas_qto_boq_versions", "id", [
-        ["id", parsed.boqVersionId],
-        ["project_id", parsed.projectId],
-      ]),
+    const [object, version, , boqLink] = await Promise.all([
+      exactRow(
+        userClient,
+        "lukas_drawing_objects",
+        "id,lineage_id,version,status",
+        [
+          ["id", parsed.objectId],
+          ["revision_id", parsed.revisionId],
+          ["project_id", parsed.projectId],
+        ],
+      ),
+      exactRow(
+        userClient,
+        "lukas_qto_boq_versions",
+        "id,status,input_state_sha256,result_sha256,manifest_sha256",
+        [
+          ["id", parsed.boqVersionId],
+          ["project_id", parsed.projectId],
+        ],
+      ),
       exactRow(userClient, "lukas_qto_boq_lines", "id", [
         ["id", parsed.boqLineId],
         ["version_id", parsed.boqVersionId],
@@ -826,7 +836,7 @@ export async function resolveDrawingWorkspaceEntry(
       exactRow(
         userClient,
         "lukas_drawing_boq_links",
-        "id,quantity:lukas_drawing_quantity_links!inner(id)",
+        "id,quantity:lukas_drawing_quantity_links!inner(id,drawing_revision_id,drawing_revision_version,drawing_snapshot_sha256,drawing_object_id,drawing_object_lineage_id,drawing_object_version)",
         [
           ["project_id", parsed.projectId],
           ["boq_version_id", parsed.boqVersionId],
@@ -836,6 +846,54 @@ export async function resolveDrawingWorkspaceEntry(
         ],
       ),
     ]);
+    const nestedQuantity = Array.isArray(boqLink.quantity)
+      ? boqLink.quantity[0]
+      : boqLink.quantity;
+    const quantity = z
+      .object({
+        id: Uuid,
+        drawing_revision_id: Uuid,
+        drawing_revision_version: z.coerce.number().int().positive(),
+        drawing_snapshot_sha256: Sha256,
+        drawing_object_id: Uuid,
+        drawing_object_lineage_id: Uuid,
+        drawing_object_version: z.coerce.number().int().positive(),
+      })
+      .parse(nestedQuantity);
+    if (
+      !["approved", "superseded"].includes(String(revision.status)) ||
+      Number(revision.version) !== quantity.drawing_revision_version ||
+      quantity.drawing_revision_id !== parsed.revisionId ||
+      quantity.drawing_object_id !== parsed.objectId ||
+      object.status !== "active" ||
+      object.lineage_id !== quantity.drawing_object_lineage_id ||
+      Number(object.version) !== quantity.drawing_object_version ||
+      !["approved", "superseded"].includes(String(version.status)) ||
+      !Sha256.safeParse(version.input_state_sha256).success ||
+      !Sha256.safeParse(version.result_sha256).success ||
+      !Sha256.safeParse(version.manifest_sha256).success
+    )
+      throw new Error("unfrozen workspace entry");
+    await Promise.all([
+      exactRow(userClient, "lukas_drawing_snapshots", "id", [
+        ["revision_id", parsed.revisionId],
+        ["project_id", parsed.projectId],
+        ["revision_version", quantity.drawing_revision_version],
+        ["sha256", quantity.drawing_snapshot_sha256],
+        ["schema_version", 2],
+      ]),
+      exactRow(userClient, "lukas_drawing_revision_approvals", "id", [
+        ["revision_id", parsed.revisionId],
+        ["project_id", parsed.projectId],
+        ["subject_version", quantity.drawing_revision_version],
+        ["snapshot_sha256", quantity.drawing_snapshot_sha256],
+        ["decision", "approved"],
+      ]),
+      exactRow(userClient, "lukas_qto_boq_approvals", "id", [
+        ["version_id", parsed.boqVersionId],
+        ["decision", "approved"],
+      ]),
+    ]);
     const entry = {
       documentId,
       objectId: parsed.objectId,
@@ -843,7 +901,19 @@ export async function resolveDrawingWorkspaceEntry(
       boqVersionId: parsed.boqVersionId,
       boqLineId: parsed.boqLineId,
     };
-    if (!parsed.fileId) return entry;
+    if (!parsed.fileId) {
+      const { data: activeSources, error } = await userClient
+        .from("lukas_drawing_object_sources")
+        .select("id")
+        .eq("project_id", parsed.projectId)
+        .eq("revision_id", parsed.revisionId)
+        .eq("object_id", parsed.objectId)
+        .eq("status", "active")
+        .limit(1);
+      if (error || (activeSources?.length ?? 0) !== 0)
+        throw new Error("evidence file is required");
+      return entry;
+    }
     await exactRow(userClient, "lukas_drawing_object_sources", "id", [
       ["project_id", parsed.projectId],
       ["revision_id", parsed.revisionId],
@@ -2254,17 +2324,14 @@ export async function listVerifiedBoqDrawingSources(
     const { data: documentData, error: documentError } = documentIds.length
       ? await userClient
           .from("lukas_drawing_documents")
-          .select("id,source_file_id")
+          .select("id")
           .eq("project_id", projectId)
           .in("id", documentIds)
           .limit(200)
       : { data: [], error: null };
     if (documentError) throw new DrawingQuantityLineageServerError("P6A01");
-    const documents = new Map(
-      (documentData ?? []).map((row) => [
-        String(row.id),
-        row.source_file_id ? String(row.source_file_id) : null,
-      ]),
+    const documents = new Set(
+      (documentData ?? []).map((row) => String(row.id)),
     );
     if (documentIds.some((id) => !documents.has(id)))
       throw new DrawingQuantityLineageServerError("P6A01");
@@ -2313,20 +2380,10 @@ export async function listVerifiedBoqDrawingSources(
       );
       if (evidence?.size) evidenceByQuantity.set(quantity.id, evidence);
     }
-    const entryFileByQuantity = new Map<string, string>();
-    for (const quantity of linkedQuantities) {
-      const documentId = revisions.get(quantity.drawingRevisionId);
-      const documentFileId = documentId ? documents.get(documentId) : null;
-      const evidence = evidenceByQuantity.get(quantity.id);
-      const fallback = evidence?.size === 1 ? [...evidence.keys()][0] : null;
-      const entryFileId = documentFileId ?? fallback;
-      if (entryFileId) entryFileByQuantity.set(quantity.id, entryFileId);
-    }
     const fileIds = [
-      ...new Set([
-        ...entryFileByQuantity.values(),
-        ...[...evidenceByQuantity.values()].flatMap((rows) => [...rows.keys()]),
-      ]),
+      ...new Set(
+        [...evidenceByQuantity.values()].flatMap((rows) => [...rows.keys()]),
+      ),
     ];
     const { data: fileData, error: fileError } = fileIds.length
       ? await userClient
@@ -2351,41 +2408,41 @@ export async function listVerifiedBoqDrawingSources(
         ? revisions.get(quantity.drawingRevisionId)
         : null;
       const evidence = evidenceByQuantity.get(link.quantityLinkId);
-      const entryFileId = entryFileByQuantity.get(link.quantityLinkId);
-      if (
-        !quantity ||
-        !documentId ||
-        !evidence ||
-        !entryFileId ||
-        !validFiles.has(entryFileId)
-      )
+      if (!quantity || !documentId)
         return { ...link, workspaceHref: null, evidenceHrefs: [] };
-      const evidenceHrefs = [...evidence].map(([fileId, sourceKind]) => {
-        if (
-          validFiles.get(fileId) !==
-          (sourceKind === "ifc_element" ? "ifc" : "pdf")
-        )
-          throw new DrawingQuantityLineageServerError("P6B04");
-        const search = new URLSearchParams({
-          document: documentId,
-          revision: quantity.drawingRevisionId,
-          object: quantity.drawingObjectId,
-          boq: link.boqVersionId,
-          line: link.boqLineId,
-          evidence: fileId,
-          view: sourceKind === "ifc_element" ? "split" : "2d",
-        });
-        if (sourceKind === "ifc_element") search.set("ifc", fileId);
-        return {
-          href: `/projects/${projectId}/drawings/${entryFileId}/workspace?${search}`,
-          sourceFileId: fileId,
-          sourceKind,
-        };
-      });
+      const entry = {
+        documentId,
+        revisionId: quantity.drawingRevisionId,
+        objectId: quantity.drawingObjectId,
+        boqVersionId: link.boqVersionId,
+        boqLineId: link.boqLineId,
+      };
+      const evidenceHrefs = [...(evidence ?? [])].map(
+        ([fileId, sourceKind]) => {
+          if (
+            validFiles.get(fileId) !==
+            (sourceKind === "ifc_element" ? "ifc" : "pdf")
+          )
+            throw new DrawingQuantityLineageServerError("P6B04");
+          return {
+            href: drawingWorkspaceEntryLocation(projectId, {
+              ...entry,
+              evidenceFileId: fileId,
+              evidenceKind:
+                sourceKind === "ifc_element"
+                  ? ("ifc" as const)
+                  : ("pdf" as const),
+            }),
+            sourceFileId: fileId,
+            sourceKind,
+          };
+        },
+      );
       return {
         ...link,
         workspaceHref:
-          evidenceHrefs.length === 1 ? evidenceHrefs[0].href : null,
+          evidenceHrefs[0]?.href ??
+          drawingWorkspaceEntryLocation(projectId, entry),
         evidenceHrefs,
       };
     });
