@@ -65,6 +65,24 @@ function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
 
+const drawingEstimateUuid =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function parseDrawingEstimateBindingRoute(
+  workspaceId: string | undefined,
+  revisionId: string | null,
+) {
+  if (
+    !workspaceId ||
+    !drawingEstimateUuid.test(workspaceId) ||
+    (revisionId !== null && !drawingEstimateUuid.test(revisionId))
+  )
+    throw new Response("견적 연결 경로 식별자가 올바르지 않습니다.", {
+      status: 400,
+    });
+  return { workspaceId, revisionId: revisionId ?? undefined };
+}
+
 export function parseDrawingEstimateBindingForm(
   form: FormData,
   scope: {
@@ -80,14 +98,12 @@ export function parseDrawingEstimateBindingForm(
     throw new Response("견적 연결에는 도면 편집 권한이 필요합니다.", {
       status: 403,
     });
-  const uuid =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const drawingRevisionId = String(form.get("drawing_revision_id") ?? "");
   const boqVersionId = String(form.get("boq_version_id") ?? "");
   if (
-    !uuid.test(scope.projectId) ||
-    !uuid.test(drawingRevisionId) ||
-    !uuid.test(boqVersionId)
+    !drawingEstimateUuid.test(scope.projectId) ||
+    !drawingEstimateUuid.test(drawingRevisionId) ||
+    !drawingEstimateUuid.test(boqVersionId)
   )
     throw new Response("견적 연결 식별자가 올바르지 않습니다.", {
       status: 400,
@@ -392,15 +408,18 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
   const form = await request.formData();
   const searchParams = new URL(request.url).searchParams;
-  const workspace = await loadDrawingWorkspace(client, {
-    projectId: project.id,
-    workspaceId: params.workspaceId!,
-    revisionId: searchParams.get("revision") ?? undefined,
-  });
   const intent = form.get("intent");
   if (intent === "bind_drawing_estimate") {
     let mutation;
     try {
+      const bindingRoute = parseDrawingEstimateBindingRoute(
+        params.workspaceId,
+        searchParams.get("revision"),
+      );
+      const workspace = await loadDrawingWorkspace(client, {
+        projectId: project.id,
+        ...bindingRoute,
+      });
       mutation = parseDrawingEstimateBindingForm(form, {
         capability,
         projectId: project.id,
@@ -429,6 +448,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
   }
+  const workspace = await loadDrawingWorkspace(client, {
+    projectId: project.id,
+    workspaceId: params.workspaceId!,
+    revisionId: searchParams.get("revision") ?? undefined,
+  });
   if (intent === "create_drawing_quantity_link") {
     await assertProjectOrganizationFeature(
       client as any,

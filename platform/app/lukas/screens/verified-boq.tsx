@@ -218,11 +218,13 @@ export function verifiedBoqLocation(
   projectId: string,
   versionId?: string,
   returnTo?: string | null,
+  download?: "pricebook-template" | "structure-template",
 ) {
   const query = new URLSearchParams();
   if (versionId) query.set("version", versionId);
   if (returnTo)
     query.set("returnTo", parseVerifiedBoqReturnTo(projectId, returnTo)!);
+  if (download) query.set("download", download);
   const suffix = query.toString();
   return `/projects/${projectId}/boq${suffix ? `?${suffix}` : ""}`;
 }
@@ -1959,7 +1961,12 @@ export default function VerifiedBoq({
             <h2 className="font-semibold">단가 자원</h2>
             <a
               className="text-sm text-primary underline underline-offset-4"
-              href="?download=pricebook-template"
+              href={verifiedBoqLocation(
+                project.id,
+                undefined,
+                returnTo,
+                "pricebook-template",
+              )}
             >
               CSV 양식
             </a>
@@ -2168,7 +2175,16 @@ export default function VerifiedBoq({
                   </p>
                 </div>
                 <Button asChild className="min-h-11" variant="outline">
-                  <a href="?download=structure-template">CSV 양식</a>
+                  <a
+                    href={verifiedBoqLocation(
+                      project.id,
+                      version.id,
+                      returnTo,
+                      "structure-template",
+                    )}
+                  >
+                    CSV 양식
+                  </a>
                 </Button>
               </div>
               <Form

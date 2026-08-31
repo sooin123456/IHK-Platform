@@ -111,7 +111,7 @@ export function DrawingEstimateResultRail({
               className="font-bold text-white"
               htmlFor="estimate-boq-version"
             >
-              초안 BOQ 연결
+              연결할 내역 버전
             </label>
             <select
               className="min-h-10 rounded border border-white/20 bg-slate-950 px-2 text-white"
@@ -130,7 +130,7 @@ export function DrawingEstimateResultRail({
               className="min-h-10 rounded bg-indigo-500 px-3 font-bold text-white"
               type="submit"
             >
-              견적 연결
+              내역 연결
             </button>
           </Form>
         ) : (

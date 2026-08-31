@@ -85,6 +85,44 @@ test("estimate binding form accepts only an editable current draft revision and 
   );
 });
 
+test("estimate binding route bounds malformed workspace and revision identities", async () => {
+  const parse = workspaceScreen.parseDrawingEstimateBindingRoute;
+  assert.equal(typeof parse, "function");
+  assert.deepEqual(parse(ids.document, null), {
+    workspaceId: ids.document,
+    revisionId: undefined,
+  });
+  assert.deepEqual(parse(ids.document, ids.file), {
+    workspaceId: ids.document,
+    revisionId: ids.file,
+  });
+  for (const [workspaceId, revisionId] of [
+    ["not-a-workspace", null],
+    [ids.document, "not-a-revision"],
+    [ids.document, ""],
+  ]) {
+    let thrown;
+    try {
+      parse(workspaceId, revisionId);
+    } catch (error) {
+      thrown = error;
+    }
+    assert.ok(thrown instanceof Response);
+    assert.equal(thrown.status, 400);
+    assert.deepEqual(
+      await workspaceScreen.drawingEstimateBindingErrorResponse(thrown.clone()),
+      {
+        status: 400,
+        error: "견적 연결 경로 식별자가 올바르지 않습니다.",
+      },
+    );
+    assert.equal(
+      await thrown.text(),
+      "견적 연결 경로 식별자가 올바르지 않습니다.",
+    );
+  }
+});
+
 test("estimate binding failures stay bounded for validation and duplicate conflicts", async () => {
   const bounded = workspaceScreen.drawingEstimateBindingErrorResponse;
   assert.equal(typeof bounded, "function");

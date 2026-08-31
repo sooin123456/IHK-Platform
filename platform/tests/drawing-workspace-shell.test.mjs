@@ -206,6 +206,36 @@ test("estimate result rail renders server amounts, gap names, and BOQ navigation
   assert.match(html, /현장 원본을 연결하세요/);
 });
 
+test("estimate result rail exposes the approved binding control names", () => {
+  const html = renderEstimateRail({
+    estimateOptions: [
+      {
+        id: "32000000-0000-4000-8000-000000000004",
+        title: "실내건축 초안",
+        versionNo: 2,
+        priceBookName: "회사 단가표",
+      },
+    ],
+    summary: {
+      status: "unbound",
+      binding: null,
+      boq: null,
+      rows: [],
+      directCostKrw: null,
+      missingRateCount: 0,
+      reviewCount: 0,
+    },
+  });
+  assert.match(
+    html,
+    /<label[^>]*for="estimate-boq-version"[^>]*>\s*연결할 내역 버전\s*<\/label>/,
+  );
+  assert.match(
+    html,
+    /<button[^>]*type="submit"[^>]*>\s*내역 연결\s*<\/button>/,
+  );
+});
+
 test("workspace shell mounts accessible result and intact object inspector panels", async () => {
   const source = await readFile(
     new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
@@ -732,6 +762,14 @@ test("workspace SSR shell exposes independent tool and inspector tablists access
     "변경 이력",
   ])
     assert.match(html, new RegExp(`role="tab"[^>]*>${label}<`));
+  assert.match(
+    html,
+    /<button(?=[^>]*id="drawing-estimate-result-tab")(?=[^>]*tabindex="0")[^>]*>/,
+  );
+  assert.match(
+    html,
+    /<button(?=[^>]*id="drawing-object-inspector-tab")(?=[^>]*tabindex="-1")[^>]*>/,
+  );
 });
 
 test("workspace panel tabs wrap with arrows and jump with Home and End", () => {
@@ -743,6 +781,18 @@ test("workspace panel tabs wrap with arrows and jump with Home and End", () => {
   assert.equal(resolve("schedules", "Home"), "structure");
   assert.equal(resolve("styles", "End"), "history");
   assert.equal(resolve("styles", "Enter"), null);
+});
+
+test("inspector tabs wrap with arrows and jump with Home and End", () => {
+  const resolve = workspaceModule.resolveDrawingInspectorModeKey;
+  assert.equal(typeof resolve, "function");
+  assert.equal(resolve("result", "ArrowRight"), "object");
+  assert.equal(resolve("object", "ArrowRight"), "result");
+  assert.equal(resolve("result", "ArrowLeft"), "object");
+  assert.equal(resolve("object", "ArrowLeft"), "result");
+  assert.equal(resolve("object", "Home"), "result");
+  assert.equal(resolve("result", "End"), "object");
+  assert.equal(resolve("result", "Enter"), null);
 });
 
 test("local preview uses project-owned drawing copy", () => {

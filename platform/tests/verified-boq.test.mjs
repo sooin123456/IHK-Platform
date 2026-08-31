@@ -93,6 +93,14 @@ test("verified BOQ redirect builder preserves one validated return path with ver
     back(projectId, undefined, returnTo),
     `/projects/${projectId}/boq?returnTo=${encodeURIComponent(returnTo)}`,
   );
+  assert.equal(
+    back(projectId, undefined, returnTo, "pricebook-template"),
+    `/projects/${projectId}/boq?returnTo=${encodeURIComponent(returnTo)}&download=pricebook-template`,
+  );
+  assert.equal(
+    back(projectId, versionId, returnTo, "structure-template"),
+    `/projects/${projectId}/boq?version=${versionId}&returnTo=${encodeURIComponent(returnTo)}&download=structure-template`,
+  );
 });
 
 function goldenInput(policy = "general_half_away") {

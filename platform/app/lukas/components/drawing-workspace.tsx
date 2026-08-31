@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
   type ComponentProps,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
 import {
@@ -300,6 +301,7 @@ export type DrawingWorkspacePanel =
   | "blocks"
   | "collaboration"
   | "history";
+type DrawingInspectorMode = "result" | "object";
 
 const drawingWorkspacePanels: Array<{
   id: DrawingWorkspacePanel;
@@ -343,6 +345,16 @@ export function resolveDrawingWorkspacePanelKey(
     (currentIndex + offset + drawingWorkspacePanels.length) %
       drawingWorkspacePanels.length
   ].id;
+}
+
+export function resolveDrawingInspectorModeKey(
+  activeMode: DrawingInspectorMode,
+  key: string,
+): DrawingInspectorMode | null {
+  if (key === "Home") return "result";
+  if (key === "End") return "object";
+  if (key !== "ArrowLeft" && key !== "ArrowRight") return null;
+  return activeMode === "result" ? "object" : "result";
 }
 
 export function persistDrawingRecordedOperation(
@@ -1086,9 +1098,23 @@ export default function DrawingWorkspaceClient({
   const [inspectorOpenOverride, setInspectorOpenOverride] = useState<
     boolean | null
   >(null);
-  const [inspectorMode, setInspectorMode] = useState<"result" | "object">(
-    "result",
-  );
+  const [inspectorMode, setInspectorMode] =
+    useState<DrawingInspectorMode>("result");
+  const handleInspectorModeKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const nextMode = resolveDrawingInspectorModeKey(inspectorMode, event.key);
+    if (!nextMode) return;
+    event.preventDefault();
+    setInspectorMode(nextMode);
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(
+        nextMode === "result"
+          ? "#drawing-estimate-result-tab"
+          : "#drawing-object-inspector-tab",
+      )
+      ?.focus();
+  };
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState(
     collaborationRoom?.issues[0]?.id ?? "",
@@ -5458,7 +5484,9 @@ export default function DrawingWorkspaceClient({
               className="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500"
               id="drawing-estimate-result-tab"
               onClick={() => setInspectorMode("result")}
+              onKeyDown={handleInspectorModeKeyDown}
               role="tab"
+              tabIndex={inspectorMode === "result" ? 0 : -1}
               type="button"
             >
               결과
@@ -5469,7 +5497,9 @@ export default function DrawingWorkspaceClient({
               className="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500"
               id="drawing-object-inspector-tab"
               onClick={() => setInspectorMode("object")}
+              onKeyDown={handleInspectorModeKeyDown}
               role="tab"
+              tabIndex={inspectorMode === "object" ? 0 : -1}
               type="button"
             >
               객체
