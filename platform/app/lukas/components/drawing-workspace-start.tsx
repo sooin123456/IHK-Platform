@@ -13,8 +13,12 @@ type StartActionData = {
   clientCreatedAt: string | null;
 };
 
-function ErrorMessage({ message }: { message?: string }) {
-  return message ? <p className="text-sm text-destructive">{message}</p> : null;
+function ErrorMessage({ id, message }: { id: string; message?: string }) {
+  return message ? (
+    <p className="text-sm text-destructive" id={id}>
+      {message}
+    </p>
+  ) : null;
 }
 
 export function drawingWorkspaceStartFieldError(
@@ -40,20 +44,21 @@ function StartForm({
   intent,
   pair,
   actionData,
+  submitLabel,
 }: {
   children: React.ReactNode;
   className?: string;
   intent: string;
   pair: RequestPair;
   actionData?: StartActionData;
+  submitLabel: string;
 }) {
   const navigation = useNavigation();
   const effectivePair =
     actionData?.clientRequestId === pair.clientRequestId
       ? {
           clientRequestId: actionData.clientRequestId,
-          clientCreatedAt:
-            actionData.clientCreatedAt ?? pair.clientCreatedAt,
+          clientCreatedAt: actionData.clientCreatedAt ?? pair.clientCreatedAt,
         }
       : pair;
   const submitting =
@@ -83,7 +88,7 @@ function StartForm({
         </p>
       ) : null}
       <Button disabled={submitting} type="submit">
-        {submitting ? "만드는 중…" : "이 선택으로 시작"}
+        {submitting ? `${submitLabel} 만드는 중…` : submitLabel}
       </Button>
     </Form>
   );
@@ -97,6 +102,11 @@ export function DrawingWorkspaceStart({
   loaderData: any;
 }) {
   const blankPair = loaderData.requestPairs.blank as RequestPair;
+  const blankTitleError = drawingWorkspaceStartFieldError(
+    actionData,
+    blankPair,
+    "title",
+  );
   return (
     <main className="mx-auto w-full max-w-7xl px-5 pb-24 pt-8 sm:px-8">
       <Link
@@ -132,16 +142,23 @@ export function DrawingWorkspaceStart({
             className="mt-5 grid gap-3"
             intent="create_blank"
             pair={blankPair}
+            submitLabel="빈 작업실로 시작"
           >
             <label className="grid gap-1 text-sm">
               <span>작업실 이름</span>
-              <Input maxLength={240} name="title" required />
+              <Input
+                aria-describedby={
+                  blankTitleError ? "start-blank-title-error" : undefined
+                }
+                aria-invalid={Boolean(blankTitleError)}
+                id="start-blank-title"
+                maxLength={240}
+                name="title"
+                required
+              />
               <ErrorMessage
-                message={drawingWorkspaceStartFieldError(
-                  actionData,
-                  blankPair,
-                  "title",
-                )}
+                id="start-blank-title-error"
+                message={blankTitleError}
               />
             </label>
           </StartForm>
@@ -163,6 +180,13 @@ export function DrawingWorkspaceStart({
               const pair = loaderData.requestPairs.starters[
                 starter.definition.key
               ] as RequestPair;
+              const titleError = drawingWorkspaceStartFieldError(
+                actionData,
+                pair,
+                "title",
+              );
+              const titleId = `start-starter-${starter.definition.key}-title`;
+              const errorId = `${titleId}-error`;
               return (
                 <article
                   className="rounded-xl border p-4"
@@ -170,8 +194,7 @@ export function DrawingWorkspaceStart({
                     drawingWorkspaceStartChoiceFocused(
                       loaderData.starterKey,
                       starter.definition.key,
-                    ) ||
-                    undefined
+                    ) || undefined
                   }
                   key={starter.definition.key}
                 >
@@ -184,6 +207,7 @@ export function DrawingWorkspaceStart({
                     className="mt-3 grid gap-3"
                     intent="create_starter"
                     pair={pair}
+                    submitLabel={`${starter.definition.name} 템플릿으로 시작`}
                   >
                     <input
                       name="starterKey"
@@ -194,22 +218,19 @@ export function DrawingWorkspaceStart({
                     <label className="grid gap-1 text-sm">
                       <span>작업실 이름</span>
                       <Input
+                        aria-describedby={titleError ? errorId : undefined}
+                        aria-invalid={Boolean(titleError)}
                         autoFocus={drawingWorkspaceStartChoiceFocused(
                           loaderData.starterKey,
                           starter.definition.key,
                         )}
                         defaultValue={starter.definition.name}
+                        id={titleId}
                         maxLength={240}
                         name="title"
                         required
                       />
-                      <ErrorMessage
-                        message={drawingWorkspaceStartFieldError(
-                          actionData,
-                          pair,
-                          "title",
-                        )}
-                      />
+                      <ErrorMessage id={errorId} message={titleError} />
                     </label>
                   </StartForm>
                 </article>
@@ -230,6 +251,7 @@ export function DrawingWorkspaceStart({
                     className="mt-3 grid gap-3"
                     intent="create_library_template"
                     pair={pair}
+                    submitLabel={`${template.entry.name} 회사 템플릿으로 시작`}
                   >
                     <input
                       name="libraryVersionId"
@@ -264,6 +286,13 @@ export function DrawingWorkspaceStart({
                 const pair = loaderData.requestPairs.pdfs[
                   file.id
                 ] as RequestPair;
+                const titleError = drawingWorkspaceStartFieldError(
+                  actionData,
+                  pair,
+                  "title",
+                );
+                const titleId = `start-pdf-${file.id}-title`;
+                const errorId = `${titleId}-error`;
                 return (
                   <StartForm
                     actionData={actionData}
@@ -271,6 +300,7 @@ export function DrawingWorkspaceStart({
                     intent="create_pdf"
                     key={file.id}
                     pair={pair}
+                    submitLabel={`${file.original_filename} PDF로 시작`}
                   >
                     <input name="sourceFileId" type="hidden" value={file.id} />
                     <p className="text-sm font-semibold">
@@ -279,22 +309,22 @@ export function DrawingWorkspaceStart({
                     <label className="grid gap-1 text-sm">
                       <span>작업실 이름</span>
                       <Input
+                        aria-describedby={titleError ? errorId : undefined}
+                        aria-invalid={Boolean(titleError)}
                         autoFocus={drawingWorkspaceStartChoiceFocused(
                           loaderData.sourceFileId,
                           file.id,
                         )}
-                        defaultValue={file.original_filename.replace(/\.pdf$/i, "")}
+                        defaultValue={file.original_filename.replace(
+                          /\.pdf$/i,
+                          "",
+                        )}
+                        id={titleId}
                         maxLength={240}
                         name="title"
                         required
                       />
-                      <ErrorMessage
-                        message={drawingWorkspaceStartFieldError(
-                          actionData,
-                          pair,
-                          "title",
-                        )}
-                      />
+                      <ErrorMessage id={errorId} message={titleError} />
                     </label>
                   </StartForm>
                 );

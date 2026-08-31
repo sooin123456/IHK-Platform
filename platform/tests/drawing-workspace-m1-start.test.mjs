@@ -25,54 +25,68 @@ const ids = Object.freeze({
   request: "71000000-0000-4000-8000-000000000008",
   import: "71000000-0000-4000-8000-000000000009",
   registry: "71000000-0000-4000-8000-000000000010",
+  revisionTwo: "71000000-0000-4000-8000-000000000011",
 });
 
-const starterDefinitions = Object.freeze([
-  {
-    key: "interior-basic",
-    name: "실내건축 기본 적산",
-    description: "바닥·벽·천장·문·창호·가구 기본 수량을 정리합니다.",
-    layers: ["실측", "바닥", "벽", "천장", "문·창호", "가구"],
-  },
-  {
-    key: "apartment-remodel",
-    name: "공동주택 리모델링",
-    description: "세대 공간별 마감·창호·가구·철거 수량을 정리합니다.",
-    layers: ["실측", "기존", "철거", "신설", "마감", "가구"],
-  },
-  {
-    key: "commercial-interior",
-    name: "상업공간 인테리어",
-    description: "영업 공간의 구획·마감·집기 수량을 정리합니다.",
-    layers: ["실측", "구획", "바닥", "벽", "천장", "집기", "설비 근거"],
-  },
-  {
-    key: "demolition-restoration",
-    name: "철거·원상복구",
-    description: "철거 대상과 복구 대상을 분리해 수량을 정리합니다.",
-    layers: ["실측", "존치", "철거", "폐기", "복구", "보양"],
-  },
-].map((starter) => ({
-  schemaVersion: "1hk-platform-starter/1",
-  version: 1,
-  categories: ["바닥", "벽", "천장", "문", "창호", "가구", "철거"],
-  evidenceKinds: ["수기 입력", "현장 실측", "가정값", "원본 연결"],
-  table: {
-    name: "기본 내역",
-    columns: ["적산 분류", "품목 코드", "측정 종류", "단위", "검토 규칙"],
-    rows: [],
-  },
-  ...starter,
-})));
+const starterHashes = Object.freeze({
+  "apartment-remodel":
+    "d74b6bb15543de5fbddb9b7b546534998b0ff8b96c16903f7ac84b00203f9daf",
+  "commercial-interior":
+    "cff6d5e23a2d6d4815eb25a5f7bb6740eb7c80a0f6ca54d905f22c3df74bdd01",
+  "demolition-restoration":
+    "973125f1edd20abfe14a96b78a9d449b3238ba185481a3a74e957f0127c33a3b",
+  "interior-basic":
+    "b8fd33eeee0e14bcf2cb7cd4407602e55ad6dc6edea805d4fb45028710aa6df9",
+});
+
+const starterDefinitions = Object.freeze(
+  [
+    {
+      key: "interior-basic",
+      name: "실내건축 기본 적산",
+      description: "바닥·벽·천장·문·창호·가구 기본 수량을 정리합니다.",
+      layers: ["실측", "바닥", "벽", "천장", "문·창호", "가구"],
+    },
+    {
+      key: "apartment-remodel",
+      name: "공동주택 리모델링",
+      description: "세대 공간별 마감·창호·가구·철거 수량을 정리합니다.",
+      layers: ["실측", "기존", "철거", "신설", "마감", "가구"],
+    },
+    {
+      key: "commercial-interior",
+      name: "상업공간 인테리어",
+      description: "영업 공간의 구획·마감·집기 수량을 정리합니다.",
+      layers: ["실측", "구획", "바닥", "벽", "천장", "집기", "설비 근거"],
+    },
+    {
+      key: "demolition-restoration",
+      name: "철거·원상복구",
+      description: "철거 대상과 복구 대상을 분리해 수량을 정리합니다.",
+      layers: ["실측", "존치", "철거", "폐기", "복구", "보양"],
+    },
+  ].map((starter) => ({
+    schemaVersion: "1hk-platform-starter/1",
+    version: 1,
+    categories: ["바닥", "벽", "천장", "문", "창호", "가구", "철거"],
+    evidenceKinds: ["수기 입력", "현장 실측", "가정값", "원본 연결"],
+    table: {
+      name: "기본 내역",
+      columns: ["적산 분류", "품목 코드", "측정 종류", "단위", "검토 규칙"],
+      rows: [],
+    },
+    ...starter,
+  })),
+);
 
 function starterRows() {
-  return starterDefinitions.map((definition, index) => ({
+  return starterDefinitions.map((definition) => ({
     key: definition.key,
     version: definition.version,
     name: definition.name,
     description: definition.description,
     canonical_payload: definition,
-    content_sha256: String(index + 1).repeat(64),
+    content_sha256: starterHashes[definition.key],
   }));
 }
 
@@ -156,6 +170,17 @@ test("starter catalog rejects duplicate, malformed-hash, and non-canonical rows"
   );
   await assert.rejects(
     loadDrawingStarterCatalog(
+      starterRpcClient([
+        { ...starterRows()[0], content_sha256: "a".repeat(64) },
+        ...starterRows().slice(1),
+      ]),
+      ids.organization,
+      ids.project,
+    ),
+    /starter|시작|hash|sha/i,
+  );
+  await assert.rejects(
+    loadDrawingStarterCatalog(
       starterRpcClient(starterRows().slice(0, 3)),
       ids.organization,
       ids.project,
@@ -208,7 +233,7 @@ test("starter ensure returns the immutable exact retry and surfaces a same-name 
     name: "실내건축 기본 적산",
     description: "바닥·벽·천장·문·창호·가구 기본 수량을 정리합니다.",
     canonicalPayload: starterDefinitions[0],
-    contentSha256: "1".repeat(64),
+    contentSha256: starterHashes["interior-basic"],
     status: "published",
   };
   const client = {
@@ -272,6 +297,64 @@ test("starter ensure returns the immutable exact retry and surfaces a same-name 
       1,
     ),
     /custom drawing library entry|starter name/i,
+  );
+});
+
+test("starter ensure binds the response to the requested approved tuple and DB-canonical hash", async () => {
+  const interior = {
+    registryId: ids.registry,
+    versionId: ids.version,
+    versionNo: 1,
+    key: "interior-basic",
+    version: 1,
+    name: starterDefinitions[0].name,
+    description: starterDefinitions[0].description,
+    canonicalPayload: starterDefinitions[0],
+    contentSha256: starterHashes["interior-basic"],
+    status: "published",
+  };
+  const responseClient = (data) => ({
+    rpc() {
+      return Promise.resolve({ data: structuredClone(data), error: null });
+    },
+  });
+
+  await assert.rejects(
+    ensureDrawingStarterVersion(
+      responseClient({
+        ...interior,
+        key: "apartment-remodel",
+        name: starterDefinitions[1].name,
+        description: starterDefinitions[1].description,
+        canonicalPayload: starterDefinitions[1],
+        contentSha256: starterHashes["apartment-remodel"],
+      }),
+      ids.organization,
+      ids.project,
+      "interior-basic",
+      1,
+    ),
+    /starter|tuple|key|요청|일치/i,
+  );
+  await assert.rejects(
+    ensureDrawingStarterVersion(
+      responseClient({ ...interior, version: 2 }),
+      ids.organization,
+      ids.project,
+      "interior-basic",
+      1,
+    ),
+    /starter|version|버전|일치/i,
+  );
+  await assert.rejects(
+    ensureDrawingStarterVersion(
+      responseClient({ ...interior, contentSha256: "f".repeat(64) }),
+      ids.organization,
+      ids.project,
+      "interior-basic",
+      1,
+    ),
+    /starter|hash|sha|일치/i,
   );
 });
 
@@ -355,9 +438,9 @@ test("one deterministic starter scaffold contains preset layers, five schemas, a
   assert.equal(first.forward.actions.length, 12);
   assert.deepEqual(
     first.inverse.actions.map(({ kind }) => kind),
-    first.forward.actions.map(({ kind }) =>
-      kind.replace(/^put_/, "delete_"),
-    ).reverse(),
+    first.forward.actions
+      .map(({ kind }) => kind.replace(/^put_/, "delete_"))
+      .reverse(),
   );
 
   const schemas = first.forward.actions
@@ -397,8 +480,9 @@ test("one deterministic starter scaffold contains preset layers, five schemas, a
   assert.deepEqual(schemas[0].enumOptions, DRAWING_ESTIMATE_CATEGORIES);
   assert.deepEqual(schemas[3].enumOptions, DRAWING_EVIDENCE_KINDS);
 
-  const table = first.forward.actions.find(({ kind }) => kind === "put_table")
-    .entity;
+  const table = first.forward.actions.find(
+    ({ kind }) => kind === "put_table",
+  ).entity;
   assert.equal(table.name, "기본 내역");
   assert.equal(table.version, 1);
   assert.deepEqual(table.rows, []);
@@ -443,6 +527,35 @@ test("blank and PDF starts share the common five-schema scaffold without layers 
   );
 });
 
+test("scaffold entity and column UUIDs are revision-scoped while exact retries stay byte-identical", () => {
+  const input = {
+    definition: starterDefinitions[0],
+    revisionId: ids.revision,
+    pageId: ids.page,
+    canvasId: ids.canvas,
+    clientRequestId: ids.request,
+    createdAt: "2026-08-31T01:02:03.000Z",
+  };
+  const first = buildDrawingWorkspaceScaffoldOperation(input);
+  const retry = buildDrawingWorkspaceScaffoldOperation(input);
+  const otherRevision = buildDrawingWorkspaceScaffoldOperation({
+    ...input,
+    revisionId: ids.revisionTwo,
+  });
+  const entityIds = (operation) =>
+    operation.forward.actions.flatMap(({ entity }) => [
+      entity.id,
+      ...(entity.columns?.map(({ id }) => id) ?? []),
+    ]);
+
+  assert.deepEqual(retry, first);
+  assert.equal(otherRevision.clientOperationId, first.clientOperationId);
+  assert.equal(
+    entityIds(first).some((id) => entityIds(otherRevision).includes(id)),
+    false,
+  );
+});
+
 test("an exact starter start retry preserves one document, one byte-identical operation envelope, and one import row", async () => {
   const documents = new Map();
   const operations = new Map();
@@ -461,7 +574,7 @@ test("an exact starter start retry preserves one document, one byte-identical op
             name: starterDefinitions[0].name,
             description: starterDefinitions[0].description,
             canonicalPayload: starterDefinitions[0],
-            contentSha256: "1".repeat(64),
+            contentSha256: starterHashes["interior-basic"],
             status: "published",
           },
           error: null,

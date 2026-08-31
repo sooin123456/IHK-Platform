@@ -30,6 +30,19 @@ const APPROVED_STARTERS = [
   ["demolition-restoration", "철거·원상복구", 1],
   ["interior-basic", "실내건축 기본 적산", 1],
 ] as const;
+const APPROVED_STARTER_HASHES: Record<
+  (typeof APPROVED_STARTERS)[number][0],
+  string
+> = {
+  "apartment-remodel":
+    "d74b6bb15543de5fbddb9b7b546534998b0ff8b96c16903f7ac84b00203f9daf",
+  "commercial-interior":
+    "cff6d5e23a2d6d4815eb25a5f7bb6740eb7c80a0f6ca54d905f22c3df74bdd01",
+  "demolition-restoration":
+    "973125f1edd20abfe14a96b78a9d449b3238ba185481a3a74e957f0127c33a3b",
+  "interior-basic":
+    "b8fd33eeee0e14bcf2cb7cd4407602e55ad6dc6edea805d4fb45028710aa6df9",
+};
 const APPROVED_STARTER_DETAILS: Record<
   (typeof APPROVED_STARTERS)[number][0],
   { description: string; layers: readonly string[] }
@@ -124,8 +137,12 @@ export async function loadDrawingStarterCatalog(
     .sort((left, right) =>
       Buffer.compare(Buffer.from(left.key), Buffer.from(right.key)),
     );
-  if (new Set(rows.map((row) => `${row.key}:${row.version}`)).size !== rows.length)
-    throw new DrawingWorkspaceConflictError("starter catalog key가 중복되었습니다.");
+  if (
+    new Set(rows.map((row) => `${row.key}:${row.version}`)).size !== rows.length
+  )
+    throw new DrawingWorkspaceConflictError(
+      "starter catalog key가 중복되었습니다.",
+    );
   if (
     rows.length !== APPROVED_STARTERS.length ||
     rows.some((row, index) => {
@@ -140,6 +157,7 @@ export async function loadDrawingStarterCatalog(
         row.canonical_payload.name !== row.name ||
         row.canonical_payload.description !== row.description ||
         row.description !== details.description ||
+        row.content_sha256 !== APPROVED_STARTER_HASHES[approved[0]] ||
         row.canonical_payload.layers.length !== details.layers.length ||
         row.canonical_payload.layers.some(
           (layer, layerIndex) => layer !== details.layers[layerIndex],
@@ -163,21 +181,40 @@ export async function ensureDrawingStarterVersion(
   key: string,
   version: 1,
 ) {
+  const parsedKey = StarterKey.parse(key);
+  const approved = APPROVED_STARTERS.find(
+    ([approvedKey, , approvedVersion]) =>
+      approvedKey === parsedKey && approvedVersion === version,
+  );
+  if (!approved)
+    throw new DrawingWorkspaceRejectedError(
+      "승인된 platform starter 요청이 아닙니다.",
+    );
   const { data, error } = await client.rpc(
     "lukas_drawing_ensure_platform_starter_version",
     {
       p_organization_id: Uuid.parse(organizationId),
       p_project_id: Uuid.parse(projectId),
-      p_key: StarterKey.parse(key),
+      p_key: parsedKey,
       p_version: version,
     },
   );
   const ensured = EnsuredStarter.parse(starterRpcResult(data, error));
+  const details = APPROVED_STARTER_DETAILS[approved[0]];
   if (
+    ensured.key !== parsedKey ||
+    ensured.version !== version ||
+    ensured.name !== approved[1] ||
+    ensured.description !== details.description ||
+    ensured.contentSha256 !== APPROVED_STARTER_HASHES[approved[0]] ||
     ensured.canonicalPayload.key !== ensured.key ||
     ensured.canonicalPayload.version !== ensured.version ||
     ensured.canonicalPayload.name !== ensured.name ||
-    ensured.canonicalPayload.description !== ensured.description
+    ensured.canonicalPayload.description !== ensured.description ||
+    ensured.canonicalPayload.layers.length !== details.layers.length ||
+    ensured.canonicalPayload.layers.some(
+      (layer, index) => layer !== details.layers[index],
+    )
   )
     throw new DrawingWorkspaceConflictError(
       "starter library version payload가 일치하지 않습니다.",
@@ -281,7 +318,9 @@ export function buildDrawingWorkspaceScaffoldOperation({
     { name: "근거 사유", valueType: "text", enumOptions: [] },
   ] as const;
   const schemas = schemaInputs.map((schema) => ({
-    id: deterministicUuid(`${parsedRequestId}:property-schema:${schema.name}`),
+    id: deterministicUuid(
+      `${parsedRevisionId}:${parsedRequestId}:property-schema:${schema.name}`,
+    ),
     revisionId: parsedRevisionId,
     name: schema.name,
     valueType: schema.valueType,
@@ -295,7 +334,9 @@ export function buildDrawingWorkspaceScaffoldOperation({
     ...(parsedDefinition?.layers.map((name, index) => ({
       kind: "put_layer",
       entity: {
-        id: deterministicUuid(`${parsedRequestId}:layer:${index}:${name}`),
+        id: deterministicUuid(
+          `${parsedRevisionId}:${parsedRequestId}:layer:${index}:${name}`,
+        ),
         name,
         visible: true,
         locked: false,
@@ -313,7 +354,9 @@ export function buildDrawingWorkspaceScaffoldOperation({
     })),
   ];
   if (parsedDefinition) {
-    const tableId = deterministicUuid(`${parsedRequestId}:table:기본 내역`);
+    const tableId = deterministicUuid(
+      `${parsedRevisionId}:${parsedRequestId}:table:기본 내역`,
+    );
     const columnInputs = [
       {
         name: "적산 분류",
@@ -337,7 +380,7 @@ export function buildDrawingWorkspaceScaffoldOperation({
         name: parsedDefinition.table.name,
         columns: columnInputs.map((column, index) => ({
           id: deterministicUuid(
-            `${parsedRequestId}:table-column:${index}:${column.name}`,
+            `${parsedRevisionId}:${parsedRequestId}:table-column:${index}:${column.name}`,
           ),
           ...column,
         })),

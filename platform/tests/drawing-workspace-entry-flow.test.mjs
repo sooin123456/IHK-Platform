@@ -22,12 +22,18 @@ const vite = await createServer({
 
 const actionClientFactoryKey = "__drawingEntryActionClientFactory";
 const adminClientFactoryKey = "__drawingEntryAdminClientFactory";
+const workspaceClientFactoryKey = "__drawingWorkspaceLoaderClientFactory";
+const workspaceMetricsKey = "__drawingWorkspaceLoaderMetrics";
 globalThis[actionClientFactoryKey] = () => {
   throw new Error("Upload action test client is not configured.");
 };
 globalThis[adminClientFactoryKey] = () => {
   throw new Error("Upload action admin client is not configured.");
 };
+globalThis[workspaceClientFactoryKey] = () => {
+  throw new Error("Workspace loader test client is not configured.");
+};
+globalThis[workspaceMetricsKey] = {};
 const actionVite = await createServer({
   appType: "custom",
   configFile: false,
@@ -55,6 +61,33 @@ const actionVite = await createServer({
   },
   server: { middlewareMode: true },
 });
+const workspaceLoaderVite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  plugins: [
+    {
+      enforce: "pre",
+      load(id) {
+        if (id === "\0virtual:workspace-loader-client")
+          return `export default (...args) => globalThis[${JSON.stringify(workspaceClientFactoryKey)}](...args);`;
+        if (id === "\0virtual:workspace-loader-metrics")
+          return `export async function listDrawingIssueMetrics() { return globalThis[${JSON.stringify(workspaceMetricsKey)}]; }`;
+      },
+      name: "workspace-loader-client",
+      resolveId(source) {
+        if (source.endsWith("/app/core/lib/supa-client.server"))
+          return "\0virtual:workspace-loader-client";
+        if (source.endsWith("/app/lukas/lib/drawing-collaboration.server"))
+          return "\0virtual:workspace-loader-metrics";
+      },
+    },
+  ],
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
 
 const [
   drawingEntry,
@@ -65,6 +98,8 @@ const [
   projectFileUpload,
   workspaceDashboard,
   projectAction,
+  drawingWorkspaceStart,
+  workspaceScreen,
 ] = await Promise.all([
   vite.ssrLoadModule("/app/lukas/lib/drawing-entry.ts"),
   vite.ssrLoadModule("/app/root.tsx"),
@@ -74,12 +109,20 @@ const [
   vite.ssrLoadModule("/app/lukas/lib/project-file-upload.ts"),
   vite.ssrLoadModule("/app/lukas/components/workspace-dashboard.tsx"),
   actionVite.ssrLoadModule("/app/lukas/screens/project.tsx"),
+  vite.ssrLoadModule("/app/lukas/components/drawing-workspace-start.tsx"),
+  workspaceLoaderVite.ssrLoadModule("/app/lukas/screens/workspace.tsx"),
 ]);
 
 test.after(async () => {
   delete globalThis[actionClientFactoryKey];
   delete globalThis[adminClientFactoryKey];
-  await Promise.all([vite.close(), actionVite.close()]);
+  delete globalThis[workspaceClientFactoryKey];
+  delete globalThis[workspaceMetricsKey];
+  await Promise.all([
+    vite.close(),
+    actionVite.close(),
+    workspaceLoaderVite.close(),
+  ]);
 });
 
 const navigationRoute = routes.find(
@@ -358,6 +401,29 @@ function renderComponent(Component, props, url = "/workspace") {
   );
 }
 
+function renderStartComponent(props) {
+  const path = "/projects/:projectId/workspaces/new";
+  const router = createMemoryRouter(
+    [
+      {
+        path,
+        element: React.createElement(
+          drawingWorkspaceStart.DrawingWorkspaceStart,
+          props,
+        ),
+      },
+    ],
+    {
+      initialEntries: [
+        "/projects/00000000-0000-4000-8000-000000000001/workspaces/new",
+      ],
+    },
+  );
+  return renderToStaticMarkup(
+    withTheme(React.createElement(RouterProvider, { router })),
+  );
+}
+
 function workspaceFixture({
   drawingId = "00000000-0000-4000-8000-000000000002",
   previewMode = false,
@@ -390,6 +456,117 @@ function workspaceFixture({
     email: "architect@example.com",
     isStaff: false,
     previewMode,
+  };
+}
+
+function workspaceLoaderFixture() {
+  const projectWithDocument = "00000000-0000-4000-8000-000000000041";
+  const projectWithFileOnly = "00000000-0000-4000-8000-000000000042";
+  const documentId = "00000000-0000-4000-8000-000000000043";
+  const documentSourceFileId = "00000000-0000-4000-8000-000000000044";
+  const fileOnlyId = "00000000-0000-4000-8000-000000000045";
+  const observations = [];
+  const rows = {
+    lukas_qto_projects: [
+      {
+        id: projectWithDocument,
+        name: "문서가 있는 프로젝트",
+        description: "canonical document",
+        workflow_status: "confirmed",
+        created_at: "2026-08-01T00:00:00.000Z",
+        updated_at: "2026-08-04T00:00:00.000Z",
+      },
+      {
+        id: projectWithFileOnly,
+        name: "파일만 있는 프로젝트",
+        description: "no document",
+        workflow_status: "confirmed",
+        created_at: "2026-08-01T00:00:00.000Z",
+        updated_at: "2026-08-03T00:00:00.000Z",
+      },
+    ],
+    lukas_qto_organization_members: [],
+    lukas_qto_files: [
+      {
+        id: documentSourceFileId,
+        project_id: projectWithDocument,
+        kind: "pdf",
+        original_filename: "WITH-DOCUMENT.pdf",
+        created_at: "2026-08-03T00:00:00.000Z",
+      },
+      {
+        id: fileOnlyId,
+        project_id: projectWithFileOnly,
+        kind: "pdf",
+        original_filename: "FILE-ONLY.pdf",
+        created_at: "2026-08-02T00:00:00.000Z",
+      },
+    ],
+    lukas_drawing_documents: [
+      {
+        id: documentId,
+        project_id: projectWithDocument,
+        updated_at: "2026-08-05T00:00:00.000Z",
+      },
+    ],
+    lukas_qto_reviews: [],
+    lukas_qto_project_members: [],
+  };
+  const client = {
+    auth: {
+      getUser: async () => ({
+        data: {
+          user: {
+            id: "00000000-0000-4000-8000-000000000046",
+            email: "architect@example.com",
+            is_anonymous: false,
+            app_metadata: {},
+          },
+        },
+      }),
+    },
+    from(table) {
+      const call = { table, filters: [], orders: [], select: null };
+      observations.push(call);
+      const chain = {
+        in(column, values) {
+          call.filters.push(["in", column, values]);
+          return chain;
+        },
+        is(column, value) {
+          call.filters.push(["is", column, value]);
+          return chain;
+        },
+        limit(value) {
+          call.limit = value;
+          return chain;
+        },
+        order(column, options) {
+          call.orders.push([column, options]);
+          return chain;
+        },
+        select(columns) {
+          call.select = columns;
+          return chain;
+        },
+        then(resolve, reject) {
+          return Promise.resolve({
+            data: structuredClone(rows[table] ?? []),
+            error: null,
+          }).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+  return {
+    client,
+    documentId,
+    documentSourceFileId,
+    fileOnlyId,
+    observations,
+    projectWithDocument,
+    projectWithFileOnly,
   };
 }
 
@@ -519,7 +696,7 @@ test("verified PDF uploads prefill the workspace start while IFC and other uploa
 
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "ifc" }),
-    "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000002/workspace",
+    "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000002",
   );
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "pdf" }),
@@ -644,7 +821,7 @@ test("project upload action trusts only a service-side verification record and a
       verificationId: "00000000-0000-4000-8000-000000000032",
       source: "ISO-10303-21;\nEND-ISO-10303-21;\n",
       location:
-        "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000012/workspace",
+        "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000012",
     },
     {
       createdFileId: "00000000-0000-4000-8000-000000000013",
@@ -899,6 +1076,24 @@ test("drawing documents open canonically, original sources remain usable, and em
       files: [],
     },
   });
+  const ifcHtml = renderComponent(projectDrawings.default, {
+    loaderData: {
+      project: {
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "1HK 테스트 프로젝트",
+      },
+      documents: [],
+      files: [
+        {
+          id: "00000000-0000-4000-8000-000000000004",
+          kind: "ifc",
+          original_filename: "MODEL.ifc",
+          byte_size: 2048,
+          created_at: "2026-08-02T00:00:00.000Z",
+        },
+      ],
+    },
+  });
 
   assert.match(
     cardHtml,
@@ -914,6 +1109,14 @@ test("drawing documents open canonically, original sources remain usable, and em
     /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/new"/,
   );
   assert.match(emptyHtml, /새 작업실/);
+  assert.match(
+    ifcHtml,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000004"/,
+  );
+  assert.doesNotMatch(
+    ifcHtml,
+    /drawings\/00000000-0000-4000-8000-000000000004\/workspace/,
+  );
 });
 
 test("workspace dashboard opens documents canonically, starts empty projects, and preserves preview routing", () => {
@@ -944,4 +1147,124 @@ test("workspace dashboard opens documents canonically, starts empty projects, an
     previewHtml,
     /href="\/workspace-preview\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000002"/,
   );
+});
+
+test("workspace loader renders only drawing document IDs as canonical dashboard destinations", async () => {
+  const fixture = workspaceLoaderFixture();
+  globalThis[workspaceClientFactoryKey] = () => [fixture.client];
+  globalThis[workspaceMetricsKey] = {};
+
+  const loaderData = await workspaceScreen.loader({
+    request: new Request("http://app.test/workspace"),
+    params: {},
+  });
+  const html = renderComponent(workspaceScreen.default, { loaderData });
+
+  assert.match(
+    html,
+    new RegExp(
+      `href="/projects/${fixture.projectWithDocument}/workspaces/${fixture.documentId}"`,
+    ),
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `href="/projects/${fixture.projectWithFileOnly}/workspaces/new"`,
+    ),
+  );
+  assert.doesNotMatch(
+    html,
+    new RegExp(
+      `/projects/${fixture.projectWithDocument}/workspaces/${fixture.documentSourceFileId}`,
+    ),
+  );
+  assert.doesNotMatch(
+    html,
+    new RegExp(
+      `/projects/${fixture.projectWithFileOnly}/workspaces/${fixture.fileOnlyId}`,
+    ),
+  );
+  const documentQuery = fixture.observations.find(
+    ({ table }) => table === "lukas_drawing_documents",
+  );
+  assert.deepEqual(documentQuery?.orders, [
+    ["updated_at", { ascending: false }],
+    ["id", { ascending: false }],
+  ]);
+});
+
+test("every start choice has a contextual submit name and the failed field owns its error", () => {
+  const blankPair = {
+    clientRequestId: "00000000-0000-4000-8000-000000000051",
+    clientCreatedAt: "2026-08-31T01:02:03.000Z",
+  };
+  const starterPair = {
+    clientRequestId: "00000000-0000-4000-8000-000000000052",
+    clientCreatedAt: "2026-08-31T01:02:03.000Z",
+  };
+  const libraryPair = {
+    clientRequestId: "00000000-0000-4000-8000-000000000053",
+  };
+  const pdfPair = {
+    clientRequestId: "00000000-0000-4000-8000-000000000054",
+    clientCreatedAt: "2026-08-31T01:02:03.000Z",
+  };
+  const starter = {
+    definition: {
+      key: "interior-basic",
+      name: "실내건축 기본 적산",
+      description: "기본 적산 템플릿",
+    },
+  };
+  const template = {
+    id: "00000000-0000-4000-8000-000000000055",
+    version_no: 3,
+    entry: { name: "표준 템플릿" },
+  };
+  const file = {
+    id: "00000000-0000-4000-8000-000000000056",
+    original_filename: "A-101.pdf",
+  };
+  const html = renderStartComponent({
+    actionData: {
+      ok: false,
+      fieldErrors: { title: "작업실 이름을 입력하세요." },
+      formError: "입력값을 확인하세요.",
+      clientRequestId: blankPair.clientRequestId,
+      clientCreatedAt: blankPair.clientCreatedAt,
+    },
+    loaderData: {
+      project: {
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "1HK 테스트 프로젝트",
+      },
+      starters: [starter],
+      organizationTemplates: [template],
+      files: [file],
+      requestPairs: {
+        blank: blankPair,
+        starters: { [starter.definition.key]: starterPair },
+        libraryTemplates: { [template.id]: libraryPair },
+        pdfs: { [file.id]: pdfPair },
+      },
+    },
+  });
+
+  assert.match(html, /<button[^>]*>빈 작업실로 시작<\/button>/);
+  assert.match(
+    html,
+    /<button[^>]*>실내건축 기본 적산 템플릿으로 시작<\/button>/,
+  );
+  assert.match(html, /<button[^>]*>표준 템플릿 회사 템플릿으로 시작<\/button>/);
+  assert.match(html, /<button[^>]*>A-101\.pdf PDF로 시작<\/button>/);
+  assert.doesNotMatch(html, />이 선택으로 시작<\/button>/);
+  assert.match(
+    html,
+    /<input(?=[^>]*id="start-blank-title")(?=[^>]*aria-invalid="true")(?=[^>]*aria-describedby="start-blank-title-error")[^>]*>/,
+  );
+  assert.match(
+    html,
+    /<p[^>]*id="start-blank-title-error"[^>]*>작업실 이름을 입력하세요\.<\/p>/,
+  );
+  assert.equal(html.match(/aria-invalid="true"/g)?.length, 1);
 });

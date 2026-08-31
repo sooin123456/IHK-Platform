@@ -4,6 +4,7 @@ import { redirect } from "react-router";
 import { z } from "zod";
 
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
+import { drawingRoomPath } from "~/lukas/lib/drawing-entry";
 import {
   drawingWorkspaceNewPath,
   drawingWorkspacePath,
@@ -18,6 +19,7 @@ export async function resolveLegacyDrawingWorkspace(
 ) {
   const parsedProjectId = Uuid.parse(projectId);
   const parsedFileId = fileId ? Uuid.parse(fileId) : undefined;
+  let fileKind: "pdf" | "ifc" | undefined;
   if (parsedFileId) {
     const { data: file, error: fileError } = await client
       .from("lukas_qto_files")
@@ -29,6 +31,7 @@ export async function resolveLegacyDrawingWorkspace(
       .maybeSingle();
     if (fileError || !file)
       throw new Response("도면 원본을 찾을 수 없습니다.", { status: 404 });
+    fileKind = file.kind;
   }
   let documents = client
     .from("lukas_drawing_documents")
@@ -43,6 +46,8 @@ export async function resolveLegacyDrawingWorkspace(
   if (documentError)
     throw new Response("도면 작업실을 찾지 못했습니다.", { status: 500 });
   if (document) return drawingWorkspacePath(parsedProjectId, document.id);
+  if (parsedFileId && fileKind === "ifc")
+    return drawingRoomPath(parsedProjectId, parsedFileId);
   return drawingWorkspaceNewPath(parsedProjectId, parsedFileId);
 }
 

@@ -79,6 +79,10 @@ export function drawingWorkspacePath(projectId: string, fileId: string) {
   return `/projects/${projectId}/drawings/${fileId}/workspace`;
 }
 
+export function drawingRoomPath(projectId: string, fileId: string) {
+  return `/projects/${projectId}/drawings/${fileId}`;
+}
+
 export function drawingProjectWorkspacePath(projectId: string) {
   return `/projects/${projectId}/workspace`;
 }
@@ -129,5 +133,5 @@ export function projectUploadDestination({
   returnPath: string;
 }) {
   if (kind === "pdf") return drawingWorkspaceNewPath(projectId, fileId);
-  return kind === "ifc" ? drawingWorkspacePath(projectId, fileId) : returnPath;
+  return kind === "ifc" ? drawingRoomPath(projectId, fileId) : returnPath;
 }

@@ -20,7 +20,9 @@ const vite = await createServer({
   appType: "custom",
   configFile: false,
   logLevel: "silent",
-  resolve: { alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) } },
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
   server: { middlewareMode: true },
 });
 const legacyScreen = await vite
@@ -168,7 +170,12 @@ test("legacy project GET resolves latest document canonically without creating s
 
 test("legacy file GET resolves latest matching document and ignores document query overrides", async () => {
   const { client, observations } = legacyClient({
-    file: { id: ids.file, project_id: ids.project, kind: "pdf", immutable: true },
+    file: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "pdf",
+      immutable: true,
+    },
     documents: [{ id: ids.document }],
   });
   assert.equal(
@@ -184,7 +191,12 @@ test("legacy file GET resolves latest matching document and ignores document que
 
 test("legacy file with no document redirects to source-prefilled start", async () => {
   const { client } = legacyClient({
-    file: { id: ids.file, project_id: ids.project, kind: "pdf", immutable: true },
+    file: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "pdf",
+      immutable: true,
+    },
   });
   assert.equal(
     await legacyScreen.resolveLegacyDrawingWorkspace(
@@ -194,6 +206,26 @@ test("legacy file with no document redirects to source-prefilled start", async (
     ),
     `/projects/${ids.project}/workspaces/new?sourceFileId=${ids.file}`,
   );
+});
+
+test("legacy IFC file with no document preserves the existing IFC drawing room", async () => {
+  const { client, observations } = legacyClient({
+    file: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "ifc",
+      immutable: true,
+    },
+  });
+  assert.equal(
+    await legacyScreen.resolveLegacyDrawingWorkspace(
+      client,
+      ids.project,
+      ids.file,
+    ),
+    `/projects/${ids.project}/drawings/${ids.file}`,
+  );
+  assert.deepEqual(observations.rpc, []);
 });
 
 test("legacy zero-file zero-document project redirects to blank start", async () => {
@@ -283,15 +315,18 @@ test("failed start validation preserves the submitted retry identity and isolate
   const clientRequestId = "00000000-0000-4000-8000-000000000010";
   const clientCreatedAt = "2026-08-31T01:02:03.000Z";
   const response = await newScreen.action({
-    request: new Request(`http://app.test/projects/${ids.project}/workspaces/new`, {
-      method: "POST",
-      body: startForm({
-        intent: "create_blank",
-        title: "",
-        clientRequestId,
-        clientCreatedAt,
-      }),
-    }),
+    request: new Request(
+      `http://app.test/projects/${ids.project}/workspaces/new`,
+      {
+        method: "POST",
+        body: startForm({
+          intent: "create_blank",
+          title: "",
+          clientRequestId,
+          clientCreatedAt,
+        }),
+      },
+    ),
     params: { projectId: ids.project },
   });
   assert.equal(response.init.status, 400);

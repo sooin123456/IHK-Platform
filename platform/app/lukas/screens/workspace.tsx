@@ -87,9 +87,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }));
 
   const projectIds = (projects ?? []).map((project) => project.id);
-  const [filesResult, reviewsResult, membersResult] =
+  const [filesResult, documentsResult, reviewsResult, membersResult] =
     projectIds.length === 0
       ? [
+          { data: [], error: null },
           { data: [], error: null },
           { data: [], error: null },
           { data: [], error: null },
@@ -100,6 +101,12 @@ export async function loader({ request }: Route.LoaderArgs) {
             .select("id, project_id, kind, original_filename, created_at")
             .in("project_id", projectIds)
             .order("created_at", { ascending: false }),
+          (client as any)
+            .from("lukas_drawing_documents")
+            .select("id,project_id,updated_at")
+            .in("project_id", projectIds)
+            .order("updated_at", { ascending: false })
+            .order("id", { ascending: false }),
           client
             .from("lukas_qto_reviews")
             .select("id, project_id, status, note, created_at")
@@ -111,13 +118,19 @@ export async function loader({ request }: Route.LoaderArgs) {
             .in("project_id", projectIds),
         ]);
 
-  if (filesResult.error || reviewsResult.error || membersResult.error) {
+  if (
+    filesResult.error ||
+    documentsResult.error ||
+    reviewsResult.error ||
+    membersResult.error
+  ) {
     throw new Response("프로젝트 작업 현황을 불러오지 못했습니다.", {
       status: 500,
     });
   }
 
   const files = filesResult.data ?? [];
+  const documents = documentsResult.data ?? [];
   const reviews = reviewsResult.data ?? [];
   const members = membersResult.data ?? [];
   const drawingMetrics = await listDrawingIssueMetrics(
@@ -131,8 +144,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         (file) => file.project_id === projectId,
       );
       const latestIfc = projectFiles.find((file) => file.kind === "ifc");
-      const latestDrawing = projectFiles.find(
-        (file) => file.kind === "ifc" || file.kind === "pdf",
+      const latestDrawing = documents.find(
+        (document: { id: string; project_id: string }) =>
+          document.project_id === projectId,
       );
       return [
         projectId,

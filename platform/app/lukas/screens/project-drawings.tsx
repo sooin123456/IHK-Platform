@@ -8,9 +8,7 @@ import {
   drawingContext,
   listDrawingFiles,
 } from "~/lukas/lib/drawing-collaboration.server";
-import {
-  drawingUploadPath,
-} from "~/lukas/lib/drawing-entry";
+import { drawingRoomPath, drawingUploadPath } from "~/lukas/lib/drawing-entry";
 import {
   drawingWorkspaceNewPath,
   drawingWorkspacePath,
@@ -147,7 +145,9 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
               <Link
                 className="group flex min-h-52 flex-col rounded-3xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                 key={file.id}
-                to={legacyDrawingWorkspacePath(loaderData.project.id, file.id)}
+                to={file.kind === "ifc"
+                  ? drawingRoomPath(loaderData.project.id, file.id)
+                  : legacyDrawingWorkspacePath(loaderData.project.id, file.id)}
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
