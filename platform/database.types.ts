@@ -1189,6 +1189,76 @@ export type Database = {
           },
         ]
       }
+      lukas_qto_verified_uploads: {
+        Row: {
+          actor_id: string
+          byte_size: number
+          consumed_at: string | null
+          consumed_file_id: string | null
+          content_type: string
+          created_at: string
+          expires_at: string
+          id: string
+          kind: string
+          original_filename: string
+          project_id: string
+          sha256: string
+          storage_path: string
+        }
+        Insert: {
+          actor_id: string
+          byte_size: number
+          consumed_at?: string | null
+          consumed_file_id?: string | null
+          content_type: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind: string
+          original_filename: string
+          project_id: string
+          sha256: string
+          storage_path: string
+        }
+        Update: {
+          actor_id?: string
+          byte_size?: number
+          consumed_at?: string | null
+          consumed_file_id?: string | null
+          content_type?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind?: string
+          original_filename?: string
+          project_id?: string
+          sha256?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lukas_qto_verified_uploads_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lukas_qto_verified_uploads_consumed_file_id_fkey"
+            columns: ["consumed_file_id"]
+            isOneToOne: false
+            referencedRelation: "lukas_qto_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lukas_qto_verified_uploads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "lukas_qto_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lukas_qto_license_entitlements: {
         Row: {
           granted_at: string
@@ -2183,6 +2253,14 @@ export type Database = {
       lukas_qto_decide_boq: {
         Args: { p_decision: string; p_note?: string; p_version_id: string }
         Returns: undefined
+      }
+      lukas_qto_finalize_verified_upload: {
+        Args: {
+          p_actor_id: string
+          p_project_id: string
+          p_verification_id: string
+        }
+        Returns: Json
       }
       lukas_qto_import_boq_structure: {
         Args: { p_payload: Json; p_version_id: string }

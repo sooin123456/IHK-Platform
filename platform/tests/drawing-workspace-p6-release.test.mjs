@@ -222,11 +222,11 @@ test("P6 export and GLB validation dependencies remain inside the reviewed notic
     createHash("sha256")
       .update(JSON.stringify(packageJson.dependencies))
       .digest("hex"),
-    "8db29416bad8ea60410129f517ffbd51c2e5ab230b67d14780e8a0618f0dd5c3",
+    "bb535b20f27474a86b37977287e7f7cc785c6e8f51a1b98e9bdcf7a7a2d4ecf2",
   );
   assert.equal(
     createHash("sha256").update(JSON.stringify(lock.packages)).digest("hex"),
-    "e84ae3cdc6cadf887dbb573da6b3a473f93c7cba4a102a001b8c4f5ca6e2fe4f",
+    "b2092418787baa9b3734992e197fa5e61f75bce5f640105138e5d30a1c2cd5dd",
   );
 });
 

@@ -84,6 +84,7 @@ const approvedDirectDependencies = [
   "tailwind-merge",
   "tailwindcss-animate",
   "three",
+  "tus-js-client",
   "y-indexeddb",
   "y-protocols",
   "yjs",
@@ -173,6 +174,30 @@ const expectedCollaborationRuntimeClosure = {
   "node_modules/y-indexeddb": { version: "9.0.12", license: "MIT" },
   "node_modules/y-protocols": { version: "1.0.7", license: "MIT" },
   "node_modules/yjs": { version: "13.6.32", license: "MIT" },
+};
+
+const expectedTusRuntimeClosure = {
+  "node_modules/buffer-from": ["1.1.2", "MIT"],
+  "node_modules/combine-errors": ["3.0.3", "MIT"],
+  "node_modules/custom-error-instance": ["2.1.1", "ISC"],
+  "node_modules/graceful-fs": ["4.2.11", "ISC"],
+  "node_modules/is-stream": ["2.0.1", "MIT"],
+  "node_modules/js-base64": ["3.9.3", "BSD-3-Clause"],
+  "node_modules/lodash._baseiteratee": ["4.7.0", "MIT"],
+  "node_modules/lodash._basetostring": ["4.12.0", "MIT"],
+  "node_modules/lodash._baseuniq": ["4.6.0", "MIT"],
+  "node_modules/lodash._createset": ["4.0.3", "MIT"],
+  "node_modules/lodash._root": ["3.0.1", "MIT"],
+  "node_modules/lodash._stringtopath": ["4.8.0", "MIT"],
+  "node_modules/lodash.throttle": ["4.1.1", "MIT"],
+  "node_modules/lodash.uniqby": ["4.5.0", "MIT"],
+  "node_modules/proper-lockfile": ["4.1.2", "MIT"],
+  "node_modules/proper-lockfile/node_modules/signal-exit": ["3.0.7", "ISC"],
+  "node_modules/querystringify": ["2.2.0", "MIT"],
+  "node_modules/requires-port": ["1.0.0", "MIT"],
+  "node_modules/retry": ["0.12.0", "MIT"],
+  "node_modules/tus-js-client": ["4.3.1", "MIT"],
+  "node_modules/url-parse": ["1.5.10", "MIT"],
 };
 
 function assertPermissiveCollaborationClosure(lock, packagePaths) {
@@ -317,6 +342,63 @@ test("drawing collaboration pins its MIT protocol closure without direct transpo
   }
   for (const prohibited of ["lib0", "ws", "redis", "zustand", "redux"]) {
     assert.equal(Object.hasOwn(pkg.dependencies, prohibited), false);
+  }
+});
+
+test("resumable uploads pin the exact permissive tus-js-client closure", async () => {
+  const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+  const normalizedNotice = notice.replaceAll("\\_", "_");
+
+  assert.equal(pkg.dependencies["tus-js-client"], "4.3.1");
+  assert.match(
+    normalizedNotice,
+    /\|\s*tus-js-client\s*\|\s*4\.3\.1\s*\|\s*https:\/\/github\.com\/tus\/tus-js-client\s*\|\s*MIT\s*\|\s*No\s*\|\s*npm\s*\|/,
+  );
+
+  const packagePaths = lockedDependencyClosure(
+    lock,
+    "node_modules/tus-js-client",
+  );
+  assert.deepEqual(packagePaths, Object.keys(expectedTusRuntimeClosure));
+  const permissiveLicenses = new Set(["BSD-3-Clause", "ISC", "MIT"]);
+  for (const packagePath of packagePaths) {
+    const [expectedVersion, expectedLicense] =
+      expectedTusRuntimeClosure[packagePath];
+    const entry = lock.packages[packagePath];
+    const installedRoot = new URL(`../${packagePath}/`, import.meta.url);
+    const manifest = JSON.parse(
+      await readFile(new URL("package.json", installedRoot), "utf8"),
+    );
+    let license = entry.license ?? manifest.license;
+    if (license === undefined) {
+      const readme = await readFile(
+        new URL("Readme.md", installedRoot),
+        "utf8",
+      );
+      license = readme.match(/## License\s+([A-Za-z0-9.-]+)/)?.[1];
+    }
+    assert.equal(
+      entry.version,
+      expectedVersion,
+      `${packagePath} version changed`,
+    );
+    assert.equal(license, expectedLicense, `${packagePath} license changed`);
+    assert.equal(
+      permissiveLicenses.has(license),
+      true,
+      `${packagePath} license`,
+    );
+
+    const escapedPath = packagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedVersion = expectedVersion.replaceAll(".", "\\.");
+    assert.match(
+      normalizedNotice,
+      new RegExp(
+        `\\|\\s*${escapedPath}\\s*\\|\\s*${escapedVersion}\\s*\\|\\s*${expectedLicense}\\s*\\|`,
+      ),
+    );
   }
 });
 

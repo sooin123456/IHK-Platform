@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -22,8 +21,12 @@ const vite = await createServer({
 });
 
 const actionClientFactoryKey = "__drawingEntryActionClientFactory";
+const adminClientFactoryKey = "__drawingEntryAdminClientFactory";
 globalThis[actionClientFactoryKey] = () => {
   throw new Error("Upload action test client is not configured.");
+};
+globalThis[adminClientFactoryKey] = () => {
+  throw new Error("Upload action admin client is not configured.");
 };
 const actionVite = await createServer({
   appType: "custom",
@@ -35,9 +38,13 @@ const actionVite = await createServer({
       load(id) {
         if (id === "\0virtual:drawing-entry-action-client")
           return `export default (...args) => globalThis[${JSON.stringify(actionClientFactoryKey)}](...args);`;
+        if (id === "\0virtual:drawing-entry-admin-client")
+          return `export default new Proxy({}, { get(_target, property) { const client = globalThis[${JSON.stringify(adminClientFactoryKey)}](); const value = client[property]; return typeof value === "function" ? value.bind(client) : value; } });`;
       },
       name: "drawing-entry-action-client",
       resolveId(source) {
+        if (source.endsWith("/app/core/lib/supa-admin-client.server"))
+          return "\0virtual:drawing-entry-admin-client";
         if (source.endsWith("/app/core/lib/supa-client.server"))
           return "\0virtual:drawing-entry-action-client";
       },
@@ -51,22 +58,27 @@ const actionVite = await createServer({
 
 const [
   drawingEntry,
+  rootScreen,
   navigationLayout,
   projectDrawings,
   projectScreen,
+  projectFileUpload,
   workspaceDashboard,
   projectAction,
 ] = await Promise.all([
   vite.ssrLoadModule("/app/lukas/lib/drawing-entry.ts"),
+  vite.ssrLoadModule("/app/root.tsx"),
   vite.ssrLoadModule("/app/core/layouts/navigation.layout.tsx"),
   vite.ssrLoadModule("/app/lukas/screens/project-drawings.tsx"),
   vite.ssrLoadModule("/app/lukas/screens/project.tsx"),
+  vite.ssrLoadModule("/app/lukas/lib/project-file-upload.ts"),
   vite.ssrLoadModule("/app/lukas/components/workspace-dashboard.tsx"),
   actionVite.ssrLoadModule("/app/lukas/screens/project.tsx"),
 ]);
 
 test.after(async () => {
   delete globalThis[actionClientFactoryKey];
+  delete globalThis[adminClientFactoryKey];
   await Promise.all([vite.close(), actionVite.close()]);
 });
 
@@ -173,14 +185,23 @@ function renderProjectForm() {
   );
 }
 
-function uploadActionFixture(createdFileId) {
+function uploadActionFixture(
+  storageBytes,
+  {
+    finalizationError = null,
+    finalizedUpload = null,
+    verifiedUpload = null,
+  } = {},
+) {
   const projectId = "00000000-0000-4000-8000-000000000001";
   const ownerId = "00000000-0000-4000-8000-000000000002";
   const userId = "00000000-0000-4000-8000-000000000003";
   const observations = {
-    metadataInserts: [],
-    priorFileFilters: [],
-    storageUploads: [],
+    finalizationCalls: [],
+    suggestionUpserts: [],
+    storageDownloads: [],
+    storageRemovals: [],
+    verificationFilters: [],
   };
 
   function query(result, onEq) {
@@ -215,50 +236,109 @@ function uploadActionFixture(createdFileId) {
     from(table) {
       if (table === "lukas_qto_projects")
         return query({ data: { id: projectId, owner_id: ownerId } });
-      if (table === "lukas_qto_files")
-        return {
-          insert(row) {
-            observations.metadataInserts.push(row);
-            return {
-              select() {
-                return {
-                  single: async () => ({
-                    data: { id: createdFileId },
-                    error: null,
-                  }),
-                };
-              },
-            };
-          },
-          select() {
-            return query({ data: null, error: null }, (column, value) =>
-              observations.priorFileFilters.push([column, value]),
-            );
-          },
-        };
       throw new Error(`Unexpected table: ${table}`);
     },
     storage: {
       from(bucket) {
         return {
-          async remove() {
-            throw new Error("Successful upload must not roll back storage.");
+          download(path) {
+            observations.storageDownloads.push({ bucket, path });
+            return {
+              asStream: async () => ({
+                data: new Blob([storageBytes]).stream(),
+                error: null,
+              }),
+            };
           },
-          async upload(path, bytes, options) {
-            observations.storageUploads.push({
-              bucket,
-              path,
-              bytes: Buffer.from(bytes),
-              options,
-            });
-            return { error: null };
+          async remove(paths) {
+            throw new Error(
+              `Authenticated cleanup must not remove ${bucket}/${paths.join(",")}.`,
+            );
+          },
+          async upload() {
+            throw new Error("Source bytes must bypass the server action.");
           },
         };
       },
     },
   };
 
-  return { client, observations, ownerId, projectId, userId };
+  const adminClient = {
+    from(table) {
+      if (table === "lukas_qto_verified_uploads")
+        return {
+          select() {
+            return query(
+              { data: verifiedUpload, error: null },
+              (column, value) =>
+                observations.verificationFilters.push([column, value]),
+            );
+          },
+        };
+      if (table === "lukas_qto_suggestions")
+        return {
+          async upsert(rows, options) {
+            observations.suggestionUpserts.push({ options, rows });
+            return { error: null };
+          },
+        };
+      throw new Error(`Unexpected admin table: ${table}`);
+    },
+    async rpc(name, args) {
+      observations.finalizationCalls.push({ args, name });
+      return {
+        data: finalizationError ? null : finalizedUpload,
+        error: finalizationError,
+      };
+    },
+  };
+
+  return { adminClient, client, observations, ownerId, projectId, userId };
+}
+
+function verifiedUploadFixture({
+  createdFileId,
+  filename,
+  kind,
+  mime,
+  objectId,
+  ownerId,
+  projectId,
+  source,
+  userId,
+  verificationId,
+}) {
+  const byteSize = Buffer.byteLength(source);
+  const sha256 = objectId.replaceAll("-", "").padEnd(64, "a").slice(0, 64);
+  const storagePath = `${ownerId}/${projectId}/source-uploads/${objectId}.${filename.split(".").at(-1).toLowerCase()}`;
+  return {
+    finalizedUpload: {
+      byteSize,
+      contentType: mime,
+      fileId: createdFileId,
+      kind,
+      originalFilename: filename,
+      previousByteSize: null,
+      previousFileId: null,
+      previousSha256: null,
+      previousStoragePath: null,
+      sha256,
+      storagePath,
+    },
+    verifiedUpload: {
+      actor_id: userId,
+      byte_size: byteSize,
+      consumed_file_id: null,
+      content_type: mime,
+      expires_at: "2099-01-01T00:00:00.000Z",
+      id: verificationId,
+      kind,
+      original_filename: filename,
+      project_id: projectId,
+      sha256,
+      storage_path: storagePath,
+    },
+  };
 }
 
 function renderComponent(Component, props, url = "/workspace") {
@@ -304,6 +384,35 @@ function workspaceFixture({ drawingId = "file-a", previewMode = false } = {}) {
     previewMode,
   };
 }
+
+test("the root boundary explains an oversized upload instead of hiding the 413", () => {
+  const html = renderComponent(rootScreen.ErrorBoundary, {
+    error: {
+      data: null,
+      internal: true,
+      status: 413,
+      statusText: "",
+    },
+  });
+
+  assert.match(html, /파일 업로드 실패/);
+  assert.match(html, /파일 페이지에서 다시 시도/);
+  assert.doesNotMatch(html, /An unexpected error occurred/);
+});
+
+test("the root boundary preserves a route-specific 413 explanation", () => {
+  const html = renderComponent(rootScreen.ErrorBoundary, {
+    error: {
+      data: "검증 파일은 20MB 이하여야 합니다.",
+      internal: false,
+      status: 413,
+      statusText: "Payload Too Large",
+    },
+  });
+
+  assert.match(html, /검증 파일은 20MB 이하여야 합니다/);
+  assert.doesNotMatch(html, /파일 페이지에서 다시 시도/);
+});
 
 test("a real non-workspace private match removes public navigation and footer", async () => {
   assert.ok(navigationRoute);
@@ -356,6 +465,7 @@ test("project upload form renders the selected PDF option, help, and exact accep
     html,
     /<input[^>]*accept="\.pdf,application\/pdf"[^>]*id="source_file"/,
   );
+  assert.doesNotMatch(html, /enctype="multipart\/form-data"/);
 });
 
 test("IFC upload matching and browser acceptance remain supported", () => {
@@ -392,13 +502,71 @@ test("drawing uploads enter the exact file workspace while other uploads return"
   );
 });
 
-test("real project upload action persists source bytes and redirects by created kind", async () => {
+test("a PDF larger than the Vercel body limit goes only to the Storage adapter", async () => {
+  const bytes = new Uint8Array(5 * 1024 * 1024);
+  bytes.set(new TextEncoder().encode("%PDF-1.7\n"));
+  const file = new File([bytes], "A-201.PDF", { type: "application/pdf" });
+  const uploads = [];
+
+  const metadata = await projectFileUpload.uploadProjectFileDirect({
+    file,
+    kind: "pdf",
+    ownerId: "00000000-0000-4000-8000-000000000002",
+    projectId: "00000000-0000-4000-8000-000000000001",
+    async upload(storagePath, source, options) {
+      uploads.push({ options, source, storagePath });
+      return { error: null };
+    },
+  });
+
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].source, file);
+  assert.deepEqual(uploads[0].options, {
+    contentType: "application/pdf",
+    upsert: false,
+  });
+  assert.match(
+    uploads[0].storagePath,
+    /^00000000-0000-4000-8000-000000000002\/00000000-0000-4000-8000-000000000001\/source-uploads\/[0-9a-f-]{36}\.pdf$/,
+  );
+  assert.equal(metadata.byteSize, bytes.byteLength);
+  assert.equal("sha256" in metadata, false);
+  assert.equal(
+    Object.values(metadata).some((value) => value instanceof File),
+    false,
+  );
+});
+
+test("browser, verifier and finalizer share the same trimmed original filename", async () => {
+  const file = new File(["%PDF-1.7\n"], " A-201.PDF  ", {
+    type: "application/pdf",
+  });
+  const uploads = [];
+
+  const metadata = await projectFileUpload.uploadProjectFileDirect({
+    file,
+    kind: "pdf",
+    ownerId: "00000000-0000-4000-8000-000000000002",
+    projectId: "00000000-0000-4000-8000-000000000001",
+    async upload(storagePath) {
+      uploads.push(storagePath);
+      return { error: null };
+    },
+  });
+
+  assert.equal(metadata.originalFilename, "A-201.PDF");
+  assert.match(uploads[0], /\/source-uploads\/[0-9a-f-]{36}\.pdf$/);
+});
+
+test("project upload action trusts only a service-side verification record and atomically finalizes metadata", async () => {
   const cases = [
     {
       createdFileId: "00000000-0000-4000-8000-000000000011",
       filename: "A-101.PDF",
       kind: "pdf",
       mime: "application/pdf",
+      objectId: "00000000-0000-4000-8000-000000000021",
+      verificationId: "00000000-0000-4000-8000-000000000031",
       source: "%PDF-1.7\n1HK drawing\n",
       location:
         "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000011/workspace",
@@ -408,6 +576,8 @@ test("real project upload action persists source bytes and redirects by created 
       filename: "MODEL.IFC",
       kind: "ifc",
       mime: "application/octet-stream",
+      objectId: "00000000-0000-4000-8000-000000000022",
+      verificationId: "00000000-0000-4000-8000-000000000032",
       source: "ISO-10303-21;\nEND-ISO-10303-21;\n",
       location:
         "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000012/workspace",
@@ -417,23 +587,27 @@ test("real project upload action persists source bytes and redirects by created 
       filename: "quantity.csv",
       kind: "qto_csv",
       mime: "text/csv",
+      objectId: "00000000-0000-4000-8000-000000000023",
+      verificationId: "00000000-0000-4000-8000-000000000033",
       source: "element_id,quantity\n1,2\n",
       location: "/projects/00000000-0000-4000-8000-000000000001",
     },
   ];
 
   for (const fixture of cases) {
-    const { client, observations, projectId, userId } = uploadActionFixture(
-      fixture.createdFileId,
-    );
+    const identities = {
+      ownerId: "00000000-0000-4000-8000-000000000002",
+      projectId: "00000000-0000-4000-8000-000000000001",
+      userId: "00000000-0000-4000-8000-000000000003",
+    };
+    const upload = verifiedUploadFixture({ ...fixture, ...identities });
+    const { adminClient, client, observations, projectId, userId } =
+      uploadActionFixture(Buffer.from(fixture.source), upload);
     globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+    globalThis[adminClientFactoryKey] = () => adminClient;
     const formData = new FormData();
     formData.set("intent", "upload");
-    formData.set("kind", fixture.kind);
-    formData.set(
-      "source_file",
-      new File([fixture.source], fixture.filename, { type: fixture.mime }),
-    );
+    formData.set("upload_verification_id", fixture.verificationId);
 
     const response = await projectAction.action({
       request: new Request(`http://app.test/projects/${projectId}`, {
@@ -445,33 +619,139 @@ test("real project upload action persists source bytes and redirects by created 
 
     assert.equal(response.status, 302);
     assert.equal(response.headers.get("location"), fixture.location);
-    assert.equal(observations.storageUploads.length, 1);
-    assert.equal(observations.metadataInserts.length, 1);
-    const stored = observations.storageUploads[0];
-    const metadata = observations.metadataInserts[0];
-    assert.equal(stored.bucket, "lukas-qto");
-    assert.deepEqual(stored.bytes, Buffer.from(fixture.source));
-    assert.deepEqual(stored.options, {
-      contentType: fixture.mime,
-      upsert: false,
-    });
-    assert.equal(metadata.project_id, projectId);
-    assert.equal(metadata.uploaded_by, userId);
-    assert.equal(metadata.kind, fixture.kind);
-    assert.equal(metadata.original_filename, fixture.filename);
-    assert.equal(metadata.content_type, fixture.mime);
-    assert.equal(metadata.byte_size, Buffer.byteLength(fixture.source));
-    assert.equal(
-      metadata.sha256,
-      createHash("sha256").update(fixture.source).digest("hex"),
-    );
-    assert.equal(metadata.immutable, true);
-    assert.equal(metadata.storage_path, stored.path);
-    assert.deepEqual(observations.priorFileFilters.slice(-1)[0], [
-      "kind",
-      fixture.kind,
+    assert.equal(observations.storageDownloads.length, 0);
+    assert.equal(observations.storageRemovals.length, 0);
+    assert.deepEqual(observations.verificationFilters, [
+      ["id", fixture.verificationId],
+    ]);
+    assert.deepEqual(observations.finalizationCalls, [
+      {
+        args: {
+          p_actor_id: userId,
+          p_project_id: projectId,
+          p_verification_id: fixture.verificationId,
+        },
+        name: "lukas_qto_finalize_verified_upload",
+      },
     ]);
   }
+});
+
+test("upload finalization rejects a browser-only verification claim without touching Storage", async () => {
+  const { adminClient, client, observations, projectId } = uploadActionFixture(
+    Buffer.alloc(99),
+  );
+  globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+  globalThis[adminClientFactoryKey] = () => adminClient;
+  const formData = new FormData();
+  formData.set("intent", "upload");
+  formData.set(
+    "upload_verification_id",
+    "00000000-0000-4000-8000-000000000031",
+  );
+
+  const response = await projectAction.action({
+    request: new Request(`http://app.test/projects/${projectId}`, {
+      method: "POST",
+      body: formData,
+    }),
+    params: { projectId },
+  });
+
+  assert.equal(response.init.status, 400);
+  assert.equal(observations.finalizationCalls.length, 0);
+  assert.equal(observations.storageDownloads.length, 0);
+  assert.deepEqual(observations.storageRemovals, []);
+});
+
+test("replaying a consumed verification returns the same immutable file without deleting bytes", async () => {
+  const source = Buffer.from("%PDF-1.7\ntrusted source\n");
+  const createdFileId = "00000000-0000-4000-8000-000000000011";
+  const verificationId = "00000000-0000-4000-8000-000000000031";
+  const identities = {
+    ownerId: "00000000-0000-4000-8000-000000000002",
+    projectId: "00000000-0000-4000-8000-000000000001",
+    userId: "00000000-0000-4000-8000-000000000003",
+  };
+  const upload = verifiedUploadFixture({
+    createdFileId,
+    filename: "A-101.pdf",
+    kind: "pdf",
+    mime: "application/pdf",
+    objectId: "00000000-0000-4000-8000-000000000021",
+    source,
+    verificationId,
+    ...identities,
+  });
+  upload.verifiedUpload.consumed_file_id = createdFileId;
+  const { adminClient, client, observations, projectId } = uploadActionFixture(
+    source,
+    upload,
+  );
+  globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+  globalThis[adminClientFactoryKey] = () => adminClient;
+  const formData = new FormData();
+  formData.set("intent", "upload");
+  formData.set("upload_verification_id", verificationId);
+
+  const response = await projectAction.action({
+    request: new Request(`http://app.test/projects/${projectId}`, {
+      method: "POST",
+      body: formData,
+    }),
+    params: { projectId },
+  });
+
+  assert.equal(response.status, 302);
+  assert.match(response.headers.get("location"), new RegExp(createdFileId));
+  assert.equal(observations.finalizationCalls.length, 1);
+  assert.equal(observations.storageDownloads.length, 0);
+  assert.deepEqual(observations.storageRemovals, []);
+});
+
+test("atomic finalization failure preserves the verified object for a safe retry", async () => {
+  const source = Buffer.from("%PDF-1.7\nverified source\n");
+  const verificationId = "00000000-0000-4000-8000-000000000031";
+  const identities = {
+    ownerId: "00000000-0000-4000-8000-000000000002",
+    projectId: "00000000-0000-4000-8000-000000000001",
+    userId: "00000000-0000-4000-8000-000000000003",
+  };
+  const upload = verifiedUploadFixture({
+    createdFileId: "00000000-0000-4000-8000-000000000011",
+    filename: "A-101.pdf",
+    kind: "pdf",
+    mime: "application/pdf",
+    objectId: "00000000-0000-4000-8000-000000000021",
+    source,
+    verificationId,
+    ...identities,
+  });
+  const { adminClient, client, observations, projectId } = uploadActionFixture(
+    source,
+    {
+      ...upload,
+      finalizationError: { code: "XX000", message: "database unavailable" },
+    },
+  );
+  globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+  globalThis[adminClientFactoryKey] = () => adminClient;
+  const formData = new FormData();
+  formData.set("intent", "upload");
+  formData.set("upload_verification_id", verificationId);
+
+  const response = await projectAction.action({
+    request: new Request(`http://app.test/projects/${projectId}`, {
+      method: "POST",
+      body: formData,
+    }),
+    params: { projectId },
+  });
+
+  assert.equal(response.init.status, 500);
+  assert.match(response.data.error, /파일 기록에 실패/);
+  assert.equal(observations.finalizationCalls.length, 1);
+  assert.deepEqual(observations.storageRemovals, []);
 });
 
 test("private route tree retains both the legacy room and the workspace", () => {

@@ -19,6 +19,7 @@ packages has been modified or copied into this repository.
 | @hocuspocus/server   | 4.6.0          | https://github.com/ueberdosis/hocuspocus       | MIT        | No       | npm         | Node collaboration service runtime            |
 | y-protocols          | 1.0.7          | https://github.com/yjs/y-protocols             | MIT        | No       | npm         | Awareness protocol types and helpers          |
 | jose                 | 6.2.10         | https://github.com/panva/jose                  | MIT        | No       | npm         | Supabase asymmetric JWT verification          |
+| tus-js-client        | 4.3.1          | https://github.com/tus/tus-js-client           | MIT        | No       | npm         | Resumable direct-to-Storage uploads           |
 
 ## P7 Drawing dependency closure
 
@@ -64,3 +65,36 @@ gate. Package paths distinguish independently installed versions.
 The drawing dependency closure is permissive-only. IFC source parsing and
 derivative generation run outside this browser package; the client verifies and
 renders immutable, self-contained GLB plus its semantic manifest with Three.js.
+
+## Resumable upload dependency closure
+
+This is the exact direct and transitive closure of `tus-js-client@4.3.1` in the
+reviewed lockfile. Package paths distinguish independently installed versions.
+
+| Package path                                          | Version | License      |
+| ----------------------------------------------------- | ------- | ------------ |
+| node_modules/buffer-from                              | 1.1.2   | MIT          |
+| node_modules/combine-errors                           | 3.0.3   | MIT          |
+| node_modules/custom-error-instance                    | 2.1.1   | ISC          |
+| node_modules/graceful-fs                              | 4.2.11  | ISC          |
+| node_modules/is-stream                                | 2.0.1   | MIT          |
+| node_modules/js-base64                                | 3.9.3   | BSD-3-Clause |
+| node_modules/lodash.\_baseiteratee                    | 4.7.0   | MIT          |
+| node_modules/lodash.\_basetostring                    | 4.12.0  | MIT          |
+| node_modules/lodash.\_baseuniq                        | 4.6.0   | MIT          |
+| node_modules/lodash.\_createset                       | 4.0.3   | MIT          |
+| node_modules/lodash.\_root                            | 3.0.1   | MIT          |
+| node_modules/lodash.\_stringtopath                    | 4.8.0   | MIT          |
+| node_modules/lodash.throttle                          | 4.1.1   | MIT          |
+| node_modules/lodash.uniqby                            | 4.5.0   | MIT          |
+| node_modules/proper-lockfile                          | 4.1.2   | MIT          |
+| node_modules/proper-lockfile/node_modules/signal-exit | 3.0.7   | ISC          |
+| node_modules/querystringify                           | 2.2.0   | MIT          |
+| node_modules/requires-port                            | 1.0.0   | MIT          |
+| node_modules/retry                                    | 0.12.0  | MIT          |
+| node_modules/tus-js-client                            | 4.3.1   | MIT          |
+| node_modules/url-parse                                | 1.5.10  | MIT          |
+
+`buffer-from` declares MIT in its installed package manifest. `combine-errors`
+declares MIT in its bundled `Readme.md`; its registry and lock metadata omit the
+license field. All licenses in this upload closure are permissive.

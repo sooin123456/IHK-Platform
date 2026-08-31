@@ -295,8 +295,24 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
       // Show custom 404 page for "not found" errors
       return <NotFound />;
     }
-    message = "Error";
-    details = error.statusText || details;
+    const responseMessage =
+      typeof error.data === "string"
+        ? error.data
+        : error.data &&
+            typeof error.data === "object" &&
+            "message" in error.data &&
+            typeof error.data.message === "string"
+          ? error.data.message
+          : "";
+    if (error.status === 413) {
+      message = responseMessage ? "요청 처리 실패" : "파일 업로드 실패";
+      details =
+        responseMessage ||
+        "파일이 기존 서버 전송 한도를 넘었습니다. 파일 페이지에서 다시 시도해주세요.";
+    } else {
+      message = "오류";
+      details = responseMessage || error.statusText || details;
+    }
   } else if (error && error instanceof Error) {
     // Handle JavaScript errors
     if (

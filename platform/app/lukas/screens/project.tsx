@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "database.types";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import {
   ArrowRight,
@@ -26,6 +26,7 @@ import {
   useLocation,
   useNavigation,
   useSearchParams,
+  useSubmit,
 } from "react-router";
 import { z } from "zod";
 
@@ -63,7 +64,17 @@ import {
   projectUploadDestination,
   type ProjectFileKind,
 } from "~/lukas/lib/drawing-entry";
-import { storageObjectPath } from "~/lukas/lib/storage-object-key.server";
+import { uploadProjectFileResumable } from "~/lukas/lib/project-file-upload";
+import {
+  finalizedProjectUploadSchema,
+  uploadVerificationIdSchema,
+  verifiedProjectUploadSchema,
+} from "~/lukas/lib/project-file-verification.server";
+import {
+  isProjectStorageObjectPath,
+  projectSourceUploadDirectory,
+  storageObjectPath,
+} from "~/lukas/lib/storage-object-key.server";
 
 const reviewStatuses = ["open", "in_review", "resolved", "blocked"] as const;
 const suggestionDecisions = ["accepted", "rejected", "deferred"] as const;
@@ -86,7 +97,6 @@ const workflowLabels: Record<(typeof workflowStatuses)[number], string> = {
   expert_review: "전문가 검토",
   delivered: "납품 완료",
 };
-const maxUploadBytes = 200 * 1024 * 1024;
 const maxAnalyzedLedgerBytes = 20 * 1024 * 1024;
 const maxTakeoffBundleBytes = 20 * 1024 * 1024;
 
@@ -111,6 +121,43 @@ type MaterialPlanDatabase = Omit<Database, "public"> & {
 
 function asFile(value: FormDataEntryValue | null): File | null {
   return value instanceof File && value.size > 0 ? value : null;
+}
+
+async function readVerifiedElementLedger(
+  client: SupabaseClient<Database>,
+  storagePath: string,
+) {
+  const { data: stream, error } = await client.storage
+    .from("lukas-qto")
+    .download(storagePath)
+    .asStream();
+  if (error || !stream)
+    throw new Error(error?.message ?? "업로드된 파일을 읽지 못했습니다.");
+
+  const hash = createHash("sha256");
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  let byteSize = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteSize += value.byteLength;
+      if (byteSize > maxAnalyzedLedgerBytes) {
+        await reader.cancel();
+        throw new Error("자동 검토용 요소 원장은 20MB까지 지원합니다.");
+      }
+      hash.update(value);
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return {
+    byteSize,
+    bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))),
+    sha256: hash.digest("hex"),
+  };
 }
 
 function kindLabel(kind: string) {
@@ -1125,18 +1172,70 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent !== "upload")
     return data({ error: "알 수 없는 요청입니다." }, { status: 400, headers });
-  const file = asFile(formData.get("source_file"));
-  const kind = String(formData.get("kind") ?? "");
-  if (!file)
+  const verificationIdResult = uploadVerificationIdSchema.safeParse(
+    String(formData.get("upload_verification_id") ?? ""),
+  );
+  if (!verificationIdResult.success)
     return data(
-      { error: "업로드할 파일을 선택하세요." },
+      {
+        error: "업로드 검증 정보를 확인할 수 없습니다. 파일을 다시 올려주세요.",
+      },
       { status: 400, headers },
     );
-  if (!projectFileKinds.includes(kind as ProjectFileKind)) {
-    return data({ error: "파일 종류를 선택하세요." }, { status: 400, headers });
+
+  type AdminClient = Awaited<
+    typeof import("~/core/lib/supa-admin-client.server")
+  >["default"];
+  let adminClient: AdminClient;
+  try {
+    ({ default: adminClient } = await import(
+      "~/core/lib/supa-admin-client.server"
+    ));
+  } catch {
+    return data(
+      {
+        error: "파일 등록 서버를 시작하지 못했습니다. 다시 시도해주세요.",
+      },
+      { status: 500, headers },
+    );
   }
+  const { data: rawVerifiedUpload, error: verifiedUploadError } =
+    await adminClient
+      .from("lukas_qto_verified_uploads")
+      .select(
+        "id, actor_id, project_id, kind, storage_path, original_filename, content_type, byte_size, sha256, expires_at, consumed_file_id",
+      )
+      .eq("id", verificationIdResult.data)
+      .maybeSingle();
+  const verifiedUploadResult =
+    verifiedProjectUploadSchema.safeParse(rawVerifiedUpload);
+  if (verifiedUploadError || !verifiedUploadResult.success)
+    return data(
+      {
+        error: "업로드 검증 정보가 유효하지 않습니다. 파일을 다시 올려주세요.",
+      },
+      { status: 400, headers },
+    );
+  const verifiedUpload = verifiedUploadResult.data;
+  const { byteSize, contentType, kind, originalFilename, sha256, storagePath } =
+    {
+      byteSize: verifiedUpload.byte_size,
+      contentType: verifiedUpload.content_type,
+      kind: verifiedUpload.kind,
+      originalFilename: verifiedUpload.original_filename,
+      sha256: verifiedUpload.sha256,
+      storagePath: verifiedUpload.storage_path,
+    };
+  if (
+    verifiedUpload.actor_id !== user.id ||
+    verifiedUpload.project_id !== project.id
+  )
+    return data(
+      { error: "업로드 검증 정보가 현재 프로젝트와 일치하지 않습니다." },
+      { status: 400, headers },
+    );
   const validatedKind = kind as ProjectFileKind;
-  if (!fileMatchesProjectKind(validatedKind, file.name)) {
+  if (!fileMatchesProjectKind(validatedKind, originalFilename)) {
     return data(
       {
         error: `${kindLabel(validatedKind)}에 맞는 파일을 선택하세요. ${projectFileKindPolicy[validatedKind].help}`,
@@ -1144,225 +1243,205 @@ export async function action({ request, params }: Route.ActionArgs) {
       { status: 400, headers },
     );
   }
-  if (file.size > maxUploadBytes) {
+  if (
+    !isProjectStorageObjectPath({
+      directory: projectSourceUploadDirectory,
+      ownerId: project.owner_id,
+      projectId: project.id,
+      originalFilename,
+      storagePath,
+    })
+  )
     return data(
-      { error: "현재 웹 업로드는 파일당 200MB까지 가능합니다." },
+      { error: "프로젝트 파일 저장 경로가 올바르지 않습니다." },
       { status: 400, headers },
     );
-  }
+  const uploadFailure = (message: string, status = 400) =>
+    data({ error: message }, { status, headers });
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const sha256 = createHash("sha256").update(buffer).digest("hex");
-  const { data: previousFile, error: previousFileError } =
-    kind === "other"
-      ? { data: null, error: null }
-      : await client
-          .from("lukas_qto_files")
-          .select("id, storage_path, byte_size, sha256")
-          .eq("project_id", project.id)
-          .eq("kind", kind)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-  if (previousFileError)
-    return data(
-      { error: "이전 개정 파일을 확인하지 못했습니다." },
-      { status: 500, headers },
+  if (kind === "element_ledger" && byteSize > maxAnalyzedLedgerBytes) {
+    return uploadFailure(
+      "자동 검토용 요소 원장은 20MB까지 지원합니다. 더 큰 파일은 담당자에게 전달하세요.",
     );
-  if (previousFile?.sha256 === sha256)
-    return data(
-      { error: "내용이 같은 파일이 이미 최신 개정으로 등록돼 있습니다." },
-      { status: 409, headers },
-    );
-  let automaticSuggestions: ReturnType<typeof buildElementLedgerSuggestions> =
-    [];
+  }
+  let verifiedSource: Awaited<
+    ReturnType<typeof readVerifiedElementLedger>
+  > | null = null;
   if (kind === "element_ledger") {
-    if (buffer.length > maxAnalyzedLedgerBytes) {
-      return data(
-        {
-          error:
-            "자동 검토용 요소 원장은 20MB까지 지원합니다. 더 큰 파일은 담당자에게 전달하세요.",
-        },
-        { status: 400, headers },
+    try {
+      verifiedSource = await readVerifiedElementLedger(client, storagePath);
+    } catch (error) {
+      return uploadFailure(
+        `업로드된 요소 원장을 읽지 못했습니다: ${error instanceof Error ? error.message : "파일을 읽지 못했습니다."}`,
       );
     }
-    const currentLedgerText = buffer.toString("utf8");
+    if (
+      verifiedSource.byteSize !== byteSize ||
+      verifiedSource.sha256 !== sha256
+    )
+      return uploadFailure(
+        "업로드된 요소 원장의 검증 결과가 달라졌습니다. 다시 올려주세요.",
+      );
+  }
+  let automaticSuggestions: ReturnType<typeof buildElementLedgerSuggestions> =
+    [];
+  let currentLedgerText: string | null = null;
+  if (kind === "element_ledger") {
+    const buffer = verifiedSource?.bytes;
+    if (!buffer) {
+      return uploadFailure("업로드된 요소 원장을 읽지 못했습니다.", 500);
+    }
+    currentLedgerText = buffer.toString("utf8");
     try {
       automaticSuggestions = buildElementLedgerSuggestions(
         currentLedgerText,
         sha256,
       );
     } catch (error) {
-      return data(
-        {
-          error:
-            error instanceof Error
-              ? error.message
-              : "요소 원장을 읽지 못했습니다.",
-        },
-        { status: 400, headers },
+      return uploadFailure(
+        error instanceof Error ? error.message : "요소 원장을 읽지 못했습니다.",
       );
     }
-    if (previousFile) {
-      if (previousFile.byte_size > maxAnalyzedLedgerBytes) {
+  }
+
+  const { data: rawFinalizedUpload, error: finalizationError } =
+    await adminClient.rpc("lukas_qto_finalize_verified_upload", {
+      p_actor_id: user.id,
+      p_project_id: project.id,
+      p_verification_id: verificationIdResult.data,
+    });
+  if (finalizationError) {
+    if (finalizationError.code === "P8U03")
+      return uploadFailure(
+        "파일 검증 시간이 만료됐습니다. 파일을 다시 올려주세요.",
+        410,
+      );
+    if (finalizationError.code === "P8U06")
+      return uploadFailure(
+        "내용이 같은 파일이 이미 최신 개정으로 등록돼 있습니다.",
+        409,
+      );
+    if (finalizationError.code === "P8U04")
+      return uploadFailure("이 프로젝트의 파일을 올릴 권한이 없습니다.", 403);
+    if (["P8U02", "P8U05"].includes(finalizationError.code ?? ""))
+      return uploadFailure(
+        "업로드 검증 정보가 현재 프로젝트와 일치하지 않습니다.",
+      );
+    return uploadFailure("파일 기록에 실패했습니다. 다시 시도해주세요.", 500);
+  }
+  const finalizedUploadResult =
+    finalizedProjectUploadSchema.safeParse(rawFinalizedUpload);
+  if (!finalizedUploadResult.success)
+    return uploadFailure("파일 기록 결과를 확인하지 못했습니다.", 500);
+  const finalizedUpload = finalizedUploadResult.data;
+  if (
+    finalizedUpload.kind !== kind ||
+    finalizedUpload.storagePath !== storagePath ||
+    finalizedUpload.sha256 !== sha256 ||
+    finalizedUpload.byteSize !== byteSize
+  )
+    return uploadFailure(
+      "파일 기록 결과가 검증 정보와 일치하지 않습니다.",
+      500,
+    );
+
+  if (
+    kind === "element_ledger" &&
+    currentLedgerText &&
+    finalizedUpload.previousFileId &&
+    finalizedUpload.previousSha256 &&
+    finalizedUpload.previousStoragePath &&
+    finalizedUpload.previousByteSize !== null
+  ) {
+    if (finalizedUpload.previousByteSize > maxAnalyzedLedgerBytes) {
+      automaticSuggestions.push(
+        revisionComparisonUnavailable(
+          sha256,
+          finalizedUpload.previousSha256,
+          "PREVIOUS_LEDGER_TOO_LARGE",
+        ),
+      );
+    } else {
+      const { data: previousBlob, error: previousDownloadError } =
+        await client.storage
+          .from("lukas-qto")
+          .download(finalizedUpload.previousStoragePath);
+      if (previousDownloadError || !previousBlob) {
         automaticSuggestions.push(
           revisionComparisonUnavailable(
             sha256,
-            previousFile.sha256,
-            "PREVIOUS_LEDGER_TOO_LARGE",
+            finalizedUpload.previousSha256,
+            "PREVIOUS_LEDGER_DOWNLOAD_FAILED",
           ),
         );
       } else {
-        const { data: previousBlob, error: previousDownloadError } =
-          await client.storage
-            .from("lukas-qto")
-            .download(previousFile.storage_path);
-        if (previousDownloadError || !previousBlob) {
+        try {
+          automaticSuggestions.push(
+            ...buildElementLedgerRevisionSuggestions(
+              currentLedgerText,
+              sha256,
+              await previousBlob.text(),
+              finalizedUpload.previousSha256,
+            ),
+          );
+        } catch {
           automaticSuggestions.push(
             revisionComparisonUnavailable(
               sha256,
-              previousFile.sha256,
-              "PREVIOUS_LEDGER_DOWNLOAD_FAILED",
+              finalizedUpload.previousSha256,
+              "PREVIOUS_LEDGER_INVALID",
             ),
           );
-        } else {
-          try {
-            automaticSuggestions.push(
-              ...buildElementLedgerRevisionSuggestions(
-                currentLedgerText,
-                sha256,
-                await previousBlob.text(),
-                previousFile.sha256,
-              ),
-            );
-          } catch {
-            automaticSuggestions.push(
-              revisionComparisonUnavailable(
-                sha256,
-                previousFile.sha256,
-                "PREVIOUS_LEDGER_INVALID",
-              ),
-            );
-          }
         }
       }
     }
   }
-  const originalFilename = file.name || "source-file";
-  const storagePath = storageObjectPath({
-    ownerId: project.owner_id,
-    projectId: project.id,
-    originalFilename,
-  });
-  const { error: storageError } = await client.storage
-    .from("lukas-qto")
-    .upload(storagePath, buffer, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-  if (storageError)
-    return data(
-      { error: `파일 저장 실패: ${storageError.message}` },
-      { status: 400, headers },
-    );
 
-  const { data: createdFile, error: metadataError } = await client
-    .from("lukas_qto_files")
-    .insert({
-      project_id: project.id,
-      uploaded_by: user.id,
-      kind,
-      storage_path: storagePath,
-      original_filename: originalFilename,
-      content_type: file.type || null,
-      byte_size: file.size,
-      sha256,
-      immutable: true,
-    })
-    .select("id")
-    .single();
-  if (metadataError || !createdFile) {
-    await client.storage.from("lukas-qto").remove([storagePath]);
-    return data(
-      {
-        error: `파일 기록 실패: ${metadataError?.message ?? "파일 ID가 없습니다."}`,
-      },
-      { status: 400, headers },
-    );
-  }
-
-  if (automaticSuggestions.length > 0 || previousFile) {
-    let revisionCreated = false;
-    let adminClient:
-      | Awaited<typeof import("~/core/lib/supa-admin-client.server")>["default"]
-      | null = null;
+  if (automaticSuggestions.length > 0) {
     try {
-      ({ default: adminClient } = await import(
-        "~/core/lib/supa-admin-client.server"
-      ));
-      if (previousFile) {
-        const { error: revisionError } = await adminClient
-          .from("lukas_qto_file_revisions")
-          .insert({
+      const batchId = crypto.randomUUID();
+      const { error: suggestionError } = await adminClient
+        .from("lukas_qto_suggestions")
+        .upsert(
+          automaticSuggestions.map((suggestion) => ({
+            batch_id: batchId,
             project_id: project.id,
-            previous_file_id: previousFile.id,
-            previous_sha256: previousFile.sha256,
-            current_file_id: createdFile.id,
-            current_sha256: sha256,
-            relation_kind: "supersedes",
+            file_id: finalizedUpload.fileId,
             created_by: user.id,
-          });
-        if (revisionError)
-          throw new Error(`개정 연결 기록 실패: ${revisionError.message}`);
-        revisionCreated = true;
-      }
-      if (automaticSuggestions.length > 0) {
-        const batchId = crypto.randomUUID();
-        const { error: suggestionError } = await adminClient
-          .from("lukas_qto_suggestions")
-          .insert(
-            automaticSuggestions.map((suggestion) => ({
-              batch_id: batchId,
-              project_id: project.id,
-              file_id: createdFile.id,
-              created_by: user.id,
-              producer_kind: "rule",
-              producer_version: LEDGER_REVIEW_VERSION,
-              source_sha256: sha256,
-              suggestion_kind: suggestion.suggestionKind,
-              subject_key: suggestion.subjectKey,
-              title: suggestion.title,
-              detail: suggestion.detail,
-              confidence: suggestion.confidence,
-              evidence: suggestion.evidence,
-            })),
-          );
-        if (suggestionError)
-          throw new Error(`자동 검토 기록 실패: ${suggestionError.message}`);
-      }
+            producer_kind: "rule",
+            producer_version: LEDGER_REVIEW_VERSION,
+            source_sha256: sha256,
+            suggestion_kind: suggestion.suggestionKind,
+            subject_key: suggestion.subjectKey,
+            title: suggestion.title,
+            detail: suggestion.detail,
+            confidence: suggestion.confidence,
+            evidence: suggestion.evidence,
+          })),
+          {
+            ignoreDuplicates: true,
+            onConflict:
+              "file_id,producer_kind,producer_version,suggestion_kind,subject_key",
+          },
+        );
+      if (suggestionError)
+        console.error("Uploaded ledger suggestion persistence failed", {
+          fileId: finalizedUpload.fileId,
+          message: suggestionError.message,
+          projectId: project.id,
+        });
     } catch (error) {
-      if (revisionCreated && adminClient)
-        await adminClient
-          .from("lukas_qto_file_revisions")
-          .delete()
-          .eq("current_file_id", createdFile.id);
-      await client.from("lukas_qto_files").delete().eq("id", createdFile.id);
-      await client.storage.from("lukas-qto").remove([storagePath]);
-      return data(
-        {
-          error:
-            error instanceof Error
-              ? error.message
-              : "자동 검토·개정 연결 기록에 실패했습니다.",
-        },
-        { status: 400, headers },
-      );
+      console.error("Uploaded ledger suggestion persistence failed", {
+        error,
+        fileId: finalizedUpload.fileId,
+        projectId: project.id,
+      });
     }
   }
 
   return redirect(
     projectUploadDestination({
-      fileId: createdFile.id,
+      fileId: finalizedUpload.fileId,
       kind: validatedKind,
       projectId: project.id,
       returnPath,
@@ -1377,21 +1456,125 @@ export default function Project({
 }: Route.ComponentProps) {
   const { pathname } = useLocation();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const [searchParams] = useSearchParams();
   const requestedUploadKind = searchParams.get("kind");
-  const [uploadKind, setUploadKind] = useState<ProjectFileKind>(
-    () =>
-      projectFileKinds.includes(requestedUploadKind as ProjectFileKind)
-        ? (requestedUploadKind as ProjectFileKind)
-        : "ifc",
+  const [uploadKind, setUploadKind] = useState<ProjectFileKind>(() =>
+    projectFileKinds.includes(requestedUploadKind as ProjectFileKind)
+      ? (requestedUploadKind as ProjectFileKind)
+      : "ifc",
   );
   useEffect(() => {
     if (projectFileKinds.includes(requestedUploadKind as ProjectFileKind))
       setUploadKind(requestedUploadKind as ProjectFileKind);
   }, [requestedUploadKind]);
+  const [directUploadBusy, setDirectUploadBusy] = useState(false);
+  const [directUploadProgress, setDirectUploadProgress] = useState<
+    number | null
+  >(null);
+  const [directUploadError, setDirectUploadError] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    if (navigation.state === "idle") setDirectUploadBusy(false);
+  }, [navigation.state]);
   const uploadBusy =
-    navigation.state !== "idle" &&
-    navigation.formData?.get("intent") === "upload";
+    directUploadBusy ||
+    (navigation.state !== "idle" &&
+      navigation.formData?.get("intent") === "upload");
+  const uploadError =
+    directUploadError ??
+    (actionData && "error" in actionData ? actionData.error : null);
+
+  async function handleSourceUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDirectUploadError(null);
+    setDirectUploadProgress(null);
+    const form = new FormData(event.currentTarget);
+    const file = asFile(form.get("source_file"));
+    const kind = String(form.get("kind") ?? "");
+    if (!file) {
+      setDirectUploadError("업로드할 파일을 선택하세요.");
+      return;
+    }
+    if (!projectFileKinds.includes(kind as ProjectFileKind)) {
+      setDirectUploadError("파일 종류를 선택하세요.");
+      return;
+    }
+
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) {
+      setDirectUploadError("파일 저장소 연결 설정을 확인하지 못했습니다.");
+      return;
+    }
+
+    setDirectUploadBusy(true);
+    try {
+      const { createBrowserClient } = await import("@supabase/ssr");
+      const client = createBrowserClient(url, key);
+      const {
+        data: { session },
+        error: sessionError,
+      } = await client.auth.getSession();
+      if (sessionError || !session?.access_token)
+        throw new Error(
+          "로그인 연결을 확인하지 못했습니다. 다시 로그인해주세요.",
+        );
+      const uploaded = await uploadProjectFileResumable({
+        accessToken: session.access_token,
+        file,
+        kind: kind as ProjectFileKind,
+        onProgress: setDirectUploadProgress,
+        ownerId: loaderData.project.owner_id,
+        projectId: loaderData.project.id,
+        supabaseUrl: url,
+      });
+      setDirectUploadProgress(100);
+      const { data: verification, error: verificationError } =
+        await client.functions.invoke("lukas-qto-upload-verify", {
+          body: uploaded,
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+      if (verificationError) {
+        let message = verificationError.message;
+        const context = (verificationError as { context?: Response }).context;
+        if (context) {
+          try {
+            const payload = (await context.clone().json()) as {
+              error?: unknown;
+            };
+            if (typeof payload.error === "string") message = payload.error;
+          } catch {
+            // The SDK message is still useful when the response is not JSON.
+          }
+        }
+        throw new Error(`파일 검증 실패: ${message}`);
+      }
+      const verificationId =
+        verification && typeof verification.verificationId === "string"
+          ? verification.verificationId
+          : null;
+      if (!verificationId)
+        throw new Error("파일 검증 완료 정보를 받지 못했습니다.");
+      submit(
+        {
+          intent: "upload",
+          upload_verification_id: verificationId,
+        },
+        { method: "post" },
+      );
+    } catch (error) {
+      setDirectUploadBusy(false);
+      setDirectUploadError(
+        error instanceof Error
+          ? error.message
+          : "파일 업로드에 실패했습니다. 다시 시도해주세요.",
+      );
+    }
+  }
   const view: ProjectWorkspaceView = pathname.endsWith("/files")
     ? "files"
     : pathname.endsWith("/quantities")
@@ -1634,13 +1817,13 @@ export default function Project({
         projectId={loaderData.project.id}
       />
 
-      {actionData && "error" in actionData ? (
+      {uploadError ? (
         <p
           aria-live="assertive"
           className="mt-5 rounded-xl bg-destructive/10 p-3 text-sm text-destructive"
           role="alert"
         >
-          {actionData.error}
+          {uploadError}
         </p>
       ) : null}
 
@@ -1868,8 +2051,8 @@ export default function Project({
               </div>
               <Form
                 className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
-                encType="multipart/form-data"
                 method="post"
+                onSubmit={handleSourceUpload}
               >
                 <input name="intent" type="hidden" value="upload" />
                 <div className="grid gap-2">
@@ -1915,12 +2098,18 @@ export default function Project({
                   disabled={uploadBusy}
                   type="submit"
                 >
-                  {uploadBusy ? "업로드 중…" : "파일 업로드"}
+                  {uploadBusy
+                    ? directUploadProgress === null
+                      ? "원본 저장 준비 중…"
+                      : directUploadProgress < 100
+                        ? `원본 저장 ${directUploadProgress}%`
+                        : "원본 검증 중…"
+                    : "파일 업로드"}
                 </Button>
               </Form>
               <p className="mt-4 text-xs text-muted-foreground">
-                파일당 최대 200MB · 올린 원본은 바뀌지 않아 이후 결과와 안전하게
-                비교할 수 있습니다.
+                파일당 최대 200MB · 원본은 브라우저에서 암호화 연결로 바로
+                저장되며 이후 결과와 안전하게 비교할 수 있습니다.
               </p>
             </section>
 

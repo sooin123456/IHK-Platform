@@ -1,0 +1,2 @@
+[functions.lukas-qto-upload-verify]
+verify_jwt = true
