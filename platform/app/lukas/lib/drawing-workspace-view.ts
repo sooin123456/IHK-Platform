@@ -1,4 +1,7 @@
-import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
+import type {
+  DrawingWorkspaceCapability,
+  DrawingWorkspaceFile,
+} from "./drawing-workspace.server.ts";
 import { containPdfSource } from "./drawing-geometry.ts";
 import {
   pdfNormalizedRegionToWorldBounds,
@@ -287,7 +290,7 @@ export function drawingRevisionDecisionFields(input: {
 }
 
 type WorkspaceSurfaceInput = {
-  file: { kind: "pdf" | "ifc" } | null;
+  file: { kind: DrawingWorkspaceFile["kind"] } | null;
   page: {
     width: number;
     height: number;

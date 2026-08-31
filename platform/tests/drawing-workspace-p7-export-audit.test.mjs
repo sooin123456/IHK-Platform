@@ -130,6 +130,7 @@ test("drawing export audit posts to the canonical workspace identity", async () 
       `/projects/${projectId}/workspaces/${workspaceId}/export`,
     );
     assert.equal(calls[0][1].method, "POST");
+    assert.equal(calls[0][1].body.get("revision_id"), revisionId);
     assert.doesNotMatch(calls[0][0], /\/drawings\//);
   } finally {
     globalThis.fetch = original.fetch;
@@ -170,7 +171,7 @@ test("drawing export scope binds canonical workspace/revision and preserves lega
               });
             if (table === "lukas_drawing_documents")
               return Promise.resolve({
-                data: { id: workspaceId, source_file_id: sourceFileId },
+                data: { id: workspaceId, source_file_id: null },
               });
             return Promise.resolve({ data: { id: sourceFileId } });
           },
@@ -193,6 +194,10 @@ test("drawing export scope binds canonical workspace/revision and preserves lega
       ["id", workspaceId],
       ["project_id", projectId],
     ]);
+    assert.equal(
+      calls.some((call) => call.table === "lukas_qto_files"),
+      false,
+    );
 
     calls.length = 0;
     await validateDrawingExportScope(client, {
@@ -205,6 +210,65 @@ test("drawing export scope binds canonical workspace/revision and preserves lega
       calls.map((call) => call.table),
       ["lukas_drawing_revisions", "lukas_drawing_documents", "lukas_qto_files"],
     );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("canonical export rejects mismatched workspace/revision before audit", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  let auditReached = false;
+  const calls = [];
+  try {
+    const { validateDrawingExportScope } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.ts",
+    );
+    const client = {
+      from(table) {
+        calls.push(table);
+        const builder = {
+          select() {
+            return builder;
+          },
+          eq() {
+            return builder;
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data:
+                table === "lukas_drawing_revisions"
+                  ? {
+                      id: revisionId,
+                      document_id: "74000000-0000-4000-8000-000000000099",
+                    }
+                  : { id: workspaceId, source_file_id: null },
+            });
+          },
+        };
+        return builder;
+      },
+    };
+    await assert.rejects(
+      (async () => {
+        await validateDrawingExportScope(client, {
+          fileId: null,
+          projectId,
+          revisionId,
+          workspaceId,
+        });
+        auditReached = true;
+      })(),
+      (error) => error instanceof Response && error.status === 404,
+    );
+    assert.equal(auditReached, false);
+    assert.deepEqual(calls, [
+      "lukas_drawing_revisions",
+      "lukas_drawing_documents",
+    ]);
   } finally {
     await vite.close();
   }

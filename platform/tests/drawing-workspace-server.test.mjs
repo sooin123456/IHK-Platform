@@ -2066,6 +2066,215 @@ function queryClient(responses) {
   };
 }
 
+function canonicalLoaderResponses(overrides = {}) {
+  return {
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        original_filename: "A-101.pdf",
+        storage_path: "projects/source.pdf",
+        content_type: "application/pdf",
+        byte_size: 1234,
+        sha256: sourceSha,
+        immutable: true,
+        created_at: "2026-08-24T00:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+        title: "A-101",
+        created_by: ids.actor,
+        created_at: "2026-08-24T00:00:00.000Z",
+        updated_at: "2026-08-24T01:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        parent_revision_id: null,
+        sequence: 1,
+        status: "draft",
+        version: 1,
+        created_by: ids.actor,
+        review_requested_at: null,
+        approved_at: null,
+        created_at: "2026-08-24T00:00:00.000Z",
+        updated_at: "2026-08-24T01:00:00.000Z",
+      },
+      error: null,
+    },
+    ...overrides,
+  };
+}
+
+function assertDrawingGraphNotLoaded(client) {
+  for (const table of [
+    "lukas_drawing_canvases",
+    "lukas_drawing_pages",
+    "lukas_drawing_layers",
+    "lukas_drawing_objects",
+  ])
+    assert.equal(
+      client.calls.some((call) => call.table === table),
+      false,
+      `${table} must not load after identity rejection`,
+    );
+}
+
+test("canonical loader returns bounded 404 when the exact document is absent", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_drawing_documents: { data: null, error: null },
+    }),
+  );
+  await assert.rejects(
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assert.equal(
+    client.calls.some((call) => call.table === "lukas_drawing_revisions"),
+    false,
+  );
+  assertDrawingGraphNotLoaded(client);
+});
+
+test("canonical loader returns bounded 404 when the exact requested revision is absent", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_drawing_revisions: { data: null, error: null },
+    }),
+  );
+  await assert.rejects(
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+      revisionId: ids.revision,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  const revisionCall = client.calls.find(
+    (call) => call.table === "lukas_drawing_revisions",
+  );
+  assert.deepEqual(revisionCall.filters, [
+    ["eq", "project_id", ids.project],
+    ["eq", "document_id", ids.document],
+    ["eq", "id", ids.revision],
+  ]);
+  assert.equal(
+    client.calls.some((call) => call.table === "lukas_qto_files"),
+    false,
+  );
+  assertDrawingGraphNotLoaded(client);
+});
+
+test("canonical loader rejects document/revision ancestry before source or graph loading", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_drawing_documents: {
+        data: {
+          id: ids.document,
+          project_id: ids.project,
+          source_file_id: null,
+          source_sha256: null,
+          title: "Blank",
+          created_by: ids.actor,
+          created_at: "2026-08-24T00:00:00.000Z",
+          updated_at: "2026-08-24T01:00:00.000Z",
+        },
+        error: null,
+      },
+      lukas_drawing_revisions: {
+        data: {
+          id: ids.revision,
+          document_id: "00000000-0000-4000-8000-000000000099",
+          project_id: ids.project,
+          parent_revision_id: null,
+          sequence: 1,
+          status: "draft",
+          version: 1,
+          created_by: ids.actor,
+          review_requested_at: null,
+          approved_at: null,
+          created_at: "2026-08-24T00:00:00.000Z",
+          updated_at: "2026-08-24T01:00:00.000Z",
+        },
+        error: null,
+      },
+    }),
+  );
+  await assert.rejects(
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
+    /Drawing document ancestry is invalid/,
+  );
+  assert.equal(
+    client.calls.some((call) => call.table === "lukas_qto_files"),
+    false,
+  );
+  assertDrawingGraphNotLoaded(client);
+});
+
+test("canonical loader returns bounded 404 when a source-backed document has no source row", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_qto_files: { data: null, error: null },
+    }),
+  );
+  await assert.rejects(
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assertDrawingGraphNotLoaded(client);
+});
+
+test("canonical loader returns bounded 404 when immutable source SHA differs", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_qto_files: {
+        data: {
+          id: ids.file,
+          project_id: ids.project,
+          kind: "pdf",
+          original_filename: "A-101.pdf",
+          storage_path: "projects/source.pdf",
+          content_type: "application/pdf",
+          byte_size: 1234,
+          sha256: "b".repeat(64),
+          immutable: true,
+          created_at: "2026-08-24T00:00:00.000Z",
+        },
+        error: null,
+      },
+    }),
+  );
+  await assert.rejects(
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assertDrawingGraphNotLoaded(client);
+});
+
 test("document-first loader accepts a workspace without a primary source", async () => {
   const client = queryClient({
     lukas_drawing_documents: {
