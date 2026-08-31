@@ -11,7 +11,7 @@ const p7Fixture = new URL(
   import.meta.url,
 );
 
-test("a fresh Supabase-compatible PostgreSQL replays every committed migration", async () => {
+test("a fresh Supabase-compatible PostgreSQL replays every migration and returns a newly owned project", async () => {
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
     await db.exec(`
@@ -80,6 +80,42 @@ test("a fresh Supabase-compatible PostgreSQL replays every committed migration",
       restores: "lukas_qto_restore_runs",
       ifc_derivatives: "lukas_drawing_ifc_derivatives",
     });
+
+    const firstProjectOwner = "70000000-0000-4000-8000-000000000901";
+    await db.query(
+      `insert into auth.users(id,email,email_confirmed_at,is_anonymous)
+       values($1,'first-project@example.com',clock_timestamp(),false)`,
+      [firstProjectOwner],
+    );
+    await db.exec("set role authenticated");
+    await db.query(
+      "select set_config('request.jwt.claims',$1,false)",
+      [
+        JSON.stringify({
+          sub: firstProjectOwner,
+          role: "authenticated",
+          email: "first-project@example.com",
+          is_anonymous: false,
+        }),
+      ],
+    );
+    const { rows: createdProjects } = await db.query(
+      `insert into public.lukas_qto_projects(
+         owner_id,name,description,contact_name,contact_phone,workflow_status
+       ) values($1,'첫 프로젝트','','','','inquiry_received')
+       returning id,owner_id,organization_id`,
+      [firstProjectOwner],
+    );
+    assert.equal(createdProjects.length, 1);
+    assert.equal(createdProjects[0].owner_id, firstProjectOwner);
+    assert.ok(createdProjects[0].organization_id);
+    await db.exec("reset role");
+    const { rows: ownerMemberships } = await db.query(
+      `select role from public.lukas_qto_project_members
+       where project_id=$1 and user_id=$2`,
+      [createdProjects[0].id, firstProjectOwner],
+    );
+    assert.deepEqual(ownerMemberships, [{ role: "owner" }]);
 
     await db.exec(await readFile(p7Fixture, "utf8"));
     const { rows: prerequisites } = await db.query(`select

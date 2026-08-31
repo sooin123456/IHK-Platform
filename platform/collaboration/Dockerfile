@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./tsconfig.json
+COPY database.types.ts gltf-validator.d.ts ./
 COPY app ./app
 COPY collaboration ./collaboration
 RUN npm run build:collaboration

@@ -1,0 +1,80 @@
+<h2>1HK Universal Workspace — 구조와 화면 방향</h2>
+<p class="subtitle">파일을 여는 제품이 아니라, 작업실을 만들고 근거를 연결해 수량·금액을 확정하는 제품입니다.</p>
+
+<div class="section">
+  <div class="label">제품 구조</div>
+  <div style="display:grid;grid-template-columns:1fr 52px 1.15fr 52px 1.2fr;align-items:center;gap:10px;margin-top:12px">
+    <div style="border:2px solid #6c63ff;border-radius:14px;padding:18px;background:#f7f6ff">
+      <strong>프로젝트</strong>
+      <p style="margin:7px 0 0">새 작업실 · 기존 작업실 · 회사 템플릿</p>
+    </div>
+    <div style="text-align:center;font-size:24px;color:#6c63ff">→</div>
+    <div style="border:2px solid #6c63ff;border-radius:14px;padding:18px;background:#f7f6ff">
+      <strong>Universal Workspace</strong>
+      <p style="margin:7px 0 0">2D 캔버스 · 표 · PDF · IFC · 분할 보기</p>
+    </div>
+    <div style="text-align:center;font-size:24px;color:#6c63ff">→</div>
+    <div style="border:2px solid #21835a;border-radius:14px;padding:18px;background:#f1fbf6">
+      <strong>결과와 계보</strong>
+      <p style="margin:7px 0 0">근거 → 수량 → 단가 → 금액 → 검토 → 승인</p>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px">
+    <div style="border:1px solid #ddd;border-radius:10px;padding:12px"><strong>빈 작업실</strong><br><small>수기·실측·가정값</small></div>
+    <div style="border:1px solid #ddd;border-radius:10px;padding:12px"><strong>업무 템플릿</strong><br><small>산출식·레이어·내역 구조</small></div>
+    <div style="border:1px solid #ddd;border-radius:10px;padding:12px"><strong>원본 가져오기</strong><br><small>PDF·이미지·IFC·CAD·Excel</small></div>
+    <div style="border:1px solid #ddd;border-radius:10px;padding:12px"><strong>현장 수집</strong><br><small>사진·메모·실측값</small></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">어떤 기본 화면이 적산 담당자에게 가장 맞을까요?</div>
+  <div class="cards" style="margin-top:12px">
+    <div class="card" data-choice="a" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:12px;background:#f7f8fa">
+        <div style="height:24px;background:#20242b;color:white;padding:5px 8px;border-radius:5px;font-size:11px">프로젝트 · 저장 · 참여자 · 검토 요청</div>
+        <div style="display:grid;grid-template-columns:70px 1fr 118px;gap:6px;height:155px;margin-top:6px">
+          <div style="background:#e9ecf1;border-radius:5px;padding:7px;font-size:10px">소스<br>페이지<br>레이어<br>템플릿<br>내역<br>이력</div>
+          <div style="background:white;border:1px solid #cfd4dc;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px">도면 / 캔버스</div>
+          <div style="background:#eef8f3;border:1px solid #b6d8c7;border-radius:5px;padding:7px;font-size:10px">객체<br>근거<br>수량<br>단가<br>금액<br>검토상태</div>
+        </div>
+        <div style="height:22px;background:#303640;color:white;border-radius:5px;margin-top:6px;padding:4px;text-align:center;font-size:10px">작성 · 측정 · 댓글 도구</div>
+      </div>
+      <div class="card-body">
+        <h3>A. 캔버스 + 결과 레일 <span style="color:#21835a;font-size:12px">추천</span></h3>
+        <p>도면을 보면서 오른쪽에서 근거·수량·금액을 항상 확인합니다. 별도 견적표는 필요할 때 확장합니다.</p>
+      </div>
+    </div>
+
+    <div class="card" data-choice="b" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:12px;background:#f7f8fa">
+        <div style="height:24px;background:#20242b;color:white;padding:5px 8px;border-radius:5px;font-size:11px">프로젝트 · 파일 · 공동 작업</div>
+        <div style="display:grid;grid-template-columns:70px 1fr;gap:6px;height:155px;margin-top:6px">
+          <div style="background:#e9ecf1;border-radius:5px;padding:7px;font-size:10px">페이지<br>레이어<br>블록<br>스타일</div>
+          <div style="background:white;border:1px solid #cfd4dc;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px">큰 도면 캔버스</div>
+        </div>
+        <div style="height:22px;background:#303640;color:white;border-radius:5px;margin-top:6px;padding:4px;text-align:center;font-size:10px">그리기 도구 · 견적은 별도 탭</div>
+      </div>
+      <div class="card-body">
+        <h3>B. CAD·Figma형 캔버스 중심</h3>
+        <p>작성 경험은 넓고 익숙하지만 수량·금액 연결이 뒤로 숨으며, Rayon과 차이가 약해집니다.</p>
+      </div>
+    </div>
+
+    <div class="card" data-choice="c" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:12px;background:#f7f8fa">
+        <div style="height:24px;background:#20242b;color:white;padding:5px 8px;border-radius:5px;font-size:11px">견적 작업실 · 개정 · 승인</div>
+        <div style="height:104px;background:white;border:1px solid #cfd4dc;border-radius:5px;margin-top:6px;display:flex;align-items:center;justify-content:center;font-size:11px">도면 / 원본 근거</div>
+        <div style="height:72px;background:#eef8f3;border:1px solid #b6d8c7;border-radius:5px;margin-top:6px;padding:8px;font-size:10px">고정된 하단 견적표<br>공종 · 품목 · 수량 · 단가 · 금액 · 근거상태</div>
+      </div>
+      <div class="card-body">
+        <h3>C. 도면 + 고정 견적표</h3>
+        <p>견적에는 강하지만 세로 공간이 줄고, 작성·검토·IFC 작업에서는 화면이 답답해집니다.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="padding:14px 16px;border-radius:12px;background:#fff7e8;border:1px solid #f1d39b">
+  <strong>추천:</strong> A를 기본으로 하고, 상세 견적 작업 때만 오른쪽 결과 레일을 전체 표 화면으로 전환합니다.
+</div>

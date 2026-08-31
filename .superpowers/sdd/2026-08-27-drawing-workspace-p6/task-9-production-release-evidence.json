@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "phase": "production",
+  "commit": "d7e62ba13e769e4e7edb6da80cdcfdd2dd454dcb",
+  "migrationIds": [
+    "20260827210000"
+  ],
+  "generatedAt": "2026-08-31T02:27:50.611Z",
+  "authorities": {
+    "advisors": "UNEXECUTED",
+    "attacker": "UNEXECUTED",
+    "backupRestore": "UNEXECUTED",
+    "browser": "UNEXECUTED",
+    "build": "UNEXECUTED",
+    "collaborationTypecheck": "UNEXECUTED",
+    "deployedExport": "UNEXECUTED",
+    "deployedRoute": "UNEXECUTED",
+    "diff": "UNEXECUTED",
+    "format": "UNEXECUTED",
+    "hostedMigrations": "UNEXECUTED",
+    "license": "UNEXECUTED",
+    "makerApprover": "UNEXECUTED",
+    "metrics": "UNEXECUTED",
+    "mountedRoute": "UNEXECUTED",
+    "p5": "UNEXECUTED",
+    "performance": "UNEXECUTED",
+    "pglite": "UNEXECUTED",
+    "pure": "UNEXECUTED",
+    "realPostgres": "UNEXECUTED",
+    "rlsConcurrency": "UNEXECUTED",
+    "server": "UNEXECUTED",
+    "signedUrl": "UNEXECUTED",
+    "storageCors": "UNEXECUTED",
+    "twoUsers": "UNEXECUTED",
+    "typecheck": "UNEXECUTED"
+  },
+  "hashes": {
+    "csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "handoff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "manifest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "result": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sourceAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sourceBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "xlsx": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "metrics": {
+    "calculationManifestP95Ms": null,
+    "comparisonP95Ms": null,
+    "lineageP95Ms": null,
+    "peakRssMiB": null,
+    "repeatedRuns": 0
+  },
+  "gates": {
+    "local": "UNEXECUTED",
+    "production": "UNEXECUTED"
+  }
+}
