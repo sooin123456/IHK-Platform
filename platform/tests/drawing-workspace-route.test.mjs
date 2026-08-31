@@ -263,7 +263,7 @@ test("workspace action failures use the bounded Korean recovery union", async ()
   }
 });
 
-test("workspace action retains review freeze and estimate client request IDs", () => {
+test("workspace action retains review freeze and estimate correlation IDs", async () => {
   const requestId = workspaceScreen.actionRequestId;
   assert.equal(typeof requestId, "function");
   const review = new FormData();
@@ -274,6 +274,18 @@ test("workspace action retains review freeze and estimate client request IDs", (
   estimate.set("intent", "bind_drawing_estimate");
   estimate.set("client_request_id", ids.document);
   assert.equal(requestId(estimate), ids.document);
+  const retry = await workspaceScreen.drawingWorkspaceActionErrorResponse(
+    new workspaceServer.DrawingWorkspaceRetryableError("transient"),
+    { requestId: requestId(estimate) },
+  );
+  assert.equal(retry.status, 503);
+  assert.equal(retry.body.requestId, ids.document);
+
+  const malformed = new FormData();
+  malformed.set("client_request_id", "not-a-uuid");
+  const fallback = requestId(malformed);
+  assert.match(fallback, /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
+  assert.notEqual(fallback, "not-a-uuid");
 });
 
 test("general action workspace loading bounds validation, conflict, and retry failures", async () => {

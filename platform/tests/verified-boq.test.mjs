@@ -136,6 +136,59 @@ test("verified BOQ renders a source-free canonical workspace link independently 
   assert.doesNotMatch(html, /PDF 근거 열기|IFC 근거 열기/);
 });
 
+test("verified BOQ renders no dead workspace or evidence link for a draft row", () => {
+  const html = renderToStaticMarkup(
+    createElement(RouterProvider, {
+      router: createMemoryRouter(
+        [
+          {
+            path: "/",
+            element: createElement(
+              verifiedBoqDrawingSources.VerifiedBoqDrawingSources,
+              {
+                boqVersionId: "40000000-0000-4000-8000-000000000005",
+                editable: true,
+                lines: [],
+                rows: [
+                  {
+                    quantity: {
+                      id: "40000000-0000-4000-8000-000000000007",
+                      drawingObjectId: "40000000-0000-4000-8000-000000000004",
+                      drawingObjectLineageId:
+                        "40000000-0000-4000-8000-000000000004",
+                      drawingRevisionVersion: 2,
+                      drawingObjectVersion: 3,
+                      measurementRuleVersion: "P4_MEASUREMENT_V1",
+                      measurementKind: "area",
+                      rawQuantity: "4.75",
+                      unit: "m2",
+                      drawingSnapshotSha256: "a".repeat(64),
+                    },
+                    allocationTotal: "1",
+                    links: [
+                      {
+                        id: "40000000-0000-4000-8000-000000000009",
+                        boqLineId: "40000000-0000-4000-8000-000000000006",
+                        quantityLinkId: "40000000-0000-4000-8000-000000000007",
+                        allocationFactor: "1",
+                        version: 1,
+                        workspaceHref: null,
+                        evidenceHrefs: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ),
+          },
+        ],
+        { initialEntries: ["/"] },
+      ),
+    }),
+  );
+  assert.doesNotMatch(html, /도면 작업실 열기|PDF 근거 열기|IFC 근거 열기/);
+});
+
 test("verified BOQ return path accepts only the exact same-project canonical workspace", () => {
   const parse = verifiedBoqScreen.parseVerifiedBoqReturnTo;
   assert.equal(typeof parse, "function");

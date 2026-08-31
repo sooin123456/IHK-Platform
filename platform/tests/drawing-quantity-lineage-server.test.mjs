@@ -1673,6 +1673,37 @@ test("verified BOQ source-free links expose the canonical workspace without a fi
   assert.equal(client.tables.includes("lukas_qto_files"), false);
 });
 
+test("verified BOQ workspace links require an approved or superseded frozen version", async () => {
+  const document = "00000000-0000-4000-8000-000000000127";
+  const expected = `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}`;
+  for (const [name, version, approvals, workspaceHref] of [
+    ["draft", boqVersionFixture("draft"), undefined, null],
+    ["approved", boqVersionFixture("approved"), undefined, expected],
+    ["superseded", boqVersionFixture("superseded"), undefined, expected],
+    [
+      "approved without frozen hashes",
+      boqVersionFixture("approved", { result_sha256: null }),
+      undefined,
+      null,
+    ],
+    ["approved without a decision", boqVersionFixture("approved"), [], null],
+  ]) {
+    const page = await listVerifiedBoqDrawingSources(
+      listClient({
+        quantities: [quantityFixture()],
+        links: [drawingLinkFixture(p6Ids.quantity)],
+        revisions: [{ id: p6Ids.revision, document_id: document }],
+        documents: [{ id: document }],
+        boqVersions: [version],
+        ...(approvals ? { boqApprovals: approvals } : {}),
+      }),
+      { projectId: p6Ids.project, boqVersionId: p6Ids.version },
+    );
+    assert.equal(page.rows[0].links[0].workspaceHref, workspaceHref, name);
+    assert.deepEqual(page.rows[0].links[0].evidenceHrefs, [], name);
+  }
+});
+
 test("bulk evidence resolution fetches the complete bounded entry and anchor file union", async () => {
   const id = (prefix, index) =>
     `00000000-0000-4000-8000-${prefix}${String(index + 1).padStart(9, "0")}`;
@@ -3145,6 +3176,8 @@ function listClient({
   documents = [],
   sources = [],
   files = [],
+  boqVersions = [boqVersionFixture("approved")],
+  boqApprovals = [{ id: "00000000-0000-4000-8000-000000000191" }],
   errorTable = null,
 }) {
   return {
@@ -3165,13 +3198,24 @@ function listClient({
                   ? sources
                   : table === "lukas_qto_files"
                     ? files
-                    : [];
+                    : table === "lukas_qto_boq_versions"
+                      ? boqVersions
+                      : table === "lukas_qto_boq_approvals"
+                        ? boqApprovals
+                        : [];
       let selectedRows = rows;
       const result = () => ({
         data: selectedRows,
         error: table === errorTable ? { code: "42501" } : null,
       });
       const query = chain(result());
+      query.single = () => {
+        const current = result();
+        return Promise.resolve({
+          data: current.data[0] ?? null,
+          error: current.error,
+        });
+      };
       query.in = (column) => {
         if (table === "lukas_drawing_quantity_links" && column === "id")
           selectedRows = mappedQuantities;
@@ -3187,6 +3231,17 @@ function listClient({
       };
       return query;
     },
+  };
+}
+
+function boqVersionFixture(status, overrides = {}) {
+  return {
+    id: p6Ids.version,
+    status,
+    input_state_sha256: P6_SHA_A,
+    result_sha256: P6_SHA_B,
+    manifest_sha256: "c".repeat(64),
+    ...overrides,
   };
 }
 

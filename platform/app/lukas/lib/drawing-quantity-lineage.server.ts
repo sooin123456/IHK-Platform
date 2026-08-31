@@ -2256,6 +2256,32 @@ export async function listVerifiedBoqDrawingSources(
   if ((linkData?.length ?? 0) > 200)
     throw new DrawingQuantityLineageServerError("P6B04");
   const rawLinks = (linkData ?? []).map(drawingBoqLinkRow);
+  let workspaceLinksAvailable = false;
+  if (rawLinks.length) {
+    const { data: version, error: versionError } = await userClient
+      .from("lukas_qto_boq_versions")
+      .select("id,status,input_state_sha256,result_sha256,manifest_sha256")
+      .eq("id", boqVersionId)
+      .eq("project_id", projectId)
+      .single();
+    if (versionError || !version)
+      throw new DrawingQuantityLineageServerError("P6A01");
+    if (
+      (version.status === "approved" || version.status === "superseded") &&
+      Sha256.safeParse(version.input_state_sha256).success &&
+      Sha256.safeParse(version.result_sha256).success &&
+      Sha256.safeParse(version.manifest_sha256).success
+    ) {
+      const { data: approvals, error: approvalError } = await userClient
+        .from("lukas_qto_boq_approvals")
+        .select("id")
+        .eq("version_id", boqVersionId)
+        .eq("decision", "approved")
+        .limit(1);
+      if (approvalError) throw new DrawingQuantityLineageServerError("P6A01");
+      workspaceLinksAvailable = approvals?.length === 1;
+    }
+  }
   const mappedQuantityIds = [
     ...new Set(rawLinks.map((link) => link.quantityLinkId)),
   ];
@@ -2294,8 +2320,12 @@ export async function listVerifiedBoqDrawingSources(
     ...mappedQuantities,
     ...recentUnmapped.slice(0, remaining),
   ];
-  let links: VerifiedBoqDrawingSourceRow["links"] = [];
-  if (rawLinks.length) {
+  let links: VerifiedBoqDrawingSourceRow["links"] = rawLinks.map((link) => ({
+    ...link,
+    workspaceHref: null,
+    evidenceHrefs: [],
+  }));
+  if (rawLinks.length && workspaceLinksAvailable) {
     const linkedQuantityIds = new Set(
       rawLinks.map((link) => link.quantityLinkId),
     );
