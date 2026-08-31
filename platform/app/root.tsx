@@ -285,8 +285,9 @@ export default function App() {
  * @param error - The error that was caught by React Router
  */
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  let message = "오류";
+  let details =
+    "화면을 불러오지 못했습니다. 다시 시도하거나 한길시스템에 알려주세요.";
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {

@@ -7,7 +7,10 @@ import { redirect } from "react-router";
 import makeServerClient from "~/core/lib/supa-client.server";
 
 import { readPublicReleaseConfig } from "../lib/release-config";
-import { recordRevitDownloadAudit } from "../lib/revit-download-audit.server";
+import {
+  assertReleaseArtifactSha256,
+  recordRevitDownloadAudit,
+} from "../lib/revit-download-audit.server";
 
 type DownloadDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables"> & {
@@ -30,6 +33,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   if (!release.ready || !release.url || !release.sha256)
     throw new Response("현재 내려받을 수 있는 검증 릴리스가 없습니다.", { status: 503 });
+  try {
+    await assertReleaseArtifactSha256(release.url, release.sha256);
+  } catch (error) {
+    throw new Response(
+      error instanceof Error
+        ? error.message
+        : "릴리스 파일을 확인하지 못했습니다.",
+      { status: 409 },
+    );
+  }
 
   const [rawClient, headers] = makeServerClient(request);
   const { data: { user } } = await rawClient.auth.getUser();

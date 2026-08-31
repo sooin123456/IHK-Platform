@@ -88,6 +88,11 @@ test("Revit release download keeps its existing server-side append-only SHA audi
     "utf8",
   );
   assert.match(source, /await recordRevitDownloadAudit/);
+  assert.match(source, /await assertReleaseArtifactSha256/);
+  assert.ok(
+    source.indexOf("await assertReleaseArtifactSha256") <
+      source.indexOf("await recordRevitDownloadAudit"),
+  );
   assert.ok(
     source.indexOf("await recordRevitDownloadAudit") <
       source.indexOf('headers.set("Location"'),
@@ -139,6 +144,38 @@ test("anonymous Revit redirect records through the trusted ledger and fails clos
       sha256: "A".repeat(64),
     }),
     /다운로드 기록.*denied/,
+  );
+});
+
+test("published Revit ZIP is hashed at download time and rejects a mismatched body", async () => {
+  const { createHash } = await import("node:crypto");
+  const { assertReleaseArtifactSha256 } = await import(
+    "../app/features/home/lib/revit-download-audit.server.ts"
+  );
+  const bytes = Buffer.from("official-field-kit");
+  const sha256 = createHash("sha256").update(bytes).digest("hex").toUpperCase();
+  await assertReleaseArtifactSha256(
+    "https://files.example/kit.zip",
+    sha256,
+    async () => new Response(bytes, { status: 200 }),
+  );
+  await assert.rejects(
+    () =>
+      assertReleaseArtifactSha256(
+        "https://files.example/kit.zip",
+        sha256,
+        async () => new Response(Buffer.from("tampered"), { status: 200 }),
+      ),
+    /확인번호와 다릅니다/,
+  );
+  await assert.rejects(
+    () =>
+      assertReleaseArtifactSha256(
+        "https://files.example/kit.zip",
+        sha256,
+        async () => new Response(null, { status: 404 }),
+      ),
+    /확인하지 못했습니다/,
   );
 });
 

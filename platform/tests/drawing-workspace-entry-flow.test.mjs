@@ -419,6 +419,27 @@ test("the root boundary preserves a route-specific 413 explanation", () => {
   assert.doesNotMatch(html, /파일 페이지에서 다시 시도/);
 });
 
+test("the root boundary explains a JavaScript failure in Korean", () => {
+  const html = renderComponent(rootScreen.ErrorBoundary, {
+    error: new Error("도면 문서를 불러오지 못했습니다."),
+  });
+
+  assert.match(html, /오류/);
+  assert.doesNotMatch(html, /Oops!/);
+  assert.doesNotMatch(html, /An unexpected error occurred/);
+});
+
+test("the root boundary uses Korean copy when the failure has no route payload", () => {
+  const html = renderComponent(rootScreen.ErrorBoundary, {
+    error: null,
+  });
+
+  assert.match(html, /오류/);
+  assert.match(html, /다시 시도/);
+  assert.doesNotMatch(html, /Oops!/);
+  assert.doesNotMatch(html, /An unexpected error occurred/);
+});
+
 test("a real non-workspace private match removes public navigation and footer", async () => {
   assert.ok(navigationRoute);
   assert.equal(privateWorkspaceRoute?.id, "private-workspace");
