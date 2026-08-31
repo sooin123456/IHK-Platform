@@ -472,6 +472,14 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
         p_title: string;
         p_blank: boolean;
       }>;
+      lukas_drawing_create_document_idempotent: DrawingRpc<{
+        p_project_id: string;
+        p_source_file_id: string | null;
+        p_title: string;
+        p_blank: boolean;
+        p_client_request_id: string;
+        p_library_version_id: string | null;
+      }>;
       lukas_drawing_apply_operation: DrawingRpc<{
         p_revision_id: string;
         p_client_operation_id: string;
@@ -4099,6 +4107,19 @@ const CreateDocumentInputSchema = z.object({
   mode: z.enum(["blank", "pdf_background"]),
 });
 
+const CreateDocumentIdempotentInputSchema = z
+  .object({
+    title: Title,
+    mode: z.enum(["blank", "pdf_background"]),
+    sourceFile: z
+      .object({ id: Uuid, kind: z.enum(["pdf", "ifc"]) })
+      .strict()
+      .nullable(),
+    clientRequestId: Uuid,
+    libraryVersionId: Uuid.optional(),
+  })
+  .strict();
+
 export async function createDrawingDocument(
   client: DrawingWorkspaceClient,
   projectId: string,
@@ -4112,6 +4133,33 @@ export async function createDrawingDocument(
     p_title: parsed.title,
     p_blank: file == null || file.kind !== "pdf" || parsed.mode === "blank",
   });
+  return rpcResult(data, error);
+}
+
+export async function createDrawingDocumentIdempotent(
+  client: DrawingWorkspaceClient,
+  projectId: string,
+  input: {
+    title: string;
+    mode: "blank" | "pdf_background";
+    sourceFile: Pick<DrawingWorkspaceFile, "id" | "kind"> | null;
+    clientRequestId: string;
+    libraryVersionId?: string;
+  },
+) {
+  const parsed = CreateDocumentIdempotentInputSchema.parse(input);
+  const { data, error } = await client.rpc(
+    "lukas_drawing_create_document_idempotent",
+    {
+      p_project_id: Uuid.parse(projectId),
+      p_source_file_id: parsed.sourceFile?.id ?? null,
+      p_title: parsed.title,
+      p_blank:
+        parsed.sourceFile?.kind !== "pdf" || parsed.mode === "blank",
+      p_client_request_id: parsed.clientRequestId,
+      p_library_version_id: parsed.libraryVersionId ?? null,
+    },
+  );
   return rpcResult(data, error);
 }
 

@@ -12,6 +12,7 @@ import * as workspaceServer from "../app/lukas/lib/drawing-workspace.server.ts";
 import {
   applyDrawingOperation,
   createDrawingDocument,
+  createDrawingDocumentIdempotent,
   createDrawingDocumentFromTemplate,
   handleWorkspaceMutation,
   linkDrawingObjectIssue,
@@ -2941,6 +2942,71 @@ test("document creation derives blank/background behavior from the authoritative
       },
     ],
   ]);
+});
+
+test("idempotent document creation sends source-optional retry identity and exposes mismatches", async () => {
+  const calls = [];
+  const stored = new Map();
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      const identity = JSON.stringify({
+        projectId: args.p_project_id,
+        sourceFileId: args.p_source_file_id,
+        title: args.p_title,
+        blank: args.p_blank,
+        libraryVersionId: args.p_library_version_id,
+      });
+      const previous = stored.get(args.p_client_request_id);
+      if (previous && previous !== identity)
+        return {
+          data: null,
+          error: {
+            code: "P1C01",
+            message: "Request ID does not match the stored drawing creation",
+          },
+        };
+      stored.set(args.p_client_request_id, identity);
+      return { data: { documentId: ids.document }, error: null };
+    },
+  };
+  const input = {
+    title: " 빈 작업실 ",
+    mode: "blank",
+    sourceFile: null,
+    clientRequestId: ids.operation,
+  };
+  const first = await createDrawingDocumentIdempotent(client, ids.project, input);
+  const retry = await createDrawingDocumentIdempotent(client, ids.project, input);
+  assert.equal(first.documentId, ids.document);
+  assert.equal(retry.documentId, ids.document);
+  assert.deepEqual(calls[0], [
+    "lukas_drawing_create_document_idempotent",
+    {
+      p_project_id: ids.project,
+      p_source_file_id: null,
+      p_title: "빈 작업실",
+      p_blank: true,
+      p_client_request_id: ids.operation,
+      p_library_version_id: null,
+    },
+  ]);
+  await assert.rejects(
+    createDrawingDocumentIdempotent(client, ids.project, {
+      ...input,
+      title: "변경된 제목",
+    }),
+    (error) =>
+      error.name === "DrawingWorkspaceConflictError" &&
+      error.message === "Request ID does not match the stored drawing creation",
+  );
+  await assert.rejects(
+    createDrawingDocumentIdempotent(client, ids.project, {
+      ...input,
+      libraryVersionId: ids.revision,
+    }),
+    (error) => error.name === "DrawingWorkspaceConflictError",
+  );
 });
 
 test("operation RPC receives exact client operation fields and exposes conflicts", async () => {
