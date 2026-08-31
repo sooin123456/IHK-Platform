@@ -34,6 +34,9 @@ const newScreen = await vite
 const startComponent = await vite
   .ssrLoadModule("/app/lukas/components/drawing-workspace-start.tsx")
   .catch(() => ({}));
+const workspaceScreen = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace.tsx")
+  .catch(() => ({}));
 
 test.after(() => vite.close());
 const ids = {
@@ -41,6 +44,71 @@ const ids = {
   file: "00000000-0000-4000-8000-000000000003",
   document: "00000000-0000-4000-8000-000000000004",
 };
+
+test("estimate binding form accepts only an editable current draft revision and UUID BOQ", () => {
+  const parse = workspaceScreen.parseDrawingEstimateBindingForm;
+  assert.equal(typeof parse, "function");
+  const form = new FormData();
+  form.set("intent", "bind_drawing_estimate");
+  form.set("drawing_revision_id", ids.document);
+  form.set("boq_version_id", ids.file);
+  const scope = {
+    capability: "editor",
+    projectId: ids.project,
+    revisionId: ids.document,
+    revisionStatus: "draft",
+  };
+  assert.deepEqual(parse(form, scope), {
+    projectId: ids.project,
+    drawingRevisionId: ids.document,
+    boqVersionId: ids.file,
+  });
+  for (const capability of ["viewer", "commenter", "reviewer", "approver"])
+    assert.throws(
+      () => parse(form, { ...scope, capability }),
+      (error) => error instanceof Response && error.status === 403,
+    );
+  assert.throws(
+    () => parse(form, { ...scope, revisionStatus: "approved" }),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  form.set("drawing_revision_id", "00000000-0000-4000-8000-000000000099");
+  assert.throws(
+    () => parse(form, scope),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  form.set("drawing_revision_id", ids.document);
+  form.set("boq_version_id", "not-a-uuid");
+  assert.throws(
+    () => parse(form, scope),
+    (error) => error instanceof Response && error.status === 400,
+  );
+});
+
+test("estimate binding failures stay bounded for validation and duplicate conflicts", async () => {
+  const bounded = workspaceScreen.drawingEstimateBindingErrorResponse;
+  assert.equal(typeof bounded, "function");
+  assert.deepEqual(
+    await bounded(
+      new workspaceServer.DrawingWorkspaceConflictError("raw db detail"),
+    ),
+    {
+      status: 409,
+      error: "현재 도면 개정 또는 BOQ 버전에 이미 견적이 연결되어 있습니다.",
+    },
+  );
+  assert.deepEqual(
+    await bounded(
+      new Response("견적 연결에는 도면 편집 권한이 필요합니다.", {
+        status: 403,
+      }),
+    ),
+    {
+      status: 403,
+      error: "견적 연결에는 도면 편집 권한이 필요합니다.",
+    },
+  );
+});
 
 function flatten(routesToFlatten) {
   return routesToFlatten.flatMap((route) => [

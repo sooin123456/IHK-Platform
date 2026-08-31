@@ -135,6 +135,7 @@ import type {
   DrawingWorkspacePdfSourceDescriptor,
 } from "~/lukas/lib/drawing-workspace.server";
 import type { DrawingObjectQuantityLineageRow } from "~/lukas/lib/drawing-quantity-lineage.server";
+import type { DrawingEstimateSummary } from "~/lukas/lib/drawing-estimate";
 import type {
   DrawingMeasurementEvidenceError,
   DrawingMeasurementEvidenceLineage,
@@ -216,6 +217,7 @@ import {
 } from "./drawing-command-menu";
 import type { DrawingExportDialogProps } from "./drawing-export-dialog";
 import { DrawingInspector } from "./drawing-inspector";
+import { DrawingEstimateResultRail } from "./drawing-estimate-result-rail";
 import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
@@ -884,6 +886,13 @@ type Props = {
   activityPage?: { items: DrawingActivityItem[]; nextCursor: string | null };
   capability: DrawingWorkspaceCapability;
   currentUserId: string;
+  estimateOptions?: Array<{
+    id: string;
+    title: string;
+    versionNo: number;
+    priceBookName: string;
+  }>;
+  estimateSummary?: DrawingEstimateSummary;
   assignees?: DrawingAssignee[];
   collaborationRoom?: {
     issues: Array<{ id: string; title: string; status: string }>;
@@ -977,6 +986,16 @@ export default function DrawingWorkspaceClient({
   assignees = [],
   capability,
   currentUserId,
+  estimateOptions = [],
+  estimateSummary = {
+    status: "unbound",
+    binding: null,
+    boq: null,
+    rows: [],
+    directCostKrw: "0",
+    missingRateCount: 0,
+    reviewCount: 0,
+  },
   collaborationRoom,
   projectId,
   previewMode = false,
@@ -1067,6 +1086,9 @@ export default function DrawingWorkspaceClient({
   const [inspectorOpenOverride, setInspectorOpenOverride] = useState<
     boolean | null
   >(null);
+  const [inspectorMode, setInspectorMode] = useState<"result" | "object">(
+    "result",
+  );
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState(
     collaborationRoom?.issues[0]?.id ?? "",
@@ -1388,11 +1410,7 @@ export default function DrawingWorkspaceClient({
     ],
   );
   const transientSelectedIdsKey = transient.selectedIds.join("\u0000");
-  const inspectorHasContent =
-    transient.selectedIds.length > 0 ||
-    effectiveCapability === "viewer" ||
-    Boolean(collaborationEditNotice) ||
-    awarenessLockPeers.some((peer) => peer.softLocks.length > 0);
+  const inspectorHasContent = true;
   const inspectorOpen = inspectorOpenOverride ?? inspectorHasContent;
   useEffect(
     () =>
@@ -5429,199 +5447,251 @@ export default function DrawingWorkspaceClient({
           className="drawing-workspace-inspector order-3 min-h-0 max-h-[28rem] overflow-y-auto border-t border-white/10 bg-slate-900 p-3 xl:max-h-none xl:border-l xl:border-t-0"
           hidden={!inspectorOpen}
         >
-          <header className="sticky top-0 z-10 -mx-3 -mt-3 mb-3 border-b border-white/10 bg-slate-900/95 px-3 py-3 backdrop-blur">
-            <h2 className="text-sm font-bold text-white">객체 검사기</h2>
-            <p className="mt-1 text-xs text-slate-400">
-              속성부터 근거·검토·물량까지 한 흐름으로 확인합니다.
-            </p>
-            <div aria-label="업무 계보">
-              <ol
-                aria-label="선택 객체 업무 계보"
-                className="mt-3 grid grid-cols-5 overflow-hidden rounded-md border border-white/10 bg-slate-950/70 text-center text-[10px] font-semibold"
-              >
-                {(
-                  [
-                    ["원본", selectedObjectSources.length > 0],
-                    ["객체", Boolean(selectedDrawingObjectId)],
-                    ["이슈", selectedObjectHasIssue],
-                    ["승인", selectedObjectHasApproval],
-                    ["물량·금액", selectedObjectHasQuantity],
-                  ] as const
-                ).map(([step, linked]) => (
-                  <li
-                    className={`border-r border-white/10 px-1 py-2 last:border-r-0 ${linked ? "bg-emerald-500/15 text-emerald-200" : "text-slate-500"}`}
-                    data-lineage-step={step}
-                    data-lineage-state={linked ? "linked" : "empty"}
-                    key={step}
-                  >
-                    {step}
-                    <span className="mt-1 block text-[9px] font-medium">
-                      {linked ? "연결됨" : "대기"}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-              <div
-                className="mt-2 rounded-lg border border-indigo-400/25 bg-indigo-500/10 p-2.5"
-                role="status"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold text-indigo-200">
-                      계보 {selectedObjectLineage.completed}/
-                      {selectedObjectLineage.total}
-                    </p>
-                    <p className="mt-0.5 text-xs font-bold text-white">
-                      {selectedDrawingObjectId
-                        ? (selectedObjectLineageAction?.title ??
-                          "업무 계보 연결 완료")
-                        : "객체를 선택해 업무 계보 시작"}
-                    </p>
-                  </div>
-                  {selectedObjectLineageAction ? (
-                    <a
-                      className="shrink-0 rounded-md bg-indigo-500 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-                      href={selectedObjectLineageAction.href}
-                    >
-                      {selectedObjectLineageAction.label}
-                    </a>
-                  ) : null}
-                </div>
-                <p className="mt-1.5 text-[10px] leading-4 text-slate-300">
-                  {selectedDrawingObjectId
-                    ? (selectedObjectLineageAction?.description ??
-                      "원본 근거부터 BOQ 연결까지 모두 추적할 수 있습니다.")
-                    : "객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다."}
-                </p>
-              </div>
-            </div>
-          </header>
-          {collaborationEditNotice ? (
-            <p
-              aria-label="공동 편집 작업 차단 안내"
-              className="mb-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
-              role="status"
-            >
-              {collaborationEditNotice}
-            </p>
-          ) : null}
-          <DrawingCollaborationLockStatus
-            objectNames={collaborationObjectNames}
-            store={awarenessStoreRef.current}
-          />
-          <section
-            aria-label="선택 객체 원본 근거"
-            className="mb-3 rounded-lg border border-white/15 bg-slate-950/60 p-3 text-xs"
-            id="drawing-inspector-source"
+          <div
+            aria-label="검사기 보기"
+            className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-950 p-1"
+            role="tablist"
           >
-            <h2 className="font-bold text-white">선택 객체 원본 근거</h2>
-            {!mayMutateSources ? (
-              <p className="mt-2 text-slate-400">
-                조회 전용 · 원본 근거를 연결하거나 해제할 수 없습니다.
+            <button
+              aria-controls="drawing-estimate-result-panel"
+              aria-selected={inspectorMode === "result"}
+              className="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500"
+              id="drawing-estimate-result-tab"
+              onClick={() => setInspectorMode("result")}
+              role="tab"
+              type="button"
+            >
+              결과
+            </button>
+            <button
+              aria-controls="drawing-object-inspector-panel"
+              aria-selected={inspectorMode === "object"}
+              className="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500"
+              id="drawing-object-inspector-tab"
+              onClick={() => setInspectorMode("object")}
+              role="tab"
+              type="button"
+            >
+              객체
+            </button>
+          </div>
+          <div
+            aria-labelledby="drawing-estimate-result-tab"
+            hidden={inspectorMode !== "result"}
+            id="drawing-estimate-result-panel"
+            role="tabpanel"
+          >
+            <DrawingEstimateResultRail
+              capability={effectiveCapability}
+              drawingRevisionId={revision.id}
+              estimateOptions={estimateOptions}
+              projectId={projectId}
+              summary={estimateSummary}
+              workspaceId={workspace.document.id}
+            />
+          </div>
+          <div
+            aria-labelledby="drawing-object-inspector-tab"
+            hidden={inspectorMode !== "object"}
+            id="drawing-object-inspector-panel"
+            role="tabpanel"
+          >
+            <header className="sticky top-0 z-10 -mx-3 -mt-3 mb-3 border-b border-white/10 bg-slate-900/95 px-3 py-3 backdrop-blur">
+              <h2 className="text-sm font-bold text-white">객체 검사기</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                속성부터 근거·검토·물량까지 한 흐름으로 확인합니다.
               </p>
-            ) : null}
-            {!selectedDrawingObjectId ? (
-              <p className="mt-2 text-slate-400">
-                도면 객체 하나를 선택하세요.
-              </p>
-            ) : (
-              <>
-                <ul className="mt-2 space-y-2">
-                  {selectedObjectSources.map((source) => (
+              <div aria-label="업무 계보">
+                <ol
+                  aria-label="선택 객체 업무 계보"
+                  className="mt-3 grid grid-cols-5 overflow-hidden rounded-md border border-white/10 bg-slate-950/70 text-center text-[10px] font-semibold"
+                >
+                  {(
+                    [
+                      ["원본", selectedObjectSources.length > 0],
+                      ["객체", Boolean(selectedDrawingObjectId)],
+                      ["이슈", selectedObjectHasIssue],
+                      ["승인", selectedObjectHasApproval],
+                      ["물량·금액", selectedObjectHasQuantity],
+                    ] as const
+                  ).map(([step, linked]) => (
                     <li
-                      className="rounded border border-white/10 p-2"
-                      key={source.id}
+                      className={`border-r border-white/10 px-1 py-2 last:border-r-0 ${linked ? "bg-emerald-500/15 text-emerald-200" : "text-slate-500"}`}
+                      data-lineage-step={step}
+                      data-lineage-state={linked ? "linked" : "empty"}
+                      key={step}
                     >
-                      <p className="font-semibold text-slate-200">
-                        {source.sourceKind === "pdf_region"
-                          ? `PDF ${source.pdfPageNumber}쪽 영역`
-                          : `IFC GlobalId ${source.ifcGlobalId}`}
-                      </p>
-                      <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
-                        {source.sourceFileId} · {source.sourceSha256}
-                      </p>
-                      {mayMutateSources ? (
-                        <button
-                          className="mt-2 min-h-9 rounded border border-white/20 px-2 font-semibold text-white"
-                          onClick={() => unlinkSelectedObjectSource(source.id)}
-                          type="button"
-                        >
-                          원본 근거 해제
-                        </button>
-                      ) : null}
+                      {step}
+                      <span className="mt-1 block text-[9px] font-medium">
+                        {linked ? "연결됨" : "대기"}
+                      </span>
                     </li>
                   ))}
-                </ul>
-                {selectedObjectSources.length === 0 ? (
-                  <p className="mt-2 text-slate-400">
-                    연결된 원본 근거가 없습니다.
-                  </p>
-                ) : null}
-                {mayMutateSources ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {sourceBundle?.pdf &&
-                    pdfPageTransform &&
-                    !selectedObjectHasCurrentPdf ? (
-                      <button
-                        className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
-                        onClick={linkSelectedObjectPdfRegion}
-                        type="button"
+                </ol>
+                <div
+                  className="mt-2 rounded-lg border border-indigo-400/25 bg-indigo-500/10 p-2.5"
+                  role="status"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-indigo-200">
+                        계보 {selectedObjectLineage.completed}/
+                        {selectedObjectLineage.total}
+                      </p>
+                      <p className="mt-0.5 text-xs font-bold text-white">
+                        {selectedDrawingObjectId
+                          ? (selectedObjectLineageAction?.title ??
+                            "업무 계보 연결 완료")
+                          : "객체를 선택해 업무 계보 시작"}
+                      </p>
+                    </div>
+                    {selectedObjectLineageAction ? (
+                      <a
+                        className="shrink-0 rounded-md bg-indigo-500 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                        href={selectedObjectLineageAction.href}
                       >
-                        PDF 영역 원본 근거 연결
-                      </button>
-                    ) : null}
-                    {canLinkIfcSelection ? (
-                      <button
-                        className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
-                        onClick={linkIfcSelection}
-                        type="button"
-                      >
-                        IFC 원본 근거 연결
-                      </button>
+                        {selectedObjectLineageAction.label}
+                      </a>
                     ) : null}
                   </div>
-                ) : null}
-                {sourceInspectorMessage ? (
-                  <p className="mt-2 text-amber-200" role="status">
-                    {sourceInspectorMessage}
+                  <p className="mt-1.5 text-[10px] leading-4 text-slate-300">
+                    {selectedDrawingObjectId
+                      ? (selectedObjectLineageAction?.description ??
+                        "원본 근거부터 BOQ 연결까지 모두 추적할 수 있습니다.")
+                      : "객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다."}
                   </p>
-                ) : null}
-              </>
-            )}
-          </section>
-          <DrawingInspector
-            awarenessStore={awarenessStoreRef.current}
-            actorId={currentUserId}
-            canCreateQuantity={
-              effectiveCapability === "admin" ||
-              effectiveCapability === "editor"
-            }
-            canEdit={
-              editing.canEdit &&
-              (blockMutationAdapter.selectionKind !== "block_instance" ||
-                blockMutationAdapter.canMutate)
-            }
-            canLinkIssues={drawingIssueLinkReady({
-              capability: effectiveCapability,
-              objectIds: Object.keys(activeDrawingState.objects),
-              saveStatus,
-              selectedIds: transient.selectedIds,
-              status: effectiveRevisionStatus,
-            })}
-            evidence={measurementEvidence}
-            evidenceError={measurementEvidenceError}
-            hasUnconfirmedChanges={drawingState.operations.length > 0}
-            lineage={measurementLineage}
-            issueLinks={revision.issueLinks}
-            issues={revision.issues}
-            onCommand={applyCommand}
-            onSoftLockChange={setAwarenessSoftLock}
-            projectId={projectId}
-            quantityLineage={quantityLineage}
-            revisionStatus={effectiveRevisionStatus}
-            selectedIds={transient.selectedIds}
-            state={activeDrawingState}
-          />
+                </div>
+              </div>
+            </header>
+            {collaborationEditNotice ? (
+              <p
+                aria-label="공동 편집 작업 차단 안내"
+                className="mb-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+                role="status"
+              >
+                {collaborationEditNotice}
+              </p>
+            ) : null}
+            <DrawingCollaborationLockStatus
+              objectNames={collaborationObjectNames}
+              store={awarenessStoreRef.current}
+            />
+            <section
+              aria-label="선택 객체 원본 근거"
+              className="mb-3 rounded-lg border border-white/15 bg-slate-950/60 p-3 text-xs"
+              id="drawing-inspector-source"
+            >
+              <h2 className="font-bold text-white">선택 객체 원본 근거</h2>
+              {!mayMutateSources ? (
+                <p className="mt-2 text-slate-400">
+                  조회 전용 · 원본 근거를 연결하거나 해제할 수 없습니다.
+                </p>
+              ) : null}
+              {!selectedDrawingObjectId ? (
+                <p className="mt-2 text-slate-400">
+                  도면 객체 하나를 선택하세요.
+                </p>
+              ) : (
+                <>
+                  <ul className="mt-2 space-y-2">
+                    {selectedObjectSources.map((source) => (
+                      <li
+                        className="rounded border border-white/10 p-2"
+                        key={source.id}
+                      >
+                        <p className="font-semibold text-slate-200">
+                          {source.sourceKind === "pdf_region"
+                            ? `PDF ${source.pdfPageNumber}쪽 영역`
+                            : `IFC GlobalId ${source.ifcGlobalId}`}
+                        </p>
+                        <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
+                          {source.sourceFileId} · {source.sourceSha256}
+                        </p>
+                        {mayMutateSources ? (
+                          <button
+                            className="mt-2 min-h-9 rounded border border-white/20 px-2 font-semibold text-white"
+                            onClick={() =>
+                              unlinkSelectedObjectSource(source.id)
+                            }
+                            type="button"
+                          >
+                            원본 근거 해제
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {selectedObjectSources.length === 0 ? (
+                    <p className="mt-2 text-slate-400">
+                      연결된 원본 근거가 없습니다.
+                    </p>
+                  ) : null}
+                  {mayMutateSources ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {sourceBundle?.pdf &&
+                      pdfPageTransform &&
+                      !selectedObjectHasCurrentPdf ? (
+                        <button
+                          className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
+                          onClick={linkSelectedObjectPdfRegion}
+                          type="button"
+                        >
+                          PDF 영역 원본 근거 연결
+                        </button>
+                      ) : null}
+                      {canLinkIfcSelection ? (
+                        <button
+                          className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white"
+                          onClick={linkIfcSelection}
+                          type="button"
+                        >
+                          IFC 원본 근거 연결
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {sourceInspectorMessage ? (
+                    <p className="mt-2 text-amber-200" role="status">
+                      {sourceInspectorMessage}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </section>
+            <DrawingInspector
+              awarenessStore={awarenessStoreRef.current}
+              actorId={currentUserId}
+              canCreateQuantity={
+                effectiveCapability === "admin" ||
+                effectiveCapability === "editor"
+              }
+              canEdit={
+                editing.canEdit &&
+                (blockMutationAdapter.selectionKind !== "block_instance" ||
+                  blockMutationAdapter.canMutate)
+              }
+              canLinkIssues={drawingIssueLinkReady({
+                capability: effectiveCapability,
+                objectIds: Object.keys(activeDrawingState.objects),
+                saveStatus,
+                selectedIds: transient.selectedIds,
+                status: effectiveRevisionStatus,
+              })}
+              evidence={measurementEvidence}
+              evidenceError={measurementEvidenceError}
+              hasUnconfirmedChanges={drawingState.operations.length > 0}
+              lineage={measurementLineage}
+              issueLinks={revision.issueLinks}
+              issues={revision.issues}
+              onCommand={applyCommand}
+              onSoftLockChange={setAwarenessSoftLock}
+              projectId={projectId}
+              quantityLineage={quantityLineage}
+              revisionStatus={effectiveRevisionStatus}
+              selectedIds={transient.selectedIds}
+              state={activeDrawingState}
+            />
+          </div>
         </aside>
       </div>
       {editing.canEdit ? (

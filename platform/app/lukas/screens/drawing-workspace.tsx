@@ -16,6 +16,11 @@ import {
 } from "~/lukas/lib/drawing-collaboration.server";
 import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
+  bindDrawingEstimate,
+  loadDrawingEstimateOptions,
+  loadDrawingEstimateSummary,
+} from "~/lukas/lib/drawing-estimate.server";
+import {
   createDrawingQuantityLink,
   DrawingQuantityLineageServerError,
   drawingQuantityLineageErrorResponse,
@@ -25,6 +30,9 @@ import {
 import {
   assertDrawingBoqEvidenceScope,
   assertDrawingQuantityWorkspaceScope,
+  DrawingWorkspaceConflictError,
+  DrawingWorkspaceRejectedError,
+  DrawingWorkspaceRpcError,
   handleWorkspaceMutation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceMeasurementState,
@@ -55,6 +63,69 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 
 function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
+}
+
+export function parseDrawingEstimateBindingForm(
+  form: FormData,
+  scope: {
+    capability: DrawingWorkspaceCapability;
+    projectId: string;
+    revisionId: string;
+    revisionStatus: string;
+  },
+) {
+  if (form.get("intent") !== "bind_drawing_estimate")
+    throw new Response("지원하지 않는 견적 연결 작업입니다.", { status: 400 });
+  if (!canEdit(scope.capability))
+    throw new Response("견적 연결에는 도면 편집 권한이 필요합니다.", {
+      status: 403,
+    });
+  const uuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const drawingRevisionId = String(form.get("drawing_revision_id") ?? "");
+  const boqVersionId = String(form.get("boq_version_id") ?? "");
+  if (
+    !uuid.test(scope.projectId) ||
+    !uuid.test(drawingRevisionId) ||
+    !uuid.test(boqVersionId)
+  )
+    throw new Response("견적 연결 식별자가 올바르지 않습니다.", {
+      status: 400,
+    });
+  if (
+    scope.revisionStatus !== "draft" ||
+    drawingRevisionId !== scope.revisionId
+  )
+    throw new Response("현재 draft 도면 개정만 견적에 연결할 수 있습니다.", {
+      status: 409,
+    });
+  return {
+    projectId: scope.projectId,
+    drawingRevisionId,
+    boqVersionId,
+  };
+}
+
+export async function drawingEstimateBindingErrorResponse(error: unknown) {
+  if (error instanceof Response)
+    return {
+      status: error.status,
+      error: (await error.text()) || "견적 연결 요청이 올바르지 않습니다.",
+    };
+  if (
+    error instanceof DrawingWorkspaceConflictError ||
+    (error instanceof Error && error.name === "DrawingWorkspaceConflictError")
+  )
+    return {
+      status: 409,
+      error: "현재 도면 개정 또는 BOQ 버전에 이미 견적이 연결되어 있습니다.",
+    };
+  if (error instanceof DrawingWorkspaceRejectedError)
+    return { status: 400, error: error.message };
+  return {
+    status: error instanceof DrawingWorkspaceRpcError ? 503 : 400,
+    error: "견적 연결을 저장하지 못했습니다.",
+  };
 }
 
 async function workspaceContext(request: Request, projectId: string) {
@@ -149,6 +220,34 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     focusObjectId: lineageSearch.objectId ?? undefined,
     focusEvidenceFileId: lineageSearch.evidenceFileId ?? undefined,
   });
+  let estimateSummary = null;
+  let estimateOptions: Awaited<ReturnType<typeof loadDrawingEstimateOptions>> =
+    [];
+  if (workspace.document)
+    try {
+      [estimateSummary, estimateOptions] = await Promise.all([
+        loadDrawingEstimateSummary(client, {
+          actorId: user.id,
+          projectId: project.id,
+          workspace,
+        }),
+        loadDrawingEstimateOptions(client, project.id),
+      ]);
+    } catch (error) {
+      throw new Response(
+        error instanceof DrawingWorkspaceRejectedError
+          ? error.message
+          : "견적 결과를 불러오지 못했습니다.",
+        {
+          status:
+            error instanceof DrawingWorkspaceRejectedError
+              ? 400
+              : error instanceof DrawingWorkspaceRpcError
+                ? 503
+                : 500,
+        },
+      );
+    }
   const selectedIfcFileId =
     viewState.ifcFileId ??
     (workspace.primarySource?.kind === "ifc"
@@ -271,6 +370,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       measurementEvidence: measurementState?.measurementEvidence ?? null,
       measurementEvidenceError:
         measurementState?.measurementEvidenceError ?? null,
+      estimateSummary,
+      estimateOptions,
       quantityLineage,
       activityPage,
       collaborationRoom,
@@ -297,6 +398,37 @@ export async function action({ request, params }: Route.ActionArgs) {
     revisionId: searchParams.get("revision") ?? undefined,
   });
   const intent = form.get("intent");
+  if (intent === "bind_drawing_estimate") {
+    let mutation;
+    try {
+      mutation = parseDrawingEstimateBindingForm(form, {
+        capability,
+        projectId: project.id,
+        revisionId: workspace.document?.revision.id ?? "",
+        revisionStatus: workspace.document?.revision.status ?? "",
+      });
+      const result = await bindDrawingEstimate(client, user.id, mutation);
+      return data(
+        {
+          ok: true,
+          kind: "drawing_estimate_binding" as const,
+          error: null,
+          result,
+        },
+        { headers },
+      );
+    } catch (error) {
+      const bounded = await drawingEstimateBindingErrorResponse(error);
+      return data(
+        {
+          ok: false,
+          kind: "drawing_estimate_binding" as const,
+          error: bounded.error,
+        },
+        { status: bounded.status, headers },
+      );
+    }
+  }
   if (intent === "create_drawing_quantity_link") {
     await assertProjectOrganizationFeature(
       client as any,
@@ -481,6 +613,8 @@ export default function DrawingWorkspaceScreen({
         currentUserId={loaderData.currentUserId}
         measurementEvidence={loaderData.measurementEvidence}
         measurementEvidenceError={loaderData.measurementEvidenceError}
+        estimateOptions={loaderData.estimateOptions}
+        estimateSummary={loaderData.estimateSummary ?? undefined}
         projectId={project.id}
         quantityLineage={quantityLineage}
         roomUrl={

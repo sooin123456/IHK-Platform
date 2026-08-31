@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { createServer } from "vite";
 
 import {
   buildVerifiedBoqCsv,
@@ -34,6 +36,64 @@ const estimateServerModule = await import(
   "../app/lukas/lib/drawing-estimate.server.ts"
 ).catch(() => ({}));
 const { deriveDraftDrawingEstimateSummary } = estimateServerModule;
+
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
+const verifiedBoqScreen = await vite
+  .ssrLoadModule("/app/lukas/screens/verified-boq.tsx")
+  .catch(() => ({}));
+test.after(() => vite.close());
+
+test("verified BOQ return path accepts only the exact same-project canonical workspace", () => {
+  const parse = verifiedBoqScreen.parseVerifiedBoqReturnTo;
+  assert.equal(typeof parse, "function");
+  const projectId = "40000000-0000-4000-8000-000000000001";
+  const workspaceId = "40000000-0000-4000-8000-000000000002";
+  const safe = `/projects/${projectId}/workspaces/${workspaceId}`;
+  assert.equal(parse(projectId, null), null);
+  assert.equal(parse(projectId, safe), safe);
+  for (const unsafe of [
+    "https://example.com",
+    `//example.com/projects/${projectId}/workspaces/${workspaceId}`,
+    `/projects/40000000-0000-4000-8000-000000000099/workspaces/${workspaceId}`,
+    `${safe}?version=1`,
+    `${safe}#result`,
+    `${safe}/extra`,
+    `/projects/${projectId}/workspaces/------------------------------------`,
+    `/projects/${projectId}/workspaces/%34%30%30%30%30%30%30%30-0000-4000-8000-000000000002`,
+  ])
+    assert.throws(
+      () => parse(projectId, unsafe),
+      (error) =>
+        error instanceof Response &&
+        error.status === 400 &&
+        error.statusText !== "Unexpected error",
+      unsafe,
+    );
+});
+
+test("verified BOQ redirect builder preserves one validated return path with version mutations", () => {
+  const back = verifiedBoqScreen.verifiedBoqLocation;
+  assert.equal(typeof back, "function");
+  const projectId = "40000000-0000-4000-8000-000000000001";
+  const versionId = "40000000-0000-4000-8000-000000000003";
+  const returnTo = `/projects/${projectId}/workspaces/40000000-0000-4000-8000-000000000002`;
+  assert.equal(
+    back(projectId, versionId, returnTo),
+    `/projects/${projectId}/boq?version=${versionId}&returnTo=${encodeURIComponent(returnTo)}`,
+  );
+  assert.equal(
+    back(projectId, undefined, returnTo),
+    `/projects/${projectId}/boq?returnTo=${encodeURIComponent(returnTo)}`,
+  );
+});
 
 function goldenInput(policy = "general_half_away") {
   return {

@@ -34,6 +34,9 @@ const scaleModule = await vite
 const propertyModule = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-properties-panel.tsx",
 );
+const estimateRailModule = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-estimate-result-rail.tsx")
+  .catch(() => ({}));
 test.after(() => vite.close());
 
 test("drawing export audit refuses a followed login redirect as an artifact", async () => {
@@ -110,6 +113,165 @@ function renderWorkspace(overrides = {}) {
     }),
   );
 }
+
+function renderEstimateRail(overrides = {}) {
+  const summary = {
+    status: "draft",
+    binding: {
+      id: "32000000-0000-4000-8000-000000000001",
+      projectId: "32000000-0000-4000-8000-000000000002",
+      drawingRevisionId: "32000000-0000-4000-8000-000000000003",
+      boqVersionId: "32000000-0000-4000-8000-000000000004",
+      createdAt: "2026-08-31T00:00:00.000Z",
+    },
+    boq: {
+      id: "32000000-0000-4000-8000-000000000004",
+      title: "실내건축 초안",
+      versionNo: 2,
+      priceBookName: "회사 단가표",
+      status: "draft",
+      engineVersion: "VERIFIED-BOQ-1.1",
+    },
+    rows: [
+      {
+        classification: "바닥",
+        itemCode: "F-001",
+        itemName: "바닥 마감",
+        quantity: "2.5",
+        unit: "m2",
+        totalUnitRateKrw: "10000",
+        amountKrw: "26001",
+        state: "draft",
+        reason: null,
+        subjectRefs: [{ kind: "object", id: "object-1" }],
+        evidence: [],
+      },
+      {
+        classification: "벽",
+        itemCode: "W-001",
+        itemName: "벽 마감",
+        quantity: "3",
+        unit: "m",
+        totalUnitRateKrw: null,
+        amountKrw: null,
+        state: "missing_evidence",
+        reason: "현장 원본을 연결하세요.",
+        subjectRefs: [{ kind: "object", id: "object-2" }],
+        evidence: [],
+      },
+    ],
+    directCostKrw: "26001",
+    missingRateCount: 1,
+    reviewCount: 1,
+  };
+  return renderToStaticMarkup(
+    createElement(RouterProvider, {
+      router: createMemoryRouter(
+        [
+          {
+            path: "/",
+            element: createElement(
+              estimateRailModule.DrawingEstimateResultRail,
+              {
+                capability: "editor",
+                drawingRevisionId: "32000000-0000-4000-8000-000000000003",
+                estimateOptions: [],
+                projectId: "32000000-0000-4000-8000-000000000002",
+                summary,
+                workspaceId: "32000000-0000-4000-8000-000000000005",
+                ...overrides,
+              },
+            ),
+          },
+        ],
+        { initialEntries: ["/"] },
+      ),
+    }),
+  );
+}
+
+test("estimate result rail renders server amounts, gap names, and BOQ navigation accessibly", () => {
+  assert.equal(
+    typeof estimateRailModule.DrawingEstimateResultRail,
+    "function",
+    "the focused estimate result rail must exist",
+  );
+  const html = renderEstimateRail();
+  assert.match(html, /aria-label="총 예상 금액"/);
+  assert.match(html, /26,001원/);
+  assert.match(html, /aria-label="단가 누락 1건"/);
+  assert.match(html, /aria-label="BOQ 상세 열기"/);
+  assert.match(html, />초안</);
+  assert.match(html, />근거 누락</);
+  assert.match(html, /현장 원본을 연결하세요/);
+});
+
+test("workspace shell mounts accessible result and intact object inspector panels", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /DrawingEstimateResultRail/);
+  assert.match(source, /aria-label="검사기 보기"/);
+  assert.match(source, /role="tablist"/);
+  assert.match(source, /role="tabpanel"/);
+  for (const label of ["결과", "객체"])
+    assert.match(source, new RegExp(`>\\s*${label}\\s*<`));
+  assert.match(source, /<DrawingInspector/);
+});
+
+test("estimate result rail keeps assumption reasons and confirmed exports distinct", () => {
+  const base = {
+    classification: "문",
+    itemCode: "D-001",
+    itemName: "문",
+    quantity: "1",
+    unit: "EA",
+    totalUnitRateKrw: "9007199254740993.125",
+    amountKrw: "30000",
+    subjectRefs: [{ kind: "block_instance", id: "door-1" }],
+    evidence: [],
+  };
+  const html = renderEstimateRail({
+    summary: {
+      status: "confirmed",
+      binding: {
+        id: "32000000-0000-4000-8000-000000000001",
+        projectId: "32000000-0000-4000-8000-000000000002",
+        drawingRevisionId: "32000000-0000-4000-8000-000000000003",
+        boqVersionId: "32000000-0000-4000-8000-000000000004",
+        createdAt: "2026-08-31T00:00:00.000Z",
+      },
+      boq: {
+        id: "32000000-0000-4000-8000-000000000004",
+        title: "승인 내역",
+        versionNo: 2,
+        priceBookName: "회사 단가표",
+        status: "approved",
+        engineVersion: "VERIFIED-BOQ-1.1",
+      },
+      rows: [
+        { ...base, state: "assumption", reason: "기존 문 수량을 가정함" },
+        { ...base, itemCode: "D-002", state: "confirmed", reason: null },
+        {
+          ...base,
+          itemCode: "D-003",
+          state: "needs_review",
+          reason: "품목 확인 필요",
+        },
+      ],
+      directCostKrw: "90000",
+      missingRateCount: 0,
+      reviewCount: 1,
+    },
+  });
+  for (const label of ["확정", "가정값", "검토 필요"])
+    assert.match(html, new RegExp(`>${label}<`));
+  assert.match(html, /기존 문 수량을 가정함/);
+  assert.match(html, /9,007,199,254,740,993\.125원/);
+  for (const format of ["csv", "xlsx", "manifest"])
+    assert.match(html, new RegExp(`download=${format}`));
+});
 
 function deferred() {
   let reject;
@@ -287,13 +449,13 @@ test("review submit stays disabled for pending, conflicted, or volatile work", (
     );
 });
 
-test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first desktop", () => {
+test("workspace SSR shell opens the result inspector by default for an M1 workspace", () => {
   const html = renderWorkspace();
   assert.match(html, /<main class="[^"]*xl:h-dvh[^"]*xl:overflow-hidden/);
   assert.match(html, /xl:\[contain:strict\]/);
   assert.match(
     html,
-    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)\][^"]*xl:overflow-hidden/,
+    /grid-cols-1[^"]*xl:grid-cols-\[15rem_minmax\(0,1fr\)_18rem\][^"]*xl:overflow-hidden/,
   );
   assert.match(
     html,
@@ -303,9 +465,10 @@ test("workspace SSR shell keeps an empty inspector collapsed for a canvas-first 
     html,
     /aria-label="도면 캔버스" class="[^"]*order-1[^"]*xl:order-2/,
   );
-  assert.match(html, /aria-label="속성 검사기"[^>]*hidden=""/);
+  assert.match(html, /aria-label="속성 검사기"/);
+  assert.doesNotMatch(html, /aria-label="속성 검사기"[^>]*hidden=""/);
   assert.match(html, /aria-label="왼쪽 도구 패널 숨기기"/);
-  assert.match(html, /aria-label="속성 검사기 열기"/);
+  assert.match(html, /aria-label="속성 검사기 숨기기"/);
   assert.match(html, /aria-label="캔버스 도구"/);
   assert.match(html, /aria-label="P2 도면 객체 미리보기"/);
 });
@@ -547,16 +710,16 @@ test("workspace creation and export copy stays Korean", async () => {
   assert.doesNotMatch(exportDialog, /내보낼 canvas가 없습니다/);
 });
 
-test("workspace SSR shell exposes one selected panel from seven accessible tabs", () => {
+test("workspace SSR shell exposes independent tool and inspector tablists accessibly", () => {
   const html = renderWorkspace();
   assert.match(
     html,
     /role="tablist" aria-label="도면 도구" data-drawing-shortcuts="ignore"/,
   );
-  assert.equal(html.match(/role="tab"/g)?.length, 7);
-  assert.equal(html.match(/role="tabpanel"/g)?.length, 1);
-  assert.equal(html.match(/role="tab"[^>]*aria-selected="true"/g)?.length, 1);
-  assert.equal(html.match(/role="tab"[^>]*aria-selected="false"/g)?.length, 6);
+  assert.equal(html.match(/role="tab"/g)?.length, 9);
+  assert.equal(html.match(/role="tabpanel"/g)?.length, 3);
+  assert.equal(html.match(/aria-selected="true"/g)?.length, 2);
+  assert.equal(html.match(/aria-selected="false"/g)?.length, 7);
   assert.match(html, /role="tabpanel"[^>]*id="drawing-panel-structure"/);
   assert.doesNotMatch(html, /role="tabpanel"[^>]*hidden=""/);
   for (const label of [

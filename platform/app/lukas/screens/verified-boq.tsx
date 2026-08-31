@@ -194,6 +194,39 @@ const decimal = z
   .trim()
   .regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/);
 
+export function parseVerifiedBoqReturnTo(
+  projectId: string,
+  value: string | null,
+) {
+  if (!value) return null;
+  const match = value.match(
+    /^\/projects\/([0-9a-f-]{36})\/workspaces\/([0-9a-f-]{36})$/i,
+  );
+  if (
+    !match ||
+    match[1] !== projectId ||
+    !uuid.safeParse(match[1]).success ||
+    !uuid.safeParse(match[2]).success
+  )
+    throw new Response("돌아갈 작업실 주소가 올바르지 않습니다.", {
+      status: 400,
+    });
+  return value;
+}
+
+export function verifiedBoqLocation(
+  projectId: string,
+  versionId?: string,
+  returnTo?: string | null,
+) {
+  const query = new URLSearchParams();
+  if (versionId) query.set("version", versionId);
+  if (returnTo)
+    query.set("returnTo", parseVerifiedBoqReturnTo(projectId, returnTo)!);
+  const suffix = query.toString();
+  return `/projects/${projectId}/boq${suffix ? `?${suffix}` : ""}`;
+}
+
 function untyped(client: unknown) {
   return client as SupabaseClient<any>;
 }
@@ -505,6 +538,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     "quantity_lineage",
   );
   const url = new URL(request.url);
+  const returnTo = parseVerifiedBoqReturnTo(
+    context.project.id,
+    url.searchParams.get("returnTo"),
+  );
   if (url.searchParams.get("download") === "pricebook-template") {
     const artifact = buildVerifiedBoqPriceBookTemplateCsv();
     await recordProjectExport(
@@ -975,6 +1012,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       identityLinks,
       drawingSources,
       drawingSourcesHaveMore,
+      returnTo,
     },
     { headers: context.headers },
   );
@@ -989,8 +1027,17 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
+  const returnField = form.get("return_to");
+  const returnTo = parseVerifiedBoqReturnTo(
+    context.project.id,
+    returnField === null
+      ? new URL(request.url).searchParams.get("returnTo")
+      : typeof returnField === "string"
+        ? returnField
+        : "",
+  );
   const back = (versionId?: string) =>
-    `/projects/${context.project.id}/boq${versionId ? `?version=${versionId}` : ""}`;
+    verifiedBoqLocation(context.project.id, versionId, returnTo);
   try {
     if (
       [
@@ -1713,6 +1760,7 @@ export default function VerifiedBoq({
     resources,
     versionRows,
     result,
+    returnTo,
   } = loaderData;
   const draft = version?.status === "draft" && loaderData.mayEdit;
   const activeBookId = version?.price_book_id ?? priceBooks[0]?.id ?? "";
@@ -1730,6 +1778,14 @@ export default function VerifiedBoq({
       >
         <ArrowLeft className="size-4" /> 물량 화면으로
       </Link>
+      {returnTo ? (
+        <Link
+          className="ml-4 inline-flex min-h-11 items-center text-sm font-semibold text-primary underline underline-offset-4"
+          to={returnTo}
+        >
+          작업실로 돌아가기
+        </Link>
+      ) : null}
       <header className="mt-4 flex flex-col gap-4 border-b pb-7 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-bold tracking-[0.16em] text-primary">
@@ -1747,12 +1803,18 @@ export default function VerifiedBoq({
         version.engine_version === "VERIFIED-BOQ-1.0" ? (
           <div className="flex gap-2">
             <Button asChild className="min-h-11" variant="outline">
-              <a href={`?version=${version.id}&download=xlsx`}>
+              <a
+                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=xlsx`}
+              >
                 <Download className="size-4" /> Excel
               </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
-              <a href={`?version=${version.id}&download=csv`}>CSV</a>
+              <a
+                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=csv`}
+              >
+                CSV
+              </a>
             </Button>
           </div>
         ) : null}
@@ -1763,15 +1825,25 @@ export default function VerifiedBoq({
         ["approved", "superseded"].includes(version.status) ? (
           <div className="flex gap-2">
             <Button asChild className="min-h-11" variant="outline">
-              <a href={`?version=${version.id}&download=xlsx`}>
+              <a
+                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=xlsx`}
+              >
                 <Download className="size-4" /> Excel
               </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
-              <a href={`?version=${version.id}&download=csv`}>CSV</a>
+              <a
+                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=csv`}
+              >
+                CSV
+              </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
-              <a href={`?version=${version.id}&download=manifest`}>Manifest</a>
+              <a
+                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=manifest`}
+              >
+                Manifest
+              </a>
             </Button>
           </div>
         ) : null}
@@ -1812,6 +1884,7 @@ export default function VerifiedBoq({
           {loaderData.mayEdit ? (
             <Form className="mt-4 grid gap-3" method="post">
               <input name="intent" type="hidden" value="price_book" />
+              <input name="return_to" type="hidden" value={returnTo ?? ""} />
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input
                   aria-label="단가표 이름"
@@ -1970,6 +2043,7 @@ export default function VerifiedBoq({
           {loaderData.mayEdit && priceBooks.length ? (
             <Form className="mt-3 flex gap-2" method="post">
               <input name="intent" type="hidden" value="resource_import" />
+              <input name="return_to" type="hidden" value={returnTo ?? ""} />
               <select
                 aria-label="가져올 단가표"
                 className={`${inputClass} min-w-0 flex-1`}
@@ -2011,7 +2085,7 @@ export default function VerifiedBoq({
             <Link
               className={`rounded-full border px-4 py-2 text-sm ${item.id === version?.id ? "bg-primary text-primary-foreground" : "bg-background"}`}
               key={item.id}
-              to={`?version=${item.id}`}
+              to={verifiedBoqLocation(project.id, item.id, returnTo)}
             >
               V{item.version_no} {item.title} · {statusLabel[item.status]}
             </Link>
@@ -2023,6 +2097,7 @@ export default function VerifiedBoq({
             method="post"
           >
             <input name="intent" type="hidden" value="version" />
+            <input name="return_to" type="hidden" value={returnTo ?? ""} />
             <Input
               aria-label="내역 제목"
               name="title"
