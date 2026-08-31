@@ -1,6 +1,6 @@
 import type { Route } from "./+types/project-drawings";
 
-import { ArrowLeft, Box, FileText, FolderOpen, Upload } from "lucide-react";
+import { ArrowLeft, Box, FileText, FolderOpen, Plus, Upload } from "lucide-react";
 import { Link, data } from "react-router";
 
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
@@ -9,10 +9,13 @@ import {
   listDrawingFiles,
 } from "~/lukas/lib/drawing-collaboration.server";
 import {
-  drawingProjectWorkspacePath,
   drawingUploadPath,
-  drawingWorkspacePath,
 } from "~/lukas/lib/drawing-entry";
+import {
+  drawingWorkspaceNewPath,
+  drawingWorkspacePath,
+  legacyDrawingWorkspacePath,
+} from "~/lukas/lib/drawing-workspace-paths";
 
 export const meta: Route.MetaFunction = ({ data }) => [
   {
@@ -27,8 +30,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const files = await listDrawingFiles(client, project.id);
-  return data({ project, files }, { headers });
+  const [files, { data: documents, error: documentsError }] = await Promise.all([
+    listDrawingFiles(client, project.id),
+    (client as any)
+      .from("lukas_drawing_documents")
+      .select("id,project_id,title,source_file_id,updated_at")
+      .eq("project_id", project.id)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false }),
+  ]);
+  if (documentsError)
+    throw new Response("도면 작업실을 불러오지 못했습니다.", { status: 500 });
+  return data({ project, files, documents: documents ?? [] }, { headers });
 }
 
 function fileSize(bytes: number) {
@@ -57,6 +70,12 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
         <div className="flex flex-wrap gap-2">
           <Link
             className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+            to={drawingWorkspaceNewPath(loaderData.project.id)}
+          >
+            <Plus className="size-4" /> 새 작업실
+          </Link>
+          <Link
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold"
             to={drawingUploadPath(loaderData.project.id)}
           >
             <Upload className="size-4" /> 도면 추가
@@ -75,7 +94,34 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
         projectId={loaderData.project.id}
       />
 
-      {loaderData.files.length === 0 ? (
+      {loaderData.documents.length > 0 ? (
+        <section className="mt-8" aria-labelledby="workspace-documents-title">
+          <h2 className="text-lg font-bold" id="workspace-documents-title">
+            작업실
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {loaderData.documents.map((document: {
+              id: string;
+              title: string;
+              updated_at: string;
+            }) => (
+              <Link
+                className="rounded-3xl border bg-card p-5 shadow-sm transition hover:border-primary/40"
+                key={document.id}
+                to={drawingWorkspacePath(loaderData.project.id, document.id)}
+              >
+                <p className="text-xs font-semibold text-primary">도면 작업실</p>
+                <h3 className="mt-2 font-bold">{document.title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {new Date(document.updated_at).toLocaleDateString("ko-KR")} 업데이트
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {loaderData.files.length === 0 && loaderData.documents.length === 0 ? (
         <section className="mt-8 rounded-3xl border border-dashed bg-card px-6 py-14 text-center">
           <FilesEmpty />
           <h2 className="mt-4 text-lg font-bold">아직 등록된 도면이 없습니다.</h2>
@@ -84,20 +130,24 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
           </p>
           <Link
             className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
-            to={drawingProjectWorkspacePath(loaderData.project.id)}
+            to={drawingWorkspaceNewPath(loaderData.project.id)}
           >
-            빈 작업실 시작
+            새 작업실
           </Link>
         </section>
       ) : (
-        <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <section className="mt-8" aria-labelledby="original-drawings-title">
+          <h2 className="text-lg font-bold" id="original-drawings-title">
+            원본 IFC·PDF
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {loaderData.files.map((file) => {
             const Icon = file.kind === "ifc" ? Box : FileText;
             return (
               <Link
                 className="group flex min-h-52 flex-col rounded-3xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                 key={file.id}
-                to={drawingWorkspacePath(loaderData.project.id, file.id)}
+                to={legacyDrawingWorkspacePath(loaderData.project.id, file.id)}
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -119,6 +169,7 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
               </Link>
             );
           })}
+          </div>
         </section>
       )}
     </main>

@@ -10,7 +10,7 @@ const ids = {
   document: "00000000-0000-4000-8000-000000000003",
 };
 
-test("template clone navigation is project, file, and document scoped", () => {
+test("template clone navigation is project and canonical document scoped", () => {
   assert.equal(
     typeof workspaceServer.drawingTemplateWorkspaceLocation,
     "function",
@@ -21,7 +21,7 @@ test("template clone navigation is project, file, and document scoped", () => {
       ids.file,
       ids.document,
     ),
-    `/projects/${ids.project}/drawings/${ids.file}/workspace?document=${ids.document}`,
+    `/projects/${ids.project}/workspaces/${ids.document}`,
   );
   assert.throws(() =>
     workspaceServer.drawingTemplateWorkspaceLocation(
@@ -32,49 +32,43 @@ test("template clone navigation is project, file, and document scoped", () => {
   );
 });
 
-test("template entry is an editor-only native dialog with an explicit source choice", async () => {
-  const [screen, dialog] = await Promise.all([
+test("organization template entry moves to the universal start screen with exact import identity", async () => {
+  const [screen, start] = await Promise.all([
     readFile(
-      new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+      new URL("../app/lukas/screens/drawing-workspace-new.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
       new URL(
-        "../app/lukas/components/drawing-template-dialog.tsx",
+        "../app/lukas/components/drawing-workspace-start.tsx",
         import.meta.url,
       ),
       "utf8",
     ),
   ]);
 
-  assert.match(screen, /<DrawingTemplateDialog/);
-  assert.match(
-    screen,
-    /form\.get\("intent"\) === "create_from_template"[\s\S]*redirect\(/,
+  assert.match(screen, /create_library_template/);
+  assert.match(screen, /revisionId:\s*null/);
+  assert.match(screen, /drawingWorkspacePath/);
+  assert.match(start, /name="libraryVersionId"/);
+  assert.match(start, /name="clientRequestId"/);
+  assert.match(start, /useNavigation/);
+  assert.match(start, /role="alert"/);
+  assert.doesNotMatch(
+    start,
+    /name="title"[\s\S]{0,800}name="libraryVersionId"/,
   );
-  assert.match(dialog, /<Dialog/);
-  assert.match(dialog, /템플릿에서 시작/);
-  assert.match(dialog, /name="source_revision_id"/);
-  assert.match(dialog, /name="source_file_id"/);
-  assert.match(dialog, /name="client_request_id"/);
-  assert.match(dialog, /name="title"/);
-  assert.match(dialog, /useNavigation/);
-  assert.match(dialog, /disabled=\{saving/);
-  assert.match(dialog, /role="alert"/);
-  assert.doesNotMatch(dialog, /company|organization|global/i);
 });
 
-test("template follow-up actions preserve the clone document scope", async () => {
+test("canonical template follow-up actions use only the exact workspace document scope", async () => {
   const screen = await readFile(
     new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(
     screen,
-    /const searchParams = new URL\(request\.url\)\.searchParams;[\s\S]*searchParams\.get\("document"\) \?\? undefined/,
+    /workspaceId:\s*params\.workspaceId![\s\S]*revisionId:\s*searchParams\.get\("revision"\)/,
   );
-  assert.match(
-    screen,
-    /new URL\(request\.url\)\.searchParams\.get\("document"\) \?\? undefined/,
-  );
+  assert.doesNotMatch(screen, /params\.fileId/);
+  assert.doesNotMatch(screen, /searchParams\.get\("document"\)/);
 });

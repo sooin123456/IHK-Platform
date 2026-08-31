@@ -70,14 +70,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (request.method !== "POST")
     throw new Response("Method Not Allowed", { status: 405 });
   const projectId = Uuid.parse(params.projectId);
-  const workspaceId = params.workspaceId
-    ? Uuid.parse(params.workspaceId)
-    : null;
-  const fileId = params.fileId ? Uuid.parse(params.fileId) : null;
-  if (!workspaceId && !fileId)
-    throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
-      status: 404,
-    });
+  const workspaceId = Uuid.parse(params.workspaceId);
   const { client, headers } = await drawingContext(request, projectId);
   const form = await request.formData();
   for (const key of form.keys())
@@ -115,7 +108,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
   const scopeClient = client as any;
   await validateDrawingExportScope(scopeClient, {
-    fileId,
+    fileId: null,
     projectId,
     revisionId,
     workspaceId,

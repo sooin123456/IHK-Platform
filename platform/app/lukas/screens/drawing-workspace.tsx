@@ -142,23 +142,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       project.id,
       "ifc_workspace",
     );
-  const workspace = params.workspaceId
-    ? await loadDrawingWorkspace(client, {
-        projectId: project.id,
-        workspaceId: params.workspaceId,
-        revisionId: lineageSearch.revisionId ?? undefined,
-        focusObjectId: lineageSearch.objectId ?? undefined,
-        focusEvidenceFileId: lineageSearch.evidenceFileId ?? undefined,
-      })
-    : await loadDrawingWorkspace(
-        client,
-        project.id,
-        params.fileId ?? null,
-        new URL(request.url).searchParams.get("document") ?? undefined,
-        lineageSearch.revisionId ?? undefined,
-        lineageSearch.objectId ?? undefined,
-        lineageSearch.evidenceFileId ?? undefined,
-      );
+  const workspace = await loadDrawingWorkspace(client, {
+    projectId: project.id,
+    workspaceId: params.workspaceId!,
+    revisionId: lineageSearch.revisionId ?? undefined,
+    focusObjectId: lineageSearch.objectId ?? undefined,
+    focusEvidenceFileId: lineageSearch.evidenceFileId ?? undefined,
+  });
   const selectedIfcFileId =
     viewState.ifcFileId ??
     (workspace.primarySource?.kind === "ifc"
@@ -195,7 +185,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (workspace.document && lineageObjectId) {
     try {
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId ?? workspace.primarySource?.id ?? "",
+        fileId: workspace.primarySource?.id ?? "",
         revisionId: workspace.document.revision.id,
         objectId: lineageObjectId,
       });
@@ -301,19 +291,11 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
   const form = await request.formData();
   const searchParams = new URL(request.url).searchParams;
-  const workspace = params.workspaceId
-    ? await loadDrawingWorkspace(client, {
-        projectId: project.id,
-        workspaceId: params.workspaceId,
-        revisionId: searchParams.get("revision") ?? undefined,
-      })
-    : await loadDrawingWorkspace(
-        client,
-        project.id,
-        params.fileId ?? null,
-        searchParams.get("document") ?? undefined,
-        searchParams.get("revision") ?? undefined,
-      );
+  const workspace = await loadDrawingWorkspace(client, {
+    projectId: project.id,
+    workspaceId: params.workspaceId!,
+    revisionId: searchParams.get("revision") ?? undefined,
+  });
   const intent = form.get("intent");
   if (intent === "create_drawing_quantity_link") {
     await assertProjectOrganizationFeature(
@@ -325,7 +307,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const mutation = parseDrawingQuantityLinkForm(form);
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId ?? workspace.primarySource?.id ?? "",
+        fileId: workspace.primarySource?.id ?? "",
         revisionId: mutation.drawingRevisionId,
         objectId: mutation.drawingObjectId,
       });

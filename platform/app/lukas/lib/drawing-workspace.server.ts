@@ -4176,7 +4176,8 @@ export function drawingTemplateWorkspaceLocation(
   fileId: string,
   documentId: string,
 ) {
-  return `/projects/${Uuid.parse(projectId)}/drawings/${Uuid.parse(fileId)}/workspace?document=${Uuid.parse(documentId)}`;
+  Uuid.parse(fileId);
+  return `/projects/${Uuid.parse(projectId)}/workspaces/${Uuid.parse(documentId)}`;
 }
 
 export async function resolveDrawingDocumentEntry(

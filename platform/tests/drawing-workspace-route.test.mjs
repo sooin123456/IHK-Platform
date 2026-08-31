@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+
+import { createServer } from "vite";
 
 import routes from "../app/routes.ts";
 
@@ -13,6 +16,24 @@ const workspaceServer = await import(
 const workspacePaths = await import(
   "../app/lukas/lib/drawing-workspace-paths.ts"
 ).catch(() => ({}));
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  resolve: { alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) } },
+  server: { middlewareMode: true },
+});
+const legacyScreen = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-legacy.tsx")
+  .catch(() => ({}));
+const newScreen = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-new.tsx")
+  .catch(() => ({}));
+const startComponent = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-workspace-start.tsx")
+  .catch(() => ({}));
+
+test.after(() => vite.close());
 const ids = {
   project: "00000000-0000-4000-8000-000000000002",
   file: "00000000-0000-4000-8000-000000000003",
@@ -26,7 +47,7 @@ function flatten(routesToFlatten) {
   ]);
 }
 
-test("workspace route is additive and keeps the collaboration room", () => {
+test("workspace route keeps the collaboration room and removes file operation/export authority aliases", () => {
   const registered = flatten(routes).filter((route) =>
     route.path?.startsWith("/projects/:projectId/drawings/:fileId"),
   );
@@ -39,23 +60,19 @@ test("workspace route is additive and keeps the collaboration room", () => {
       ],
       [
         "/projects/:projectId/drawings/:fileId/workspace",
-        "lukas/screens/drawing-workspace.tsx",
-      ],
-      [
-        "/projects/:projectId/drawings/:fileId/workspace/operation",
-        "lukas/screens/drawing-workspace-operation.ts",
-      ],
-      [
-        "/projects/:projectId/drawings/:fileId/workspace/export",
-        "lukas/screens/drawing-workspace-export.ts",
+        "lukas/screens/drawing-workspace-legacy.tsx",
       ],
     ],
   );
 });
 
-test("workspace routes expose document-scoped canonical identity alongside compatibility aliases", () => {
+test("workspace routes register static start before dynamic canonical identity and keep only GET compatibility resolvers", () => {
   const byPath = new Map(
     flatten(routes).map((route) => [route.path, route.file]),
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspaces/new"),
+    "lukas/screens/drawing-workspace-new.tsx",
   );
   assert.equal(
     byPath.get("/projects/:projectId/workspaces/:workspaceId"),
@@ -71,7 +88,248 @@ test("workspace routes expose document-scoped canonical identity alongside compa
   );
   assert.equal(
     byPath.get("/projects/:projectId/drawings/:fileId/workspace"),
-    "lukas/screens/drawing-workspace.tsx",
+    "lukas/screens/drawing-workspace-legacy.tsx",
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspace"),
+    "lukas/screens/drawing-workspace-legacy.tsx",
+  );
+  for (const removed of [
+    "/projects/:projectId/workspace/operation",
+    "/projects/:projectId/drawings/:fileId/workspace/operation",
+    "/projects/:projectId/drawings/:fileId/workspace/export",
+  ])
+    assert.equal(byPath.has(removed), false, removed);
+
+  const privateChildren = flatten(routes);
+  const startIndex = privateChildren.findIndex(
+    ({ path }) => path === "/projects/:projectId/workspaces/new",
+  );
+  const dynamicIndex = privateChildren.findIndex(
+    ({ path }) => path === "/projects/:projectId/workspaces/:workspaceId",
+  );
+  assert.ok(startIndex >= 0 && startIndex < dynamicIndex);
+});
+
+function legacyClient({ documents = [], file = null } = {}) {
+  const observations = { from: [], rpc: [] };
+  const client = {
+    from(table) {
+      observations.from.push(table);
+      const filters = [];
+      const chain = {
+        eq(column, value) {
+          filters.push(["eq", column, value]);
+          return chain;
+        },
+        in(column, values) {
+          filters.push(["in", column, values]);
+          return chain;
+        },
+        limit() {
+          return chain;
+        },
+        maybeSingle: async () => ({
+          data:
+            table === "lukas_qto_files"
+              ? file
+              : documents.length > 0
+                ? documents[0]
+                : null,
+          error: null,
+        }),
+        order() {
+          return chain;
+        },
+        select() {
+          return chain;
+        },
+      };
+      return chain;
+    },
+    rpc(name, args) {
+      observations.rpc.push({ name, args });
+      throw new Error("legacy GET must not call an RPC");
+    },
+  };
+  return { client, observations };
+}
+
+test("legacy project GET resolves latest document canonically without creating state", async () => {
+  const { client, observations } = legacyClient({
+    documents: [{ id: ids.document }],
+  });
+  assert.equal(
+    await legacyScreen.resolveLegacyDrawingWorkspace(client, ids.project),
+    `/projects/${ids.project}/workspaces/${ids.document}`,
+  );
+  assert.deepEqual(observations.rpc, []);
+});
+
+test("legacy file GET resolves latest matching document and ignores document query overrides", async () => {
+  const { client, observations } = legacyClient({
+    file: { id: ids.file, project_id: ids.project, kind: "pdf", immutable: true },
+    documents: [{ id: ids.document }],
+  });
+  assert.equal(
+    await legacyScreen.resolveLegacyDrawingWorkspace(
+      client,
+      ids.project,
+      ids.file,
+    ),
+    `/projects/${ids.project}/workspaces/${ids.document}`,
+  );
+  assert.deepEqual(observations.rpc, []);
+});
+
+test("legacy file with no document redirects to source-prefilled start", async () => {
+  const { client } = legacyClient({
+    file: { id: ids.file, project_id: ids.project, kind: "pdf", immutable: true },
+  });
+  assert.equal(
+    await legacyScreen.resolveLegacyDrawingWorkspace(
+      client,
+      ids.project,
+      ids.file,
+    ),
+    `/projects/${ids.project}/workspaces/new?sourceFileId=${ids.file}`,
+  );
+});
+
+test("legacy zero-file zero-document project redirects to blank start", async () => {
+  const { client, observations } = legacyClient();
+  assert.equal(
+    await legacyScreen.resolveLegacyDrawingWorkspace(client, ids.project),
+    `/projects/${ids.project}/workspaces/new`,
+  );
+  assert.deepEqual(observations.rpc, []);
+});
+
+function startForm(values) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(values)) form.set(key, value);
+  return form;
+}
+
+test("new workspace start mutation is an exhaustive closed discriminated union", () => {
+  const common = {
+    title: "새 적산 작업실",
+    clientRequestId: "00000000-0000-4000-8000-000000000010",
+    clientCreatedAt: "2026-08-31T01:02:03.000Z",
+  };
+  assert.deepEqual(
+    newScreen.parseDrawingWorkspaceStartForm(
+      startForm({ intent: "create_blank", ...common }),
+    ),
+    { intent: "create_blank", ...common },
+  );
+  assert.deepEqual(
+    newScreen.parseDrawingWorkspaceStartForm(
+      startForm({
+        intent: "create_starter",
+        ...common,
+        starterKey: "interior-basic",
+        starterVersion: "1",
+      }),
+    ),
+    {
+      intent: "create_starter",
+      ...common,
+      starterKey: "interior-basic",
+      starterVersion: 1,
+    },
+  );
+  assert.deepEqual(
+    newScreen.parseDrawingWorkspaceStartForm(
+      startForm({
+        intent: "create_pdf",
+        ...common,
+        sourceFileId: ids.file,
+      }),
+    ),
+    { intent: "create_pdf", ...common, sourceFileId: ids.file },
+  );
+  assert.deepEqual(
+    newScreen.parseDrawingWorkspaceStartForm(
+      startForm({
+        intent: "create_library_template",
+        libraryVersionId: ids.document,
+        clientRequestId: common.clientRequestId,
+      }),
+    ),
+    {
+      intent: "create_library_template",
+      libraryVersionId: ids.document,
+      clientRequestId: common.clientRequestId,
+    },
+  );
+  assert.throws(
+    () =>
+      newScreen.parseDrawingWorkspaceStartForm(
+        startForm({ intent: "create_blank", ...common, injected: "true" }),
+      ),
+    /허용|field|입력/i,
+  );
+  assert.throws(
+    () =>
+      newScreen.parseDrawingWorkspaceStartForm(
+        startForm({ intent: "unknown", ...common }),
+      ),
+    /작업|intent|입력/i,
+  );
+});
+
+test("failed start validation preserves the submitted retry identity and isolates its field error", async () => {
+  const clientRequestId = "00000000-0000-4000-8000-000000000010";
+  const clientCreatedAt = "2026-08-31T01:02:03.000Z";
+  const response = await newScreen.action({
+    request: new Request(`http://app.test/projects/${ids.project}/workspaces/new`, {
+      method: "POST",
+      body: startForm({
+        intent: "create_blank",
+        title: "",
+        clientRequestId,
+        clientCreatedAt,
+      }),
+    }),
+    params: { projectId: ids.project },
+  });
+  assert.equal(response.init.status, 400);
+  assert.equal(response.data.clientRequestId, clientRequestId);
+  assert.equal(response.data.clientCreatedAt, clientCreatedAt);
+  assert.equal(
+    startComponent.drawingWorkspaceStartFieldError(
+      response.data,
+      { clientRequestId, clientCreatedAt },
+      "title",
+    ),
+    "작업실 이름을 입력하세요.",
+  );
+  assert.equal(
+    startComponent.drawingWorkspaceStartFieldError(
+      response.data,
+      {
+        clientRequestId: "00000000-0000-4000-8000-000000000011",
+        clientCreatedAt,
+      },
+      "title",
+    ),
+    undefined,
+  );
+});
+
+test("sourceFileId and starterKey focus only their exact matching start choice", () => {
+  assert.equal(
+    startComponent.drawingWorkspaceStartChoiceFocused(ids.file, ids.file),
+    true,
+  );
+  assert.equal(
+    startComponent.drawingWorkspaceStartChoiceFocused(ids.file, ids.document),
+    false,
+  );
+  assert.equal(
+    startComponent.drawingWorkspaceStartChoiceFocused(undefined, ids.file),
+    false,
   );
 });
 
@@ -124,15 +382,17 @@ test("collaboration room exposes an accessible link to the additive workspace", 
   assert.match(source, />\s*도면 편집 작업실\s*</);
 });
 
-test("workspace screen offers blank and PDF-background creation without replacing the room", async () => {
+test("new workspace screen owns blank and PDF-background creation without replacing the room", async () => {
   const source = await readFile(
-    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    new URL("../app/lukas/screens/drawing-workspace-new.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(source, /빈 도면/);
-  assert.match(source, /PDF 배경 사용/);
-  assert.match(source, /document_mode/);
-  assert.match(source, /actionData\?\.error/);
+  assert.match(source, /create_blank/);
+  assert.match(source, /create_starter/);
+  assert.match(source, /create_pdf/);
+  assert.match(source, /create_library_template/);
+  assert.match(source, /clientCreatedAt/);
+  assert.doesNotMatch(source, /Unexpected error/);
 });
 
 test("workspace document renders the accessible editor shell", async () => {

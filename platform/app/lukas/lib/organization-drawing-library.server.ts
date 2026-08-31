@@ -6,6 +6,7 @@ import {
   DrawingPropertySchemaSchema,
   DrawingStyleDefinitionSchema,
 } from "./drawing-workspace.types.ts";
+import { DrawingStarterDefinitionSchema } from "./drawing-starter-templates.ts";
 
 const Uuid = z.string().uuid();
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -125,7 +126,13 @@ const WorkspaceTemplatePayload = z
 export function parseOrganizationLibraryCanonicalPayload(
   kind: z.infer<typeof Kind>,
   payload: unknown,
+  sourceKind: "project_revision" | "platform_starter" = "project_revision",
 ) {
+  if (sourceKind === "platform_starter") {
+    if (kind !== "workspace_template")
+      throw new Error("platform starter 종류가 올바르지 않습니다.");
+    return DrawingStarterDefinitionSchema.parse(payload);
+  }
   if (kind === "style") return DrawingStyleDefinitionSchema.parse(payload);
   if (kind === "block") return DrawingBlockSchema.parse(payload);
   if (kind === "property_schema")
@@ -153,16 +160,36 @@ const VersionRow = z
     canonical_payload: z.unknown(),
     content_sha256: Sha256,
     predecessor_version_id: Uuid.nullable(),
-    source_project_id: Uuid,
-    source_revision_id: Uuid,
+    source_kind: z.enum(["project_revision", "platform_starter"]),
+    source_project_id: Uuid.nullable(),
+    source_revision_id: Uuid.nullable(),
     source_entity_id: Uuid.nullable(),
+    platform_starter_key: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]{0,63}$/)
+      .nullable(),
+    platform_starter_version: z.coerce.number().int().positive().nullable(),
     created_by: Uuid,
     published_by: Uuid.nullable(),
     created_at: z.string(),
     published_at: z.string().nullable(),
     deprecated_at: z.string().nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((version, context) => {
+    const projectRevision = version.source_kind === "project_revision";
+    if (
+      projectRevision !== (version.source_project_id !== null) ||
+      projectRevision !== (version.source_revision_id !== null) ||
+      projectRevision === (version.platform_starter_key !== null) ||
+      projectRevision === (version.platform_starter_version !== null) ||
+      (!projectRevision && version.source_entity_id !== null)
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "회사 라이브러리 원본 계보가 올바르지 않습니다.",
+      });
+  });
 
 type LibraryClient = SupabaseClient<any>;
 
@@ -189,7 +216,7 @@ export async function listOrganizationDrawingLibrary(
   let versionsQuery = client
     .from("lukas_drawing_library_versions")
     .select(
-      "id,registry_id,organization_id,version_no,status,canonical_payload,content_sha256,predecessor_version_id,source_project_id,source_revision_id,source_entity_id,created_by,published_by,created_at,published_at,deprecated_at",
+      "id,registry_id,organization_id,version_no,status,canonical_payload,content_sha256,predecessor_version_id,source_kind,source_project_id,source_revision_id,source_entity_id,platform_starter_key,platform_starter_version,created_by,published_by,created_at,published_at,deprecated_at",
     )
     .eq("organization_id", organizationId)
     .in(
@@ -218,9 +245,18 @@ export async function listOrganizationDrawingLibrary(
       canonical_payload: parseOrganizationLibraryCanonicalPayload(
         entry.kind,
         version.canonical_payload,
+        version.source_kind,
       ),
     };
   });
+}
+
+export function assertOrganizationDrawingLibraryMutationAllowed(
+  version: { source_kind: "project_revision" | "platform_starter" },
+  intent: "publish" | "deprecate" | "import",
+) {
+  if (version.source_kind === "platform_starter")
+    throw new Error(`platform 기본 템플릿은 읽기 전용이라 ${intent}할 수 없습니다.`);
 }
 
 export async function runOrganizationDrawingLibraryMutation(

@@ -50,7 +50,8 @@ test("P5 operation resource routes reuse the authenticated actions and notices c
       readFile(new URL("../THIRD_PARTY_NOTICES.md", import.meta.url), "utf8"),
     ],
   );
-  assert.match(routes, /drawings\/:fileId\/workspace\/operation/);
+  assert.match(routes, /workspaces\/:workspaceId\/operation/);
+  assert.doesNotMatch(routes, /drawings\/:fileId\/workspace\/operation/);
   assert.match(routes, /workspace-preview\/drawing-workspace\/operation/);
   assert.match(
     productionResource,

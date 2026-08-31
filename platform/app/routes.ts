@@ -70,13 +70,8 @@ export default [
       route("/projects/:projectId", "lukas/screens/project.tsx"),
       route(
         "/projects/:projectId/workspace",
-        "lukas/screens/drawing-workspace.tsx",
+        "lukas/screens/drawing-workspace-legacy.tsx",
         { id: "legacy-project-workspace" },
-      ),
-      route(
-        "/projects/:projectId/workspace/operation",
-        "lukas/screens/drawing-workspace-operation.ts",
-        { id: "legacy-project-workspace-operation" },
       ),
       route(
         "/projects/:projectId/files/:fileId/download",
@@ -89,6 +84,11 @@ export default [
       route(
         "/projects/:projectId/drawings/:fileId",
         "lukas/screens/drawing-room.tsx",
+      ),
+      route(
+        "/projects/:projectId/workspaces/new",
+        "lukas/screens/drawing-workspace-new.tsx",
+        { id: "drawing-workspace-new" },
       ),
       route(
         "/projects/:projectId/workspaces/:workspaceId",
@@ -107,18 +107,8 @@ export default [
       ),
       route(
         "/projects/:projectId/drawings/:fileId/workspace",
-        "lukas/screens/drawing-workspace.tsx",
+        "lukas/screens/drawing-workspace-legacy.tsx",
         { id: "legacy-drawing-workspace" },
-      ),
-      route(
-        "/projects/:projectId/drawings/:fileId/workspace/operation",
-        "lukas/screens/drawing-workspace-operation.ts",
-        { id: "legacy-drawing-workspace-operation" },
-      ),
-      route(
-        "/projects/:projectId/drawings/:fileId/workspace/export",
-        "lukas/screens/drawing-workspace-export.ts",
-        { id: "legacy-drawing-workspace-export" },
       ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(

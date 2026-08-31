@@ -8,6 +8,7 @@ import { Input } from "~/core/components/ui/input";
 import makeServerClient from "~/core/lib/supa-client.server";
 import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
+  assertOrganizationDrawingLibraryMutationAllowed,
   listOrganizationDrawingLibrary,
   parseOrganizationDrawingLibraryForm,
   parseOrganizationDrawingLibrarySearch,
@@ -191,6 +192,17 @@ export async function action({ request, params }: Route.ActionArgs) {
     params.organizationId!,
   );
   try {
+    if (mutation.intent !== "create_draft") {
+      const { data: version, error: versionError } = await client
+        .from("lukas_drawing_library_versions")
+        .select("id,organization_id,source_kind")
+        .eq("id", mutation.versionId)
+        .eq("organization_id", organization.id)
+        .maybeSingle();
+      if (versionError || !version)
+        throw new Error("회사 라이브러리 버전을 찾을 수 없습니다.");
+      assertOrganizationDrawingLibraryMutationAllowed(version, mutation.intent);
+    }
     await runOrganizationDrawingLibraryMutation(
       client,
       organization.id,
@@ -428,15 +440,19 @@ export default function OrganizationDrawingLibrary({
             조건에 맞는 회사 표준이 없습니다.
           </p>
         ) : (
-          loaderData.versions.map((version) => (
-            <article
+          loaderData.versions.map((version) => {
+            const platformStarter = version.source_kind === "platform_starter";
+            return (
+              <article
               className="rounded-2xl border bg-card p-5"
               key={version.id}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold text-primary">
-                    {kindLabels[version.entry.kind]} · v{version.version_no}
+                    {platformStarter
+                      ? "1HK 기본 · 읽기 전용"
+                      : `${kindLabels[version.entry.kind]} · v${version.version_no}`}
                   </p>
                   <h2 className="mt-1 text-lg font-bold">
                     {version.entry.name}
@@ -450,7 +466,7 @@ export default function OrganizationDrawingLibrary({
                 </span>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                {loaderData.mayManage && version.status === "draft" ? (
+                {!platformStarter && loaderData.mayManage && version.status === "draft" ? (
                   <Form method="post">
                     <input name="intent" type="hidden" value="publish" />
                     <input name="version_id" type="hidden" value={version.id} />
@@ -459,7 +475,7 @@ export default function OrganizationDrawingLibrary({
                     </Button>
                   </Form>
                 ) : null}
-                {loaderData.mayManage && version.status === "published" ? (
+                {!platformStarter && loaderData.mayManage && version.status === "published" ? (
                   <Form method="post">
                     <input name="intent" type="hidden" value="deprecate" />
                     <input name="version_id" type="hidden" value={version.id} />
@@ -468,7 +484,29 @@ export default function OrganizationDrawingLibrary({
                     </Button>
                   </Form>
                 ) : null}
-                {version.status === "published" ? (
+                {platformStarter && version.status === "published" ? (
+                  <div className="grid w-full gap-2 border-t pt-3">
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      사용할 프로젝트
+                    </p>
+                    {loaderData.projects.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        사용 가능한 프로젝트가 없습니다
+                      </p>
+                    ) : (
+                      loaderData.projects.map((project: ProjectOption) => (
+                        <Link
+                          className="inline-flex min-h-11 items-center justify-between rounded-lg border px-3 text-sm font-semibold"
+                          key={project.id}
+                          to={`/projects/${project.id}/workspaces/new?starterKey=${encodeURIComponent(version.platform_starter_key!)}`}
+                        >
+                          {project.name} · 사용
+                        </Link>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+                {!platformStarter && version.status === "published" ? (
                   <div className="grid w-full gap-2 border-t pt-3">
                     <p className="text-xs font-semibold text-muted-foreground">
                       가져올 대상
@@ -524,8 +562,9 @@ export default function OrganizationDrawingLibrary({
                   </div>
                 ) : null}
               </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         )}
       </section>
     </main>

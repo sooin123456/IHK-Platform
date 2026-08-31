@@ -1,13 +1,35 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { ThemeProvider } from "remix-themes";
+import { createServer } from "vite";
 
 import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
+  assertOrganizationDrawingLibraryMutationAllowed,
+  listOrganizationDrawingLibrary,
   parseOrganizationDrawingLibraryForm,
   parseOrganizationDrawingLibrarySearch,
   runOrganizationDrawingLibraryMutation,
 } from "../app/lukas/lib/organization-drawing-library.server.ts";
+
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  resolve: { alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) } },
+  server: { middlewareMode: true },
+});
+const libraryScreen = await vite.ssrLoadModule(
+  "/app/lukas/screens/organization-drawing-library.tsx",
+);
+
+test.after(() => vite.close());
 
 const ids = Object.freeze({
   organization: "71000000-0000-4000-8000-000000000001",
@@ -17,7 +39,148 @@ const ids = Object.freeze({
   version: "71000000-0000-4000-8000-000000000005",
   predecessor: "71000000-0000-4000-8000-000000000006",
   request: "71000000-0000-4000-8000-000000000007",
+  platformEntry: "71000000-0000-4000-8000-000000000008",
+  platformVersion: "71000000-0000-4000-8000-000000000009",
+  customEntry: "71000000-0000-4000-8000-000000000010",
+  customVersion: "71000000-0000-4000-8000-000000000011",
+  creator: "71000000-0000-4000-8000-000000000012",
+  projectTwo: "71000000-0000-4000-8000-000000000013",
 });
+
+const platformPayload = {
+  schemaVersion: "1hk-platform-starter/1",
+  key: "interior-basic",
+  version: 1,
+  name: "실내건축 기본 적산",
+  description: "바닥·벽·천장·문·창호·가구 기본 수량을 정리합니다.",
+  layers: ["실측", "바닥", "벽", "천장", "문·창호", "가구"],
+  categories: ["바닥", "벽", "천장", "문", "창호", "가구", "철거"],
+  evidenceKinds: ["수기 입력", "현장 실측", "가정값", "원본 연결"],
+  table: {
+    name: "기본 내역",
+    columns: ["적산 분류", "품목 코드", "측정 종류", "단위", "검토 규칙"],
+    rows: [],
+  },
+};
+
+function renderLibrary(props) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/organizations/:organizationId/drawing-library",
+        element: React.createElement(libraryScreen.default, props),
+      },
+    ],
+    {
+      initialEntries: [
+        `/organizations/${ids.organization}/drawing-library`,
+      ],
+    },
+  );
+  return renderToStaticMarkup(
+    React.createElement(
+      ThemeProvider,
+      { specifiedTheme: "light", themeAction: "/theme" },
+      React.createElement(RouterProvider, { router }),
+    ),
+  );
+}
+
+function listClient() {
+  const entries = [
+    {
+      id: ids.platformEntry,
+      organization_id: ids.organization,
+      kind: "workspace_template",
+      name: platformPayload.name,
+      created_by: ids.creator,
+      created_at: "2026-08-31T00:00:00.000Z",
+    },
+    {
+      id: ids.customEntry,
+      organization_id: ids.organization,
+      kind: "workspace_template",
+      name: "회사 표준 템플릿",
+      created_by: ids.creator,
+      created_at: "2026-08-30T00:00:00.000Z",
+    },
+  ];
+  const common = {
+    organization_id: ids.organization,
+    version_no: 1,
+    status: "published",
+    predecessor_version_id: null,
+    source_entity_id: null,
+    created_by: ids.creator,
+    published_by: ids.creator,
+    created_at: "2026-08-31T00:00:00.000Z",
+    published_at: "2026-08-31T00:00:00.000Z",
+    deprecated_at: null,
+  };
+  const versions = [
+    {
+      ...common,
+      id: ids.platformVersion,
+      registry_id: ids.platformEntry,
+      canonical_payload: platformPayload,
+      content_sha256: "a".repeat(64),
+      source_kind: "platform_starter",
+      source_project_id: null,
+      source_revision_id: null,
+      platform_starter_key: "interior-basic",
+      platform_starter_version: 1,
+    },
+    {
+      ...common,
+      id: ids.customVersion,
+      registry_id: ids.customEntry,
+      canonical_payload: {
+        schemaVersion: 2,
+        revision: {},
+        pages: [],
+        layers: [],
+        objects: [],
+        operationSequence: 0,
+      },
+      content_sha256: "b".repeat(64),
+      source_kind: "project_revision",
+      source_project_id: ids.project,
+      source_revision_id: ids.revision,
+      platform_starter_key: null,
+      platform_starter_version: null,
+    },
+  ];
+  return {
+    from(table) {
+      const result = {
+        data:
+          table === "lukas_drawing_library_entries" ? entries : versions,
+        error: null,
+      };
+      const chain = {
+        eq() {
+          return chain;
+        },
+        in() {
+          return chain;
+        },
+        limit() {
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        select() {
+          return chain;
+        },
+        then(resolve, reject) {
+          return Promise.resolve(result).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+}
 
 function form(entries) {
   const value = new FormData();
@@ -162,6 +325,109 @@ test("organization library search is bounded and cursor identity is exact", () =
       ),
     /필터/,
   );
+});
+
+test("platform starter rows keep nullable provenance, a closed payload, and read-only project-explicit use links", async () => {
+  const versions = await listOrganizationDrawingLibrary(
+    listClient(),
+    ids.organization,
+    {},
+  );
+  const platform = versions.find(
+    ({ source_kind }) => source_kind === "platform_starter",
+  );
+  const custom = versions.find(
+    ({ source_kind }) => source_kind === "project_revision",
+  );
+  assert.equal(platform.source_project_id, null);
+  assert.equal(platform.source_revision_id, null);
+  assert.equal(platform.source_entity_id, null);
+  assert.equal(platform.platform_starter_key, "interior-basic");
+  assert.deepEqual(platform.canonical_payload, platformPayload);
+  assert.equal(custom.source_project_id, ids.project);
+  assert.equal(custom.source_revision_id, ids.revision);
+
+  const html = renderLibrary({
+          actionData: undefined,
+          loaderData: {
+            organization: { id: ids.organization, name: "1HK 조직" },
+            importRequestId: ids.request,
+            mayManage: true,
+            filters: {},
+            projects: [
+              { id: ids.project, name: "서울 프로젝트", organization_id: ids.organization },
+              { id: ids.projectTwo, name: "부산 프로젝트", organization_id: ids.organization },
+            ],
+            revisions: [],
+            sources: { style: [], block: [], property_schema: [] },
+            versions,
+            allVersions: versions,
+          },
+        });
+  assert.match(html, /1HK 기본 · 읽기 전용/);
+  assert.match(
+    html,
+    new RegExp(
+      `href="/projects/${ids.project}/workspaces/new\\?starterKey=interior-basic"[^>]*>서울 프로젝트 · 사용<`,
+    ),
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `href="/projects/${ids.projectTwo}/workspaces/new\\?starterKey=interior-basic"[^>]*>부산 프로젝트 · 사용<`,
+    ),
+  );
+  assert.equal((html.match(/name="intent" value="deprecate"/g) ?? []).length, 1);
+  assert.equal((html.match(/name="intent" value="import"/g) ?? []).length, 2);
+  assert.doesNotMatch(
+    html,
+    new RegExp(`name="version_id" value="${ids.platformVersion}"`),
+  );
+});
+
+test("a platform starter without an accessible project renders no ambient use target", async () => {
+  const versions = await listOrganizationDrawingLibrary(
+    listClient(),
+    ids.organization,
+    {},
+  );
+  const html = renderLibrary({
+          actionData: undefined,
+          loaderData: {
+            organization: { id: ids.organization, name: "1HK 조직" },
+            importRequestId: ids.request,
+            mayManage: true,
+            filters: {},
+            projects: [],
+            revisions: [],
+            sources: { style: [], block: [], property_schema: [] },
+            versions: versions.filter(
+              ({ source_kind }) => source_kind === "platform_starter",
+            ),
+            allVersions: versions,
+          },
+        });
+  assert.match(html, /사용 가능한 프로젝트가 없습니다/);
+  assert.doesNotMatch(html, /workspaces\/new\?starterKey=/);
+});
+
+test("generic library publish, deprecate, and import mutations reject platform starters server-side", () => {
+  for (const intent of ["publish", "deprecate", "import"])
+    assert.throws(
+      () =>
+        assertOrganizationDrawingLibraryMutationAllowed(
+          { source_kind: "platform_starter" },
+          intent,
+        ),
+      /platform|기본|읽기 전용/i,
+    );
+  for (const intent of ["publish", "deprecate", "import"])
+    assert.doesNotThrow(() =>
+      assertOrganizationDrawingLibraryMutationAllowed(
+        { source_kind: "project_revision" },
+        intent,
+      ),
+    );
 });
 
 test("every mutation binds the route organization into database authority", async () => {

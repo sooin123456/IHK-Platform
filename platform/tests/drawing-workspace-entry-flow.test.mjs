@@ -358,11 +358,14 @@ function renderComponent(Component, props, url = "/workspace") {
   );
 }
 
-function workspaceFixture({ drawingId = "file-a", previewMode = false } = {}) {
+function workspaceFixture({
+  drawingId = "00000000-0000-4000-8000-000000000002",
+  previewMode = false,
+} = {}) {
   return {
     projects: [
       {
-        id: "project-a",
+        id: "00000000-0000-4000-8000-000000000001",
         name: "1HK 테스트 프로젝트",
         description: "도면 진입 흐름",
         workflow_status: "confirmed",
@@ -371,7 +374,7 @@ function workspaceFixture({ drawingId = "file-a", previewMode = false } = {}) {
       },
     ],
     projectMetrics: {
-      "project-a": {
+      "00000000-0000-4000-8000-000000000001": {
         fileCount: drawingId ? 1 : 0,
         ifcCount: 0,
         openReviewCount: 0,
@@ -507,24 +510,24 @@ test("IFC upload matching and browser acceptance remain supported", () => {
   );
 });
 
-test("drawing uploads enter the exact file workspace while other uploads return", () => {
+test("verified PDF uploads prefill the workspace start while IFC and other uploads remain compatible", () => {
   const input = {
-    projectId: "project-a",
-    fileId: "file-a",
-    returnPath: "/projects/project-a",
+    projectId: "00000000-0000-4000-8000-000000000001",
+    fileId: "00000000-0000-4000-8000-000000000002",
+    returnPath: "/projects/00000000-0000-4000-8000-000000000001",
   };
 
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "ifc" }),
-    "/projects/project-a/drawings/file-a/workspace",
+    "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000002/workspace",
   );
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "pdf" }),
-    "/projects/project-a/drawings/file-a/workspace",
+    "/projects/00000000-0000-4000-8000-000000000001/workspaces/new?sourceFileId=00000000-0000-4000-8000-000000000002",
   );
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "qto_csv" }),
-    "/projects/project-a",
+    "/projects/00000000-0000-4000-8000-000000000001",
   );
 });
 
@@ -630,7 +633,7 @@ test("project upload action trusts only a service-side verification record and a
       verificationId: "00000000-0000-4000-8000-000000000031",
       source: "%PDF-1.7\n1HK drawing\n",
       location:
-        "/projects/00000000-0000-4000-8000-000000000001/drawings/00000000-0000-4000-8000-000000000011/workspace",
+        "/projects/00000000-0000-4000-8000-000000000001/workspaces/new?sourceFileId=00000000-0000-4000-8000-000000000011",
     },
     {
       createdFileId: "00000000-0000-4000-8000-000000000012",
@@ -860,13 +863,24 @@ test("private route tree retains both the legacy room and the workspace", () => 
   assert.ok(registered?.includes("/projects/:projectId/workspace"));
 });
 
-test("drawing cards open the workspace and no-drawing upload defaults to PDF", () => {
+test("drawing documents open canonically, original sources remain usable, and empty projects start without upload", () => {
   const cardHtml = renderComponent(projectDrawings.default, {
     loaderData: {
-      project: { id: "project-a", name: "1HK 테스트 프로젝트" },
+      project: {
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "1HK 테스트 프로젝트",
+      },
+      documents: [
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          title: "A-101 적산",
+          source_file_id: "00000000-0000-4000-8000-000000000002",
+          updated_at: "2026-08-03T00:00:00.000Z",
+        },
+      ],
       files: [
         {
-          id: "file-a",
+          id: "00000000-0000-4000-8000-000000000002",
           kind: "pdf",
           original_filename: "A-101.pdf",
           byte_size: 1024,
@@ -877,21 +891,32 @@ test("drawing cards open the workspace and no-drawing upload defaults to PDF", (
   });
   const emptyHtml = renderComponent(projectDrawings.default, {
     loaderData: {
-      project: { id: "project-a", name: "1HK 테스트 프로젝트" },
+      project: {
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "1HK 테스트 프로젝트",
+      },
+      documents: [],
       files: [],
     },
   });
 
   assert.match(
     cardHtml,
-    /href="\/projects\/project-a\/drawings\/file-a\/workspace"/,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/00000000-0000-4000-8000-000000000003"/,
   );
-  assert.match(cardHtml, /도면 작업실 열기 →/);
-  assert.match(emptyHtml, /href="\/projects\/project-a\/workspace"/);
-  assert.match(emptyHtml, /빈 작업실/);
+  assert.match(
+    cardHtml,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000002\/workspace"/,
+  );
+  assert.match(cardHtml, /새 작업실/);
+  assert.match(
+    emptyHtml,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/new"/,
+  );
+  assert.match(emptyHtml, /새 작업실/);
 });
 
-test("workspace dashboard opens latest drawings in workspace and preserves preview routing", () => {
+test("workspace dashboard opens documents canonically, starts empty projects, and preserves preview routing", () => {
   const dashboardHtml = renderComponent(
     workspaceDashboard.WorkspaceDashboard,
     workspaceFixture(),
@@ -908,11 +933,15 @@ test("workspace dashboard opens latest drawings in workspace and preserves previ
 
   assert.match(
     dashboardHtml,
-    /href="\/projects\/project-a\/drawings\/file-a\/workspace"/,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/00000000-0000-4000-8000-000000000002"/,
   );
-  assert.match(emptyHtml, /href="\/projects\/project-a\/workspace"/);
+  assert.match(
+    emptyHtml,
+    /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/new"/,
+  );
+  assert.match(emptyHtml, /새 작업실/);
   assert.match(
     previewHtml,
-    /href="\/workspace-preview\/projects\/project-a\/drawings\/file-a"/,
+    /href="\/workspace-preview\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000002"/,
   );
 });

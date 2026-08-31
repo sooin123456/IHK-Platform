@@ -1,3 +1,5 @@
+import { drawingWorkspaceNewPath } from "./drawing-workspace-paths.ts";
+
 export const projectFileKinds = [
   "ifc",
   "pdf",
@@ -126,7 +128,6 @@ export function projectUploadDestination({
   projectId: string;
   returnPath: string;
 }) {
-  return kind === "ifc" || kind === "pdf"
-    ? drawingWorkspacePath(projectId, fileId)
-    : returnPath;
+  if (kind === "pdf") return drawingWorkspaceNewPath(projectId, fileId);
+  return kind === "ifc" ? drawingWorkspacePath(projectId, fileId) : returnPath;
 }

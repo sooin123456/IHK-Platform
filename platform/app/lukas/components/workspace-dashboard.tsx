@@ -34,9 +34,9 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import { cn } from "~/core/lib/utils";
 import {
-  drawingProjectWorkspacePath,
   drawingWorkspacePath,
-} from "~/lukas/lib/drawing-entry";
+  drawingWorkspaceNewPath,
+} from "~/lukas/lib/drawing-workspace-paths";
 
 type ProjectMetric = {
   fileCount: number;
@@ -117,7 +117,7 @@ function formatDate(value: string) {
 function projectHref(projectId: string, metric: ProjectMetric | undefined) {
   if (metric?.latestDrawingId)
     return drawingWorkspacePath(projectId, metric.latestDrawingId);
-  return drawingProjectWorkspacePath(projectId);
+  return drawingWorkspaceNewPath(projectId);
 }
 
 function NewProjectDialog({ actionError }: { actionError?: string }) {
@@ -625,7 +625,8 @@ export function WorkspaceDashboard({
                               className="inline-flex items-center gap-1 font-bold text-[#2925d9] dark:text-[#aaa7ff]"
                               to={openHref}
                             >
-                              열기 <ArrowUpRight className="size-3.5" />
+                              {metric?.latestDrawingId ? "열기" : "새 작업실"}{" "}
+                              <ArrowUpRight className="size-3.5" />
                             </Link>
                           </div>
                         </div>
