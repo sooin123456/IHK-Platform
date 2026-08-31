@@ -15,6 +15,9 @@ const vite = await createServer({
 const tools = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-canvas.client.tsx",
 );
+const scaleControl = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-scale-control.tsx",
+);
 const awareness = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-awareness.ts",
 );
@@ -174,7 +177,6 @@ test("production calibration router isolates tool and selection dispatch while r
       },
       viewport: { x: 10, y: 20, zoom: 2 },
       onPoint: (point) => captured.push(point),
-      onCancel: () => order.push("cancel"),
     }));
     const onCommand = () => {
       commandCalls += 1;
@@ -274,7 +276,7 @@ test("production calibration router isolates tool and selection dispatch while r
       { x: 0.25, y: 0.25 },
       { x: 0.75, y: 0.75 },
     ]);
-    assert.deepEqual(order, ["cancel"]);
+    assert.deepEqual(order, []);
     assert.equal(toolCalls, 0);
     assert.equal(selectionCalls, 0);
     assert.equal(commandCalls, 0);
@@ -300,6 +302,38 @@ test("production calibration router isolates tool and selection dispatch while r
     assert.equal(selectionCalls, 0);
     assert.equal(commandCalls, 0);
   }
+});
+
+test("window capture is the sole Escape cancellation owner before canvas routing", () => {
+  assert.equal(
+    typeof scaleControl.handleDrawingCalibrationEscapeKey,
+    "function",
+  );
+  let cancellations = 0;
+  let commandCalls = 0;
+  const cancel = () => {
+    cancellations += 1;
+  };
+  const router = tools.createDrawingCalibrationInputRouter(() => ({
+    active: true,
+    background: {
+      kind: "pdf",
+      width: 100,
+      height: 200,
+      pageNumber: 1,
+      signedUrl: "https://example.test/source.pdf",
+    },
+    viewport: { x: 0, y: 0, zoom: 1 },
+  }));
+
+  scaleControl.handleDrawingCalibrationEscapeKey({ key: "Escape" }, cancel);
+  router(
+    { type: "key_down", activeTool: "polyline", key: "Escape" },
+    { onDispatch: () => (commandCalls += 1) },
+  );
+
+  assert.equal(cancellations, 1);
+  assert.equal(commandCalls, 0);
 });
 
 test("wall and grid use two points, semantic defaults, and the existing Shift constraint", () => {

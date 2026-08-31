@@ -19,6 +19,15 @@ type Props = {
   state: DrawingDocumentState;
 };
 
+export function handleDrawingCalibrationEscapeKey(
+  event: Pick<KeyboardEvent, "key">,
+  cancel: () => void,
+) {
+  if (event.key !== "Escape") return false;
+  cancel();
+  return true;
+}
+
 export function DrawingScaleControl({
   actorId,
   canEdit,
@@ -48,9 +57,7 @@ export function DrawingScaleControl({
   }, []);
 
   useEffect(() => {
-    onCalibrationCaptureChange(
-      capturing ? { active: true, onCancel: cancelCapture, onPoint } : null,
-    );
+    onCalibrationCaptureChange(capturing ? { active: true, onPoint } : null);
     return () => onCalibrationCaptureChange(null);
   }, [cancelCapture, capturing, onCalibrationCaptureChange, onPoint]);
   useEffect(() => {
@@ -66,8 +73,7 @@ export function DrawingScaleControl({
   useEffect(() => {
     if (!capturing) return;
     const cancel = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      cancelCapture();
+      handleDrawingCalibrationEscapeKey(event, cancelCapture);
     };
     window.addEventListener("keydown", cancel, true);
     return () => window.removeEventListener("keydown", cancel, true);

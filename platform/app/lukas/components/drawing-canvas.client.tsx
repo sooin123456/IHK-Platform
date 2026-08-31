@@ -1701,7 +1701,6 @@ export type DrawingCanvasBackground =
 
 export type DrawingCalibrationCapture = {
   active: boolean;
-  onCancel: () => void;
   onPoint: (point: Point) => void;
 };
 
@@ -1811,9 +1810,7 @@ export function drawingCalibrationCaptureTransition(
 
 /** Routes the production input callback selected by the capture decision. */
 export function createDrawingCalibrationInputRouter(
-  current: () => DrawingCalibrationCaptureContext & {
-    onCancel?: () => void;
-  },
+  current: () => DrawingCalibrationCaptureContext,
 ) {
   return (
     event: DrawingCalibrationInputEvent,
@@ -1830,7 +1827,6 @@ export function createDrawingCalibrationInputRouter(
     const capture = current();
     const result = drawingCalibrationCaptureTransition(capture, event);
     if (result.action === "pan") callbacks.onPan?.();
-    else if (result.action === "cancel") capture.onCancel?.();
     else if (!result.handled) callbacks.onDispatch?.();
     return result.handled || result.action !== "pass";
   };
@@ -3538,7 +3534,6 @@ export const DrawingCanvas = forwardRef<
     active: calibrationCapture?.active ?? false,
     background,
     viewport: viewportRef.current,
-    onCancel: calibrationCapture?.onCancel,
     onPoint: calibrationCapture?.onPoint,
   }));
 
