@@ -422,6 +422,52 @@ type DrawingSnapshotRow = {
   created_at: string;
 };
 
+type DrawingEstimateBindingRow = {
+  id: string;
+  project_id: string;
+  drawing_revision_id: string;
+  boq_version_id: string;
+  created_by: string;
+  created_at: string;
+};
+
+type DrawingEstimateBindingInsert = Omit<
+  DrawingEstimateBindingRow,
+  "id" | "created_at"
+> & { id?: string; created_at?: string };
+
+type DrawingQuantityLinkRow = {
+  id: string;
+  project_id: string;
+  drawing_revision_id: string;
+  drawing_revision_version: number;
+  drawing_snapshot_sha256: string;
+  drawing_object_id: string;
+  drawing_object_lineage_id: string;
+  drawing_object_version: number;
+  object_fingerprint: string;
+  measurement_kind: "length" | "area" | "count";
+  raw_quantity: number;
+  unit: "EA" | "m" | "m2";
+  measurement_rule_version: "P4_MEASUREMENT_V1";
+  created_by: string;
+  created_at: string;
+};
+
+type DrawingBoqLinkRow = {
+  id: string;
+  project_id: string;
+  quantity_link_id: string;
+  boq_version_id: string;
+  boq_line_id: string;
+  allocation_factor: number;
+  version: number;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type DrawingWorkspaceIssue = {
   id: string;
   project_id: string;
@@ -462,6 +508,12 @@ export type DrawingWorkspaceDatabase = Omit<Database, "public"> & {
       lukas_drawing_property_values: TableDefinition<Record<string, unknown>>;
       lukas_drawing_tables: TableDefinition<Record<string, unknown>>;
       lukas_drawing_snapshots: TableDefinition<DrawingSnapshotRow>;
+      lukas_drawing_estimate_bindings: TableDefinition<
+        DrawingEstimateBindingRow,
+        DrawingEstimateBindingInsert
+      >;
+      lukas_drawing_quantity_links: TableDefinition<DrawingQuantityLinkRow>;
+      lukas_drawing_boq_links: TableDefinition<DrawingBoqLinkRow>;
       lukas_drawing_issues: TableDefinition<DrawingWorkspaceIssue>;
       lukas_drawing_object_issue_links: TableDefinition<DrawingObjectIssueLink>;
     };

@@ -25,6 +25,11 @@ import {
   loadApprovedVerifiedBoqExport,
 } from "../app/lukas/lib/verified-boq-approved-export.server.ts";
 
+const estimateServerModule = await import(
+  "../app/lukas/lib/drawing-estimate.server.ts"
+).catch(() => ({}));
+const { loadDrawingEstimateSummary } = estimateServerModule;
+
 const P6_SHA_A = "a".repeat(64);
 const P6_SHA_B = "b".repeat(64);
 
@@ -2034,6 +2039,440 @@ test("approved export binds source anchor IDs to the frozen database input", () 
   assert.throws(
     () => assertVerifiedBoqSourceAnchorIds(evidence, frozen),
     (error) => error.code === "P6C01",
+  );
+});
+
+function approvedEstimateExport({
+  projectId = p6Ids.project,
+  versionId = p6Ids.version,
+  resultSha256 = P6_SHA_A,
+  split = false,
+} = {}) {
+  const splitLineId = "00000000-0000-4000-8000-000000000182";
+  const calculationManifest = {
+    schemaVersion: "1HK_VERIFIED_BOQ_MANIFEST_V1",
+    engineVersion: "VERIFIED-BOQ-1.1",
+    projectId,
+    boqVersionId: versionId,
+    inputStateSha256: "e".repeat(64),
+    calculationPolicy: "general_half_away",
+    quantityScale: 6,
+    drawingSources: [
+      {
+        quantityLinkId: p6Ids.quantity,
+        revisionId: p6Ids.revision,
+        revisionVersion: 2,
+        snapshotSha256: P6_SHA_B,
+        objectId: p6Ids.object,
+        lineageId: p6Ids.lineage,
+        objectVersion: 3,
+        objectFingerprint: "c".repeat(64),
+        measurementKind: "length",
+        unit: "m",
+        rawQuantity: "5",
+        measurementRuleVersion: "P4_MEASUREMENT_V1",
+        sourceAnchors: [],
+        issueLinks: [],
+      },
+    ],
+    legacySources: [],
+    mappings: [
+      {
+        sourceKind: "drawing",
+        sourceId: p6Ids.quantity,
+        lineId: p6Ids.line,
+        allocationFactor: "1",
+      },
+    ],
+    lines: [
+      {
+        lineId: p6Ids.line,
+        itemCode: "W-001",
+        unit: "m",
+        signedAdjustment: "0",
+        adjustmentReason: "",
+      },
+    ],
+    priceBook: {
+      id: p6Ids.priceBook,
+      sourceFileId: p6Ids.priceFile,
+      sourceSha256: P6_SHA_B,
+      effectiveDate: "2026-08-01",
+      rightsBasis: "customer_owned",
+    },
+    resources: [
+      {
+        id: p6Ids.resource,
+        code: "W-RATE",
+        type: "material",
+        unit: "m",
+        unitPriceKrw: "1000",
+      },
+    ],
+    rateComponents: [
+      {
+        id: p6Ids.component,
+        lineId: p6Ids.line,
+        resourceId: p6Ids.resource,
+        coefficient: "1",
+      },
+    ],
+    rules: [
+      {
+        measurementRuleVersion: "P4_MEASUREMENT_V1",
+        engineVersion: "VERIFIED-BOQ-1.1",
+        calculationPolicy: "general_half_away",
+        quantityScale: 6,
+      },
+    ],
+    result: {
+      resultSha256,
+      status: "calculated",
+      directCostKrw: "5000",
+      canonicalLines: [
+        {
+          lineId: p6Ids.line,
+          sectionCode: "01",
+          itemCode: "W-001",
+          itemName: "벽체",
+          specification: "",
+          unit: "m",
+          status: "calculated",
+          rawQuantity: "5",
+          adjustment: "0",
+          adjustedQuantity: "5",
+          finalQuantity: "5",
+          materialUnitPriceKrw: "1000",
+          laborUnitPriceKrw: "0",
+          expenseUnitPriceKrw: "0",
+          totalUnitPriceKrw: "1000",
+          amountKrw: "5000",
+          formula: "ROUND_HALF_AWAY(Q×(M+L+E),0)",
+          sourceSha256: [P6_SHA_B],
+          elementIds: [],
+          drawingQuantityLinkIds: [p6Ids.quantity],
+          message: "계산 가능",
+        },
+      ],
+    },
+  };
+  if (split) {
+    calculationManifest.mappings[0].allocationFactor = "0.5";
+    calculationManifest.mappings.push({
+      sourceKind: "drawing",
+      sourceId: p6Ids.quantity,
+      lineId: splitLineId,
+      allocationFactor: "0.5",
+    });
+    calculationManifest.lines.push({
+      lineId: splitLineId,
+      itemCode: "W-002",
+      unit: "m",
+      signedAdjustment: "0",
+      adjustmentReason: "",
+    });
+    calculationManifest.result.canonicalLines[0] = {
+      ...calculationManifest.result.canonicalLines[0],
+      rawQuantity: "2.5",
+      adjustedQuantity: "2.5",
+      finalQuantity: "2.5",
+      amountKrw: "2500",
+    };
+    calculationManifest.result.canonicalLines.push({
+      ...calculationManifest.result.canonicalLines[0],
+      lineId: splitLineId,
+      itemCode: "W-002",
+      itemName: "벽체 2",
+    });
+  }
+  const manifestSha256 = createHash("sha256")
+    .update(JSON.stringify(calculationManifest))
+    .digest("hex");
+  const approvalEnvelope = {
+    versionId,
+    resultSha256,
+    manifestSha256,
+    decision: "approved",
+    decidedBy: p6Ids.reviewer,
+    decidedAt: "2026-08-31T00:00:00.000Z",
+    note: "승인",
+  };
+  const payload = {
+    calculationManifest,
+    approvalEnvelope,
+    resultSha256,
+    manifestSha256,
+    evidenceFiles: [{ fileId: p6Ids.priceFile, sha256: P6_SHA_B }],
+  };
+  const handoffSha256 = createHash("sha256")
+    .update(JSON.stringify(payload))
+    .digest("hex");
+  return {
+    resultSha256,
+    manifestSha256,
+    handoffSha256,
+    csv: new Uint8Array(),
+    xlsx: new Uint8Array(),
+    manifestJson: new TextEncoder().encode(
+      JSON.stringify({
+        calculationManifest,
+        approvalEnvelope,
+        resultSha256,
+        manifestSha256,
+        handoffSha256,
+        evidenceFiles: payload.evidenceFiles,
+      }),
+    ),
+  };
+}
+
+function approvedEstimateRows(overrides = {}) {
+  return {
+    lukas_drawing_estimate_bindings: [
+      {
+        id: "00000000-0000-4000-8000-000000000181",
+        project_id: p6Ids.project,
+        drawing_revision_id: p6Ids.revision,
+        boq_version_id: p6Ids.version,
+        created_at: "2026-08-31T00:00:00.000Z",
+      },
+    ],
+    lukas_qto_boq_versions: [
+      {
+        id: p6Ids.version,
+        project_id: p6Ids.project,
+        version_no: 2,
+        title: "승인 벽체",
+        status: "approved",
+        engine_version: "VERIFIED-BOQ-1.1",
+        price_book_id: p6Ids.priceBook,
+        result_sha256: P6_SHA_A,
+        manifest_sha256: approvedEstimateExport().manifestSha256,
+        price_book: { name: "승인 단가" },
+      },
+    ],
+    lukas_drawing_boq_links: [
+      {
+        id: p6Ids.drawingLink,
+        project_id: p6Ids.project,
+        quantity_link_id: p6Ids.quantity,
+        boq_version_id: p6Ids.version,
+        boq_line_id: p6Ids.line,
+        allocation_factor: "1",
+      },
+    ],
+    lukas_drawing_quantity_links: [
+      {
+        id: p6Ids.quantity,
+        project_id: p6Ids.project,
+        drawing_revision_id: p6Ids.revision,
+        drawing_revision_version: 2,
+        drawing_snapshot_sha256: P6_SHA_B,
+        drawing_object_id: p6Ids.object,
+        drawing_object_lineage_id: p6Ids.lineage,
+        drawing_object_version: 3,
+        object_fingerprint: "c".repeat(64),
+        measurement_kind: "length",
+        raw_quantity: "5",
+        unit: "m",
+        measurement_rule_version: "P4_MEASUREMENT_V1",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function approvedEstimateClient(rows) {
+  return {
+    from(table) {
+      let selected = [...(rows[table] ?? [])];
+      let limit = Infinity;
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column, value) {
+          selected = selected.filter((row) => row[column] === value);
+          return query;
+        },
+        in(column, values) {
+          selected = selected.filter((row) => values.includes(row[column]));
+          return query;
+        },
+        order() {
+          return query;
+        },
+        limit(size) {
+          limit = size;
+          return query;
+        },
+        single() {
+          const data = selected.slice(0, limit);
+          return Promise.resolve(
+            data.length === 1
+              ? { data: data[0], error: null }
+              : { data: null, error: { code: "PGRST116" } },
+          );
+        },
+        maybeSingle() {
+          const data = selected.slice(0, limit);
+          return Promise.resolve(
+            data.length <= 1
+              ? { data: data[0] ?? null, error: null }
+              : { data: null, error: { code: "PGRST116" } },
+          );
+        },
+        then(resolve, reject) {
+          return Promise.resolve({
+            data: selected.slice(0, limit),
+            error: null,
+          }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+}
+
+function approvedEstimateWorkspace(length) {
+  return {
+    document: {
+      project_id: p6Ids.project,
+      revision: {
+        id: p6Ids.revision,
+        version: 99,
+        objects: [
+          {
+            id: p6Ids.object,
+            layerId: "00000000-0000-4000-8000-000000000191",
+            geometry: {
+              type: "line",
+              start: { x: 0, y: 0 },
+              end: { x: length, y: 0 },
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+test("approved estimate replay confirms only hash-matched persisted drawing quantity and BOQ links", async () => {
+  assert.equal(typeof loadDrawingEstimateSummary, "function");
+  const authority = {
+    async loadApprovedExport() {
+      return approvedEstimateExport();
+    },
+  };
+  const load = (workspace) =>
+    loadDrawingEstimateSummary(
+      approvedEstimateClient(approvedEstimateRows()),
+      { actorId: p6Ids.actor, projectId: p6Ids.project, workspace },
+      authority,
+    );
+  const first = await load(approvedEstimateWorkspace(5));
+  const changedCurrentObject = await load(approvedEstimateWorkspace(999999));
+  assert.deepEqual(changedCurrentObject, first);
+  assert.deepEqual(
+    first.rows.map((row) => ({
+      itemCode: row.itemCode,
+      quantity: row.quantity,
+      amountKrw: row.amountKrw,
+      state: row.state,
+      subjectRefs: row.subjectRefs,
+    })),
+    [
+      {
+        itemCode: "W-001",
+        quantity: "5",
+        amountKrw: "5000",
+        state: "confirmed",
+        subjectRefs: [{ kind: "object", id: p6Ids.object }],
+      },
+    ],
+  );
+  assert.equal(first.directCostKrw, "5000");
+});
+
+test("approved estimate replay rejects hash, project, link, and snapshot mismatches", async () => {
+  assert.equal(typeof loadDrawingEstimateSummary, "function");
+  const baseInput = {
+    actorId: p6Ids.actor,
+    projectId: p6Ids.project,
+    workspace: approvedEstimateWorkspace(5),
+  };
+  const cases = [
+    {
+      rows: approvedEstimateRows({ lukas_drawing_boq_links: [] }),
+      exported: approvedEstimateExport(),
+    },
+    {
+      rows: approvedEstimateRows({
+        lukas_drawing_quantity_links: [
+          {
+            ...approvedEstimateRows().lukas_drawing_quantity_links[0],
+            drawing_snapshot_sha256: "f".repeat(64),
+          },
+        ],
+      }),
+      exported: approvedEstimateExport(),
+    },
+    {
+      rows: approvedEstimateRows(),
+      exported: { ...approvedEstimateExport(), resultSha256: "f".repeat(64) },
+    },
+    {
+      rows: approvedEstimateRows(),
+      exported: approvedEstimateExport({
+        projectId: "00000000-0000-4000-8000-000000000199",
+      }),
+    },
+  ];
+  for (const candidate of cases)
+    await assert.rejects(
+      loadDrawingEstimateSummary(
+        approvedEstimateClient(candidate.rows),
+        baseInput,
+        {
+          async loadApprovedExport() {
+            return candidate.exported;
+          },
+        },
+      ),
+      /approved|승인|hash|확인|project|프로젝트|link|연결|snapshot|스냅샷/i,
+    );
+});
+
+test("approved estimate replay preserves one persisted quantity split across BOQ lines", async () => {
+  assert.equal(typeof loadDrawingEstimateSummary, "function");
+  const exported = approvedEstimateExport({ split: true });
+  const rows = approvedEstimateRows();
+  rows.lukas_qto_boq_versions[0].manifest_sha256 = exported.manifestSha256;
+  rows.lukas_drawing_boq_links[0].allocation_factor = "0.5";
+  rows.lukas_drawing_boq_links.push({
+    ...rows.lukas_drawing_boq_links[0],
+    id: "00000000-0000-4000-8000-000000000183",
+    boq_line_id: "00000000-0000-4000-8000-000000000182",
+  });
+  const summary = await loadDrawingEstimateSummary(
+    approvedEstimateClient(rows),
+    {
+      actorId: p6Ids.actor,
+      projectId: p6Ids.project,
+      workspace: approvedEstimateWorkspace(5),
+    },
+    {
+      async loadApprovedExport() {
+        return exported;
+      },
+    },
+  );
+  assert.deepEqual(
+    summary.rows.map((row) => [row.itemCode, row.quantity, row.state]),
+    [
+      ["W-001", "2.5", "confirmed"],
+      ["W-002", "2.5", "confirmed"],
+    ],
   );
 });
 

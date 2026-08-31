@@ -35,6 +35,93 @@ export type DrawingEstimateQuantity =
   | { status: "missing_evidence"; unit: string; reason: string }
   | { status: "review"; unit: string; reason: string };
 
+export type DrawingEstimateBinding = {
+  id: string;
+  projectId: string;
+  drawingRevisionId: string;
+  boqVersionId: string;
+  createdAt: string;
+};
+
+export type DrawingEstimateBoqGraph = {
+  id: string;
+  projectId: string;
+  title: string;
+  versionNo: number;
+  status: "draft";
+  engineVersion: "VERIFIED-BOQ-1.1";
+  calculationPolicy: "general_half_away" | "ems_component_truncate";
+  quantityScale: number;
+  priceBook: { id: string; name: string };
+  lines: Array<{
+    id: string;
+    sectionCode: string;
+    itemCode: string;
+    itemName: string;
+    specification: string;
+    unit: "EA" | "m" | "m2" | "m3";
+    signedAdjustment: string;
+    adjustmentReason: string;
+  }>;
+  resources: Array<{
+    id: string;
+    code: string;
+    type: "material" | "labor" | "equipment" | "expense";
+    unit: string;
+    unitPriceKrw: string;
+  }>;
+  components: Array<{
+    id: string;
+    lineId: string;
+    resourceId: string;
+    coefficient: string;
+  }>;
+};
+
+export type DrawingEstimateEvidence = {
+  subjectRef: DrawingEstimateSubjectRef;
+  evidenceSha256: string;
+  status: "ready" | "missing_evidence" | "needs_review";
+  evidenceKind: string | null;
+  reason: string | null;
+};
+
+export type DrawingEstimateSummaryRow = {
+  classification: string | null;
+  itemCode: string;
+  itemName: string;
+  quantity: string | null;
+  unit: string;
+  totalUnitRateKrw: string | null;
+  amountKrw: string | null;
+  state:
+    | "draft"
+    | "assumption"
+    | "needs_review"
+    | "missing_evidence"
+    | "confirmed";
+  reason: string | null;
+  subjectRefs: DrawingEstimateSubjectRef[];
+  evidence: DrawingEstimateEvidence[];
+};
+
+export type DrawingEstimateSummary = {
+  status: "unbound" | "draft" | "confirmed" | "needs_review";
+  binding: DrawingEstimateBinding | null;
+  boq: {
+    id: string;
+    title: string;
+    versionNo: number;
+    priceBookName: string;
+    status: string;
+    engineVersion: string;
+  } | null;
+  rows: DrawingEstimateSummaryRow[];
+  directCostKrw: string;
+  missingRateCount: number;
+  reviewCount: number;
+};
+
 type DrawingEstimateQuantityInput = {
   subject: DrawingEstimateSubjectRef;
   object?: DrawingObject | null;

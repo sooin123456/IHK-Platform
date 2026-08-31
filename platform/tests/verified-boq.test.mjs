@@ -30,6 +30,11 @@ import {
   roundExact,
 } from "../app/lukas/lib/exact-decimal.server.ts";
 
+const estimateServerModule = await import(
+  "../app/lukas/lib/drawing-estimate.server.ts"
+).catch(() => ({}));
+const { deriveDraftDrawingEstimateSummary } = estimateServerModule;
+
 function goldenInput(policy = "general_half_away") {
   return {
     versionId: "boq-v1",
@@ -83,6 +88,176 @@ test("verified BOQ closes the 10m3 direct-cost golden vector with source evidenc
   assert.deepEqual(result.lines[0].elementIds, ["1001", "1002"]);
   assert.match(result.canonicalSha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(calculateVerifiedBoq(goldenInput()), result);
+});
+
+test("drawing object and block subjects sharing one UUID remain distinct BOQ sources", () => {
+  assert.equal(typeof deriveDraftDrawingEstimateSummary, "function");
+  const sharedId = "33000000-0000-4000-8000-000000000001";
+  const revisionId = "33000000-0000-4000-8000-000000000002";
+  const lineId = "33000000-0000-4000-8000-000000000003";
+  const resourceId = "33000000-0000-4000-8000-000000000004";
+  const schemaIds = {
+    classification: "33000000-0000-4000-8000-000000000011",
+    itemCode: "33000000-0000-4000-8000-000000000012",
+    evidenceKind: "33000000-0000-4000-8000-000000000013",
+  };
+  const subjectValues = (kind, offset) =>
+    Object.entries({
+      [schemaIds.classification]: "문",
+      [schemaIds.itemCode]: "D-001",
+      [schemaIds.evidenceKind]: "현장 실측",
+    }).map(([schemaId, value], index) => ({
+      id: `33000000-0000-4000-8100-${String(offset + index).padStart(12, "0")}`,
+      schemaId,
+      objectId: kind === "object" ? sharedId : null,
+      blockInstanceId: kind === "block_instance" ? sharedId : null,
+      value,
+      version: 1,
+    }));
+  const workspace = {
+    primarySource: null,
+    templateCandidates: [],
+    document: {
+      id: "33000000-0000-4000-8000-000000000020",
+      project_id: "33000000-0000-4000-8000-000000000021",
+      revision: {
+        id: revisionId,
+        project_id: "33000000-0000-4000-8000-000000000021",
+        status: "draft",
+        version: 1,
+        canvases: [
+          {
+            id: "33000000-0000-4000-8000-000000000022",
+            pageId: "33000000-0000-4000-8000-000000000023",
+            name: "Canvas",
+            spaceKind: "paper",
+            widthMillimeters: 1000,
+            heightMillimeters: 1000,
+            background: null,
+            sortOrder: 0,
+            version: 1,
+          },
+        ],
+        layers: [
+          {
+            id: "33000000-0000-4000-8000-000000000024",
+            name: "Work",
+            canvasId: "33000000-0000-4000-8000-000000000022",
+            visible: true,
+            locked: false,
+            systemKind: "work",
+            sortOrder: 0,
+            version: 1,
+          },
+        ],
+        objects: [
+          {
+            id: sharedId,
+            name: "Door outline",
+            layerId: "33000000-0000-4000-8000-000000000024",
+            geometry: {
+              type: "line",
+              start: { x: 0, y: 0 },
+              end: { x: 1, y: 0 },
+            },
+            style: { stroke: "#000", strokeWidth: 1, fill: null },
+            version: 1,
+          },
+        ],
+        blockInstances: [
+          {
+            id: sharedId,
+            lineageId: "33000000-0000-4000-8000-000000000025",
+            blockId: "33000000-0000-4000-8000-000000000026",
+            layerId: "33000000-0000-4000-8000-000000000024",
+            name: "Door block",
+            origin: { x: 0, y: 0 },
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            version: 1,
+          },
+        ],
+        propertySchemas: [
+          { id: schemaIds.classification, revisionId, name: "적산 분류" },
+          { id: schemaIds.itemCode, revisionId, name: "품목 코드" },
+          { id: schemaIds.evidenceKind, revisionId, name: "근거 상태" },
+        ],
+        propertyValues: [
+          ...subjectValues("object", 1),
+          ...subjectValues("block_instance", 10),
+        ],
+      },
+    },
+  };
+  const summary = deriveDraftDrawingEstimateSummary({
+    binding: {
+      id: "33000000-0000-4000-8000-000000000031",
+      projectId: workspace.document.project_id,
+      drawingRevisionId: revisionId,
+      boqVersionId: "33000000-0000-4000-8000-000000000032",
+      createdAt: "2026-08-31T00:00:00.000Z",
+    },
+    boq: {
+      id: "33000000-0000-4000-8000-000000000032",
+      projectId: workspace.document.project_id,
+      title: "Doors",
+      versionNo: 1,
+      status: "draft",
+      engineVersion: "VERIFIED-BOQ-1.1",
+      calculationPolicy: "general_half_away",
+      quantityScale: 6,
+      priceBook: {
+        id: "33000000-0000-4000-8000-000000000033",
+        name: "Rates",
+      },
+      lines: [
+        {
+          id: lineId,
+          sectionCode: "01",
+          itemCode: "D-001",
+          itemName: "Door",
+          specification: "",
+          unit: "EA",
+          signedAdjustment: "0",
+          adjustmentReason: "",
+        },
+      ],
+      resources: [
+        {
+          id: resourceId,
+          code: "D-RATE",
+          type: "material",
+          unit: "EA",
+          unitPriceKrw: "1000",
+        },
+      ],
+      components: [
+        {
+          id: "33000000-0000-4000-8000-000000000034",
+          lineId,
+          resourceId,
+          coefficient: "1",
+        },
+      ],
+    },
+    workspace,
+  });
+  assert.deepEqual(
+    {
+      quantity: summary.rows[0].quantity,
+      amountKrw: summary.rows[0].amountKrw,
+      subjectRefs: summary.rows[0].subjectRefs,
+    },
+    {
+      quantity: "2",
+      amountKrw: "2000",
+      subjectRefs: [
+        { kind: "block_instance", id: sharedId },
+        { kind: "object", id: sharedId },
+      ],
+    },
+  );
 });
 
 test("Verified BOQ 1.0 result, CSV, and XLSX bytes stay frozen", () => {
