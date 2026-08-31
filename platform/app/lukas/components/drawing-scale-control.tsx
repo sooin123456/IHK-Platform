@@ -42,11 +42,17 @@ export function DrawingScaleControl({
       return [current[0], point];
     });
   }, []);
+  const cancelCapture = useCallback(() => {
+    setCapturing(false);
+    setPoints([]);
+  }, []);
 
   useEffect(() => {
-    onCalibrationCaptureChange(capturing ? { active: true, onPoint } : null);
+    onCalibrationCaptureChange(
+      capturing ? { active: true, onCancel: cancelCapture, onPoint } : null,
+    );
     return () => onCalibrationCaptureChange(null);
-  }, [capturing, onCalibrationCaptureChange, onPoint]);
+  }, [cancelCapture, capturing, onCalibrationCaptureChange, onPoint]);
   useEffect(() => {
     setCapturing(false);
     setPoints([]);
@@ -61,12 +67,11 @@ export function DrawingScaleControl({
     if (!capturing) return;
     const cancel = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setCapturing(false);
-      setPoints([]);
+      cancelCapture();
     };
     window.addEventListener("keydown", cancel, true);
     return () => window.removeEventListener("keydown", cancel, true);
-  }, [capturing]);
+  }, [cancelCapture, capturing]);
 
   if (!pdf)
     return (

@@ -146,71 +146,160 @@ test("PDF calibration capture normalizes viewport points in order and rejects no
   );
 });
 
-test("PDF calibration capture owns left input and cancellation across every active tool", () => {
-  assert.equal(typeof tools.drawingCalibrationCaptureTransition, "function");
-  const captured = [];
-  const capture = {
-    active: true,
-    background: {
-      kind: "pdf",
-      width: 100,
-      height: 200,
-      pageNumber: 1,
-      signedUrl: "https://example.test/source.pdf",
-    },
-    viewport: { x: 10, y: 20, zoom: 2 },
-    onPoint: (point) => captured.push(point),
-  };
+test("production calibration router isolates tool and selection dispatch while retaining pan zoom and Escape", () => {
+  assert.equal(typeof tools.createDrawingCalibrationInputRouter, "function");
   for (const activeTool of ["select", "pan", "polyline", "space", "area"]) {
-    const left = tools.drawingCalibrationCaptureTransition(capture, {
-      type: "pointer_down",
+    const captured = [];
+    const order = [];
+    let controllerState = tools.createDrawingToolControllerState(
+      context({ activeTool }),
+    );
+    let selectionState = tools.createDrawingSelectionState([wallId]);
+    const controllerBaseline = structuredClone(controllerState);
+    const selectionBaseline = structuredClone(selectionState);
+    let toolCalls = 0;
+    let selectionCalls = 0;
+    let commandCalls = 0;
+    let panCalls = 0;
+    let wheelCalls = 0;
+    const router = tools.createDrawingCalibrationInputRouter(() => ({
+      active: true,
       activeTool,
-      button: 0,
-      spacePressed: false,
-      screenPoint: { x: 110, y: 220 },
-    });
-    assert.deepEqual(left, {
-      handled: true,
-      action: "capture",
-      point: { x: 0.5, y: 0.5 },
-      command: null,
-    });
-    for (const event of [
-      { type: "pointer_move" },
-      { type: "pointer_up" },
-      { type: "pointer_cancel" },
-      { type: "double_click" },
-    ])
-      assert.deepEqual(
-        tools.drawingCalibrationCaptureTransition(capture, {
-          ...event,
-          activeTool,
-        }),
-        { handled: true, action: "block", point: null, command: null },
+      background: {
+        kind: "pdf",
+        width: 100,
+        height: 200,
+        pageNumber: 1,
+        signedUrl: "https://example.test/source.pdf",
+      },
+      viewport: { x: 10, y: 20, zoom: 2 },
+      onPoint: (point) => captured.push(point),
+      onCancel: () => order.push("cancel"),
+    }));
+    const onCommand = () => {
+      commandCalls += 1;
+    };
+    const dispatch = (event) => {
+      order.push("dispatch");
+      if (activeTool === "select") {
+        selectionCalls += 1;
+        if (!event.type.startsWith("pointer_")) return;
+        const selectionEvent =
+          event.type === "pointer_down"
+            ? {
+                type: event.type,
+                candidateId: null,
+                pointerId: event.pointerId,
+                screenPoint: event.screenPoint,
+                shiftKey: false,
+              }
+            : event.type === "pointer_cancel"
+              ? { type: event.type, pointerId: event.pointerId }
+              : {
+                  type: event.type,
+                  pointerId: event.pointerId,
+                  screenPoint: event.screenPoint,
+                };
+        const result = tools.drawingSelectionEventTransition(
+          selectionState,
+          selectionEvent,
+          {
+            actorId: "actor-a",
+            canEdit: true,
+            layers: { [layerId]: layer() },
+            objects: { [wallId]: wall },
+            snap: { gridSize: 0 },
+            viewport: { x: 0, y: 0, zoom: 1 },
+          },
+        );
+        selectionState = result.state;
+        if (result.command) onCommand(result.command);
+        return;
+      }
+      toolCalls += 1;
+      const result = tools.drawingToolEventTransition(
+        controllerState,
+        event,
+        context({ activeTool }),
       );
-    assert.deepEqual(
-      tools.drawingCalibrationCaptureTransition(capture, {
-        type: "key_down",
-        activeTool,
-        key: "Escape",
-      }),
-      { handled: true, action: "cancel", point: null, command: null },
-    );
-  }
-  assert.deepEqual(captured, Array(5).fill({ x: 0.5, y: 0.5 }));
-  for (const input of [
-    { button: 1, spacePressed: false },
-    { button: 0, spacePressed: true },
-  ])
-    assert.deepEqual(
-      tools.drawingCalibrationCaptureTransition(capture, {
+      controllerState = result.state;
+      if (result.command) onCommand(result.command);
+    };
+    const route = (event) =>
+      router(event, {
+        onDispatch: () => dispatch(event),
+        onPan: () => {
+          panCalls += 1;
+        },
+        onWheel: () => {
+          wheelCalls += 1;
+        },
+      });
+
+    for (const screenPoint of [
+      { x: 60, y: 120 },
+      { x: 160, y: 320 },
+    ])
+      route({
         type: "pointer_down",
-        activeTool: "pan",
-        screenPoint: { x: 110, y: 220 },
+        activeTool,
+        button: 0,
+        pointerId: 1,
+        screenPoint,
+        shiftKey: false,
+        spacePressed: false,
+      });
+    for (const event of [
+      {
+        type: "pointer_move",
+        activeTool,
+        pointerId: 1,
+        screenPoint: { x: 100, y: 200 },
+        shiftKey: false,
+      },
+      {
+        type: "pointer_up",
+        activeTool,
+        pointerId: 1,
+        screenPoint: { x: 100, y: 200 },
+        shiftKey: false,
+      },
+      { type: "pointer_cancel", activeTool, pointerId: 1 },
+      { type: "double_click", activeTool },
+    ])
+      route(event);
+    route({ type: "key_down", activeTool, key: "Escape" });
+
+    assert.deepEqual(captured, [
+      { x: 0.25, y: 0.25 },
+      { x: 0.75, y: 0.75 },
+    ]);
+    assert.deepEqual(order, ["cancel"]);
+    assert.equal(toolCalls, 0);
+    assert.equal(selectionCalls, 0);
+    assert.equal(commandCalls, 0);
+    assert.deepEqual(controllerState, controllerBaseline);
+    assert.deepEqual(selectionState, selectionBaseline);
+
+    for (const input of [
+      { button: 1, spacePressed: false },
+      { button: 0, spacePressed: true },
+    ])
+      route({
+        type: "pointer_down",
+        activeTool,
+        pointerId: 2,
+        screenPoint: { x: 100, y: 200 },
+        shiftKey: false,
         ...input,
-      }),
-      { handled: false, action: "pan", point: null, command: null },
-    );
+      });
+    route({ type: "wheel", activeTool });
+    assert.equal(panCalls, 2);
+    assert.equal(wheelCalls, 1);
+    assert.equal(toolCalls, 0);
+    assert.equal(selectionCalls, 0);
+    assert.equal(commandCalls, 0);
+  }
 });
 
 test("wall and grid use two points, semantic defaults, and the existing Shift constraint", () => {

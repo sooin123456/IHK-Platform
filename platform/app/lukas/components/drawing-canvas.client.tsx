@@ -1701,6 +1701,7 @@ export type DrawingCanvasBackground =
 
 export type DrawingCalibrationCapture = {
   active: boolean;
+  onCancel: () => void;
   onPoint: (point: Point) => void;
 };
 
@@ -1750,6 +1751,10 @@ type DrawingCalibrationCaptureContext = {
   viewport: Viewport;
   onPoint?: (point: Point) => void;
 };
+
+type DrawingCalibrationInputEvent =
+  | DrawingCalibrationCaptureEvent
+  | { type: "wheel"; activeTool: DrawingTool };
 
 /** Owns capture input before selection and drawing state can observe it. */
 export function drawingCalibrationCaptureTransition(
@@ -1801,6 +1806,33 @@ export function drawingCalibrationCaptureTransition(
     action: "block" as const,
     point: null,
     command: null,
+  };
+}
+
+/** Routes the production input callback selected by the capture decision. */
+export function createDrawingCalibrationInputRouter(
+  current: () => DrawingCalibrationCaptureContext & {
+    onCancel?: () => void;
+  },
+) {
+  return (
+    event: DrawingCalibrationInputEvent,
+    callbacks: {
+      onDispatch?: () => void;
+      onPan?: () => void;
+      onWheel?: () => void;
+    },
+  ) => {
+    if (event.type === "wheel") {
+      callbacks.onWheel?.();
+      return false;
+    }
+    const capture = current();
+    const result = drawingCalibrationCaptureTransition(capture, event);
+    if (result.action === "pan") callbacks.onPan?.();
+    else if (result.action === "cancel") capture.onCancel?.();
+    else if (!result.handled) callbacks.onDispatch?.();
+    return result.handled || result.action !== "pass";
   };
 }
 
@@ -3502,17 +3534,13 @@ export const DrawingCanvas = forwardRef<
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
-  function calibrationTransition(event: DrawingCalibrationCaptureEvent) {
-    return drawingCalibrationCaptureTransition(
-      {
-        active: calibrationCapture?.active ?? false,
-        background,
-        viewport: viewportRef.current,
-        onPoint: calibrationCapture?.onPoint,
-      },
-      event,
-    );
-  }
+  const routeCalibrationInput = createDrawingCalibrationInputRouter(() => ({
+    active: calibrationCapture?.active ?? false,
+    background,
+    viewport: viewportRef.current,
+    onCancel: calibrationCapture?.onCancel,
+    onPoint: calibrationCapture?.onPoint,
+  }));
 
   function beginNativeSelection(event: ReactPointerEvent<HTMLDivElement>) {
     event.currentTarget.focus();
@@ -3606,65 +3634,69 @@ export const DrawingCanvas = forwardRef<
   function beginDrawing(event: KonvaEventObject<PointerEvent>) {
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
-    const capture = calibrationTransition({
-      type: "pointer_down",
-      activeTool,
-      button: event.evt.button,
-      spacePressed: spacePressedRef.current,
-      screenPoint: pointer,
-    });
-    if (capture.action === "pan") {
-      beginPan(event);
-      return;
-    }
-    if (capture.handled) {
-      event.evt.preventDefault();
-      return;
-    }
-    beginPan(event);
-    if (panGestureRef.current || event.evt.button !== 0) return;
-    const target = event.evt.currentTarget as HTMLElement | null;
-    if (activeTool === "select") {
-      event.evt.preventDefault();
-      const candidateId = candidateIdFor(pointer);
-      if (!candidateId || !blockInstancesById[candidateId]) {
-        target?.setPointerCapture?.(event.evt.pointerId);
-        capturedSelectionTargetRef.current = target;
-      }
-      runSelectionPointerDown({
-        type: "pointer_down",
-        candidateId,
-        pointerId: event.evt.pointerId,
-        screenPoint: pointer,
-        shiftKey: event.evt.shiftKey,
-      });
-      return;
-    }
-    runToolEvent(
+    const handled = routeCalibrationInput(
       {
         type: "pointer_down",
+        activeTool,
         button: event.evt.button,
-        pointerId: event.evt.pointerId,
+        spacePressed: spacePressedRef.current,
         screenPoint: pointer,
-        shiftKey: event.evt.shiftKey,
       },
-      target,
+      {
+        onPan: () => beginPan(event),
+        onDispatch: () => {
+          beginPan(event);
+          if (panGestureRef.current || event.evt.button !== 0) return;
+          const target = event.evt.currentTarget as HTMLElement | null;
+          if (activeTool === "select") {
+            event.evt.preventDefault();
+            const candidateId = candidateIdFor(pointer);
+            if (!candidateId || !blockInstancesById[candidateId]) {
+              target?.setPointerCapture?.(event.evt.pointerId);
+              capturedSelectionTargetRef.current = target;
+            }
+            runSelectionPointerDown({
+              type: "pointer_down",
+              candidateId,
+              pointerId: event.evt.pointerId,
+              screenPoint: pointer,
+              shiftKey: event.evt.shiftKey,
+            });
+            return;
+          }
+          runToolEvent(
+            {
+              type: "pointer_down",
+              button: event.evt.button,
+              pointerId: event.evt.pointerId,
+              screenPoint: pointer,
+              shiftKey: event.evt.shiftKey,
+            },
+            target,
+          );
+        },
+      },
     );
+    if (handled) event.evt.preventDefault();
   }
 
   function onDoubleClick(event: KonvaEventObject<MouseEvent>) {
-    if (calibrationTransition({ type: "double_click", activeTool }).handled) {
-      event.evt.preventDefault();
-      return;
-    }
-    if (
-      activeTool !== "polyline" &&
-      activeTool !== "space" &&
-      activeTool !== "area"
-    )
-      return;
-    event.evt.preventDefault();
-    runToolEvent({ type: "double_click" });
+    const handled = routeCalibrationInput(
+      { type: "double_click", activeTool },
+      {
+        onDispatch: () => {
+          if (
+            activeTool !== "polyline" &&
+            activeTool !== "space" &&
+            activeTool !== "area"
+          )
+            return;
+          event.evt.preventDefault();
+          runToolEvent({ type: "double_click" });
+        },
+      },
+    );
+    if (handled) event.evt.preventDefault();
   }
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
@@ -3678,24 +3710,28 @@ export const DrawingCanvas = forwardRef<
     });
     if (result.viewport) setViewport(result.viewport);
     if (result.viewport || panGestureRef.current) return;
-    if (calibrationTransition({ type: "pointer_move", activeTool }).handled)
-      return;
-    const pointer = stagePoint;
-    if (!pointer) return;
-    if (activeTool === "select") {
-      runSelectionEvent({
-        type: "pointer_move",
-        pointerId: event.evt.pointerId,
-        screenPoint: pointer,
-      });
-      return;
-    }
-    runToolEvent({
-      type: "pointer_move",
-      pointerId: event.evt.pointerId,
-      screenPoint: pointer,
-      shiftKey: event.evt.shiftKey,
-    });
+    routeCalibrationInput(
+      { type: "pointer_move", activeTool },
+      {
+        onDispatch: () => {
+          if (!stagePoint) return;
+          if (activeTool === "select") {
+            runSelectionEvent({
+              type: "pointer_move",
+              pointerId: event.evt.pointerId,
+              screenPoint: stagePoint,
+            });
+            return;
+          }
+          runToolEvent({
+            type: "pointer_move",
+            pointerId: event.evt.pointerId,
+            screenPoint: stagePoint,
+            shiftKey: event.evt.shiftKey,
+          });
+        },
+      },
+    );
   }
 
   function endPan(
@@ -3720,30 +3756,35 @@ export const DrawingCanvas = forwardRef<
       endPan(event, "end");
       return;
     }
-    if (calibrationTransition({ type: "pointer_up", activeTool }).handled)
-      return;
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
-    const target = event.evt.currentTarget as HTMLElement | null;
-    if (activeTool === "select") {
-      runSelectionEvent({
-        type: "pointer_up",
-        pointerId: event.evt.pointerId,
-        screenPoint: pointer,
-      });
-      if (target?.hasPointerCapture?.(event.evt.pointerId))
-        target.releasePointerCapture(event.evt.pointerId);
-      capturedSelectionTargetRef.current = null;
-      return;
-    }
-    runToolEvent(
+    routeCalibrationInput(
+      { type: "pointer_up", activeTool },
       {
-        type: "pointer_up",
-        pointerId: event.evt.pointerId,
-        screenPoint: pointer,
-        shiftKey: event.evt.shiftKey,
+        onDispatch: () => {
+          const target = event.evt.currentTarget as HTMLElement | null;
+          if (activeTool === "select") {
+            runSelectionEvent({
+              type: "pointer_up",
+              pointerId: event.evt.pointerId,
+              screenPoint: pointer,
+            });
+            if (target?.hasPointerCapture?.(event.evt.pointerId))
+              target.releasePointerCapture(event.evt.pointerId);
+            capturedSelectionTargetRef.current = null;
+            return;
+          }
+          runToolEvent(
+            {
+              type: "pointer_up",
+              pointerId: event.evt.pointerId,
+              screenPoint: pointer,
+              shiftKey: event.evt.shiftKey,
+            },
+            target,
+          );
+        },
       },
-      target,
     );
   }
 
@@ -3802,26 +3843,27 @@ export const DrawingCanvas = forwardRef<
           });
       }}
       onKeyDown={(event) => {
-        const capture = calibrationTransition({
-          type: "key_down",
-          activeTool,
-          key: event.key,
-        });
-        if (capture.handled) {
+        const handled = routeCalibrationInput(
+          { type: "key_down", activeTool, key: event.key },
+          {
+            onDispatch: () => {
+              if (drawingToolSessionOwnsKey(controllerRef.current, event.key)) {
+                event.preventDefault();
+                event.stopPropagation();
+                runToolEvent({ type: "key_down", key: event.key });
+                return;
+              }
+              if (event.code === "Space") {
+                event.preventDefault();
+                spacePressedRef.current = true;
+                setSpacePressed(true);
+              }
+            },
+          },
+        );
+        if (handled) {
           event.preventDefault();
           event.stopPropagation();
-          return;
-        }
-        if (drawingToolSessionOwnsKey(controllerRef.current, event.key)) {
-          event.preventDefault();
-          event.stopPropagation();
-          runToolEvent({ type: "key_down", key: event.key });
-          return;
-        }
-        if (event.code === "Space") {
-          event.preventDefault();
-          spacePressedRef.current = true;
-          setSpacePressed(true);
         }
       }}
       onKeyUp={(event) => {
@@ -3852,37 +3894,54 @@ export const DrawingCanvas = forwardRef<
               endPan(event, "cancel");
               return;
             }
-            if (
-              calibrationTransition({ type: "pointer_cancel", activeTool })
-                .handled
-            )
-              return;
-            endPan(event, "cancel");
-            if (activeTool === "select") {
-              runSelectionEvent({
-                type: "pointer_cancel",
-                pointerId: event.evt.pointerId,
-              });
-              capturedSelectionTargetRef.current = null;
-            } else {
-              runToolEvent(
-                { type: "pointer_cancel", pointerId: event.evt.pointerId },
-                event.evt.currentTarget as HTMLElement | null,
-              );
-            }
+            routeCalibrationInput(
+              { type: "pointer_cancel", activeTool },
+              {
+                onDispatch: () => {
+                  endPan(event, "cancel");
+                  if (activeTool === "select") {
+                    runSelectionEvent({
+                      type: "pointer_cancel",
+                      pointerId: event.evt.pointerId,
+                    });
+                    capturedSelectionTargetRef.current = null;
+                  } else {
+                    runToolEvent(
+                      {
+                        type: "pointer_cancel",
+                        pointerId: event.evt.pointerId,
+                      },
+                      event.evt.currentTarget as HTMLElement | null,
+                    );
+                  }
+                },
+              },
+            );
           }}
           onPointerDown={beginDrawing}
           onPointerMove={continuePan}
           onPointerUp={finishPointer}
           onWheel={(event) => {
-            event.evt.preventDefault();
-            const pointer = event.target.getStage()?.getPointerPosition();
-            if (!pointer) return;
-            const nextZoom = clampZoom(
-              viewportRef.current.zoom * Math.exp(-event.evt.deltaY * 0.002),
-            );
-            setViewport(
-              zoomViewportAroundPointer(pointer, viewportRef.current, nextZoom),
+            routeCalibrationInput(
+              { type: "wheel", activeTool },
+              {
+                onWheel: () => {
+                  event.evt.preventDefault();
+                  const pointer = event.target.getStage()?.getPointerPosition();
+                  if (!pointer) return;
+                  const nextZoom = clampZoom(
+                    viewportRef.current.zoom *
+                      Math.exp(-event.evt.deltaY * 0.002),
+                  );
+                  setViewport(
+                    zoomViewportAroundPointer(
+                      pointer,
+                      viewportRef.current,
+                      nextZoom,
+                    ),
+                  );
+                },
+              },
             );
           }}
           style={{ cursor }}
