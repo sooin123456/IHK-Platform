@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { createServer } from "vite";
+import { z } from "zod";
 
 import routes from "../app/routes.ts";
 
@@ -36,6 +37,9 @@ const startComponent = await vite
   .catch(() => ({}));
 const workspaceScreen = await vite
   .ssrLoadModule("/app/lukas/screens/drawing-workspace.tsx")
+  .catch(() => ({}));
+const workspaceExport = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-export.ts")
   .catch(() => ({}));
 
 test.after(() => vite.close());
@@ -146,6 +150,318 @@ test("estimate binding failures stay bounded for validation and duplicate confli
       error: "견적 연결에는 도면 편집 권한이 필요합니다.",
     },
   );
+  const routeSource = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const estimateAction = routeSource.slice(
+    routeSource.indexOf('if (intent === "bind_drawing_estimate")'),
+    routeSource.indexOf(
+      "\n  const workspace = await loadDrawingWorkspace(client",
+      routeSource.indexOf('if (intent === "bind_drawing_estimate")'),
+    ),
+  );
+  assert.match(estimateAction, /drawingWorkspaceActionErrorResponse\(error/);
+});
+
+test("workspace action failures use the bounded Korean recovery union", async () => {
+  const bound = workspaceScreen.drawingWorkspaceActionErrorResponse;
+  assert.equal(typeof bound, "function");
+  const validation = await bound(
+    new z.ZodError([
+      {
+        code: "invalid_type",
+        expected: "string",
+        path: ["title"],
+        message: "Required",
+      },
+    ]),
+    { requestId: ids.file },
+  );
+  assert.equal(validation.status, 400);
+  assert.equal(validation.body.kind, "validation");
+  assert.deepEqual(validation.body.fieldErrors, {
+    title: ["입력값이 올바르지 않습니다."],
+  });
+
+  assert.deepEqual(
+    await bound(
+      new workspaceServer.DrawingWorkspaceConflictError("raw conflict"),
+      { requestId: ids.file },
+    ),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "conflict",
+        error: "최신 작업실을 다시 불러와 변경 내용을 비교해 주세요.",
+        requestId: ids.file,
+      },
+    },
+  );
+  assert.deepEqual(
+    await bound(
+      new workspaceServer.DrawingWorkspaceRetryableError("raw retry"),
+      { requestId: ids.file },
+    ),
+    {
+      status: 503,
+      body: {
+        ok: false,
+        kind: "retryable",
+        error: "같은 요청 ID로 다시 시도해 주세요.",
+        requestId: ids.file,
+      },
+    },
+  );
+  assert.deepEqual(
+    await bound(
+      new workspaceServer.DrawingWorkspaceRejectedError(
+        "승인된 개정은 변경할 수 없습니다.",
+      ),
+      { requestId: ids.file },
+    ),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "rejected",
+        error: "승인된 개정은 변경할 수 없습니다. 새 개정을 만들어 주세요.",
+        requestId: ids.file,
+      },
+    },
+  );
+  assert.deepEqual(
+    await bound(new Response("raw missing object detail", { status: 404 }), {
+      requestId: ids.file,
+    }),
+    {
+      status: 409,
+      body: {
+        ok: false,
+        kind: "rejected",
+        error: "현재 개정 상태에서는 이 작업을 수행할 수 없습니다.",
+        requestId: ids.file,
+      },
+    },
+  );
+
+  const originalConsoleError = console.error;
+  const logged = [];
+  console.error = (...values) => logged.push(values);
+  try {
+    const unknown = await bound(new Error("server-only secret"), {
+      requestId: ids.file,
+    });
+    assert.equal(unknown.status, 500);
+    assert.equal(unknown.body.kind, "unknown");
+    assert.match(unknown.body.error, new RegExp(ids.file));
+    assert.doesNotMatch(unknown.body.error, /server-only secret/);
+    assert.equal(logged.length, 1);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test("source-free BOQ focus accepts an exact tuple without inventing evidence", () => {
+  const parse = workspaceScreen.parseDrawingWorkspaceLineageSearch;
+  assert.equal(typeof parse, "function");
+  assert.deepEqual(
+    parse(
+      new URLSearchParams({
+        revision: ids.file,
+        object: ids.document,
+        boq: "00000000-0000-4000-8000-000000000005",
+        line: "00000000-0000-4000-8000-000000000006",
+      }),
+    ),
+    {
+      revisionId: ids.file,
+      objectId: ids.document,
+      boqVersionId: "00000000-0000-4000-8000-000000000005",
+      boqLineId: "00000000-0000-4000-8000-000000000006",
+      evidenceFileId: null,
+      cursor: null,
+    },
+  );
+});
+
+function listQueryClient(rows) {
+  const calls = [];
+  return {
+    calls,
+    from(table) {
+      calls.push(table);
+      const result = { data: rows[table] ?? [], error: null };
+      const query = {
+        select() {
+          return query;
+        },
+        eq() {
+          return query;
+        },
+        in() {
+          return query;
+        },
+        order() {
+          return Promise.resolve(result);
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: Array.isArray(result.data)
+              ? (result.data[0] ?? null)
+              : result.data,
+            error: null,
+          });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+test("source-free issue room loads comments without calling the file-room loader", async () => {
+  const client = listQueryClient({
+    lukas_drawing_issue_comments: [
+      {
+        id: "00000000-0000-4000-8000-000000000010",
+        issue_id: ids.file,
+        author_id: ids.project,
+        body: "원본 없는 객체 검토",
+        created_at: "2026-08-31T00:00:00.000Z",
+      },
+    ],
+    lukas_drawing_comment_mentions: [],
+    lukas_drawing_canvas_region_anchors: [],
+  });
+  let fileRoomCalls = 0;
+  const room = await workspaceScreen.loadDrawingWorkspaceIssueRoom(
+    client,
+    ids.project,
+    {
+      primarySource: null,
+      document: {
+        revision: {
+          issues: [{ id: ids.file, title: "객체 이슈", status: "open" }],
+        },
+      },
+    },
+    async () => {
+      fileRoomCalls += 1;
+    },
+  );
+  assert.equal(fileRoomCalls, 0);
+  assert.equal(room.issues[0].id, ids.file);
+  assert.equal(room.comments[0].body, "원본 없는 객체 검토");
+  assert.deepEqual(client.calls, [
+    "lukas_drawing_issue_comments",
+    "lukas_drawing_canvas_region_anchors",
+    "lukas_drawing_comment_mentions",
+  ]);
+});
+
+test("object issue scope validates object to revision to document to project", async () => {
+  const scoped = scopeQueryClient({
+    lukas_drawing_objects: {
+      id: ids.file,
+      revision_id: "00000000-0000-4000-8000-000000000005",
+      project_id: ids.project,
+    },
+    lukas_drawing_revisions: {
+      id: "00000000-0000-4000-8000-000000000005",
+      document_id: ids.document,
+      project_id: ids.project,
+    },
+    lukas_drawing_documents: {
+      id: ids.document,
+      project_id: ids.project,
+    },
+  });
+  await workspaceScreen.assertDrawingObjectIssueScope(scoped, {
+    projectId: ids.project,
+    documentId: ids.document,
+    revisionId: "00000000-0000-4000-8000-000000000005",
+    objectId: ids.file,
+  });
+  assert.deepEqual(scoped.calls, [
+    "lukas_drawing_objects",
+    "lukas_drawing_revisions",
+    "lukas_drawing_documents",
+  ]);
+
+  await assert.rejects(
+    workspaceScreen.assertDrawingObjectIssueScope(scoped, {
+      projectId: ids.project,
+      documentId: "00000000-0000-4000-8000-000000000099",
+      revisionId: "00000000-0000-4000-8000-000000000005",
+      objectId: ids.file,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+});
+
+function scopeQueryClient(rows) {
+  const calls = [];
+  return {
+    calls,
+    from(table) {
+      calls.push(table);
+      const filters = [];
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column, value) {
+          filters.push([column, value]);
+          return query;
+        },
+        maybeSingle: async () => {
+          const row = rows[table] ?? null;
+          const matches =
+            row && filters.every(([column, value]) => row[column] === value);
+          return { data: matches ? row : null, error: null };
+        },
+      };
+      return query;
+    },
+  };
+}
+
+test("canonical export remains document-scoped when source_file_id is null", async () => {
+  const sourceFree = scopeQueryClient({
+    lukas_drawing_revisions: {
+      id: ids.file,
+      document_id: ids.document,
+      project_id: ids.project,
+    },
+    lukas_drawing_documents: {
+      id: ids.document,
+      project_id: ids.project,
+      source_file_id: null,
+    },
+  });
+  await workspaceExport.validateDrawingExportScope(sourceFree, {
+    fileId: null,
+    projectId: ids.project,
+    revisionId: ids.file,
+    workspaceId: ids.document,
+  });
+  assert.doesNotMatch(sourceFree.calls.join(","), /lukas_qto_files/);
+
+  for (const input of [
+    { workspaceId: "00000000-0000-4000-8000-000000000099" },
+    { projectId: "00000000-0000-4000-8000-000000000098" },
+  ])
+    await assert.rejects(
+      workspaceExport.validateDrawingExportScope(sourceFree, {
+        fileId: null,
+        projectId: ids.project,
+        revisionId: ids.file,
+        workspaceId: ids.document,
+        ...input,
+      }),
+      (error) => error instanceof Response && error.status === 404,
+    );
 });
 
 function flatten(routesToFlatten) {

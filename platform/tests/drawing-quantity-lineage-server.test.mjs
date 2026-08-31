@@ -15,6 +15,7 @@ import {
   resolveDrawingWorkspaceEntry,
   submitVerifiedBoqV1_1,
 } from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
+import * as drawingQuantityLineageServer from "../app/lukas/lib/drawing-quantity-lineage.server.ts";
 import { boqManifestStorageObjectPath } from "../app/lukas/lib/storage-object-key.server.ts";
 import {
   collectBoundedRows,
@@ -1136,7 +1137,9 @@ test("exact BOQ evidence is included even when its quantity is older than the fi
   assert.ok(page.nextCursor);
 });
 
-test("workspace resolution returns exact evidence route and never falls back", async () => {
+test("workspace resolution returns canonical lineage before building its exact route", async () => {
+  const { drawingWorkspaceEntryLocation } = drawingQuantityLineageServer;
+  assert.equal(typeof drawingWorkspaceEntryLocation, "function");
   const ids = {
     project: "00000000-0000-4000-8000-000000000031",
     revision: "00000000-0000-4000-8000-000000000032",
@@ -1147,28 +1150,68 @@ test("workspace resolution returns exact evidence route and never falls back", a
     file: "00000000-0000-4000-8000-000000000037",
   };
   const client = exactEntryClient(ids);
+  const entry = await resolveDrawingWorkspaceEntry(client, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    objectId: ids.object,
+    boqVersionId: ids.boq,
+    boqLineId: ids.line,
+    fileId: ids.file,
+  });
+  assert.deepEqual(entry, {
+    documentId: ids.document,
+    objectId: ids.object,
+    revisionId: ids.revision,
+    boqVersionId: ids.boq,
+    boqLineId: ids.line,
+    evidenceFileId: ids.file,
+    evidenceKind: "pdf",
+  });
   assert.equal(
-    await resolveDrawingWorkspaceEntry(client, {
-      projectId: ids.project,
-      revisionId: ids.revision,
-      objectId: ids.object,
-      boqVersionId: ids.boq,
-      boqLineId: ids.line,
-      fileId: ids.file,
-    }),
-    `/projects/${ids.project}/drawings/${ids.file}/workspace?document=${ids.document}&revision=${ids.revision}&object=${ids.object}&boq=${ids.boq}&line=${ids.line}&evidence=${ids.file}&view=2d`,
+    drawingWorkspaceEntryLocation(ids.project, entry),
+    `/projects/${ids.project}/workspaces/${ids.document}?revision=${ids.revision}&object=${ids.object}&boq=${ids.boq}&line=${ids.line}&evidence=${ids.file}&view=2d`,
   );
-  await assert.rejects(
-    resolveDrawingWorkspaceEntry(exactEntryClient({ ...ids, file: null }), {
-      projectId: ids.project,
-      revisionId: ids.revision,
-      objectId: ids.object,
-      boqVersionId: ids.boq,
-      boqLineId: ids.line,
-      fileId: ids.file,
-    }),
-    /연결된 도면 근거를 열 수 없습니다/,
+});
+
+test("approved source-free BOQ lineage needs no evidence-file query", async () => {
+  const { drawingWorkspaceEntryLocation } = drawingQuantityLineageServer;
+  assert.equal(typeof drawingWorkspaceEntryLocation, "function");
+  const ids = {
+    project: "00000000-0000-4000-8000-000000000031",
+    revision: "00000000-0000-4000-8000-000000000032",
+    object: "00000000-0000-4000-8000-000000000033",
+    boq: "00000000-0000-4000-8000-000000000034",
+    line: "00000000-0000-4000-8000-000000000035",
+    document: "00000000-0000-4000-8000-000000000036",
+    file: null,
+  };
+  const client = exactEntryClient(ids);
+  const entry = await resolveDrawingWorkspaceEntry(client, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    objectId: ids.object,
+    boqVersionId: ids.boq,
+    boqLineId: ids.line,
+  });
+  assert.deepEqual(entry, {
+    documentId: ids.document,
+    objectId: ids.object,
+    revisionId: ids.revision,
+    boqVersionId: ids.boq,
+    boqLineId: ids.line,
+  });
+  assert.equal(
+    drawingWorkspaceEntryLocation(ids.project, entry),
+    `/projects/${ids.project}/workspaces/${ids.document}?revision=${ids.revision}&object=${ids.object}&boq=${ids.boq}&line=${ids.line}`,
   );
+  assert.deepEqual(client.calls, [
+    "lukas_drawing_revisions",
+    "lukas_drawing_documents",
+    "lukas_drawing_objects",
+    "lukas_qto_boq_versions",
+    "lukas_qto_boq_lines",
+    "lukas_drawing_boq_links",
+  ]);
 });
 
 test("1.1 RPC input parser keeps fixed authoritative fields and rejects injection", () => {
@@ -2655,6 +2698,7 @@ function lineageClient() {
 }
 
 function exactEntryClient(ids) {
+  const calls = [];
   const rows = {
     lukas_drawing_revisions: {
       id: ids.revision,
@@ -2679,18 +2723,55 @@ function exactEntryClient(ids) {
     },
     lukas_drawing_boq_links: {
       id: "00000000-0000-4000-8000-000000000038",
-      quantity: { id: "00000000-0000-4000-8000-000000000039" },
+      project_id: ids.project,
+      boq_version_id: ids.boq,
+      boq_line_id: ids.line,
+      quantity: {
+        id: "00000000-0000-4000-8000-000000000039",
+        drawing_revision_id: ids.revision,
+        drawing_object_id: ids.object,
+      },
     },
     lukas_drawing_object_sources: {
       id: "00000000-0000-4000-8000-00000000003a",
+      project_id: ids.project,
+      revision_id: ids.revision,
+      object_id: ids.object,
+      source_file_id: ids.file,
+      status: "active",
     },
     lukas_qto_files: ids.file
       ? { id: ids.file, project_id: ids.project, immutable: true, kind: "pdf" }
       : null,
   };
   return {
+    calls,
     from(table) {
-      return chain({ data: rows[table], error: null });
+      calls.push(table);
+      const filters = [];
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column, value) {
+          filters.push([column, value]);
+          return query;
+        },
+        async single() {
+          const row = rows[table];
+          const read = (value, path) =>
+            path.split(".").reduce((current, key) => current?.[key], value);
+          return {
+            data:
+              row &&
+              filters.every(([column, value]) => read(row, column) === value)
+                ? row
+                : null,
+            error: null,
+          };
+        },
+      };
+      return query;
     },
   };
 }

@@ -840,6 +840,27 @@ test("source-free documents keep the blank canvas and audited export launcher", 
   assert.match(html, /<button[^>]*>[^<]*내보내기/);
 });
 
+test("source renderer failure stays local while canvas and result inspector remain mounted", () => {
+  const fixture = previewModule.localDrawingWorkspacePreviewFixture();
+  const html = renderWorkspace({
+    sourceBundle: {
+      primary: null,
+      pdf: null,
+      ifc: null,
+      previousPdf: null,
+      revisionEdge: null,
+      catalog: [],
+      error: "PDF 원본을 표시하지 못했습니다. 다시 시도해 주세요.",
+    },
+    workspace: fixture.workspace,
+  });
+  assert.match(html, /PDF 원본을 표시하지 못했습니다/);
+  assert.match(html, /drawing-workspace-canvas/);
+  assert.match(html, /drawing-estimate-result-panel/);
+  assert.match(html, /drawing-object-inspector-panel/);
+  assert.match(html, /이슈/);
+});
+
 test("one export deadline times out at 30 seconds and disposes its timer once", () => {
   const createOperation = exportDialogModule.createDrawingExportOperation;
   assert.equal(

@@ -956,7 +956,7 @@ type Props = {
   } | null;
   roomUrl: string;
   sourceUrl?: string | null;
-  sourceBundle?: DrawingWorkspaceSourceBundle;
+  sourceBundle?: DrawingWorkspaceSourceBundle & { error?: string | null };
   selectedIfcFileId?: string | null;
   viewMode?: DrawingWorkspaceViewMode;
   workspace: DrawingWorkspace & {
@@ -4135,6 +4135,15 @@ export default function DrawingWorkspaceClient({
             </button>
           ))}
         </div>
+        {sourceBundle?.error ? (
+          <p
+            aria-label="도면 원본 오류"
+            className="rounded-md border border-amber-400/30 bg-amber-950/60 px-3 py-2 text-xs text-amber-100"
+            role="alert"
+          >
+            {sourceBundle.error}
+          </p>
+        ) : null}
         {sourceBundle ? (
           <label className="flex min-h-10 items-center gap-2 text-xs font-semibold text-slate-300">
             IFC 파일 선택
@@ -4169,7 +4178,7 @@ export default function DrawingWorkspaceClient({
             </select>
           </label>
         ) : null}
-        {sourceBundle && !selectedIfcChoice ? (
+        {sourceBundle && !sourceBundle.error && !selectedIfcChoice ? (
           <p className="text-xs text-amber-200" role="status">
             IFC 파일을 선택하면 3D와 분할 보기를 사용할 수 있습니다.
           </p>

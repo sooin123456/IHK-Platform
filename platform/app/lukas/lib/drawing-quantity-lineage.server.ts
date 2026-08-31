@@ -16,8 +16,6 @@ import { boqManifestStorageObjectPath } from "./storage-object-key.server.ts";
 import {
   deriveAuthorizedDrawingMeasurementEvidence,
   parseDrawingWorkspaceCollaborationBootstrap,
-  resolveDrawingDocumentEntry,
-  type DrawingWorkspaceClient,
 } from "./drawing-workspace.server.ts";
 import {
   DrawingObjectSchema,
@@ -771,9 +769,17 @@ export async function resolveDrawingWorkspaceEntry(
     objectId: string;
     boqVersionId: string;
     boqLineId: string;
-    fileId: string;
+    fileId?: string;
   },
-): Promise<string> {
+): Promise<{
+  documentId: string;
+  objectId: string;
+  revisionId: string;
+  boqVersionId: string;
+  boqLineId: string;
+  evidenceFileId?: string;
+  evidenceKind?: "pdf" | "ifc";
+}> {
   try {
     const parsed = {
       projectId: Uuid.parse(input.projectId),
@@ -781,7 +787,7 @@ export async function resolveDrawingWorkspaceEntry(
       objectId: Uuid.parse(input.objectId),
       boqVersionId: Uuid.parse(input.boqVersionId),
       boqLineId: Uuid.parse(input.boqLineId),
-      fileId: Uuid.parse(input.fileId),
+      fileId: input.fileId ? Uuid.parse(input.fileId) : undefined,
     };
     const revision = await exactRow(
       userClient,
@@ -789,6 +795,16 @@ export async function resolveDrawingWorkspaceEntry(
       "id,document_id,project_id",
       [
         ["id", parsed.revisionId],
+        ["project_id", parsed.projectId],
+      ],
+    );
+    const documentId = Uuid.parse(revision.document_id);
+    await exactRow(
+      userClient,
+      "lukas_drawing_documents",
+      "id,project_id,source_file_id",
+      [
+        ["id", documentId],
         ["project_id", parsed.projectId],
       ],
     );
@@ -820,13 +836,14 @@ export async function resolveDrawingWorkspaceEntry(
         ],
       ),
     ]);
-    const documentId = Uuid.parse(revision.document_id);
-    const entry = await resolveDrawingDocumentEntry(
-      userClient as unknown as DrawingWorkspaceClient,
-      parsed.projectId,
+    const entry = {
       documentId,
-      parsed.objectId,
-    );
+      objectId: parsed.objectId,
+      revisionId: parsed.revisionId,
+      boqVersionId: parsed.boqVersionId,
+      boqLineId: parsed.boqLineId,
+    };
+    if (!parsed.fileId) return entry;
     await exactRow(userClient, "lukas_drawing_object_sources", "id", [
       ["project_id", parsed.projectId],
       ["revision_id", parsed.revisionId],
@@ -834,30 +851,44 @@ export async function resolveDrawingWorkspaceEntry(
       ["source_file_id", parsed.fileId],
       ["status", "active"],
     ]);
-    const evidenceFileId = parsed.fileId;
     const file = await exactRow(userClient, "lukas_qto_files", "id,kind", [
-      ["id", evidenceFileId],
+      ["id", parsed.fileId],
       ["project_id", parsed.projectId],
       ["immutable", true],
     ]);
     if (file.kind !== "pdf" && file.kind !== "ifc")
       throw new Error("unsupported evidence file");
-    const search = new URLSearchParams({
-      document: entry.documentId,
-      revision: parsed.revisionId,
-      object: parsed.objectId,
-      boq: parsed.boqVersionId,
-      line: parsed.boqLineId,
-    });
-    search.set("evidence", parsed.fileId);
-    if (file.kind === "ifc") {
-      search.set("view", "split");
-      search.set("ifc", evidenceFileId);
-    } else search.set("view", "2d");
-    return `/projects/${parsed.projectId}/drawings/${entry.fileId}/workspace?${search}`;
+    return {
+      ...entry,
+      evidenceFileId: parsed.fileId,
+      evidenceKind: file.kind,
+    };
   } catch {
     throw new Error("연결된 도면 근거를 열 수 없습니다.");
   }
+}
+
+export function drawingWorkspaceEntryLocation(
+  projectId: string,
+  entry: Awaited<ReturnType<typeof resolveDrawingWorkspaceEntry>>,
+) {
+  const project = Uuid.parse(projectId);
+  const documentId = Uuid.parse(entry.documentId);
+  const search = new URLSearchParams({
+    revision: Uuid.parse(entry.revisionId),
+    object: Uuid.parse(entry.objectId),
+    boq: Uuid.parse(entry.boqVersionId),
+    line: Uuid.parse(entry.boqLineId),
+  });
+  if (entry.evidenceFileId) {
+    const evidenceFileId = Uuid.parse(entry.evidenceFileId);
+    search.set("evidence", evidenceFileId);
+    if (entry.evidenceKind === "ifc") {
+      search.set("view", "split");
+      search.set("ifc", evidenceFileId);
+    } else search.set("view", "2d");
+  }
+  return `/projects/${project}/workspaces/${documentId}?${search}`;
 }
 
 export type CreateP6MaterialHandoffInput = {
@@ -1344,8 +1375,9 @@ async function persistMaterialManifest(
 function databaseMaterialHandoffAuthority(): P6MaterialHandoffAuthority {
   return {
     async loadApprovedExport(userClient, actorId, boqVersionId) {
-      const { loadApprovedVerifiedBoqExport } =
-        await import("./verified-boq-approved-export.server.ts");
+      const { loadApprovedVerifiedBoqExport } = await import(
+        "./verified-boq-approved-export.server.ts"
+      );
       return loadApprovedVerifiedBoqExport(userClient, actorId, boqVersionId);
     },
     loadContext: loadMaterialHandoffContext,

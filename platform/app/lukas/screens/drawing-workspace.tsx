@@ -1,7 +1,9 @@
 import type { Route } from "./+types/drawing-workspace";
 
 import { ArrowLeft } from "lucide-react";
+import { randomUUID } from "node:crypto";
 import { Form, Link, data, redirect } from "react-router";
+import { z } from "zod";
 
 import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialog";
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
@@ -24,6 +26,7 @@ import {
   createDrawingQuantityLink,
   DrawingQuantityLineageServerError,
   drawingQuantityLineageErrorResponse,
+  drawingWorkspaceEntryLocation,
   listDrawingObjectQuantityLineage,
   resolveDrawingWorkspaceEntry,
 } from "~/lukas/lib/drawing-quantity-lineage.server";
@@ -32,6 +35,7 @@ import {
   assertDrawingQuantityWorkspaceScope,
   DrawingWorkspaceConflictError,
   DrawingWorkspaceRejectedError,
+  DrawingWorkspaceRetryableError,
   DrawingWorkspaceRpcError,
   handleWorkspaceMutation,
   loadDrawingWorkspace,
@@ -39,8 +43,8 @@ import {
   loadDrawingWorkspaceCapability,
   loadDrawingWorkspacePreviousPdf,
   loadDrawingWorkspaceSourceBundle,
-  parseDrawingQuantityLinkForm,
   parseDrawingQuantityLineageSearch,
+  parseDrawingQuantityLinkForm,
   parseDrawingWorkspacePreviousPdfForm,
   resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
@@ -67,6 +71,295 @@ function canEdit(capability: DrawingWorkspaceCapability) {
 
 const drawingEstimateUuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function parseDrawingWorkspaceLineageSearch(
+  searchParams: URLSearchParams,
+) {
+  try {
+    const one = (name: string) => {
+      const values = searchParams.getAll(name);
+      if (values.length > 1) throw new Error("duplicate URL value");
+      return values[0] ?? null;
+    };
+    const revision = one("revision");
+    const object = one("object");
+    const boq = one("boq");
+    const line = one("line");
+    const evidence = one("evidence");
+    const cursor = one("quantityCursor");
+    if (cursor && !object) throw new Error("orphan cursor");
+    if ((boq || line || evidence) && !(revision && object && boq && line))
+      throw new Error("incomplete BOQ evidence");
+    return {
+      revisionId: revision ? z.string().uuid().parse(revision) : null,
+      objectId: object ? z.string().uuid().parse(object) : null,
+      boqVersionId: boq ? z.string().uuid().parse(boq) : null,
+      boqLineId: line ? z.string().uuid().parse(line) : null,
+      evidenceFileId: evidence ? z.string().uuid().parse(evidence) : null,
+      cursor,
+    };
+  } catch {
+    throw new Error("도면 수량 근거 URL이 올바르지 않습니다.");
+  }
+}
+
+function actionRequestId(form: FormData) {
+  for (const name of [
+    "request_id",
+    "client_request_id",
+    "link_id",
+    "comment_id",
+  ]) {
+    const value = form.get(name);
+    if (typeof value === "string" && drawingEstimateUuid.test(value))
+      return value;
+  }
+  const operation = form.get("operation_json");
+  if (typeof operation === "string")
+    try {
+      const clientOperationId = JSON.parse(operation).clientOperationId;
+      if (
+        typeof clientOperationId === "string" &&
+        drawingEstimateUuid.test(clientOperationId)
+      )
+        return clientOperationId;
+    } catch {
+      // Validation will return the field-level error below.
+    }
+  return randomUUID();
+}
+
+function rejectedRecovery(message: string) {
+  if (/승인|approved/i.test(message))
+    return "승인된 개정은 변경할 수 없습니다. 새 개정을 만들어 주세요.";
+  return /권한/.test(message)
+    ? "이 작업을 수행할 권한이 없습니다."
+    : "현재 개정 상태에서는 이 작업을 수행할 수 없습니다.";
+}
+
+export async function drawingWorkspaceActionErrorResponse(
+  error: unknown,
+  options: { requestId: string },
+) {
+  const requestId = options.requestId;
+  if (error instanceof z.ZodError) {
+    const fieldErrors: Record<string, string[]> = {};
+    for (const issue of error.issues) {
+      const field = String(issue.path[0] ?? "form");
+      fieldErrors[field] = ["입력값이 올바르지 않습니다."];
+    }
+    return {
+      status: 400,
+      body: {
+        ok: false as const,
+        kind: "validation" as const,
+        error: "입력값을 확인해 주세요.",
+        fieldErrors,
+        requestId,
+      },
+    };
+  }
+  if (error instanceof Response) {
+    const message = await error.text();
+    if (error.status === 400)
+      return {
+        status: 400,
+        body: {
+          ok: false as const,
+          kind: "validation" as const,
+          error: message || "입력값을 확인해 주세요.",
+          requestId,
+        },
+      };
+    if (error.status === 403)
+      return {
+        status: 403,
+        body: {
+          ok: false as const,
+          kind: "rejected" as const,
+          error: message || "이 작업을 수행할 권한이 없습니다.",
+          requestId,
+        },
+      };
+    if (error.status === 404)
+      return {
+        status: 409,
+        body: {
+          ok: false as const,
+          kind: "rejected" as const,
+          error: "현재 개정 상태에서는 이 작업을 수행할 수 없습니다.",
+          requestId,
+        },
+      };
+    if (error.status === 409)
+      return {
+        status: 409,
+        body: {
+          ok: false as const,
+          kind: "conflict" as const,
+          error: /승인|approved/i.test(message)
+            ? rejectedRecovery(message)
+            : "최신 작업실을 다시 불러와 변경 내용을 비교해 주세요.",
+          requestId,
+        },
+      };
+  }
+  if (
+    error instanceof DrawingWorkspaceConflictError ||
+    (error instanceof Error && error.name === "DrawingWorkspaceConflictError")
+  )
+    return {
+      status: 409,
+      body: {
+        ok: false as const,
+        kind: "conflict" as const,
+        error: "최신 작업실을 다시 불러와 변경 내용을 비교해 주세요.",
+        requestId,
+      },
+    };
+  if (
+    error instanceof DrawingWorkspaceRetryableError ||
+    error instanceof DrawingWorkspaceRpcError ||
+    (error instanceof Error &&
+      (error.name === "DrawingWorkspaceRetryableError" ||
+        error.name === "DrawingWorkspaceRpcError"))
+  )
+    return {
+      status: 503,
+      body: {
+        ok: false as const,
+        kind: "retryable" as const,
+        error: "같은 요청 ID로 다시 시도해 주세요.",
+        requestId,
+      },
+    };
+  if (
+    error instanceof DrawingWorkspaceRejectedError ||
+    (error instanceof Error && error.name === "DrawingWorkspaceRejectedError")
+  ) {
+    const status = /권한/.test(error.message) ? 403 : 409;
+    return {
+      status,
+      body: {
+        ok: false as const,
+        kind: "rejected" as const,
+        error: rejectedRecovery(error.message),
+        requestId,
+      },
+    };
+  }
+  console.error("Drawing workspace action failed", { requestId, error });
+  return {
+    status: 500,
+    body: {
+      ok: false as const,
+      kind: "unknown" as const,
+      error: `요청을 처리하지 못했습니다. 요청 ID: ${requestId}`,
+      requestId,
+    },
+  };
+}
+
+export async function assertDrawingObjectIssueScope(
+  client: DrawingWorkspaceDatabaseClient,
+  input: {
+    projectId: string;
+    documentId: string;
+    revisionId: string;
+    objectId: string;
+  },
+) {
+  const ids = z
+    .object({
+      projectId: z.string().uuid(),
+      documentId: z.string().uuid(),
+      revisionId: z.string().uuid(),
+      objectId: z.string().uuid(),
+    })
+    .parse(input);
+  const { data: object } = await client
+    .from("lukas_drawing_objects")
+    .select("id,revision_id,project_id")
+    .eq("id", ids.objectId)
+    .eq("revision_id", ids.revisionId)
+    .eq("project_id", ids.projectId)
+    .maybeSingle();
+  const { data: revision } = object
+    ? await client
+        .from("lukas_drawing_revisions")
+        .select("id,document_id,project_id")
+        .eq("id", ids.revisionId)
+        .eq("document_id", ids.documentId)
+        .eq("project_id", ids.projectId)
+        .maybeSingle()
+    : { data: null };
+  const { data: document } = revision
+    ? await client
+        .from("lukas_drawing_documents")
+        .select("id,project_id")
+        .eq("id", ids.documentId)
+        .eq("project_id", ids.projectId)
+        .maybeSingle()
+    : { data: null };
+  if (!object || !revision || !document)
+    throw new Response("연결할 도면 객체를 찾을 수 없습니다.", {
+      status: 404,
+    });
+}
+
+export async function loadDrawingWorkspaceIssueRoom(
+  client: DrawingClient,
+  projectId: string,
+  workspace: Awaited<ReturnType<typeof loadDrawingWorkspace>>,
+  loadFileRoom: typeof loadDrawingRoom = loadDrawingRoom,
+) {
+  if (workspace.primarySource)
+    return loadFileRoom(client, projectId, workspace.primarySource.id);
+  const issues = workspace.document?.revision.issues ?? [];
+  const issueIds = issues.map((issue) => issue.id);
+  if (issueIds.length === 0)
+    return {
+      issues: [],
+      anchors: [],
+      comments: [],
+      mentions: [],
+      canvasRegionAnchors: [],
+    };
+  const [commentsResult, regionsResult] = await Promise.all([
+    client
+      .from("lukas_drawing_issue_comments")
+      .select("*")
+      .eq("project_id", projectId)
+      .in("issue_id", issueIds)
+      .order("created_at"),
+    client
+      .from("lukas_drawing_canvas_region_anchors")
+      .select("*")
+      .eq("project_id", projectId)
+      .in("issue_id", issueIds)
+      .order("created_at"),
+  ]);
+  const comments = commentsResult.data ?? [];
+  const commentIds = comments.map((comment) => comment.id);
+  const mentionsResult = commentIds.length
+    ? await client
+        .from("lukas_drawing_comment_mentions")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("comment_id", commentIds)
+        .order("created_at")
+    : { data: [], error: null };
+  const error =
+    commentsResult.error ?? regionsResult.error ?? mentionsResult.error;
+  if (error) throw new Error("도면 이슈 내용을 불러오지 못했습니다.");
+  return {
+    issues,
+    anchors: [],
+    comments,
+    mentions: mentionsResult.data ?? [],
+    canvasRegionAnchors: regionsResult.data ?? [],
+  };
+}
 
 export function parseDrawingEstimateBindingRoute(
   workspaceId: string | undefined,
@@ -173,7 +466,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const searchParams = new URL(request.url).searchParams;
   let lineageSearch;
   try {
-    lineageSearch = parseDrawingQuantityLineageSearch(searchParams);
+    if (searchParams.has("evidence"))
+      parseDrawingQuantityLineageSearch(searchParams);
+    lineageSearch = parseDrawingWorkspaceLineageSearch(searchParams);
   } catch {
     throw new Response("도면 수량 근거 URL이 올바르지 않습니다.", {
       status: 400,
@@ -187,21 +482,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     );
   if (lineageSearch.boqVersionId && lineageSearch.boqLineId) {
     try {
-      if (!lineageSearch.evidenceFileId)
-        throw new Error("missing evidence file");
-      const authorizedLocation = await resolveDrawingWorkspaceEntry(client, {
+      const authorizedEntry = await resolveDrawingWorkspaceEntry(client, {
         projectId: project.id,
         revisionId: lineageSearch.revisionId!,
         objectId: lineageSearch.objectId!,
         boqVersionId: lineageSearch.boqVersionId,
         boqLineId: lineageSearch.boqLineId,
-        fileId: lineageSearch.evidenceFileId,
+        fileId: lineageSearch.evidenceFileId ?? undefined,
       });
+      const authorizedLocation = drawingWorkspaceEntryLocation(
+        project.id,
+        authorizedEntry,
+      );
       const authorized = new URL(authorizedLocation, request.url);
       const current = new URL(request.url);
       if (
         authorized.pathname !== current.pathname ||
-        ["document", "evidence", "view", "ifc"].some(
+        ["revision", "object", "boq", "line", "evidence", "view", "ifc"].some(
           (name) =>
             authorized.searchParams.get(name) !== searchParams.get(name),
         )
@@ -269,12 +566,33 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     (workspace.primarySource?.kind === "ifc"
       ? workspace.primarySource.id
       : null);
-  const sourceBundle = await loadDrawingWorkspaceSourceBundle(
-    client,
-    workspace,
-    selectedIfcFileId,
-    viewState.view !== "2d",
-  );
+  let sourceBundle;
+  try {
+    sourceBundle = {
+      ...(await loadDrawingWorkspaceSourceBundle(
+        client,
+        workspace,
+        selectedIfcFileId,
+        viewState.view !== "2d",
+      )),
+      error: null,
+    };
+  } catch (error) {
+    if (error instanceof Response && error.status < 500) throw error;
+    console.error("Drawing workspace source failed", {
+      workspaceId: workspace.document?.id ?? params.workspaceId,
+      error,
+    });
+    sourceBundle = {
+      primary: null,
+      pdf: null,
+      ifc: null,
+      previousPdf: null,
+      revisionEdge: null,
+      catalog: [],
+      error: "도면 원본을 표시하지 못했습니다. 다시 시도해 주세요.",
+    };
+  }
   const measurementState = workspace.document
     ? await loadDrawingWorkspaceMeasurementState(client, {
         documentId: workspace.document.id,
@@ -299,24 +617,28 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     });
   if (workspace.document && lineageObjectId) {
     try {
-      const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: workspace.primarySource?.id ?? "",
-        revisionId: workspace.document.revision.id,
-        objectId: lineageObjectId,
-      });
-      if (scope.requiresEntryResolution) {
-        const entry = await resolveDrawingDocumentEntry(
-          client,
-          project.id,
-          workspace.document.id,
-          lineageObjectId,
-        );
-        if (
-          !workspace.primarySource ||
-          entry.fileId !== workspace.primarySource.id
+      if (workspace.primarySource) {
+        const scope = assertDrawingQuantityWorkspaceScope(workspace, {
+          fileId: workspace.primarySource.id,
+          revisionId: workspace.document.revision.id,
+          objectId: lineageObjectId,
+        });
+        if (scope.requiresEntryResolution) {
+          const entry = await resolveDrawingDocumentEntry(
+            client,
+            project.id,
+            workspace.document.id,
+            lineageObjectId,
+          );
+          if (entry.fileId !== workspace.primarySource.id)
+            throw new Error("workspace entry mismatch");
+        }
+      } else if (
+        !workspace.document.revision.objects.some(
+          (object) => object.id === lineageObjectId,
         )
-          throw new Error("workspace entry mismatch");
-      }
+      )
+        throw new Error("workspace object mismatch");
     } catch {
       throw new Response("연결된 도면 근거를 열 수 없습니다.", {
         status: 404,
@@ -363,13 +685,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     : null;
   const collaborationClient = client as unknown as DrawingClient;
   const [collaborationRoom, assignees] = await Promise.all([
-    workspace.primarySource
-      ? loadDrawingRoom(
-          collaborationClient,
-          project.id,
-          workspace.primarySource.id,
-        )
-      : Promise.resolve(null),
+    loadDrawingWorkspaceIssueRoom(collaborationClient, project.id, workspace),
     listDrawingAssignees(collaborationClient, project.id, project.owner_id),
   ]);
   const loaderMs = finishLoaderStage();
@@ -407,6 +723,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     params.projectId!,
   );
   const form = await request.formData();
+  const requestId = actionRequestId(form);
   const searchParams = new URL(request.url).searchParams;
   const intent = form.get("intent");
   if (intent === "bind_drawing_estimate") {
@@ -437,15 +754,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         { headers },
       );
     } catch (error) {
-      const bounded = await drawingEstimateBindingErrorResponse(error);
-      return data(
-        {
-          ok: false,
-          kind: "drawing_estimate_binding" as const,
-          error: bounded.error,
-        },
-        { status: bounded.status, headers },
-      );
+      const bounded = await drawingWorkspaceActionErrorResponse(error, {
+        requestId,
+      });
+      return data(bounded.body, { status: bounded.status, headers });
     }
   }
   const workspace = await loadDrawingWorkspace(client, {
@@ -462,24 +774,29 @@ export async function action({ request, params }: Route.ActionArgs) {
     const stableLinkId = form.get("link_id");
     try {
       const mutation = parseDrawingQuantityLinkForm(form);
-      const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: workspace.primarySource?.id ?? "",
-        revisionId: mutation.drawingRevisionId,
-        objectId: mutation.drawingObjectId,
-      });
-      if (scope.requiresEntryResolution) {
-        const entry = await resolveDrawingDocumentEntry(
-          client,
-          project.id,
-          workspace.document!.id,
-          mutation.drawingObjectId,
-        );
-        if (
-          workspace.primarySource &&
-          entry.fileId !== workspace.primarySource.id
+      if (workspace.primarySource) {
+        const scope = assertDrawingQuantityWorkspaceScope(workspace, {
+          fileId: workspace.primarySource.id,
+          revisionId: mutation.drawingRevisionId,
+          objectId: mutation.drawingObjectId,
+        });
+        if (scope.requiresEntryResolution) {
+          const entry = await resolveDrawingDocumentEntry(
+            client,
+            project.id,
+            workspace.document!.id,
+            mutation.drawingObjectId,
+          );
+          if (entry.fileId !== workspace.primarySource.id)
+            throw new DrawingQuantityLineageServerError("P6O01");
+        }
+      } else if (
+        workspace.document?.revision.id !== mutation.drawingRevisionId ||
+        !workspace.document.revision.objects.some(
+          (object) => object.id === mutation.drawingObjectId,
         )
-          throw new DrawingQuantityLineageServerError("P6O01");
-      }
+      )
+        throw new DrawingQuantityLineageServerError("P6O01");
       const created = await createDrawingQuantityLink(client, user.id, {
         projectId: project.id,
         drawingRevisionId: mutation.drawingRevisionId,
@@ -558,40 +875,87 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
   }
   if (intent === "comment" || intent === "add_canvas_region_anchor") {
-    if (capability === "viewer")
-      throw new Response("댓글을 작성할 권한이 없습니다.", { status: 403 });
-    const mutation = parseDrawingMutationForm(form);
-    if (
-      mutation.intent === "add_canvas_region_anchor" &&
-      workspace.document?.revision.id !== mutation.revisionId
-    )
-      throw new Response("현재 도면 영역만 연결할 수 있습니다.", {
-        status: 409,
+    try {
+      if (capability === "viewer")
+        throw new Response("댓글을 작성할 권한이 없습니다.", {
+          status: 403,
+        });
+      const mutation = parseDrawingMutationForm(form);
+      if (
+        mutation.intent === "add_canvas_region_anchor" &&
+        workspace.document?.revision.id !== mutation.revisionId
+      )
+        throw new Response("현재 도면 영역만 연결할 수 있습니다.", {
+          status: 409,
+        });
+      const mutationResult = await mutateDrawingIssue(
+        client as unknown as DrawingClient,
+        user.id,
+        project.id,
+        mutation,
+      );
+      return data(
+        {
+          ok: true,
+          kind: "success" as const,
+          error: null,
+          result: mutationResult,
+        },
+        { headers },
+      );
+    } catch (error) {
+      const bounded = await drawingWorkspaceActionErrorResponse(error, {
+        requestId,
       });
-    const mutationResult = await mutateDrawingIssue(
-      client as unknown as DrawingClient,
-      user.id,
-      project.id,
-      mutation,
-    );
-    return data(
-      {
-        ok: true,
-        kind: "success" as const,
-        error: null,
-        result: mutationResult,
-      },
-      { headers },
-    );
+      return data(bounded.body, { status: bounded.status, headers });
+    }
   }
-  const result = await handleWorkspaceMutation({
-    client,
-    projectId: project.id,
-    capability,
-    workspace,
-    form,
-    actorId: user.id,
-  });
+  let result;
+  try {
+    if (intent === "link_issue") {
+      if (!canEdit(capability))
+        throw new Response("도면 객체에 이슈를 연결할 권한이 없습니다.", {
+          status: 403,
+        });
+      if (!workspace.document || workspace.document.revision.status !== "draft")
+        throw new DrawingWorkspaceConflictError(
+          "초안 개정에서만 이슈를 연결할 수 있습니다.",
+        );
+      await assertDrawingObjectIssueScope(client, {
+        projectId: project.id,
+        documentId: workspace.document.id,
+        revisionId: workspace.document.revision.id,
+        objectId: z.string().uuid().parse(form.get("object_id")),
+      });
+    }
+    result = await handleWorkspaceMutation({
+      client,
+      projectId: project.id,
+      capability,
+      workspace,
+      form,
+      actorId: user.id,
+    });
+  } catch (error) {
+    const bounded = await drawingWorkspaceActionErrorResponse(error, {
+      requestId,
+    });
+    return data(bounded.body, { status: bounded.status, headers });
+  }
+  if (!result.body.ok) {
+    const error =
+      result.body.kind === "conflict"
+        ? new DrawingWorkspaceConflictError(result.body.error)
+        : result.body.kind === "rejected"
+          ? new DrawingWorkspaceRejectedError(result.body.error)
+          : result.body.kind === "retryable" || result.body.kind === "rpc"
+            ? new DrawingWorkspaceRetryableError(result.body.error)
+            : new z.ZodError([]);
+    const bounded = await drawingWorkspaceActionErrorResponse(error, {
+      requestId,
+    });
+    return data(bounded.body, { status: bounded.status, headers });
+  }
   if (
     form.get("intent") === "create_from_template" &&
     result.status === 200 &&

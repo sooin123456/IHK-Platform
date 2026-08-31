@@ -2976,8 +2976,16 @@ test("idempotent document creation sends source-optional retry identity and expo
     sourceFile: null,
     clientRequestId: ids.operation,
   };
-  const first = await createDrawingDocumentIdempotent(client, ids.project, input);
-  const retry = await createDrawingDocumentIdempotent(client, ids.project, input);
+  const first = await createDrawingDocumentIdempotent(
+    client,
+    ids.project,
+    input,
+  );
+  const retry = await createDrawingDocumentIdempotent(
+    client,
+    ids.project,
+    input,
+  );
   assert.equal(first.documentId, ids.document);
   assert.equal(retry.documentId, ids.document);
   assert.deepEqual(calls[0], [
@@ -3699,4 +3707,55 @@ test("issue-link action delegates same-session saved object identity to the auth
   });
   assert.equal(response.status, 200);
   assert.equal(linkedObjectId, ids.object);
+});
+
+test("source-free workspace issue linking keeps editor authority and denies viewer object operations", async () => {
+  const workspace = loadedWorkspace();
+  workspace.primarySource = null;
+  workspace.document.source_file_id = null;
+  workspace.document.source_sha256 = null;
+  workspace.document.revision.objects = [{ id: ids.object }];
+  workspace.document.revision.issues = [{ id: ids.issue }];
+  workspace.document.revision.issueLinks = [];
+  let rpcCalls = 0;
+  const client = {
+    async rpc(name) {
+      rpcCalls += 1;
+      assert.equal(name, "lukas_drawing_link_object_issue");
+      return {
+        data: {
+          id: ids.link,
+          objectId: ids.object,
+          issueId: ids.issue,
+          createdBy: ids.actor,
+          createdAt: "2026-08-31T00:00:00.000Z",
+        },
+        error: null,
+      };
+    },
+  };
+  const linked = await handleWorkspaceMutation({
+    client,
+    projectId: ids.project,
+    capability: "editor",
+    workspace,
+    form: form({
+      intent: "link_issue",
+      object_id: ids.object,
+      issue_id: ids.issue,
+    }),
+  });
+  assert.equal(linked.status, 200);
+
+  await assert.rejects(
+    handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "viewer",
+      workspace,
+      form: form({ intent: "apply_operation", operation_json: operation() }),
+    }),
+    (error) => error instanceof Response && error.status === 403,
+  );
+  assert.equal(rpcCalls, 1);
 });
