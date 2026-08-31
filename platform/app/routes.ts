@@ -71,10 +71,12 @@ export default [
       route(
         "/projects/:projectId/workspace",
         "lukas/screens/drawing-workspace.tsx",
+        { id: "legacy-project-workspace" },
       ),
       route(
         "/projects/:projectId/workspace/operation",
         "lukas/screens/drawing-workspace-operation.ts",
+        { id: "legacy-project-workspace-operation" },
       ),
       route(
         "/projects/:projectId/files/:fileId/download",
