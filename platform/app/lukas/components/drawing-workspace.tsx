@@ -1134,7 +1134,19 @@ export default function DrawingWorkspaceClient({
   > | null>(null);
   const localDraftFlushRef = useRef<() => Promise<void>>(async () => {});
   const retryStorageRef = useRef<() => void>(() => {});
-  const { file, document: drawingDocument } = workspace;
+  const { file: sourceFile, document: drawingDocument } = workspace;
+  const file = sourceFile ?? {
+    id: drawingDocument.id,
+    kind: "pdf" as const,
+    sha256: drawingDocument.source_sha256 ?? "0".repeat(64),
+    original_filename: drawingDocument.title,
+    project_id: projectId,
+    storage_path: "",
+    content_type: null,
+    byte_size: 0,
+    immutable: true,
+    created_at: drawingDocument.created_at,
+  };
   const navigation = useNavigation();
   const { revision } = drawingDocument;
   const authority = drawingCollaborationAuthority({
@@ -1699,7 +1711,7 @@ export default function DrawingWorkspaceClient({
   const selectedIfcRenderBundle = adaptIfcRenderBundleDescriptor(selectedIfc);
   const primarySourceUrl =
     sourceBundle?.pdf?.signedUrl ??
-    (workspace.file.kind === "pdf" ? sourceUrl : null);
+    (file.kind === "pdf" ? sourceUrl : null);
   const activeView: DrawingWorkspaceViewMode = selectedIfcChoice
     ? viewMode
     : "2d";
@@ -3845,16 +3857,18 @@ export default function DrawingWorkspaceClient({
             store={awarenessStoreRef.current}
           />
           <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
-          <DrawingExportLauncher
-            auditRequired={!previewMode}
-            createdAt={drawingDocument.created_at}
-            documentState={drawingState}
-            fileId={file.id}
-            projectId={projectId}
-            revisionId={revision.id}
-            sourceUrl={primarySourceUrl}
-            title={drawingDocument.title}
-          />
+          {sourceFile ? (
+            <DrawingExportLauncher
+              auditRequired={!previewMode}
+              createdAt={drawingDocument.created_at}
+              documentState={drawingState}
+              fileId={sourceFile.id}
+              projectId={projectId}
+              revisionId={revision.id}
+              sourceUrl={primarySourceUrl}
+              title={drawingDocument.title}
+            />
+          ) : null}
           {editing.canEdit ? (
             <>
               <Button
@@ -4592,7 +4606,11 @@ export default function DrawingWorkspaceClient({
               )}
               <Link
                 className="inline-flex min-h-10 items-center rounded-md border border-white/20 px-3 font-semibold hover:bg-white/10"
-                to={`/projects/${projectId}/drawings/${file.id}`}
+                to={
+                  sourceFile
+                    ? `/projects/${projectId}/drawings/${sourceFile.id}`
+                    : `/projects/${projectId}`
+                }
               >
                 협업 이슈 열기
               </Link>

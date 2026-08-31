@@ -69,6 +69,14 @@ export default [
       route("/staff/inquiries", "lukas/screens/staff-inquiries.tsx"),
       route("/projects/:projectId", "lukas/screens/project.tsx"),
       route(
+        "/projects/:projectId/workspace",
+        "lukas/screens/drawing-workspace.tsx",
+      ),
+      route(
+        "/projects/:projectId/workspace/operation",
+        "lukas/screens/drawing-workspace-operation.ts",
+      ),
+      route(
         "/projects/:projectId/files/:fileId/download",
         "lukas/screens/project-file-download.ts",
       ),

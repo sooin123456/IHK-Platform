@@ -1634,6 +1634,125 @@ test("blank canvas creation retains route source identity while omitting its PDF
   assert.equal(calls[1][1].p_blank, false);
 });
 
+test("blank workspace creation can omit a drawing source file", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push([name, args]);
+      return { data: { documentId: ids.document }, error: null };
+    },
+  };
+  await createDrawingDocument(client, ids.project, null, {
+    title: "빈 작업실",
+    mode: "blank",
+  });
+  assert.equal(calls[0][1].p_source_file_id, null);
+  assert.equal(calls[0][1].p_blank, true);
+});
+
+test("workspace loading opens a source-less document without a drawing file", async () => {
+  const canvasId = "00000000-0000-4000-8000-000000000013";
+  const client = queryClient({
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: null,
+        source_sha256: null,
+        title: "빈 작업실",
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+        sequence: 1,
+      },
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: canvasId,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "1 Paper",
+          space_kind: "paper",
+          width_mm: 420,
+          height_mm: 297,
+          background_source_file_id: null,
+          background_source_sha256: null,
+          background_pdf_page: null,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "1",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          canvas_id: canvasId,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "작업",
+          sort_order: 1,
+          visible: true,
+          locked: false,
+          system_kind: "work",
+          version: 1,
+        },
+        {
+          id: ids.sourceLayer,
+          page_id: ids.page,
+          canvas_id: canvasId,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "원본",
+          sort_order: 0,
+          visible: true,
+          locked: true,
+          system_kind: "source",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_object_sources: { data: [], error: null },
+    lukas_drawing_library_imports: { data: [], error: null },
+  });
+  const loaded = await loadDrawingWorkspace(
+    client,
+    ids.project,
+    null,
+    ids.document,
+  );
+  assert.equal(loaded.file, null);
+  assert.equal(loaded.document.id, ids.document);
+});
+
 test("stable domain SQLSTATEs map to terminal conflict or rejection while database retries stay transient", async () => {
   const workspace = loadedWorkspace();
   const applyForm = form({

@@ -58,7 +58,9 @@ import {
   buildSuggestionFeedbackExport,
 } from "~/lukas/lib/suggestion-feedback.server";
 import {
+  canRegisterOfficialArtifacts,
   fileMatchesProjectKind,
+  projectActorRole,
   projectFileKindPolicy,
   projectFileKinds,
   projectUploadDestination,
@@ -461,6 +463,25 @@ export async function action({ request, params }: Route.ActionArgs) {
       { error: "프로젝트 접근 권한이 없습니다." },
       { status: 404, headers },
     );
+  if (intent === "preflight_upload" || intent === "takeoff_upload") {
+    const { data: membership } = await client
+      .from("lukas_qto_project_members")
+      .select("role")
+      .eq("project_id", project.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const role = projectActorRole({
+      membershipRole: membership?.role,
+      ownerId: project.owner_id,
+      staff: user.app_metadata.role === "hangil_staff",
+      userId: user.id,
+    });
+    if (!canRegisterOfficialArtifacts(role))
+      return data(
+        { error: "적산 담당자만 공식 검산·산출 결과를 등록할 수 있습니다." },
+        { status: 403, headers },
+      );
+  }
   const returnPath = new URL(request.url).pathname;
 
   if (intent === "suggestion_feedback_export") {

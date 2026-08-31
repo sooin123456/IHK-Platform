@@ -57,12 +57,17 @@ foreach ($location in $locations) {
 
 $selected = $null
 Add-Check 'single_active_installation' {
-    $active = $candidates.ToArray()
-    Assert-Field ($active.Count -gt 0) ("No add-in manifest was found. Checked: " + (($locations | ForEach-Object { $_.root }) -join '; '))
-    Assert-Field ($active.Count -eq 1) ("Duplicate valid add-ins were found in User/Machine locations. Keep exactly one: " + (($active | ForEach-Object { $_.manifest }) -join '; '))
-    Assert-Field ($active[0].valid) ("The active add-in manifest is invalid: " + $active[0].manifest + $(if ($active[0].error) { "; " + $active[0].error } else { '' }))
-    $script:selected = $active[0]
+    $valid = @($candidates | Where-Object { $_.valid })
+    Assert-Field ($candidates.Count -gt 0) ("No add-in manifest was found. Checked: " + (($locations | ForEach-Object { $_.root }) -join '; '))
+    Assert-Field ($valid.Count -gt 0) ("No valid add-in manifest was found. Checked: " + (($candidates | ForEach-Object { $_.manifest }) -join '; '))
+    Assert-Field ($valid.Count -eq 1) ("Duplicate valid add-ins were found in User/Machine locations. Keep exactly one: " + (($valid | ForEach-Object { $_.manifest }) -join '; '))
+    $script:selected = $valid[0]
     "$($selected.scope): $($selected.manifest)"
+}
+Add-Check 'leftover_invalid_manifests' {
+    $invalid = @($candidates | Where-Object { -not $_.valid })
+    Assert-Field ($invalid.Count -eq 0) ("Leftover invalid add-in manifests must be removed: " + (($invalid | ForEach-Object { $_.manifest }) -join '; '))
+    'No leftover invalid Lukas manifest'
 }
 Add-Check 'addin_manifest_and_assembly' {
     Assert-Field ($null -ne $selected) 'No selected installation is available.'

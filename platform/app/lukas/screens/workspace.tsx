@@ -250,7 +250,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  return redirect(`/projects/${project.id}/files`, { headers });
+  return redirect(`/projects/${project.id}/workspace`, { headers });
 }
 
 export default function Workspace({

@@ -34,7 +34,7 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import { cn } from "~/core/lib/utils";
 import {
-  drawingUploadPath,
+  drawingProjectWorkspacePath,
   drawingWorkspacePath,
 } from "~/lukas/lib/drawing-entry";
 
@@ -117,7 +117,7 @@ function formatDate(value: string) {
 function projectHref(projectId: string, metric: ProjectMetric | undefined) {
   if (metric?.latestDrawingId)
     return drawingWorkspacePath(projectId, metric.latestDrawingId);
-  return drawingUploadPath(projectId);
+  return drawingProjectWorkspacePath(projectId);
 }
 
 function NewProjectDialog({ actionError }: { actionError?: string }) {

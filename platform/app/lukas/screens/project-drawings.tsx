@@ -9,6 +9,7 @@ import {
   listDrawingFiles,
 } from "~/lukas/lib/drawing-collaboration.server";
 import {
+  drawingProjectWorkspacePath,
   drawingUploadPath,
   drawingWorkspacePath,
 } from "~/lukas/lib/drawing-entry";
@@ -79,8 +80,14 @@ export default function ProjectDrawings({ loaderData }: Route.ComponentProps) {
           <FilesEmpty />
           <h2 className="mt-4 text-lg font-bold">아직 등록된 도면이 없습니다.</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Revit에서 내보낸 IFC 또는 PDF 도면을 먼저 추가하세요.
+            빈 작업실에서 시작하거나, Revit에서 내보낸 IFC 또는 PDF 도면을 추가하세요.
           </p>
+          <Link
+            className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+            to={drawingProjectWorkspacePath(loaderData.project.id)}
+          >
+            빈 작업실 시작
+          </Link>
         </section>
       ) : (
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

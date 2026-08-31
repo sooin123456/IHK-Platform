@@ -100,6 +100,16 @@ try {
 
     Reset-Fixture
     $user = Install-UserFixture
+    $brokenMachine = Join-Path $script:machineRoot 'Autodesk\Revit\Addins\2025\Lukas.Qto.addin'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $brokenMachine)) | Out-Null
+    Write-Manifest $brokenMachine (Join-Path $script:machineRoot 'missing-Lukas.Qto.dll')
+    $leftover = Invoke-DiagnosticCase 'invalid-machine-leftover' 1
+    Assert-Field (@($leftover.checks | Where-Object { $_.name -eq 'single_active_installation' -and $_.pass }).Count -eq 1) 'A leftover invalid Machine manifest was counted as a duplicate valid add-in.'
+    Assert-Field (@($leftover.checks | Where-Object { $_.name -eq 'leftover_invalid_manifests' -and -not $_.pass }).Count -eq 1) 'A leftover invalid Machine manifest was not reported separately.'
+    Assert-Field ($leftover.detected_scope -ceq 'User') 'The valid User install was not selected when an invalid Machine leftover existed.'
+
+    Reset-Fixture
+    $user = Install-UserFixture
     Write-Manifest (Join-Path $user.root 'THEKIE.Qto.addin') $user.assembly 'THEKIE QTO' 'THEKIE.Qto.App'
     $legacy = Invoke-DiagnosticCase 'active-legacy-manifest' 1
     Assert-Field (@($legacy.checks | Where-Object { $_.name -eq 'legacy_and_duplicate_manifests' -and -not $_.pass }).Count -eq 1) 'Legacy fixture was not reported.'

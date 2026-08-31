@@ -190,6 +190,7 @@ function uploadActionFixture(
   {
     finalizationError = null,
     finalizedUpload = null,
+    membershipRole = null,
     verifiedUpload = null,
   } = {},
 ) {
@@ -236,6 +237,10 @@ function uploadActionFixture(
     from(table) {
       if (table === "lukas_qto_projects")
         return query({ data: { id: projectId, owner_id: ownerId } });
+      if (table === "lukas_qto_project_members")
+        return query({
+          data: membershipRole ? { role: membershipRole } : null,
+        });
       throw new Error(`Unexpected table: ${table}`);
     },
     storage: {
@@ -502,6 +507,41 @@ test("drawing uploads enter the exact file workspace while other uploads return"
   );
 });
 
+test("a project workspace path does not require a drawing file id", () => {
+  assert.equal(
+    drawingEntry.drawingProjectWorkspacePath("project-a"),
+    "/projects/project-a/workspace",
+  );
+});
+
+test("only owner, staff, and estimator roles may register official artifacts", () => {
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("owner"), true);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("staff"), true);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("estimator"), true);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("reviewer"), false);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("site"), false);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts("procurement"), false);
+  assert.equal(drawingEntry.canRegisterOfficialArtifacts(null), false);
+  assert.equal(
+    drawingEntry.projectActorRole({
+      membershipRole: "reviewer",
+      ownerId: "owner-a",
+      staff: false,
+      userId: "user-b",
+    }),
+    "reviewer",
+  );
+  assert.equal(
+    drawingEntry.projectActorRole({
+      membershipRole: "reviewer",
+      ownerId: "owner-a",
+      staff: true,
+      userId: "user-b",
+    }),
+    "staff",
+  );
+});
+
 test("a PDF larger than the Vercel body limit goes only to the Storage adapter", async () => {
   const bytes = new Uint8Array(5 * 1024 * 1024);
   bytes.set(new TextEncoder().encode("%PDF-1.7\n"));
@@ -709,6 +749,39 @@ test("replaying a consumed verification returns the same immutable file without 
   assert.deepEqual(observations.storageRemovals, []);
 });
 
+test("reviewer and site roles cannot register official preflight or takeoff artifacts", async () => {
+  for (const [intent, role] of [
+    ["preflight_upload", "reviewer"],
+    ["takeoff_upload", "site"],
+  ]) {
+    const { adminClient, client, observations, projectId } =
+      uploadActionFixture(Buffer.from("not-used"), {
+        membershipRole: role,
+      });
+    globalThis[actionClientFactoryKey] = () => [client, new Headers()];
+    globalThis[adminClientFactoryKey] = () => adminClient;
+    const formData = new FormData();
+    formData.set("intent", intent);
+    formData.set("preflight_report", new File(["a"], "report.csv"));
+    formData.set("preflight_manifest", new File(["b"], "manifest.csv"));
+    formData.set("takeoff_report", new File(["a"], "report.csv"));
+    formData.set("takeoff_manifest", new File(["b"], "manifest.csv"));
+
+    const response = await projectAction.action({
+      request: new Request(`http://app.test/projects/${projectId}`, {
+        method: "POST",
+        body: formData,
+      }),
+      params: { projectId },
+    });
+
+    assert.equal(response.init.status, 403, intent);
+    assert.match(response.data.error, /적산 담당자만/);
+    assert.equal(observations.storageDownloads.length, 0);
+    assert.equal(observations.finalizationCalls.length, 0);
+  }
+});
+
 test("atomic finalization failure preserves the verified object for a safe retry", async () => {
   const source = Buffer.from("%PDF-1.7\nverified source\n");
   const verificationId = "00000000-0000-4000-8000-000000000031";
@@ -763,6 +836,7 @@ test("private route tree retains both the legacy room and the workspace", () => 
   assert.ok(
     registered?.includes("/projects/:projectId/drawings/:fileId/workspace"),
   );
+  assert.ok(registered?.includes("/projects/:projectId/workspace"));
 });
 
 test("drawing cards open the workspace and no-drawing upload defaults to PDF", () => {
@@ -792,10 +866,8 @@ test("drawing cards open the workspace and no-drawing upload defaults to PDF", (
     /href="\/projects\/project-a\/drawings\/file-a\/workspace"/,
   );
   assert.match(cardHtml, /도면 작업실 열기 →/);
-  assert.match(
-    emptyHtml,
-    /href="\/projects\/project-a\/files\?kind=pdf#upload"/,
-  );
+  assert.match(emptyHtml, /href="\/projects\/project-a\/workspace"/);
+  assert.match(emptyHtml, /빈 작업실/);
 });
 
 test("workspace dashboard opens latest drawings in workspace and preserves preview routing", () => {
@@ -817,10 +889,7 @@ test("workspace dashboard opens latest drawings in workspace and preserves previ
     dashboardHtml,
     /href="\/projects\/project-a\/drawings\/file-a\/workspace"/,
   );
-  assert.match(
-    emptyHtml,
-    /href="\/projects\/project-a\/files\?kind=pdf#upload"/,
-  );
+  assert.match(emptyHtml, /href="\/projects\/project-a\/workspace"/);
   assert.match(
     previewHtml,
     /href="\/workspace-preview\/projects\/project-a\/drawings\/file-a"/,

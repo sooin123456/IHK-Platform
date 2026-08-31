@@ -77,8 +77,42 @@ export function drawingWorkspacePath(projectId: string, fileId: string) {
   return `/projects/${projectId}/drawings/${fileId}/workspace`;
 }
 
+export function drawingProjectWorkspacePath(projectId: string) {
+  return `/projects/${projectId}/workspace`;
+}
+
 export function drawingUploadPath(projectId: string) {
   return `/projects/${projectId}/files?kind=pdf#upload`;
+}
+
+export const officialArtifactAuthorRoles = [
+  "owner",
+  "staff",
+  "estimator",
+] as const;
+
+export function projectActorRole({
+  membershipRole,
+  ownerId,
+  staff,
+  userId,
+}: {
+  membershipRole: string | null | undefined;
+  ownerId: string;
+  staff: boolean;
+  userId: string;
+}) {
+  if (staff) return "staff";
+  if (ownerId === userId) return "owner";
+  return membershipRole ?? null;
+}
+
+export function canRegisterOfficialArtifacts(
+  role: string | null | undefined,
+) {
+  return (
+    role === "owner" || role === "staff" || role === "estimator"
+  );
 }
 
 export function projectUploadDestination({

@@ -146,7 +146,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
-    params.fileId!,
+    params.fileId ?? null,
     new URL(request.url).searchParams.get("document") ?? undefined,
     lineageSearch.revisionId ?? undefined,
     lineageSearch.objectId ?? undefined,
@@ -154,7 +154,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
   const selectedIfcFileId =
     viewState.ifcFileId ??
-    (workspace.file.kind === "ifc" ? workspace.file.id : null);
+    (workspace.file?.kind === "ifc" ? workspace.file.id : null);
   const sourceBundle = await loadDrawingWorkspaceSourceBundle(
     client,
     workspace,
@@ -186,7 +186,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (workspace.document && lineageObjectId) {
     try {
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId!,
+        fileId: params.fileId ?? workspace.file?.id ?? "",
         revisionId: workspace.document.revision.id,
         objectId: lineageObjectId,
       });
@@ -197,7 +197,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           workspace.document.id,
           lineageObjectId,
         );
-        if (entry.fileId !== workspace.file.id)
+        if (!workspace.file || entry.fileId !== workspace.file.id)
           throw new Error("workspace entry mismatch");
       }
     } catch {
@@ -246,7 +246,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     : null;
   const collaborationClient = client as unknown as DrawingClient;
   const [collaborationRoom, assignees] = await Promise.all([
-    loadDrawingRoom(collaborationClient, project.id, workspace.file.id),
+    workspace.file
+      ? loadDrawingRoom(collaborationClient, project.id, workspace.file.id)
+      : Promise.resolve(null),
     listDrawingAssignees(collaborationClient, project.id, project.owner_id),
   ]);
   const loaderMs = finishLoaderStage();
@@ -286,7 +288,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const workspace = await loadDrawingWorkspace(
     client,
     project.id,
-    params.fileId!,
+    params.fileId ?? null,
     searchParams.get("document") ?? undefined,
     searchParams.get("revision") ?? undefined,
   );
@@ -301,7 +303,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const mutation = parseDrawingQuantityLinkForm(form);
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId!,
+        fileId: params.fileId ?? workspace.file?.id ?? "",
         revisionId: mutation.drawingRevisionId,
         objectId: mutation.drawingObjectId,
       });
@@ -312,7 +314,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           workspace.document!.id,
           mutation.drawingObjectId,
         );
-        if (entry.fileId !== workspace.file.id)
+        if (workspace.file && entry.fileId !== workspace.file.id)
           throw new DrawingQuantityLineageServerError("P6O01");
       }
       const created = await createDrawingQuantityLink(client, user.id, {
@@ -432,6 +434,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     result.status === 200 &&
     result.body.ok
   ) {
+    if (!workspace.file)
+      throw new Response("도면 template 원본은 사용할 수 없습니다.", {
+        status: 400,
+      });
     return redirect(
       drawingTemplateCloneLocation(
         project.id,
@@ -450,7 +456,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     return redirect(
       drawingTemplateWorkspaceLocation(
         project.id,
-        workspace.file.id,
+        workspace.file?.id ?? restored.documentId,
         restored.documentId,
       ),
       { headers },
@@ -483,7 +489,11 @@ export default function DrawingWorkspaceScreen({
         measurementEvidenceError={loaderData.measurementEvidenceError}
         projectId={project.id}
         quantityLineage={quantityLineage}
-        roomUrl={`/projects/${project.id}/drawings/${workspace.file.id}`}
+        roomUrl={
+          workspace.file
+            ? `/projects/${project.id}/drawings/${workspace.file.id}`
+            : `/projects/${project.id}`
+        }
         sourceBundle={loaderData.sourceBundle}
         selectedIfcFileId={loaderData.selectedIfcFileId}
         viewMode={loaderData.viewState.view}
@@ -495,9 +505,14 @@ export default function DrawingWorkspaceScreen({
     <main className="mx-auto w-full max-w-7xl px-5 pb-28 pt-8 sm:px-8 sm:pb-12">
       <Link
         className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground underline underline-offset-4"
-        to={`/projects/${project.id}/drawings/${workspace.file.id}`}
+        to={
+          workspace.file
+            ? `/projects/${project.id}/drawings/${workspace.file.id}`
+            : `/projects/${project.id}`
+        }
       >
-        <ArrowLeft className="size-4" /> 협업 도면실
+        <ArrowLeft className="size-4" />{" "}
+        {workspace.file ? "협업 도면실" : "프로젝트 개요"}
       </Link>
 
       <header className="mt-4 border-b pb-6">
@@ -505,11 +520,17 @@ export default function DrawingWorkspaceScreen({
           {project.name} · 도면 편집 작업실
         </p>
         <h1 className="mt-2 truncate text-3xl font-bold tracking-tight">
-          {workspace.file.original_filename}
+          {workspace.file?.original_filename ?? "빈 작업실"}
         </h1>
-        <p className="mt-2 font-mono text-xs text-muted-foreground">
-          원본 SHA-256: {workspace.file.sha256}
-        </p>
+        {workspace.file ? (
+          <p className="mt-2 font-mono text-xs text-muted-foreground">
+            원본 SHA-256: {workspace.file.sha256}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">
+            원본 파일 없이 빈 도면에서 시작합니다.
+          </p>
+        )}
       </header>
       <ProjectWorkspaceNav current="drawings" projectId={project.id} />
 
@@ -536,10 +557,10 @@ export default function DrawingWorkspaceScreen({
               </label>
               <input
                 className="min-h-11 w-full rounded-lg border bg-background px-3"
-                defaultValue={workspace.file.original_filename.replace(
-                  /\.[^.]+$/,
-                  "",
-                )}
+                defaultValue={
+                  workspace.file?.original_filename.replace(/\.[^.]+$/, "") ??
+                  project.name
+                }
                 id="drawing-title"
                 maxLength={240}
                 name="title"
@@ -554,7 +575,7 @@ export default function DrawingWorkspaceScreen({
                 >
                   빈 도면
                 </button>
-                {workspace.file.kind === "pdf" ? (
+                {workspace.file?.kind === "pdf" ? (
                   <button
                     className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground"
                     name="document_mode"
@@ -564,11 +585,13 @@ export default function DrawingWorkspaceScreen({
                     PDF 배경 사용
                   </button>
                 ) : null}
-                <DrawingTemplateDialog
-                  actionError={actionData?.error ?? undefined}
-                  candidates={workspace.templateCandidates}
-                  sourceFile={workspace.file}
-                />
+                {workspace.file ? (
+                  <DrawingTemplateDialog
+                    actionError={actionData?.error ?? undefined}
+                    candidates={workspace.templateCandidates}
+                    sourceFile={workspace.file}
+                  />
+                ) : null}
               </div>
             </Form>
           </>
