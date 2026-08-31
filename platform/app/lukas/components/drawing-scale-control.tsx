@@ -64,8 +64,8 @@ export function DrawingScaleControl({
       setCapturing(false);
       setPoints([]);
     };
-    window.addEventListener("keydown", cancel);
-    return () => window.removeEventListener("keydown", cancel);
+    window.addEventListener("keydown", cancel, true);
+    return () => window.removeEventListener("keydown", cancel, true);
   }, [capturing]);
 
   if (!pdf)

@@ -146,6 +146,73 @@ test("PDF calibration capture normalizes viewport points in order and rejects no
   );
 });
 
+test("PDF calibration capture owns left input and cancellation across every active tool", () => {
+  assert.equal(typeof tools.drawingCalibrationCaptureTransition, "function");
+  const captured = [];
+  const capture = {
+    active: true,
+    background: {
+      kind: "pdf",
+      width: 100,
+      height: 200,
+      pageNumber: 1,
+      signedUrl: "https://example.test/source.pdf",
+    },
+    viewport: { x: 10, y: 20, zoom: 2 },
+    onPoint: (point) => captured.push(point),
+  };
+  for (const activeTool of ["select", "pan", "polyline", "space", "area"]) {
+    const left = tools.drawingCalibrationCaptureTransition(capture, {
+      type: "pointer_down",
+      activeTool,
+      button: 0,
+      spacePressed: false,
+      screenPoint: { x: 110, y: 220 },
+    });
+    assert.deepEqual(left, {
+      handled: true,
+      action: "capture",
+      point: { x: 0.5, y: 0.5 },
+      command: null,
+    });
+    for (const event of [
+      { type: "pointer_move" },
+      { type: "pointer_up" },
+      { type: "pointer_cancel" },
+      { type: "double_click" },
+    ])
+      assert.deepEqual(
+        tools.drawingCalibrationCaptureTransition(capture, {
+          ...event,
+          activeTool,
+        }),
+        { handled: true, action: "block", point: null, command: null },
+      );
+    assert.deepEqual(
+      tools.drawingCalibrationCaptureTransition(capture, {
+        type: "key_down",
+        activeTool,
+        key: "Escape",
+      }),
+      { handled: true, action: "cancel", point: null, command: null },
+    );
+  }
+  assert.deepEqual(captured, Array(5).fill({ x: 0.5, y: 0.5 }));
+  for (const input of [
+    { button: 1, spacePressed: false },
+    { button: 0, spacePressed: true },
+  ])
+    assert.deepEqual(
+      tools.drawingCalibrationCaptureTransition(capture, {
+        type: "pointer_down",
+        activeTool: "pan",
+        screenPoint: { x: 110, y: 220 },
+        ...input,
+      }),
+      { handled: false, action: "pan", point: null, command: null },
+    );
+});
+
 test("wall and grid use two points, semantic defaults, and the existing Shift constraint", () => {
   for (const tool of ["wall", "grid"]) {
     const session = tools.beginDrawingToolSession(tool, { x: 0, y: 0 }, snap);

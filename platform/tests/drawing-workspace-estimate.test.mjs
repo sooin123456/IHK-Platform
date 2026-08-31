@@ -363,3 +363,151 @@ test("PDF quantities require calibration and deterministically use normalized pa
     JSON.stringify(first),
   );
 });
+
+test("anisotropic PDF calibration reviews shapes that no longer have an exact primitive representation", () => {
+  requireEstimate();
+  const metadata = drawingEstimateMetadataForSubject(
+    objectSubject,
+    schemas,
+    values,
+  );
+  const calibrated = {
+    ...canvas({
+      sourceFileId: "20000000-0000-4000-8000-000000000009",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 1, y: 0 },
+        realLengthMillimeters: 1000,
+        millimetersPerNormalizedUnit: 1000,
+      },
+    }),
+    widthMillimeters: 200,
+    heightMillimeters: 100,
+  };
+  const cases = [
+    {
+      object: {
+        ...rectangle,
+        geometry: { ...rectangle.geometry, rotation: 37 },
+      },
+      units: ["m", "m2"],
+    },
+    {
+      object: {
+        ...line,
+        geometry: {
+          type: "circle",
+          center: { x: 50, y: 50 },
+          radius: 10,
+        },
+      },
+      units: ["m", "m2"],
+    },
+    {
+      object: {
+        ...line,
+        geometry: {
+          type: "arc",
+          semanticVersion: 1,
+          center: { x: 50, y: 50 },
+          radius: 10,
+          startAngleDegrees: 0,
+          sweepAngleDegrees: 90,
+        },
+      },
+      units: ["m"],
+    },
+  ];
+  for (const candidate of cases)
+    for (const unit of candidate.units) {
+      const result = drawingEstimateQuantityForSubject(
+        {
+          subject: objectSubject,
+          object: candidate.object,
+          canvas: calibrated,
+          metadata,
+        },
+        unit,
+      );
+      assert.equal(result.status, "review");
+      assert.match(result.reason, /검토 필요/);
+    }
+});
+
+test("PDF opening and host use the same calibrated coordinate map without throwing", () => {
+  requireEstimate();
+  const metadata = drawingEstimateMetadataForSubject(
+    objectSubject,
+    schemas,
+    values,
+  );
+  const hostId = "20000000-0000-4000-8000-000000000020";
+  const host = {
+    ...line,
+    id: hostId,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 20 },
+      end: { x: 100, y: 20 },
+      thicknessMillimeters: 10,
+      heightMillimeters: 30,
+    },
+  };
+  const opening = {
+    ...line,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: hostId,
+      offsetMillimeters: 20,
+      widthMillimeters: 10,
+      heightMillimeters: 10,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
+  };
+  const calibrated = {
+    ...canvas({
+      sourceFileId: "20000000-0000-4000-8000-000000000009",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 1, y: 0 },
+        realLengthMillimeters: 1000,
+        millimetersPerNormalizedUnit: 1000,
+      },
+    }),
+    widthMillimeters: 200,
+    heightMillimeters: 100,
+  };
+  assert.deepEqual(
+    drawingEstimateQuantityForSubject(
+      {
+        subject: objectSubject,
+        object: opening,
+        objects: { [hostId]: host, [opening.id]: opening },
+        canvas: calibrated,
+        metadata,
+      },
+      "m",
+    ),
+    { status: "ready", unit: "m", quantity: "0.05" },
+  );
+  assert.deepEqual(
+    drawingEstimateQuantityForSubject(
+      {
+        subject: objectSubject,
+        object: opening,
+        objects: { [hostId]: host, [opening.id]: opening },
+        canvas: calibrated,
+        metadata,
+      },
+      "m2",
+    ),
+    { status: "ready", unit: "m2", quantity: "0.005" },
+  );
+});

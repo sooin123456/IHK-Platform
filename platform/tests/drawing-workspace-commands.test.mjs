@@ -315,6 +315,16 @@ test("PDF calibration converts exact input units and emits one versioned canvas 
       }),
     /길이|decimal|숫자/i,
   );
+  assert.throws(
+    () =>
+      calibrateDrawingCanvasCommand(state, "actor-a", ids.canvas, {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 1, y: 0 },
+        knownLength: "1",
+        unit: "ft",
+      }),
+    /단위|unit/i,
+  );
 });
 
 test("object and block assumptions persist or clear evidence reason in one structure command", () => {
@@ -435,6 +445,34 @@ test("object and block assumptions persist or clear evidence reason in one struc
       ),
     );
   }
+
+  const values = propertyComponents.prepareDrawingEvidencePropertyValues(
+    schemas,
+    { [evidenceId]: "현장 실측" },
+    { [evidenceId]: null, [reasonId]: null },
+  );
+  const command = setDrawingPropertySelectionValuesCommand(
+    state,
+    "actor-a",
+    [ids.rectangle, instanceId],
+    values,
+    environment().createId,
+  );
+  assert.equal(command.type, "mutate_structure");
+  assert.equal(command.actions.length, 4);
+  assert.deepEqual(
+    command.actions
+      .filter((action) => action.entity.schemaId === reasonId)
+      .map((action) => ({
+        objectId: action.entity.objectId,
+        blockInstanceId: action.entity.blockInstanceId,
+        value: action.entity.value,
+      })),
+    [
+      { objectId: ids.rectangle, blockInstanceId: null, value: null },
+      { objectId: null, blockInstanceId: instanceId, value: null },
+    ],
+  );
 });
 
 test("property-value undo resolves locked object and block owners from its recorded inverse", () => {

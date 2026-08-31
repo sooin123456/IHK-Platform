@@ -228,6 +228,22 @@ test("assumption evidence validates and stale reasons clear in the same property
     ),
     { [schemas[0].id]: "현장 실측", [schemas[1].id]: null },
   );
+  assert.deepEqual(
+    propertyModule.prepareDrawingEvidencePropertyValues(
+      schemas,
+      { [schemas[0].id]: null },
+      { [schemas[0].id]: "가정값", [schemas[1].id]: "stale" },
+    ),
+    { [schemas[0].id]: null, [schemas[1].id]: null },
+  );
+  assert.deepEqual(
+    propertyModule.prepareDrawingEvidencePropertyValues(
+      schemas,
+      { [schemas[0].id]: "현장 실측" },
+      { [schemas[0].id]: null, [schemas[1].id]: null },
+    ),
+    { [schemas[0].id]: "현장 실측", [schemas[1].id]: null },
+  );
 });
 
 test("review rejection version fences the prior browser freeze request", () => {

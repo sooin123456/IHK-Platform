@@ -56,14 +56,18 @@ export function prepareDrawingEvidencePropertyValues(
   const reason = schema("근거 사유");
   const values = { ...changed };
   if (!evidence || !reason) return values;
-  const nextEvidence = values[evidence.id] ?? current[evidence.id] ?? null;
-  const nextReason = values[reason.id] ?? current[reason.id] ?? null;
+  const evidenceChanged = evidence.id in changed;
+  const nextEvidence = evidenceChanged
+    ? changed[evidence.id]
+    : (current[evidence.id] ?? null);
+  const nextReason =
+    reason.id in changed ? changed[reason.id] : (current[reason.id] ?? null);
   if (nextEvidence === "가정값") {
     const trimmed = typeof nextReason === "string" ? nextReason.trim() : "";
     if (trimmed.length < 1 || trimmed.length > 500)
       throw new Error("가정값의 근거 사유는 1~500자로 입력해야 합니다.");
     if (reason.id in values) values[reason.id] = trimmed;
-  } else if (evidence.id in values && nextReason !== null) {
+  } else if (evidenceChanged) {
     values[reason.id] = null;
   }
   return values;

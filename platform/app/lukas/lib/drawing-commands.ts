@@ -320,6 +320,8 @@ export function calibrateDrawingCanvasCommand(
     unit: "mm" | "cm" | "m";
   },
 ): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  if (input.unit !== "mm" && input.unit !== "cm" && input.unit !== "m")
+    throw new DrawingCommandError("지원하지 않는 보정 단위입니다.");
   const canonical = requireStructureState(state);
   const canvas = canonical.structure.canvases[canvasId];
   if (!canvas?.background || canvas.background.pdfPageNumber === null)
