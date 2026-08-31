@@ -1396,6 +1396,110 @@ test("bound draft summary loads the scoped ordered bounded BOQ graph before deri
   );
 });
 
+function guardedBoundVersionRows(versionOverrides) {
+  return new Proxy(
+    {
+      lukas_drawing_estimate_bindings: [
+        {
+          id: estimateIds.binding,
+          project_id: estimateIds.project,
+          drawing_revision_id: estimateIds.revision,
+          boq_version_id: estimateIds.version,
+          created_at: "2026-08-31T00:00:00.000Z",
+        },
+      ],
+      lukas_qto_boq_versions: [
+        {
+          id: estimateIds.version,
+          project_id: estimateIds.project,
+          version_no: 3,
+          title: "검토 내역",
+          status: "draft",
+          engine_version: "VERIFIED-BOQ-1.1",
+          price_book_id: estimateIds.priceBook,
+          calculation_policy: "general_half_away",
+          quantity_scale: 6,
+          result_sha256: null,
+          manifest_sha256: null,
+          price_book: { name: "검토 단가" },
+          ...versionOverrides,
+        },
+      ],
+    },
+    {
+      get(target, table, receiver) {
+        if (Reflect.has(target, table))
+          return Reflect.get(target, table, receiver);
+        throw new Error(
+          `unexpected estimate authority table: ${String(table)}`,
+        );
+      },
+    },
+  );
+}
+
+const unreachableApprovedEstimateAuthority = {
+  async loadApprovedExport() {
+    throw new Error("unexpected approved estimate authority");
+  },
+};
+
+async function loadGuardedBoundVersion(versionOverrides) {
+  return loadDrawingEstimateSummary(
+    estimateClient(guardedBoundVersionRows(versionOverrides)),
+    {
+      actorId: estimateIds.actor,
+      projectId: estimateIds.project,
+      workspace: estimateWorkspace(),
+    },
+    unreachableApprovedEstimateAuthority,
+  );
+}
+
+test("bound draft with a non-1.1 engine stops at bounded review before draft or approved authority", async () => {
+  const summary = await loadGuardedBoundVersion({
+    engine_version: "VERIFIED-BOQ-1.0",
+  });
+
+  assert.deepEqual(summary, {
+    status: "needs_review",
+    binding: draftBinding(),
+    boq: {
+      id: estimateIds.version,
+      title: "검토 내역",
+      versionNo: 3,
+      priceBookName: "검토 단가",
+      status: "draft",
+      engineVersion: "VERIFIED-BOQ-1.0",
+    },
+    rows: [],
+    directCostKrw: "0",
+    missingRateCount: 0,
+    reviewCount: 1,
+  });
+});
+
+test("bound 1.1 version with an unsupported status stops at bounded review before draft or approved authority", async () => {
+  const summary = await loadGuardedBoundVersion({ status: "in_review" });
+
+  assert.deepEqual(summary, {
+    status: "needs_review",
+    binding: draftBinding(),
+    boq: {
+      id: estimateIds.version,
+      title: "검토 내역",
+      versionNo: 3,
+      priceBookName: "검토 단가",
+      status: "in_review",
+      engineVersion: "VERIFIED-BOQ-1.1",
+    },
+    rows: [],
+    directCostKrw: "0",
+    missingRateCount: 0,
+    reviewCount: 1,
+  });
+});
+
 test("summary loading returns the exact unbound neutral shape without BOQ authority", async () => {
   requireServerEstimate();
   const summary = await loadDrawingEstimateSummary(
