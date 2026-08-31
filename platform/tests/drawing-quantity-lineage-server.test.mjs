@@ -2258,7 +2258,7 @@ function approvedEstimateRows(overrides = {}) {
         quantity_link_id: p6Ids.quantity,
         boq_version_id: p6Ids.version,
         boq_line_id: p6Ids.line,
-        allocation_factor: "1",
+        allocation_factor: "1.000",
       },
     ],
     lukas_drawing_quantity_links: [
@@ -2441,6 +2441,82 @@ test("approved estimate replay rejects hash, project, link, and snapshot mismatc
       ),
       /approved|승인|hash|확인|project|프로젝트|link|연결|snapshot|스냅샷/i,
     );
+});
+
+function loadApprovedEstimateFixture(
+  rows,
+  exported = approvedEstimateExport(),
+) {
+  return loadDrawingEstimateSummary(
+    approvedEstimateClient(rows),
+    {
+      actorId: p6Ids.actor,
+      projectId: p6Ids.project,
+      workspace: approvedEstimateWorkspace(5),
+    },
+    {
+      async loadApprovedExport() {
+        return exported;
+      },
+    },
+  );
+}
+
+test("approved estimate replay rejects an unexpected persisted BOQ link instead of confirming a superset", async () => {
+  const rows = approvedEstimateRows();
+  rows.lukas_drawing_boq_links.push({
+    ...rows.lukas_drawing_boq_links[0],
+    id: "00000000-0000-4000-8000-000000000184",
+    boq_line_id: "00000000-0000-4000-8000-000000000185",
+  });
+
+  await assert.rejects(
+    loadApprovedEstimateFixture(rows),
+    /link|연결|승인|확인/i,
+  );
+});
+
+test("approved estimate replay rejects duplicate tuples and changed exact allocation factors", async () => {
+  const changed = approvedEstimateRows();
+  changed.lukas_drawing_boq_links[0].allocation_factor = "0.5";
+  await assert.rejects(
+    loadApprovedEstimateFixture(changed),
+    /link|연결|factor|승인|확인/i,
+  );
+
+  const duplicate = approvedEstimateRows();
+  duplicate.lukas_drawing_boq_links.push({
+    ...duplicate.lukas_drawing_boq_links[0],
+    id: "00000000-0000-4000-8000-000000000186",
+    allocation_factor: "1",
+  });
+  await assert.rejects(
+    loadApprovedEstimateFixture(duplicate),
+    /link|연결|duplicate|중복|승인|확인/i,
+  );
+});
+
+test("approved estimate replay rejects an extra BOQ link backed by another drawing snapshot", async () => {
+  const rows = approvedEstimateRows();
+  const otherQuantityId = "00000000-0000-4000-8000-000000000187";
+  rows.lukas_drawing_boq_links.push({
+    ...rows.lukas_drawing_boq_links[0],
+    id: "00000000-0000-4000-8000-000000000188",
+    quantity_link_id: otherQuantityId,
+    boq_line_id: "00000000-0000-4000-8000-000000000189",
+  });
+  rows.lukas_drawing_quantity_links.push({
+    ...rows.lukas_drawing_quantity_links[0],
+    id: otherQuantityId,
+    drawing_snapshot_sha256: "d".repeat(64),
+    drawing_object_id: "00000000-0000-4000-8000-000000000190",
+    drawing_object_lineage_id: "00000000-0000-4000-8000-000000000191",
+  });
+
+  await assert.rejects(
+    loadApprovedEstimateFixture(rows),
+    /link|연결|snapshot|스냅샷|승인|확인/i,
+  );
 });
 
 test("approved estimate replay preserves one persisted quantity split across BOQ lines", async () => {

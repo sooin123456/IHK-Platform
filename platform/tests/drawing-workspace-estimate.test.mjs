@@ -980,7 +980,9 @@ function estimateClient(
   const client = {
     tableRows,
     inserted: [],
+    filters: [],
     limits: [],
+    orders: [],
     from(table) {
       let values = Array.isArray(tableRows[table])
         ? [...tableRows[table]]
@@ -992,13 +994,15 @@ function estimateClient(
       const orders = [];
       const result = (single = false, optional = false) => {
         let data = [...values];
-        for (const { column, ascending } of orders)
-          data.sort((left, right) => {
+        data.sort((left, right) => {
+          for (const { column, ascending } of orders) {
             const a = left[column];
             const b = right[column];
             const compared = a < b ? -1 : a > b ? 1 : 0;
-            return ascending ? compared : -compared;
-          });
+            if (compared) return ascending ? compared : -compared;
+          }
+          return 0;
+        });
         data = data.slice(0, limit);
         if (insertion !== null) {
           if (insertError) return { data: null, error: insertError };
@@ -1017,6 +1021,7 @@ function estimateClient(
           return query;
         },
         eq(column, value) {
+          client.filters.push([table, column, value]);
           values = values.filter((row) => row[column] === value);
           return query;
         },
@@ -1025,7 +1030,9 @@ function estimateClient(
           return query;
         },
         order(column, options = {}) {
-          orders.push({ column, ascending: options.ascending !== false });
+          const ascending = options.ascending !== false;
+          orders.push({ column, ascending });
+          client.orders.push([table, column, ascending]);
           return query;
         },
         limit(size) {
@@ -1177,6 +1184,8 @@ test("estimate options are the latest 100 same-project draft 1.1 versions with e
   const client = estimateClient({ lukas_qto_boq_versions: versions });
   const options = await loadDrawingEstimateOptions(client, estimateIds.project);
   assert.equal(options.length, 100);
+  assert.equal(options[0].id, "32000000-0000-4000-8000-000000000084");
+  assert.equal(options.at(-1).id, "32000000-0000-4000-8000-000000000029");
   assert.deepEqual(Object.keys(options[0]).sort(), [
     "id",
     "priceBookName",
@@ -1185,6 +1194,204 @@ test("estimate options are the latest 100 same-project draft 1.1 versions with e
   ]);
   assert.equal(
     options.every((option) => option.priceBookName.startsWith("단가 ")),
+    true,
+  );
+});
+
+test("bound draft summary loads the scoped ordered bounded BOQ graph before deriving preview", async () => {
+  requireServerEstimate();
+  const boq = draftBoq();
+  const sectionId = "30000000-0000-4000-8000-000000000061";
+  const otherVersion = "30000000-0000-4000-8000-000000000062";
+  const tables = {
+    lukas_drawing_estimate_bindings: [
+      {
+        id: estimateIds.binding,
+        project_id: estimateIds.project,
+        drawing_revision_id: estimateIds.revision,
+        boq_version_id: estimateIds.version,
+        created_at: "2026-08-31T00:00:00.000Z",
+      },
+      {
+        id: "30000000-0000-4000-8000-000000000063",
+        project_id: estimateIds.otherProject,
+        drawing_revision_id: estimateIds.revision,
+        boq_version_id: otherVersion,
+        created_at: "2026-09-01T00:00:00.000Z",
+      },
+    ],
+    lukas_qto_boq_versions: [
+      {
+        id: estimateIds.version,
+        project_id: estimateIds.project,
+        version_no: boq.versionNo,
+        title: boq.title,
+        status: "draft",
+        engine_version: "VERIFIED-BOQ-1.1",
+        price_book_id: estimateIds.priceBook,
+        calculation_policy: boq.calculationPolicy,
+        quantity_scale: boq.quantityScale,
+        result_sha256: null,
+        manifest_sha256: null,
+        price_book: { name: boq.priceBook.name },
+      },
+      {
+        id: otherVersion,
+        project_id: estimateIds.otherProject,
+        version_no: 99,
+        title: "다른 프로젝트 내역",
+        status: "draft",
+        engine_version: "VERIFIED-BOQ-1.1",
+        price_book_id: estimateIds.priceBook,
+        calculation_policy: boq.calculationPolicy,
+        quantity_scale: boq.quantityScale,
+      },
+    ],
+    lukas_qto_price_books: [
+      {
+        id: estimateIds.priceBook,
+        project_id: estimateIds.project,
+        name: boq.priceBook.name,
+      },
+      {
+        id: estimateIds.priceBook,
+        project_id: estimateIds.otherProject,
+        name: "다른 프로젝트 단가",
+      },
+    ],
+    lukas_qto_boq_sections: [
+      {
+        id: sectionId,
+        project_id: estimateIds.project,
+        version_id: estimateIds.version,
+        code: "01",
+        sort_order: 1,
+      },
+      {
+        id: "30000000-0000-4000-8000-000000000064",
+        project_id: estimateIds.project,
+        version_id: otherVersion,
+        code: "99",
+        sort_order: 0,
+      },
+    ],
+    lukas_qto_boq_lines: boq.lines
+      .map((line, index) => ({
+        id: line.id,
+        project_id: estimateIds.project,
+        version_id: estimateIds.version,
+        section_id: sectionId,
+        item_code: line.itemCode,
+        item_name: line.itemName,
+        specification: line.specification,
+        unit: line.unit,
+        signed_adjustment: line.signedAdjustment,
+        adjustment_reason: line.adjustmentReason,
+        sort_order: 30 - index * 10,
+      }))
+      .concat({
+        id: "30000000-0000-4000-8000-000000000065",
+        project_id: estimateIds.otherProject,
+        version_id: estimateIds.version,
+        section_id: sectionId,
+        item_code: "X-OTHER",
+        item_name: "다른 프로젝트 품목",
+        specification: "",
+        unit: "m",
+        signed_adjustment: "0",
+        adjustment_reason: "",
+        sort_order: 0,
+      }),
+    lukas_qto_boq_rate_components: boq.components
+      .map((component) => ({
+        id: component.id,
+        project_id: estimateIds.project,
+        version_id: estimateIds.version,
+        line_id: component.lineId,
+        resource_id: component.resourceId,
+        coefficient: component.coefficient,
+      }))
+      .concat({
+        id: "30000000-0000-4000-8000-000000000066",
+        project_id: estimateIds.project,
+        version_id: otherVersion,
+        line_id: estimateIds.wallLine,
+        resource_id: estimateIds.wallResource,
+        coefficient: "100",
+      }),
+    lukas_qto_price_resources: boq.resources.map((resource) => ({
+      id: resource.id,
+      project_id: estimateIds.project,
+      price_book_id: estimateIds.priceBook,
+      resource_code: resource.code,
+      resource_type: resource.type,
+      unit: resource.unit,
+      unit_price_krw: resource.unitPriceKrw,
+    })),
+  };
+  const client = estimateClient(tables);
+
+  const summary = await loadDrawingEstimateSummary(client, {
+    actorId: estimateIds.actor,
+    projectId: estimateIds.project,
+    workspace: estimateWorkspace(),
+  });
+
+  assert.deepEqual(
+    summary.rows.map((row) => [row.itemCode, row.quantity, row.amountKrw]),
+    [
+      ["D-001", "1", null],
+      ["F-001", "2", "60000"],
+      ["W-001", "7", "70000"],
+    ],
+  );
+  assert.equal(summary.directCostKrw, "130000");
+  assert.deepEqual(client.limits, [
+    ["lukas_drawing_estimate_bindings", 1],
+    ["lukas_qto_boq_versions", 1],
+    ["lukas_qto_boq_sections", 1001],
+    ["lukas_qto_boq_lines", 1001],
+    ["lukas_qto_boq_rate_components", 5001],
+    ["lukas_qto_price_resources", 5001],
+  ]);
+  assert.deepEqual(
+    client.orders.filter(([table]) =>
+      [
+        "lukas_qto_boq_sections",
+        "lukas_qto_boq_lines",
+        "lukas_qto_boq_rate_components",
+        "lukas_qto_price_resources",
+      ].includes(table),
+    ),
+    [
+      ["lukas_qto_boq_sections", "sort_order", true],
+      ["lukas_qto_boq_sections", "code", true],
+      ["lukas_qto_boq_sections", "id", true],
+      ["lukas_qto_boq_lines", "sort_order", true],
+      ["lukas_qto_boq_lines", "item_code", true],
+      ["lukas_qto_boq_lines", "id", true],
+      ["lukas_qto_boq_rate_components", "line_id", true],
+      ["lukas_qto_boq_rate_components", "id", true],
+      ["lukas_qto_price_resources", "resource_code", true],
+      ["lukas_qto_price_resources", "id", true],
+    ],
+  );
+  assert.equal(
+    client.filters.some(
+      (filter) =>
+        filter[0] === "lukas_qto_boq_rate_components" &&
+        filter[1] === "version_id" &&
+        filter[2] === estimateIds.version,
+    ),
+    true,
+  );
+  assert.equal(
+    client.filters.some(
+      (filter) =>
+        filter[0] === "lukas_qto_price_resources" &&
+        filter[1] === "project_id" &&
+        filter[2] === estimateIds.project,
+    ),
     true,
   );
 });

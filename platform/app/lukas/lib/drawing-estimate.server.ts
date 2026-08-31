@@ -602,6 +602,20 @@ function approvedConflict(message: string): never {
   throw new DrawingWorkspaceConflictError(`승인 견적 확인 실패: ${message}`);
 }
 
+function approvedBoqLinkKey(
+  quantityLinkId: string,
+  lineId: string,
+  allocationFactor: unknown,
+) {
+  let factor: string;
+  try {
+    factor = exactToString(parseExactDecimal(String(allocationFactor)));
+  } catch {
+    return approvedConflict("BOQ link allocation factor가 올바르지 않습니다.");
+  }
+  return JSON.stringify([quantityLinkId, lineId, factor]);
+}
+
 function validateApprovedExport(
   exported: ApprovedVerifiedBoqExport,
   version: StoredVersion,
@@ -665,6 +679,30 @@ async function deriveApprovedDrawingEstimateSummary(
   if (boqLinksError) throw new DrawingWorkspaceRpcError(boqLinksError.message);
   if ((boqLinkRows ?? []).length > approvedLinkLimit)
     return approvedConflict("BOQ link bound를 초과했습니다.");
+  const links = boqLinkRows ?? [];
+  const expectedLinkKeys = drawingMappings
+    .map((mapping) =>
+      approvedBoqLinkKey(
+        mapping.sourceId,
+        mapping.lineId,
+        mapping.allocationFactor,
+      ),
+    )
+    .sort(bytewise);
+  const actualLinkKeys = links
+    .map((link) =>
+      approvedBoqLinkKey(
+        link.quantity_link_id,
+        link.boq_line_id,
+        link.allocation_factor,
+      ),
+    )
+    .sort(bytewise);
+  if (
+    expectedLinkKeys.length !== actualLinkKeys.length ||
+    expectedLinkKeys.some((key, index) => key !== actualLinkKeys[index])
+  )
+    return approvedConflict("persisted BOQ link multiset이 일치하지 않습니다.");
   const sourceIds = [...new Set(drawingMappings.map((row) => row.sourceId))];
   let quantityRows: Array<{
     id: string;
@@ -706,7 +744,6 @@ async function deriveApprovedDrawingEstimateSummary(
   )
     return approvedConflict("persisted quantity link가 일치하지 않습니다.");
   const quantityById = new Map(quantityRows.map((row) => [row.id, row]));
-  const links = boqLinkRows ?? [];
   const linkedKeys = new Set<string>();
   const snapshotKeys = new Set<string>();
   for (const mapping of drawingMappings) {
