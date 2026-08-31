@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
   applicableDrawingPropertySchemas,
@@ -29,8 +29,45 @@ const targetTypes = [
   "circle",
   "text",
   "dimension",
+  "wall",
+  "opening",
+  "space",
+  "area",
+  "grid",
+  "arc",
   "block_instance",
 ] as const;
+
+type DrawingPropertyInputValue = ReturnType<typeof parseDrawingPropertyInput>;
+
+/** Validates assumptions and folds stale-reason cleanup into the caller's one batch. */
+export function prepareDrawingEvidencePropertyValues(
+  schemas: readonly Pick<DrawingPropertySchema, "id" | "name">[],
+  changed: Readonly<Record<string, DrawingPropertyInputValue>>,
+  current: Readonly<Record<string, DrawingPropertyInputValue>>,
+): Record<string, DrawingPropertyInputValue> {
+  const schema = (name: string) => {
+    const matches = schemas.filter((candidate) => candidate.name === name);
+    if (matches.length > 1)
+      throw new Error(`${name} 속성 정의가 중복되었습니다.`);
+    return matches[0];
+  };
+  const evidence = schema("근거 상태");
+  const reason = schema("근거 사유");
+  const values = { ...changed };
+  if (!evidence || !reason) return values;
+  const nextEvidence = values[evidence.id] ?? current[evidence.id] ?? null;
+  const nextReason = values[reason.id] ?? current[reason.id] ?? null;
+  if (nextEvidence === "가정값") {
+    const trimmed = typeof nextReason === "string" ? nextReason.trim() : "";
+    if (trimmed.length < 1 || trimmed.length > 500)
+      throw new Error("가정값의 근거 사유는 1~500자로 입력해야 합니다.");
+    if (reason.id in values) values[reason.id] = trimmed;
+  } else if (evidence.id in values && nextReason !== null) {
+    values[reason.id] = null;
+  }
+  return values;
+}
 
 function message(error: unknown) {
   return error instanceof Error
@@ -337,6 +374,10 @@ export function DrawingPropertyFields({
     selectedIds,
   );
   const [error, setError] = useState<string | null>(null);
+  const [editedEvidenceKind, setEditedEvidenceKind] = useState<string | null>(
+    null,
+  );
+  useEffect(() => setEditedEvidenceKind(null), [selectionIdentity]);
   if (!state.structure?.propertySchemas || !state.structure.propertyValues)
     return null;
   const schemas = applicableDrawingPropertySchemas(state, selectedIds);
@@ -350,6 +391,15 @@ export function DrawingPropertyFields({
       ? values[0]
       : null;
   };
+  const evidenceKindSchema = schemas.find(
+    (schema) => schema.name === "근거 상태",
+  );
+  const evidenceKind =
+    editedEvidenceKind ??
+    (evidenceKindSchema ? shown(shared(evidenceKindSchema.id)) : "");
+  const visibleSchemas = schemas.filter(
+    (schema) => schema.name !== "근거 사유" || evidenceKind === "가정값",
+  );
 
   if (!canEdit)
     return (
@@ -361,7 +411,7 @@ export function DrawingPropertyFields({
           사용자 속성
         </h3>
         <dl className="mt-3 grid gap-2 text-sm">
-          {schemas.map((schema) => (
+          {visibleSchemas.map((schema) => (
             <div key={schema.id}>
               <dt className="text-xs text-slate-400">{schema.name}</dt>
               <dd>{shown(shared(schema.id))}</dd>
@@ -392,10 +442,7 @@ export function DrawingPropertyFields({
           event.preventDefault();
           try {
             const form = event.currentTarget;
-            const values: Record<
-              string,
-              ReturnType<typeof parseDrawingPropertyInput>
-            > = {};
+            const values: Record<string, DrawingPropertyInputValue> = {};
             for (const schema of schemas) {
               if (!dirty.current.has(schema.id)) continue;
               const control = form.elements.namedItem(`property-${schema.id}`);
@@ -414,13 +461,20 @@ export function DrawingPropertyFields({
                   : control.value,
               );
             }
-            if (Object.keys(values).length)
+            const prepared = prepareDrawingEvidencePropertyValues(
+              schemas,
+              values,
+              Object.fromEntries(
+                schemas.map((schema) => [schema.id, shared(schema.id)]),
+              ),
+            );
+            if (Object.keys(prepared).length)
               onCommand(
                 setDrawingPropertySelectionValuesCommand(
                   state,
                   actorId,
                   selectedIds,
-                  values,
+                  prepared,
                 ),
               );
             dirty.current.clear();
@@ -430,13 +484,19 @@ export function DrawingPropertyFields({
           }
         }}
       >
-        {schemas.map((schema) => {
+        {visibleSchemas.map((schema) => {
           const id = `inspector-property-${schema.id}`;
           const value = shared(schema.id);
           const common = {
             id,
             name: `property-${schema.id}`,
-            onChange: () => dirty.current.add(schema.id),
+            onChange: (
+              event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+            ) => {
+              dirty.current.add(schema.id);
+              if (schema.name === "근거 상태")
+                setEditedEvidenceKind(event.currentTarget.value);
+            },
           };
           return (
             <label className="grid gap-1 text-xs" htmlFor={id} key={schema.id}>
@@ -461,6 +521,8 @@ export function DrawingPropertyFields({
                 <input
                   {...common}
                   defaultValue={shown(value)}
+                  maxLength={schema.name === "근거 사유" ? 500 : undefined}
+                  required={schema.name === "근거 사유"}
                   step={schema.valueType === "number" ? "any" : undefined}
                   type={schema.valueType}
                 />

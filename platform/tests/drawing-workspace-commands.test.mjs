@@ -14,6 +14,7 @@ import { drawingRecordedOperationSoftLockConflict } from "../app/lukas/lib/drawi
 
 const {
   applyDrawingCommand,
+  calibrateDrawingCanvasCommand,
   createDrawingDocumentState,
   LockedDrawingLayerError,
   redoDrawingCommand,
@@ -31,6 +32,9 @@ const vite = await createServer({
 });
 const drawingTools = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-canvas.client.tsx",
+);
+const propertyComponents = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-properties-panel.tsx",
 );
 test.after(() => vite.close());
 
@@ -235,6 +239,202 @@ test("mutate_structure records strict forward and inverse payloads", () => {
   const redone = redoDrawingCommand(undone.state, "actor-a", environment());
   assert.equal(redone.kind, undefined);
   assert.equal(redone.state.structure.canvases[ids.modelCanvas].version, 3);
+});
+
+test("PDF calibration converts exact input units and emits one versioned canvas action", () => {
+  const pdfCanvas = {
+    id: ids.canvas,
+    pageId: ids.page,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 210,
+    heightMillimeters: 297,
+    background: {
+      sourceFileId: "00000000-0000-4000-8000-000000000043",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: null,
+    },
+    sortOrder: 0,
+    version: 7,
+  };
+  const state = emptyState({
+    layers: undefined,
+    structure: {
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: { [ids.canvas]: pdfCanvas },
+      layers: { [ids.layer]: layer({ canvasId: ids.canvas, sortOrder: 0 }) },
+      objects: {},
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  const command = calibrateDrawingCanvasCommand(state, "actor-a", ids.canvas, {
+    normalizedStart: { x: 0, y: 0 },
+    normalizedEnd: { x: 1, y: 0 },
+    knownLength: "3",
+    unit: "m",
+  });
+  assert.equal(command.type, "mutate_structure");
+  assert.equal(command.actions.length, 1);
+  assert.deepEqual(command.actions[0], {
+    kind: "put_canvas",
+    entity: {
+      ...pdfCanvas,
+      background: {
+        ...pdfCanvas.background,
+        calibration: {
+          normalizedStart: { x: 0, y: 0 },
+          normalizedEnd: { x: 1, y: 0 },
+          realLengthMillimeters: 3000,
+          millimetersPerNormalizedUnit: 3000,
+        },
+      },
+    },
+    baseVersion: 7,
+  });
+  assert.throws(
+    () =>
+      calibrateDrawingCanvasCommand(state, "actor-a", ids.canvas, {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 1, y: 0 },
+        knownLength: "1e3",
+        unit: "mm",
+      }),
+    /길이|decimal|숫자/i,
+  );
+});
+
+test("object and block assumptions persist or clear evidence reason in one structure command", () => {
+  const blockId = "00000000-0000-4000-8000-000000000044";
+  const instanceId = "00000000-0000-4000-8000-000000000045";
+  const evidenceId = "00000000-0000-4000-8000-000000000046";
+  const reasonId = "00000000-0000-4000-8000-000000000047";
+  const schemas = [
+    {
+      id: evidenceId,
+      revisionId: ids.revision,
+      name: "근거 상태",
+      valueType: "enum",
+      enumOptions: ["현장 실측", "가정값"],
+      appliesTo: ["rectangle", "block_instance"],
+      required: false,
+      version: 1,
+    },
+    {
+      id: reasonId,
+      revisionId: ids.revision,
+      name: "근거 사유",
+      valueType: "text",
+      enumOptions: [],
+      appliesTo: ["rectangle", "block_instance"],
+      required: false,
+      version: 1,
+    },
+  ];
+  const state = emptyState({
+    layers: undefined,
+    structure: {
+      pages: {
+        [ids.page]: {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [ids.canvas]: {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: { [ids.layer]: layer({ canvasId: ids.canvas, sortOrder: 0 }) },
+      objects: { [ids.rectangle]: rectangle() },
+      styles: {},
+      blocks: {
+        [blockId]: {
+          id: blockId,
+          revisionId: ids.revision,
+          name: "Door",
+          primitives: [
+            {
+              localId: "leaf",
+              name: "Leaf",
+              geometry: rectangle().geometry,
+              styleId: null,
+              style: rectangle().style,
+            },
+          ],
+          version: 1,
+        },
+      },
+      blockInstances: {
+        [instanceId]: {
+          id: instanceId,
+          lineageId: "00000000-0000-4000-8000-000000000048",
+          blockId,
+          layerId: ids.layer,
+          name: "Door 1",
+          origin: { x: 0, y: 0 },
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          version: 1,
+        },
+      },
+      propertySchemas: Object.fromEntries(
+        schemas.map((item) => [item.id, item]),
+      ),
+      propertyValues: {},
+      tables: {},
+    },
+  });
+  for (const targetId of [ids.rectangle, instanceId]) {
+    const values = propertyComponents.prepareDrawingEvidencePropertyValues(
+      schemas,
+      { [evidenceId]: "가정값", [reasonId]: "  현장 확인 필요  " },
+      {},
+    );
+    const command = setDrawingPropertySelectionValuesCommand(
+      state,
+      "actor-a",
+      [targetId],
+      values,
+      environment().createId,
+    );
+    assert.equal(command.type, "mutate_structure");
+    assert.equal(command.actions.length, 2);
+    assert.ok(
+      command.actions.every((action) =>
+        targetId === ids.rectangle
+          ? action.entity.objectId === targetId &&
+            action.entity.blockInstanceId === null
+          : action.entity.blockInstanceId === targetId &&
+            action.entity.objectId === null,
+      ),
+    );
+  }
 });
 
 test("property-value undo resolves locked object and block owners from its recorded inverse", () => {

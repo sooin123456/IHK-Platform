@@ -221,6 +221,7 @@ import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
 import { DrawingPropertiesPanel } from "./drawing-properties-panel";
 import { DrawingStylesPanel } from "./drawing-styles-panel";
+import { DrawingScaleControl } from "./drawing-scale-control";
 import { DrawingTablesPanel } from "./drawing-tables-panel";
 import {
   DrawingCollaborationConnectionStatus,
@@ -238,6 +239,7 @@ const drawingBlockRenderCache = createDrawingBlockRenderCache();
 import type {
   DrawingCanvasBackground,
   DrawingCanvasHandle,
+  DrawingCalibrationCapture,
   DrawingPdfCompareState,
   DrawingTool,
   DimensionCalibrationEvidence,
@@ -544,7 +546,8 @@ const drawingWorkspaceLineageNextAction: Record<
   },
   approval: {
     title: "다음 작업 · 검토 및 승인",
-    description: "저장된 개정을 검토 요청하고 역할에 따라 승인 결정을 남기세요.",
+    description:
+      "저장된 개정을 검토 요청하고 역할에 따라 승인 결정을 남기세요.",
     href: "#drawing-review-controls",
     label: "검토 제어로 이동",
   },
@@ -1006,6 +1009,8 @@ export default function DrawingWorkspaceClient({
       );
   }, []);
   const canvasRef = useRef<DrawingCanvasHandle>(null);
+  const [calibrationCapture, setCalibrationCapture] =
+    useState<DrawingCalibrationCapture | null>(null);
   const initialEvidenceFocusKeyRef = useRef<string | null>(null);
   const [canvasModule, setCanvasModule] = useState<
     DrawingClientModuleState<CanvasComponent>
@@ -4793,6 +4798,16 @@ export default function DrawingWorkspaceClient({
             className="min-h-0 flex-1 overflow-y-auto p-3"
             id="drawing-panel-structure"
           >
+            {activeCanvas ? (
+              <DrawingScaleControl
+                actorId={currentUserId}
+                canEdit={editing.canEdit}
+                canvas={activeCanvas}
+                onCalibrationCaptureChange={setCalibrationCapture}
+                onCommand={applyCommand}
+                state={drawingState}
+              />
+            ) : null}
             <DrawingPagesPanel
               activeCanvasId={drawingState.activeCanvasId}
               actorId={currentUserId}
@@ -4977,6 +4992,7 @@ export default function DrawingWorkspaceClient({
                   pdfCompare={pdfCompare}
                   calibration={calibration}
                   calibrationId={calibrationId}
+                  calibrationCapture={calibrationCapture}
                   canEdit={editing.canEdit}
                   layerId={editing.layerId}
                   layers={activeDrawingLayers}
@@ -5456,9 +5472,9 @@ export default function DrawingWorkspaceClient({
                       {selectedObjectLineage.total}
                     </p>
                     <p className="mt-0.5 text-xs font-bold text-white">
-                  {selectedDrawingObjectId
-                    ? selectedObjectLineageAction?.title ??
-                      "업무 계보 연결 완료"
+                      {selectedDrawingObjectId
+                        ? (selectedObjectLineageAction?.title ??
+                          "업무 계보 연결 완료")
                         : "객체를 선택해 업무 계보 시작"}
                     </p>
                   </div>
@@ -5473,8 +5489,8 @@ export default function DrawingWorkspaceClient({
                 </div>
                 <p className="mt-1.5 text-[10px] leading-4 text-slate-300">
                   {selectedDrawingObjectId
-                    ? selectedObjectLineageAction?.description ??
-                      "원본 근거부터 BOQ 연결까지 모두 추적할 수 있습니다."
+                    ? (selectedObjectLineageAction?.description ??
+                      "원본 근거부터 BOQ 연결까지 모두 추적할 수 있습니다.")
                     : "객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다."}
                 </p>
               </div>

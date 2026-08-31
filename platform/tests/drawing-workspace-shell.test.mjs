@@ -28,6 +28,12 @@ const exportDialogModule = await vite.ssrLoadModule(
 const previewModule = await vite.ssrLoadModule(
   "/app/lukas/screens/local-drawing-workspace-preview.tsx",
 );
+const scaleModule = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-scale-control.tsx")
+  .catch(() => ({}));
+const propertyModule = await vite.ssrLoadModule(
+  "/app/lukas/components/drawing-properties-panel.tsx",
+);
 test.after(() => vite.close());
 
 test("drawing export audit refuses a followed login redirect as an artifact", async () => {
@@ -114,6 +120,115 @@ function deferred() {
   });
   return { promise, reject, resolve };
 }
+
+test("scale control exposes bounded source-free, PDF calibration, and read-only states", () => {
+  assert.equal(typeof scaleModule.DrawingScaleControl, "function");
+  const base = {
+    actorId: "actor-a",
+    canEdit: true,
+    onCalibrationCaptureChange() {},
+    onCommand() {},
+    state: {},
+  };
+  const render = (canvas, canEdit = true) =>
+    renderToStaticMarkup(
+      createElement(scaleModule.DrawingScaleControl, {
+        ...base,
+        canvas,
+        canEdit,
+      }),
+    );
+  const blank = render({
+    id: "30000000-0000-4000-8000-000000000001",
+    pageId: "30000000-0000-4000-8000-000000000002",
+    name: "Model",
+    spaceKind: "model",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: null,
+    sortOrder: 0,
+    version: 1,
+  });
+  assert.match(blank, /기준 좌표 · 1 도면 단위 = 1 mm/);
+  assert.doesNotMatch(blank, /두 점 선택/);
+
+  const pdfCanvas = {
+    id: "30000000-0000-4000-8000-000000000003",
+    pageId: "30000000-0000-4000-8000-000000000002",
+    name: "PDF",
+    spaceKind: "paper",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: "30000000-0000-4000-8000-000000000004",
+      sourceSha256: "b".repeat(64),
+      pdfPageNumber: 1,
+      calibration: null,
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const editable = render(pdfCanvas);
+  assert.match(editable, /축척 미확정/);
+  assert.match(editable, /두 점 선택/);
+  for (const unit of ["mm", "cm", "m"])
+    assert.match(editable, new RegExp(`value="${unit}"`));
+  const readOnly = render(pdfCanvas, false);
+  assert.match(readOnly, /조회 전용/);
+  assert.doesNotMatch(readOnly, /<form/);
+
+  const calibrated = render({
+    ...pdfCanvas,
+    background: {
+      ...pdfCanvas.background,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 1, y: 0 },
+        realLengthMillimeters: 3000,
+        millimetersPerNormalizedUnit: 3000,
+      },
+    },
+  });
+  assert.match(calibrated, /3000 mm/);
+  assert.match(calibrated, /다시 보정/);
+  assert.match(calibrated, /초안 수량/);
+});
+
+test("assumption evidence validates and stale reasons clear in the same property value batch", () => {
+  assert.equal(
+    typeof propertyModule.prepareDrawingEvidencePropertyValues,
+    "function",
+  );
+  const schemas = [
+    { id: "31000000-0000-4000-8000-000000000001", name: "근거 상태" },
+    { id: "31000000-0000-4000-8000-000000000002", name: "근거 사유" },
+  ];
+  assert.deepEqual(
+    propertyModule.prepareDrawingEvidencePropertyValues(
+      schemas,
+      { [schemas[0].id]: "가정값", [schemas[1].id]: "  현장 확인 필요  " },
+      {},
+    ),
+    { [schemas[0].id]: "가정값", [schemas[1].id]: "현장 확인 필요" },
+  );
+  assert.throws(
+    () =>
+      propertyModule.prepareDrawingEvidencePropertyValues(
+        schemas,
+        { [schemas[0].id]: "가정값", [schemas[1].id]: "   " },
+        {},
+      ),
+    /근거 사유/,
+  );
+  assert.deepEqual(
+    propertyModule.prepareDrawingEvidencePropertyValues(
+      schemas,
+      { [schemas[0].id]: "현장 실측" },
+      { [schemas[0].id]: "가정값", [schemas[1].id]: "stale" },
+    ),
+    { [schemas[0].id]: "현장 실측", [schemas[1].id]: null },
+  );
+});
 
 test("review rejection version fences the prior browser freeze request", () => {
   const revisionId = "00000000-0000-4000-8000-000000000123";

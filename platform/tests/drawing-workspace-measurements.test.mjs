@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const measurementModule =
-  await import("../app/lukas/lib/drawing-measurements.ts").catch(() => ({}));
+const measurementModule = await import(
+  "../app/lukas/lib/drawing-measurements.ts"
+).catch(() => ({}));
 const {
   DRAWING_MEASUREMENT_RULE_VERSION,
   formatDrawingMeasurement,
@@ -11,6 +12,14 @@ const {
 
 const HOST_ID = "00000000-0000-4000-8000-000000000201";
 const LAYER_ID = "00000000-0000-4000-8000-000000000202";
+const ids = {
+  line: "00000000-0000-4000-8000-000000000212",
+  closed: "00000000-0000-4000-8000-000000000213",
+  openLength: "00000000-0000-4000-8000-000000000214",
+  closedLength: "00000000-0000-4000-8000-000000000215",
+  rectangle: "00000000-0000-4000-8000-000000000216",
+  circle: "00000000-0000-4000-8000-000000000217",
+};
 const style = { stroke: "#000000", strokeWidth: 1, fill: null };
 
 function object(id, geometry, name = geometry.type) {
@@ -58,6 +67,106 @@ test("3-4-5 wall and diagonal grid lengths round to micromillimeters", () => {
       areaSquareMillimeters: null,
       count: "1",
     },
+  );
+});
+
+test("primitive line, polyline, rectangle, and circle measurements are exact", () => {
+  requireKernel();
+  assert.deepEqual(
+    measureDrawingObject(
+      object(ids.line, {
+        type: "line",
+        start: { x: 0, y: 0 },
+        end: { x: 3000, y: 4000 },
+      }),
+    ),
+    {
+      ruleVersion: "P4_MEASUREMENT_V1",
+      lengthMillimeters: "5000",
+      areaSquareMillimeters: null,
+      count: "1",
+    },
+  );
+  assert.equal(
+    measureDrawingObject(
+      object(ids.closed, {
+        type: "polyline",
+        points: [
+          { x: 0, y: 0 },
+          { x: 2000, y: 0 },
+          { x: 2000, y: 1000 },
+          { x: 0, y: 1000 },
+        ],
+        closed: true,
+      }),
+    ).areaSquareMillimeters,
+    "2000000",
+  );
+  for (const [closed, expected] of [
+    [false, "7000"],
+    [true, "12000"],
+  ]) {
+    assert.equal(
+      measureDrawingObject(
+        object(closed ? ids.closedLength : ids.openLength, {
+          type: "polyline",
+          points: [
+            { x: 0, y: 0 },
+            { x: 3000, y: 0 },
+            { x: 3000, y: 4000 },
+          ],
+          closed,
+        }),
+      ).lengthMillimeters,
+      expected,
+    );
+  }
+  assert.equal(
+    measureDrawingObject(
+      object(ids.rectangle, {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 2500,
+        height: 1200,
+        rotation: 37,
+      }),
+    ).areaSquareMillimeters,
+    "3000000",
+  );
+  assert.equal(
+    measureDrawingObject(
+      object(ids.rectangle, {
+        type: "rectangle",
+        origin: { x: 0, y: 0 },
+        width: 2500,
+        height: 1200,
+        rotation: 37,
+      }),
+    ).lengthMillimeters,
+    "7400",
+  );
+  const circleMeasurement = measureDrawingObject(
+    object(ids.circle, {
+      type: "circle",
+      center: { x: 0, y: 0 },
+      radius: 1000,
+    }),
+  );
+  assert.equal(circleMeasurement.areaSquareMillimeters, "3141592.65359");
+  assert.equal(circleMeasurement.lengthMillimeters, "6283.185307");
+  assert.equal(
+    measureDrawingObject(
+      object(ids.openLength, {
+        type: "polyline",
+        points: [
+          { x: 0, y: 0 },
+          { x: 1000, y: 0 },
+          { x: 0, y: 0 },
+        ],
+        closed: false,
+      }),
+    ).areaSquareMillimeters,
+    null,
   );
 });
 
@@ -213,9 +322,10 @@ test("unavailable quantities are null rather than numeric zero", () => {
   assert.deepEqual(
     measureDrawingObject(
       object("00000000-0000-4000-8000-000000000209", {
-        type: "circle",
-        center: { x: 0, y: 0 },
-        radius: 10,
+        type: "text",
+        origin: { x: 0, y: 0 },
+        width: 10,
+        text: "unmeasured",
       }),
       objects,
     ),

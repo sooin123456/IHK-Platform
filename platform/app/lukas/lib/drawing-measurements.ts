@@ -20,7 +20,11 @@ export type DrawingMeasurement = {
 };
 
 export type DrawingMeasurementUnit =
-  "millimeters" | "meters" | "squareMillimeters" | "squareMeters" | "count";
+  | "millimeters"
+  | "meters"
+  | "squareMillimeters"
+  | "squareMeters"
+  | "count";
 
 function toMicromillimeters(value: number): bigint {
   const scaled = drawingSemanticScaledInteger(value);
@@ -101,6 +105,17 @@ function boundaryPerimeterMicromillimeters(points: readonly Point[]): bigint {
   }
 }
 
+function polylineLengthMicromillimeters(
+  points: readonly Point[],
+  closed: boolean,
+): bigint {
+  let length = 0n;
+  for (let index = 1; index < points.length; index += 1)
+    length += distanceMicromillimeters(points[index - 1], points[index]);
+  if (closed) length += distanceMicromillimeters(points.at(-1)!, points[0]);
+  return length;
+}
+
 function boundaryAreaMicroSquareMillimeters(points: readonly Point[]): bigint {
   let doubledArea = 0n;
   for (let index = 0; index < points.length; index += 1) {
@@ -135,6 +150,25 @@ function emptyMeasurement(): DrawingMeasurement {
   };
 }
 
+function circleLengthMillimeters(radius: number): string {
+  return formatScaledInteger(
+    roundHalfAwayFromZero(
+      2n * toMicromillimeters(radius) * DRAWING_MEASUREMENT_PI_NUMERATOR,
+      DRAWING_MEASUREMENT_PI_DENOMINATOR,
+    ),
+  );
+}
+
+function circleAreaSquareMillimeters(radius: number): string {
+  const scaledRadius = toMicromillimeters(radius);
+  return formatScaledInteger(
+    roundHalfAwayFromZero(
+      scaledRadius * scaledRadius * DRAWING_MEASUREMENT_PI_NUMERATOR,
+      MICROMILLIMETERS_PER_MILLIMETER * DRAWING_MEASUREMENT_PI_DENOMINATOR,
+    ),
+  );
+}
+
 /** Derives V1 values from canonical geometry; it never persists or mutates data. */
 export function measureDrawingObject(
   object: DrawingObject,
@@ -143,6 +177,37 @@ export function measureDrawingObject(
   const measurement = emptyMeasurement();
   const geometry = object.geometry;
   switch (geometry.type) {
+    case "line":
+      measurement.lengthMillimeters = formatScaledInteger(
+        distanceMicromillimeters(geometry.start, geometry.end),
+      );
+      break;
+    case "polyline":
+      measurement.lengthMillimeters = formatScaledInteger(
+        polylineLengthMicromillimeters(geometry.points, geometry.closed),
+      );
+      if (geometry.closed)
+        measurement.areaSquareMillimeters = formatScaledInteger(
+          boundaryAreaMicroSquareMillimeters(geometry.points),
+        );
+      break;
+    case "rectangle": {
+      const width = toMicromillimeters(geometry.width);
+      const height = toMicromillimeters(geometry.height);
+      measurement.lengthMillimeters = formatScaledInteger(
+        2n * (width + height),
+      );
+      measurement.areaSquareMillimeters = formatScaledInteger(
+        roundHalfAwayFromZero(width * height, MICROMILLIMETERS_PER_MILLIMETER),
+      );
+      break;
+    }
+    case "circle":
+      measurement.lengthMillimeters = circleLengthMillimeters(geometry.radius);
+      measurement.areaSquareMillimeters = circleAreaSquareMillimeters(
+        geometry.radius,
+      );
+      break;
     case "wall":
     case "grid":
       measurement.lengthMillimeters = formatScaledInteger(
@@ -179,10 +244,6 @@ export function measureDrawingObject(
       );
       break;
     }
-    case "line":
-    case "polyline":
-    case "rectangle":
-    case "circle":
     case "text":
     case "dimension":
       break;
@@ -190,7 +251,7 @@ export function measureDrawingObject(
   return measurement;
 }
 
-function shiftDecimalLeft(value: string, places: number): string {
+export function shiftDrawingDecimalLeft(value: string, places: number): string {
   const negative = value.startsWith("-");
   const unsigned = negative ? value.slice(1) : value;
   const [whole, fraction = ""] = unsigned.split(".");
@@ -217,7 +278,7 @@ export function formatDrawingMeasurement(
     case "meters":
       return measurement.lengthMillimeters === null
         ? null
-        : `${shiftDecimalLeft(measurement.lengthMillimeters, 3)} m`;
+        : `${shiftDrawingDecimalLeft(measurement.lengthMillimeters, 3)} m`;
     case "squareMillimeters":
       return measurement.areaSquareMillimeters === null
         ? null
@@ -225,7 +286,7 @@ export function formatDrawingMeasurement(
     case "squareMeters":
       return measurement.areaSquareMillimeters === null
         ? null
-        : `${shiftDecimalLeft(measurement.areaSquareMillimeters, 6)} m²`;
+        : `${shiftDrawingDecimalLeft(measurement.areaSquareMillimeters, 6)} m²`;
     case "count":
       return measurement.count;
   }

@@ -101,6 +101,51 @@ function pointerDown(state, screenPoint, toolContext, shiftKey = false) {
   );
 }
 
+test("PDF calibration capture normalizes viewport points in order and rejects non-background clicks", () => {
+  assert.equal(typeof tools.drawingCanvasNormalizedBackgroundPoint, "function");
+  const viewport = { x: 10, y: 20, zoom: 2 };
+  const background = {
+    kind: "pdf",
+    width: 100,
+    height: 200,
+    pageNumber: 1,
+    signedUrl: "https://example.test/source.pdf",
+  };
+  const captured = [
+    tools.drawingCanvasNormalizedBackgroundPoint(
+      { x: 10, y: 20 },
+      viewport,
+      background,
+    ),
+    tools.drawingCanvasNormalizedBackgroundPoint(
+      { x: 210, y: 420 },
+      viewport,
+      background,
+    ),
+  ];
+  assert.deepEqual(captured, [
+    { x: 0, y: 0 },
+    { x: 1, y: 1 },
+  ]);
+  assert.deepEqual(Object.keys(captured[0]).sort(), ["x", "y"]);
+  assert.equal(
+    tools.drawingCanvasNormalizedBackgroundPoint(
+      { x: 211, y: 420 },
+      viewport,
+      background,
+    ),
+    null,
+  );
+  assert.equal(
+    tools.drawingCanvasNormalizedBackgroundPoint({ x: 10, y: 20 }, viewport, {
+      kind: "blank",
+      width: 100,
+      height: 200,
+    }),
+    null,
+  );
+});
+
 test("wall and grid use two points, semantic defaults, and the existing Shift constraint", () => {
   for (const tool of ["wall", "grid"]) {
     const session = tools.beginDrawingToolSession(tool, { x: 0, y: 0 }, snap);

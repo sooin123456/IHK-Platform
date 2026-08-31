@@ -1477,8 +1477,8 @@ export function drawingSelectionEventTransition(
     );
     const invalidDrag = Boolean(
       state.drag &&
-      (!drawingSelectionDragIsValid(state, context) ||
-        selectedIds.length !== state.selectedIds.length),
+        (!drawingSelectionDragIsValid(state, context) ||
+          selectedIds.length !== state.selectedIds.length),
     );
     return {
       command: null,
@@ -1699,6 +1699,37 @@ export type DrawingCanvasBackground =
       sourceSha256?: string;
     };
 
+export type DrawingCalibrationCapture = {
+  active: boolean;
+  onPoint: (point: Point) => void;
+};
+
+/** Maps a Stage-relative point to one normalized PDF page point. */
+export function drawingCanvasNormalizedBackgroundPoint(
+  screenPoint: Point,
+  viewport: Viewport,
+  background: DrawingCanvasBackground,
+): Point | null {
+  if (
+    background.kind !== "pdf" ||
+    background.width <= 0 ||
+    background.height <= 0
+  )
+    return null;
+  const world = screenToWorld(screenPoint, viewport);
+  if (
+    world.x < 0 ||
+    world.x > background.width ||
+    world.y < 0 ||
+    world.y > background.height
+  )
+    return null;
+  return {
+    x: world.x / background.width,
+    y: world.y / background.height,
+  };
+}
+
 export type DrawingCanvasHandle = {
   focus: () => void;
   getViewport: () => Viewport;
@@ -1740,6 +1771,7 @@ type DrawingCanvasProps = {
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
   calibrationId: string | null;
+  calibrationCapture?: DrawingCalibrationCapture | null;
   canEdit: boolean;
   layerId: string | null;
   layers: DrawingLayer[];
@@ -2390,6 +2422,7 @@ export const DrawingCanvas = forwardRef<
     blockInstances,
     calibration,
     calibrationId,
+    calibrationCapture = null,
     canEdit,
     layerId,
     layers,
@@ -3397,6 +3430,7 @@ export const DrawingCanvas = forwardRef<
 
   function beginNativeSelection(event: ReactPointerEvent<HTMLDivElement>) {
     event.currentTarget.focus();
+    if (calibrationCapture?.active && background.kind === "pdf") return;
     if (
       activeTool !== "select" ||
       event.button !== 0 ||
@@ -3486,6 +3520,15 @@ export const DrawingCanvas = forwardRef<
     if (panGestureRef.current || event.evt.button !== 0) return;
     const pointer = event.target.getStage()?.getPointerPosition();
     if (!pointer) return;
+    if (calibrationCapture?.active && background.kind === "pdf") {
+      const point = drawingCanvasNormalizedBackgroundPoint(
+        pointer,
+        viewportRef.current,
+        background,
+      );
+      if (point) calibrationCapture.onPoint(point);
+      return;
+    }
     const target = event.evt.currentTarget as HTMLElement | null;
     if (activeTool === "select") {
       event.evt.preventDefault();

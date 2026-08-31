@@ -46,6 +46,7 @@ import {
   projectPointToDrawingWall,
   resolveDrawingOpening,
 } from "./drawing-semantic-geometry.ts";
+import { calibratePdf } from "./drawing-geometry.ts";
 import { drawingTargetReferenceCleanupActions } from "./drawing-properties.ts";
 
 export type ObjectPatch = Partial<
@@ -283,6 +284,60 @@ export function renameDrawingCanvasCommand(
       },
       baseVersion: canvas.version,
     },
+  ]);
+}
+
+function drawingCalibrationMillimeters(input: string, unit: "mm" | "cm" | "m") {
+  const value = input.trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value))
+    throw new DrawingCommandError("보정 길이는 양의 십진수여야 합니다.");
+  const [whole, fraction = ""] = value.split(".");
+  const places = unit === "mm" ? 0 : unit === "cm" ? 1 : 3;
+  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, "");
+  const scale = fraction.length - places;
+  const canonical =
+    scale <= 0
+      ? `${digits}${"0".repeat(-scale)}`
+      : `${digits.padStart(scale + 1, "0").slice(0, -scale)}.${digits
+          .padStart(scale + 1, "0")
+          .slice(-scale)
+          .replace(/0+$/, "")}`.replace(/\.$/, "");
+  const millimeters = Number(canonical);
+  if (!Number.isFinite(millimeters) || millimeters <= 0)
+    throw new DrawingCommandError("보정 길이는 0보다 커야 합니다.");
+  return millimeters;
+}
+
+/** Replaces only the existing four-field PDF calibration through one canvas action. */
+export function calibrateDrawingCanvasCommand(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+  actorId: string,
+  canvasId: string,
+  input: {
+    normalizedStart: Point;
+    normalizedEnd: Point;
+    knownLength: string;
+    unit: "mm" | "cm" | "m";
+  },
+): Extract<DrawingCommand, { type: "mutate_structure" }> {
+  const canonical = requireStructureState(state);
+  const canvas = canonical.structure.canvases[canvasId];
+  if (!canvas?.background || canvas.background.pdfPageNumber === null)
+    throw new DrawingCommandError("PDF 캔버스만 축척을 보정할 수 있습니다.");
+  for (const point of [input.normalizedStart, input.normalizedEnd])
+    if (point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1)
+      throw new DrawingCommandError("PDF 보정점은 페이지 안에 있어야 합니다.");
+  const calibration = calibratePdf(
+    input.normalizedStart,
+    input.normalizedEnd,
+    drawingCalibrationMillimeters(input.knownLength, input.unit),
+  );
+  const entity = DrawingCanvasSchema.parse({
+    ...canvas,
+    background: { ...canvas.background, calibration },
+  });
+  return structureCommand(actorId, [
+    { kind: "put_canvas", entity, baseVersion: canvas.version },
   ]);
 }
 
@@ -1509,7 +1564,8 @@ function structuredUuidOwner(
     "tables",
   ] as const) {
     const entity = structure[collection]?.[id] as
-      { version: number } | undefined;
+      | { version: number }
+      | undefined;
     if (entity) return { collection, entity, version: entity.version };
   }
   return structure.tombstones?.[id];
@@ -2688,7 +2744,8 @@ export function copyDrawingSelection(
   state: Pick<DrawingDocumentState, "revisionId" | "layers" | "objects">,
   selectedIds: string[],
   resolveStyle:
-    ((object: DrawingObject) => DrawingStyle) | undefined = undefined,
+    | ((object: DrawingObject) => DrawingStyle)
+    | undefined = undefined,
 ): DrawingClipboard {
   const items = [...new Set(selectedIds)].flatMap((objectId) => {
     const object = mutableDrawingObject(state, objectId);
@@ -2799,9 +2856,9 @@ export function pasteDrawingClipboard(
 export function isEditableDrawingLayer(layer: DrawingLayer | undefined) {
   return Boolean(
     layer &&
-    (layer.systemKind === "work" || layer.systemKind === "custom") &&
-    layer.visible &&
-    !layer.locked,
+      (layer.systemKind === "work" || layer.systemKind === "custom") &&
+      layer.visible &&
+      !layer.locked,
   );
 }
 
