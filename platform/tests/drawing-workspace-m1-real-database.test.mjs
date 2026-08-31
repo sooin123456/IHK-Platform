@@ -41,6 +41,14 @@ if (!databaseUrl) {
     });
   }
 
+  async function attemptCleanup(errors, label, operation) {
+    try {
+      await operation();
+    } catch (error) {
+      errors.push(new Error(`M1 cleanup failed: ${label}`, { cause: error }));
+    }
+  }
+
   async function session(sql, role, actorId, callback, options = {}) {
     assert.ok(appRoles.includes(role));
     return sql.begin(async (tx) => {
@@ -320,9 +328,18 @@ if (!databaseUrl) {
 
   async function provePrivilegeMatrix(sql, ids) {
     const tableMatrix = {
-      anon: { select: false, insert: false, update: false, delete: false },
-      authenticated: { select: true, insert: true, update: false, delete: false },
-      service_role: { select: true, insert: false, update: false, delete: false },
+      anon: {
+        select: false,insert: false,update: false,delete: false,
+        truncate: false,references: false,trigger: false,
+      },
+      authenticated: {
+        select: true,insert: true,update: false,delete: false,
+        truncate: false,references: false,trigger: false,
+      },
+      service_role: {
+        select: true,insert: false,update: false,delete: false,
+        truncate: false,references: false,trigger: false,
+      },
     };
     for (const [role, expected] of Object.entries(tableMatrix)) {
       const [actual] = await sql`
@@ -334,9 +351,36 @@ if (!databaseUrl) {
           pg_catalog.has_table_privilege(${role},
             'public.lukas_drawing_estimate_bindings','UPDATE') "update",
           pg_catalog.has_table_privilege(${role},
-            'public.lukas_drawing_estimate_bindings','DELETE') "delete"
+            'public.lukas_drawing_estimate_bindings','DELETE') "delete",
+          pg_catalog.has_table_privilege(${role},
+            'public.lukas_drawing_estimate_bindings','TRUNCATE') "truncate",
+          pg_catalog.has_table_privilege(${role},
+            'public.lukas_drawing_estimate_bindings','REFERENCES') "references",
+          pg_catalog.has_table_privilege(${role},
+            'public.lukas_drawing_estimate_bindings','TRIGGER') "trigger"
       `;
       assert.deepEqual(actual, expected, role);
+      const [privateCatalog] = await sql`
+        select
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','SELECT') "select",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','INSERT') "insert",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','UPDATE') "update",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','DELETE') "delete",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','TRUNCATE') "truncate",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','REFERENCES') "references",
+          pg_catalog.has_table_privilege(${role},
+            'private.lukas_drawing_platform_starters','TRIGGER') "trigger"
+      `;
+      assert.deepEqual(privateCatalog, {
+        select: false,insert: false,update: false,delete: false,
+        truncate: false,references: false,trigger: false,
+      }, `${role} private starter catalog`);
     }
     const denied = [
       "private.lukas_drawing_document_creation_result(uuid)",
@@ -534,13 +578,32 @@ if (!databaseUrl) {
         { ...deniedBinding, id: randomUUID() }),
       "42501",
     );
-    await assertSqlState(
-      insertBinding(owner, "authenticated", ids.users.owner, {
-        id: ids.bindings[3],projectId: ids.project,
-        revisionId: deniedDocument.revisionId,boqVersionId: ids.boqs[8],
-      }),
-      ["42501", "23503"],
+    const foreignDocument = await createDocument(
+      owner,"authenticated",ids.users.owner,ids.foreignProject,
+      "Foreign-project composite identity",randomUUID(),
     );
+    ids.documents.push(foreignDocument.documentId);
+    ids.revisions.push(foreignDocument.revisionId);
+    for (const mismatch of [
+      {
+        id: ids.bindings[3],revisionId: deniedDocument.revisionId,
+        boqVersionId: ids.boqs[8],
+      },
+      {
+        id: ids.bindings[5],revisionId: foreignDocument.revisionId,
+        boqVersionId: ids.boqs[0],
+      },
+    ])
+      await assertSqlState(
+        owner`
+          insert into public.lukas_drawing_estimate_bindings(
+            id,project_id,drawing_revision_id,boq_version_id,created_by
+          ) values(${mismatch.id}::uuid,${ids.project}::uuid,
+            ${mismatch.revisionId}::uuid,${mismatch.boqVersionId}::uuid,
+            ${ids.users.owner}::uuid)
+        `,
+        "23503",
+      );
     for (const [role, actor] of [
       ["authenticated", ids.users.editor],
       ["authenticated", ids.users.owner],
@@ -746,26 +809,35 @@ if (!databaseUrl) {
       let workerA;
       let workerB;
       let schemaReady = false;
+      let databaseCreated = false;
+      let primaryError;
+      const cleanupErrors = [];
       try {
         const [{ current_user: currentUser }] = await admin`select current_user`;
         for (const role of appRoles) {
+          const state = { role, created: false, granted: false };
+          roleState.push(state);
           const [existing] = await admin`
             select exists(select 1 from pg_catalog.pg_roles where rolname=${role}) present
           `;
-          if (!existing.present)
+          if (!existing.present) {
             await admin.unsafe(
               `create role ${quoteIdentifier(role)} nologin${role === "service_role" ? " bypassrls" : ""}`,
             );
+            state.created = true;
+          }
           const [membership] = await admin`
             select pg_catalog.pg_has_role(${currentUser},${role},'MEMBER') member
           `;
-          if (!membership.member)
+          if (!membership.member) {
             await admin.unsafe(
               `grant ${quoteIdentifier(role)} to ${quoteIdentifier(currentUser)}`,
             );
-          roleState.push({ role, created: !existing.present, granted: !membership.member });
+            state.granted = true;
+          }
         }
         await admin.unsafe(`create database ${quoteIdentifier(databaseName)}`);
+        databaseCreated = true;
         const targetUrl = isolatedUrl(databaseUrl, databaseName);
         owner = postgres(targetUrl, { max: 1, prepare: false });
         workerA = postgres(targetUrl, { max: 1, prepare: false });
@@ -792,19 +864,25 @@ if (!databaseUrl) {
         );
         await proveBindingAndPurge(owner, ids, concurrent);
         await proveStarterRollback(owner, ids);
+      } catch (error) {
+        primaryError = error;
       } finally {
-        if (owner) {
-          try {
-            if (schemaReady) {
-              for (const projectId of projectIds)
-                await owner.begin(async (tx) => {
+        try {
+          if (owner && schemaReady) {
+            for (const projectId of projectIds)
+              await attemptCleanup(
+                cleanupErrors,
+                `delete project fixture ${projectId}`,
+                () => owner.begin(async (tx) => {
                   await tx`select pg_catalog.set_config(
                     'app.lukas_retention_purge_project',${projectId},true
                   )`;
                   await tx`
                     delete from public.lukas_qto_projects where id=${projectId}::uuid
                   `;
-                });
+                }),
+              );
+            await attemptCleanup(cleanupErrors, "verify zero fixture rows", async () => {
               const [residue] = await owner`
                 select
                   (select pg_catalog.count(*)::integer from public.lukas_qto_projects
@@ -821,34 +899,71 @@ if (!databaseUrl) {
                 residue,
                 { projects: 0, documents: 0, bindings: 0, boqs: 0 },
               );
-            }
-          } finally {
-            await Promise.allSettled([
-              owner.end({ timeout: 5 }),
-              workerA?.end({ timeout: 5 }),
-              workerB?.end({ timeout: 5 }),
-            ]);
+            });
           }
-        }
-        try {
-          await admin`
-            select pg_catalog.pg_terminate_backend(pid)
-            from pg_catalog.pg_stat_activity
-            where datname=${databaseName} and pid<>pg_catalog.pg_backend_pid()
-          `;
-          await admin.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`);
         } finally {
-          for (const state of roleState.reverse()) {
-            if (state.granted)
-              await admin.unsafe(
-                `revoke ${quoteIdentifier(state.role)} from current_user`,
-              );
-            if (state.created)
-              await admin.unsafe(`drop role ${quoteIdentifier(state.role)}`);
+          try {
+            for (const [label, client] of [
+              ["table-owner connection", owner],
+              ["concurrency connection A", workerA],
+              ["concurrency connection B", workerB],
+            ])
+              if (client)
+                await attemptCleanup(
+                  cleanupErrors,label,() => client.end({ timeout: 5 }),
+                );
+          } finally {
+            try {
+              if (databaseCreated) {
+                await attemptCleanup(cleanupErrors, "terminate isolated database sessions", () => admin`
+                  select pg_catalog.pg_terminate_backend(pid)
+                  from pg_catalog.pg_stat_activity
+                  where datname=${databaseName} and pid<>pg_catalog.pg_backend_pid()
+                `);
+                await attemptCleanup(cleanupErrors, "drop isolated database", () =>
+                  admin.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`),
+                );
+              }
+            } finally {
+              try {
+                for (const state of roleState.reverse()) {
+                  if (state.granted)
+                    await attemptCleanup(
+                      cleanupErrors,
+                      `revoke temporary membership ${state.role}`,
+                      () => admin.unsafe(
+                        `revoke ${quoteIdentifier(state.role)} from current_user`,
+                      ),
+                    );
+                  if (state.created)
+                    await attemptCleanup(
+                      cleanupErrors,
+                      `drop temporary role ${state.role}`,
+                      () => admin.unsafe(`drop role if exists ${quoteIdentifier(state.role)}`),
+                    );
+                }
+              } finally {
+                await attemptCleanup(
+                  cleanupErrors,"admin connection",() => admin.end({ timeout: 5 }),
+                );
+              }
+            }
           }
-          await admin.end({ timeout: 5 });
         }
       }
+      if (primaryError) {
+        if (cleanupErrors.length)
+          throw new AggregateError(
+            [primaryError, ...cleanupErrors],
+            "M1 real PostgreSQL proof and cleanup both failed",
+          );
+        throw primaryError;
+      }
+      if (cleanupErrors.length)
+        throw new AggregateError(
+          cleanupErrors,
+          "M1 real PostgreSQL cleanup failed",
+        );
     },
   );
 }
