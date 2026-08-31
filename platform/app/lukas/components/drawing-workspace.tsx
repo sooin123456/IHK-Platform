@@ -171,6 +171,7 @@ import {
   type DrawingClientModuleState,
   type DrawingWorkspaceViewMode,
 } from "~/lukas/lib/drawing-workspace-view";
+import { drawingWorkspaceOperationPath } from "~/lukas/lib/drawing-workspace-paths";
 import {
   canMutateDrawingObjectSources,
   createDrawingIfcSourceIndex,
@@ -1134,19 +1135,9 @@ export default function DrawingWorkspaceClient({
   > | null>(null);
   const localDraftFlushRef = useRef<() => Promise<void>>(async () => {});
   const retryStorageRef = useRef<() => void>(() => {});
-  const { file: sourceFile, document: drawingDocument } = workspace;
-  const file = sourceFile ?? {
-    id: drawingDocument.id,
-    kind: "pdf" as const,
-    sha256: drawingDocument.source_sha256 ?? "0".repeat(64),
-    original_filename: drawingDocument.title,
-    project_id: projectId,
-    storage_path: "",
-    content_type: null,
-    byte_size: 0,
-    immutable: true,
-    created_at: drawingDocument.created_at,
-  };
+  const { primarySource: file, document: drawingDocument } = workspace;
+  const sourceSha256 =
+    file?.sha256 ?? drawingDocument.source_sha256 ?? "0".repeat(64);
   const navigation = useNavigation();
   const { revision } = drawingDocument;
   const authority = drawingCollaborationAuthority({
@@ -1189,7 +1180,7 @@ export default function DrawingWorkspaceClient({
   const authoritativeSnapshotKey = drawingAuthoritativeSnapshotKey({
     revisionId: revision.id,
     revisionVersion: revision.version,
-    sourceSha256: file.sha256,
+    sourceSha256,
     ...(collaborationBootstrap
       ? {
           bootstrap: {
@@ -1215,11 +1206,11 @@ export default function DrawingWorkspaceClient({
     () => ({
       key: authoritativeSnapshotKey,
       state: authoritativeBase,
-      baseSnapshotSha256: collaborationBootstrap?.sha256 ?? file.sha256,
+      baseSnapshotSha256: collaborationBootstrap?.sha256 ?? sourceSha256,
       operationSequence: collaborationBootstrap?.operationSequence ?? 0,
       recentOutcomes: collaborationBootstrap?.recentOutcomes ?? [],
     }),
-    [authoritativeSnapshotKey, authoritativeBase, file.sha256],
+    [authoritativeSnapshotKey, authoritativeBase, sourceSha256],
   );
   const authoritativeCheckpointRef = useRef(authoritativeCheckpoint);
   authoritativeCheckpointRef.current = authoritativeCheckpoint;
@@ -1710,8 +1701,7 @@ export default function DrawingWorkspaceClient({
       : null);
   const selectedIfcRenderBundle = adaptIfcRenderBundleDescriptor(selectedIfc);
   const primarySourceUrl =
-    sourceBundle?.pdf?.signedUrl ??
-    (file.kind === "pdf" ? sourceUrl : null);
+    sourceBundle?.pdf?.signedUrl ?? (file?.kind === "pdf" ? sourceUrl : null);
   const activeView: DrawingWorkspaceViewMode = selectedIfcChoice
     ? viewMode
     : "2d";
@@ -1729,9 +1719,7 @@ export default function DrawingWorkspaceClient({
     if (next.leftDockOpen !== leftDockOpen) setLeftDockOpen(next.leftDockOpen);
   }, [activeView, inspectorOpen, leftDockOpen]);
   const surface = drawingWorkspaceSurface({
-    file: {
-      kind: file.kind,
-    },
+    file: file ? { kind: file.kind } : null,
     page: page
       ? {
           width: page.width_mm,
@@ -1823,7 +1811,10 @@ export default function DrawingWorkspaceClient({
       awarenessPublicationRef.current?.disconnect();
       awarenessStoreRef.current.replace([]);
     };
-    const actionUrl = `${window.location.pathname.replace(/\/$/, "")}/operation${window.location.search}`;
+    const actionUrl = `${drawingWorkspaceOperationPath(
+      projectId,
+      drawingDocument.id,
+    )}${window.location.search}`;
     const refresh = async () => {
       const [entries, legacy] = await Promise.all([
         outbox.entries(),
@@ -3397,18 +3388,20 @@ export default function DrawingWorkspaceClient({
   const ifcVisible =
     activeView === "3d" ||
     (activeView === "split" && (!narrowLayout || narrowSplitTab === "3d"));
-  const backgroundPdfSource = resolveDrawingPdfRasterSource({
-    bundledPdf:
-      sourceBundle?.pdf?.kind === "pdf"
-        ? { ...sourceBundle.pdf, kind: "pdf" }
-        : null,
-    fallbackSignedUrl: sourceUrl,
-    workspaceFile: {
-      id: file.id,
-      kind: file.kind,
-      sha256: file.sha256,
-    },
-  });
+  const backgroundPdfSource = file
+    ? resolveDrawingPdfRasterSource({
+        bundledPdf:
+          sourceBundle?.pdf?.kind === "pdf"
+            ? { ...sourceBundle.pdf, kind: "pdf" }
+            : null,
+        fallbackSignedUrl: sourceUrl,
+        workspaceFile: {
+          id: file.id,
+          kind: file.kind,
+          sha256: file.sha256,
+        },
+      })
+    : null;
   const background: DrawingCanvasBackground = activeCanvas
     ? activeCanvas.background && backgroundPdfSource
       ? {
@@ -3826,7 +3819,7 @@ export default function DrawingWorkspaceClient({
             {drawingDocument.title}
           </h1>
           <p className="drawing-workspace-topbar-subtitle truncate text-xs text-slate-400">
-            도면 작업실 · {file.original_filename}
+            도면 작업실 · {file?.original_filename ?? "원본 없음 · 빈 캔버스"}
           </p>
         </div>
         <div className="drawing-workspace-topbar-actions flex flex-wrap items-center gap-1">
@@ -3857,18 +3850,16 @@ export default function DrawingWorkspaceClient({
             store={awarenessStoreRef.current}
           />
           <DrawingCollaborationParticipants store={awarenessStoreRef.current} />
-          {sourceFile ? (
-            <DrawingExportLauncher
-              auditRequired={!previewMode}
-              createdAt={drawingDocument.created_at}
-              documentState={drawingState}
-              fileId={sourceFile.id}
-              projectId={projectId}
-              revisionId={revision.id}
-              sourceUrl={primarySourceUrl}
-              title={drawingDocument.title}
-            />
-          ) : null}
+          <DrawingExportLauncher
+            auditRequired={!previewMode}
+            createdAt={drawingDocument.created_at}
+            documentState={drawingState}
+            projectId={projectId}
+            revisionId={revision.id}
+            sourceUrl={primarySourceUrl}
+            title={drawingDocument.title}
+            workspaceId={drawingDocument.id}
+          />
           {editing.canEdit ? (
             <>
               <Button
@@ -4607,8 +4598,8 @@ export default function DrawingWorkspaceClient({
               <Link
                 className="inline-flex min-h-10 items-center rounded-md border border-white/20 px-3 font-semibold hover:bg-white/10"
                 to={
-                  sourceFile
-                    ? `/projects/${projectId}/drawings/${sourceFile.id}`
+                  file
+                    ? `/projects/${projectId}/drawings/${file.id}`
                     : `/projects/${projectId}`
                 }
               >
@@ -5465,9 +5456,9 @@ export default function DrawingWorkspaceClient({
                       {selectedObjectLineage.total}
                     </p>
                     <p className="mt-0.5 text-xs font-bold text-white">
-                      {selectedDrawingObjectId
-                        ? selectedObjectLineageAction?.title ??
-                          "업무 계보 연결 완료"
+                  {selectedDrawingObjectId
+                    ? selectedObjectLineageAction?.title ??
+                      "업무 계보 연결 완료"
                         : "객체를 선택해 업무 계보 시작"}
                     </p>
                   </div>

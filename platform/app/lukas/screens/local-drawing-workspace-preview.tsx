@@ -1138,7 +1138,7 @@ export function localDrawingWorkspacePreviewFixture(options?: {
     selectedIfcFileId: selectedIfc?.id ?? null,
     viewMode: options?.viewMode,
     workspace: {
-      file: {
+      primarySource: {
         id: ids.file,
         project_id: ids.project,
         kind: "pdf",
@@ -1185,7 +1185,7 @@ export function validateLocalDrawingWorkspacePreviewFixture(
 ) {
   const { workspace } = fixture;
   const revision = workspace.document.revision;
-  if (workspace.document.source_sha256 !== workspace.file.sha256)
+  if (workspace.document.source_sha256 !== workspace.primarySource?.sha256)
     throw new Error("Local preview source SHA must remain bound to the file.");
   if (revision.parent_revision_id !== null || revision.status !== "draft")
     throw new Error(

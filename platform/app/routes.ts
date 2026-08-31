@@ -91,16 +91,34 @@ export default [
         "lukas/screens/drawing-room.tsx",
       ),
       route(
+        "/projects/:projectId/workspaces/:workspaceId",
+        "lukas/screens/drawing-workspace.tsx",
+        { id: "drawing-workspace" },
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/operation",
+        "lukas/screens/drawing-workspace-operation.ts",
+        { id: "drawing-workspace-operation" },
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/export",
+        "lukas/screens/drawing-workspace-export.ts",
+        { id: "drawing-workspace-export" },
+      ),
+      route(
         "/projects/:projectId/drawings/:fileId/workspace",
         "lukas/screens/drawing-workspace.tsx",
+        { id: "legacy-drawing-workspace" },
       ),
       route(
         "/projects/:projectId/drawings/:fileId/workspace/operation",
         "lukas/screens/drawing-workspace-operation.ts",
+        { id: "legacy-drawing-workspace-operation" },
       ),
       route(
         "/projects/:projectId/drawings/:fileId/workspace/export",
         "lukas/screens/drawing-workspace-export.ts",
+        { id: "legacy-drawing-workspace-export" },
       ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(

@@ -125,7 +125,7 @@ test("quantity action scope binds the posted object to the current file document
   const revisionId = "00000000-0000-4000-8000-000000000012";
   const objectId = "00000000-0000-4000-8000-000000000013";
   const workspace = {
-    file: { id: fileId },
+    primarySource: { id: fileId },
     document: {
       source_file_id: fileId,
       revision: { id: revisionId, objects: [{ id: objectId }] },
@@ -420,7 +420,7 @@ test("quantity lineage loader binds the URL file, revision, and object before re
   const lineageAt = loader.indexOf("listDrawingObjectQuantityLineage(");
   assert.ok(scopeAt >= 0 && scopeAt < lineageAt);
   assert.match(loader, /if \(scope\.requiresEntryResolution\)/);
-  assert.match(loader, /entry\.fileId !== workspace\.file\.id/);
+  assert.match(loader, /entry\.fileId !== workspace\.primarySource\.id/);
 });
 
 test("validated reload selection survives initial transient sanitization while stale selection is removed", () => {

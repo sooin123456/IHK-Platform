@@ -55,6 +55,31 @@ test("drawing export audit refuses a followed login redirect as an artifact", as
   }
 });
 
+test("drawing export audit refuses a successful response with the wrong content type", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    blob: async () => new Blob(["login"]),
+    headers: new Headers({ "content-type": "text/html" }),
+    ok: true,
+    redirected: false,
+    status: 200,
+  });
+  try {
+    await assert.rejects(
+      exportDialogModule.auditDrawingExport(
+        new Blob(["<svg/>"]),
+        "drawing.svg",
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003",
+      ),
+      /응답 형식/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function renderWorkspace(overrides = {}) {
   const fixture = {
     ...previewModule.localDrawingWorkspacePreviewFixture(),
@@ -182,7 +207,10 @@ test("workspace makes modes, tools, and business lineage visible without icon gu
   for (const step of ["원본", "객체", "이슈", "승인", "물량·금액"])
     assert.match(html, new RegExp(`data-lineage-step="${step}"[^>]*>${step}<`));
   assert.match(html, /aria-label="선택 객체 업무 계보"/);
-  assert.match(html, /객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다/);
+  assert.match(
+    html,
+    /객체를 선택하면 원본부터 물량·금액까지 연결 상태를 안내합니다/,
+  );
 });
 
 test("business lineage points to the earliest missing link", () => {
@@ -238,7 +266,10 @@ test("split view remains a real two-pane workspace on tablet widths", async () =
     "utf8",
   );
   assert.match(source, /window\.matchMedia\("\(max-width: 767px\)"\)/);
-  assert.match(source, /md:grid-cols-\[minmax\(20rem,1fr\)_minmax\(20rem,1fr\)\]/);
+  assert.match(
+    source,
+    /md:grid-cols-\[minmax\(20rem,1fr\)_minmax\(20rem,1fr\)\]/,
+  );
   assert.match(
     source,
     /aria-label="분할 보기 패널"[^>]*className="[^"]*md:hidden/,
@@ -423,7 +454,10 @@ test("workspace panel tabs wrap with arrows and jump with Home and End", () => {
 test("local preview uses project-owned drawing copy", () => {
   const fixture = previewModule.localDrawingWorkspacePreviewFixture();
   assert.doesNotMatch(fixture.workspace.document.title, /Rayon/);
-  assert.doesNotMatch(fixture.workspace.file.original_filename, /Rayon/);
+  assert.doesNotMatch(
+    fixture.workspace.primarySource.original_filename,
+    /Rayon/,
+  );
   assert.doesNotMatch(renderWorkspace(), /Rayon \/ /);
 });
 
@@ -441,6 +475,25 @@ test("workspace offers the native export dialog to editors and viewers", () => {
   assert.match(editor, /<button[^>]*>[^<]*내보내기/);
   assert.match(viewer, /<button[^>]*>[^<]*내보내기/);
   assert.doesNotMatch(viewer, /name="intent"[^>]*value="export"/);
+});
+
+test("source-free documents keep the blank canvas and audited export launcher", () => {
+  const fixture = previewModule.localDrawingWorkspacePreviewFixture();
+  const html = renderWorkspace({
+    selectedIfcFileId: null,
+    sourceBundle: undefined,
+    workspace: {
+      ...fixture.workspace,
+      primarySource: null,
+      document: {
+        ...fixture.workspace.document,
+        source_file_id: null,
+        source_sha256: null,
+      },
+    },
+  });
+  assert.match(html, /원본 없음 · 빈 캔버스/);
+  assert.match(html, /<button[^>]*>[^<]*내보내기/);
 });
 
 test("one export deadline times out at 30 seconds and disposes its timer once", () => {

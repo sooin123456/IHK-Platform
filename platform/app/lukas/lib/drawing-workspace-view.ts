@@ -287,9 +287,7 @@ export function drawingRevisionDecisionFields(input: {
 }
 
 type WorkspaceSurfaceInput = {
-  file: {
-    kind: "pdf" | "ifc";
-  };
+  file: { kind: "pdf" | "ifc" } | null;
   page: {
     width: number;
     height: number;
@@ -304,7 +302,7 @@ export function drawingWorkspaceSurface(input: WorkspaceSurfaceInput) {
     width: input.page?.width ?? 841,
     height: input.page?.height ?? 594,
   };
-  if (input.file.kind === "ifc")
+  if (!input.file || input.file.kind === "ifc")
     return {
       layout: "canvas" as const,
       background: blank,

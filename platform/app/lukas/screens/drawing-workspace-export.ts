@@ -17,11 +17,67 @@ const Filename = z
   .max(240)
   .regex(/^[^\\/:*?"<>|\u0000-\u001f]+$/);
 
+export async function validateDrawingExportScope(
+  scopeClient: any,
+  input: {
+    fileId: string | null;
+    projectId: string;
+    revisionId: string;
+    workspaceId: string | null;
+  },
+) {
+  const { data: revision } = await scopeClient
+    .from("lukas_drawing_revisions")
+    .select("id,document_id")
+    .eq("id", input.revisionId)
+    .eq("project_id", input.projectId)
+    .maybeSingle();
+  if (!revision)
+    throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
+      status: 404,
+    });
+  const { data: document } = await scopeClient
+    .from("lukas_drawing_documents")
+    .select("id,source_file_id")
+    .eq("id", input.workspaceId ?? revision.document_id)
+    .eq("project_id", input.projectId)
+    .maybeSingle();
+  if (
+    !document ||
+    revision.document_id !== document.id ||
+    (input.workspaceId === null &&
+      document.source_file_id !== null &&
+      document.source_file_id !== input.fileId)
+  )
+    throw new Response("내보내기 도면 계보가 일치하지 않습니다.", {
+      status: 404,
+    });
+  if (input.fileId) {
+    const { data: file } = await scopeClient
+      .from("lukas_qto_files")
+      .select("id")
+      .eq("id", input.fileId)
+      .eq("project_id", input.projectId)
+      .maybeSingle();
+    if (!file)
+      throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
+        status: 404,
+      });
+  }
+}
+
 export async function action({ request, params }: Route.ActionArgs) {
   if (request.method !== "POST")
     throw new Response("Method Not Allowed", { status: 405 });
   const projectId = Uuid.parse(params.projectId);
-  const fileId = Uuid.parse(params.fileId);
+  const workspaceId = params.workspaceId
+    ? Uuid.parse(params.workspaceId)
+    : null;
+  const fileId = params.fileId ? Uuid.parse(params.fileId) : null;
+  if (!workspaceId && !fileId)
+    throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
+      status: 404,
+    });
   const { client, headers } = await drawingContext(request, projectId);
   const form = await request.formData();
   for (const key of form.keys())
@@ -58,37 +114,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       status: 400,
     });
   const scopeClient = client as any;
-  const [{ data: file }, { data: revision }] = await Promise.all([
-    scopeClient
-      .from("lukas_qto_files")
-      .select("id")
-      .eq("id", fileId)
-      .eq("project_id", projectId)
-      .maybeSingle(),
-    scopeClient
-      .from("lukas_drawing_revisions")
-      .select("id,document_id")
-      .eq("id", revisionId)
-      .eq("project_id", projectId)
-      .maybeSingle(),
-  ]);
-  if (!file || !revision)
-    throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
-      status: 404,
-    });
-  const { data: document } = await scopeClient
-    .from("lukas_drawing_documents")
-    .select("id,source_file_id")
-    .eq("id", revision.document_id)
-    .eq("project_id", projectId)
-    .maybeSingle();
-  if (
-    !document ||
-    (document.source_file_id && document.source_file_id !== fileId)
-  )
-    throw new Response("내보내기 도면 계보가 일치하지 않습니다.", {
-      status: 404,
-    });
+  await validateDrawingExportScope(scopeClient, {
+    fileId,
+    projectId,
+    revisionId,
+    workspaceId,
+  });
   const bytes = new Uint8Array(await artifact.arrayBuffer());
   await recordProjectExport(
     client as any,

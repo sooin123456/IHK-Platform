@@ -822,7 +822,10 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
     lukas_drawing_property_values: { data: [], error: null },
     lukas_drawing_tables: { data: [], error: null },
   });
-  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
   assert.deepEqual(loaded.document.revision.sources, [
     {
       id: p2Ids.source,
@@ -1743,13 +1746,11 @@ test("workspace loading opens a source-less document without a drawing file", as
     lukas_drawing_object_sources: { data: [], error: null },
     lukas_drawing_library_imports: { data: [], error: null },
   });
-  const loaded = await loadDrawingWorkspace(
-    client,
-    ids.project,
-    null,
-    ids.document,
-  );
-  assert.equal(loaded.file, null);
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
+  assert.equal(loaded.primarySource, null);
   assert.equal(loaded.document.id, ids.document);
 });
 
@@ -2065,6 +2066,103 @@ function queryClient(responses) {
   };
 }
 
+test("document-first loader accepts a workspace without a primary source", async () => {
+  const client = queryClient({
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: null,
+        source_sha256: null,
+        title: "Blank workspace",
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Page 1",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: p2Ids.canvas,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Blank canvas",
+          space_kind: "paper",
+          width_mm: 841,
+          height_mm: 594,
+          background_source_file_id: null,
+          background_source_sha256: null,
+          background_pdf_page: null,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Work",
+          sort_order: 0,
+          visible: true,
+          locked: false,
+          system_kind: "work",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_object_sources: { data: [], error: null },
+    lukas_drawing_styles: { data: [], error: null },
+    lukas_drawing_blocks: { data: [], error: null },
+    lukas_drawing_block_instances: { data: [], error: null },
+    lukas_drawing_property_schemas: { data: [], error: null },
+    lukas_drawing_property_values: { data: [], error: null },
+    lukas_drawing_tables: { data: [], error: null },
+  });
+
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
+  assert.equal(loaded.primarySource, null);
+  assert.equal(loaded.document.id, ids.document);
+  assert.equal(loaded.document.revision.id, ids.revision);
+  assert.equal(
+    client.calls.some((call) => call.table === "lukas_qto_files"),
+    false,
+  );
+});
+
 function workspaceLoaderClient(layers, extraResponses = {}) {
   return queryClient({
     lukas_qto_files: {
@@ -2078,11 +2176,22 @@ function workspaceLoaderClient(layers, extraResponses = {}) {
       error: null,
     },
     lukas_drawing_documents: {
-      data: { id: ids.document, project_id: ids.project },
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+      },
       error: null,
     },
     lukas_drawing_revisions: {
-      data: { id: ids.revision, status: "draft", version: 1 },
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
       error: null,
     },
     lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
@@ -2160,12 +2269,19 @@ test("workspace loading binds immutable PDF evidence to its project and performs
     lukas_drawing_objects: { data: [], error: null },
   });
 
-  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
 
-  assert.equal(loaded.file.sha256, sourceSha);
+  assert.equal(loaded.primarySource.sha256, sourceSha);
   assert.equal(loaded.document.revision.id, ids.revision);
   assert.deepEqual(loaded.document.revision.pages, [{ id: ids.page }]);
-  assert.deepEqual(client.calls[0].filters, [
+  assert.deepEqual(
+    client.calls.slice(0, 3).map((call) => call.table),
+    ["lukas_drawing_documents", "lukas_drawing_revisions", "lukas_qto_files"],
+  );
+  assert.deepEqual(client.calls[2].filters, [
     ["eq", "project_id", ids.project],
     ["eq", "id", ids.file],
     ["in", "kind", ["pdf", "ifc"]],
@@ -2291,11 +2407,22 @@ test("workspace loading fails closed when source-layer metadata is missing", asy
   const client = queryClient({
     lukas_qto_files: { data: file, error: null },
     lukas_drawing_documents: {
-      data: { id: ids.document, project_id: ids.project },
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+      },
       error: null,
     },
     lukas_drawing_revisions: {
-      data: { id: ids.revision, status: "draft", version: 1 },
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        status: "draft",
+        version: 1,
+      },
       error: null,
     },
     lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
@@ -2514,7 +2641,7 @@ test("workspace source signing never mints a raw IFC capability and preserves ex
     },
   };
   const ifcWorkspace = {
-    file: {
+    primarySource: {
       id: ids.file,
       project_id: ids.project,
       kind: "ifc",
@@ -2536,7 +2663,7 @@ test("workspace source signing never mints a raw IFC capability and preserves ex
 
   const blankPdf = {
     ...ifcWorkspace,
-    file: { ...ifcWorkspace.file, kind: "pdf" },
+    primarySource: { ...ifcWorkspace.primarySource, kind: "pdf" },
   };
   assert.equal(
     await workspaceServer.loadDrawingWorkspaceSourceUrl(client, blankPdf),
@@ -2974,7 +3101,7 @@ test("trusted staff context is admin without membership while viewer and outside
 
 function loadedWorkspace(revisionId = ids.revision) {
   return {
-    file: {
+    primarySource: {
       id: ids.file,
       project_id: ids.project,
       kind: "pdf",

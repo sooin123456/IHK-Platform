@@ -102,7 +102,7 @@ function workspaceFile(overrides = {}) {
 
 function sourceWorkspace(file = workspaceFile()) {
   return {
-    file,
+    primarySource: file,
     templateCandidates: [],
     document: {
       id: p5Ids.document,

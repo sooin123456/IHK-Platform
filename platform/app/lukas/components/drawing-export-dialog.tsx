@@ -19,6 +19,7 @@ import {
   type DrawingExportBackground,
 } from "~/lukas/lib/drawing-export";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
+import { drawingWorkspaceExportPath } from "~/lukas/lib/drawing-workspace-paths";
 import type { DrawingCanvas } from "~/lukas/lib/drawing-workspace.types";
 
 type ExportFormat = "pdf" | "png" | "svg";
@@ -32,7 +33,6 @@ export type DrawingExportDialogProps = {
   auditRequired?: boolean;
   createdAt: string;
   documentState: DrawingDocumentSnapshot;
-  fileId: string;
   hideTrigger?: boolean;
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
@@ -40,6 +40,7 @@ export type DrawingExportDialogProps = {
   revisionId: string;
   sourceUrl: string | null;
   title: string;
+  workspaceId: string;
 };
 
 const DRAWING_EXPORT_TIMEOUT_MILLISECONDS = 30_000;
@@ -260,14 +261,14 @@ export function downloadDrawingExport(blob: Blob, filename: string) {
 export async function auditDrawingExport(
   blob: Blob,
   filename: string,
-  fileId: string,
+  workspaceId: string,
   projectId: string,
   revisionId: string,
 ) {
   const extension = filename.split(".").at(-1)?.toLowerCase();
   if (!extension || !["pdf", "png", "svg"].includes(extension))
     throw new Error("지원하지 않는 도면 내보내기 형식입니다.");
-  const path = `/projects/${encodeURIComponent(projectId)}/drawings/${encodeURIComponent(fileId)}/workspace/export`;
+  const path = drawingWorkspaceExportPath(projectId, workspaceId);
   const form = new FormData();
   form.set("artifact", blob, filename);
   form.set("artifact_type", `drawing_${extension}`);
@@ -349,7 +350,6 @@ export function DrawingExportDialog({
   auditRequired = true,
   createdAt,
   documentState,
-  fileId,
   hideTrigger = false,
   onOpenChange,
   open: controlledOpen,
@@ -357,6 +357,7 @@ export function DrawingExportDialog({
   revisionId,
   sourceUrl,
   title,
+  workspaceId,
 }: DrawingExportDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("pdf");
@@ -395,7 +396,13 @@ export function DrawingExportDialog({
       activeOperationRef,
       download: ({ blob, filename }) =>
         auditRequired
-          ? auditDrawingExport(blob, filename, fileId, projectId, revisionId)
+          ? auditDrawingExport(
+              blob,
+              filename,
+              workspaceId,
+              projectId,
+              revisionId,
+            )
           : downloadDrawingExport(blob, filename),
       execute: async ({ registerDisposer, signal }) => {
         const baseName = safeFilename(title);

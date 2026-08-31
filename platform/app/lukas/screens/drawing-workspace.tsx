@@ -26,8 +26,6 @@ import {
   assertDrawingBoqEvidenceScope,
   assertDrawingQuantityWorkspaceScope,
   handleWorkspaceMutation,
-  drawingTemplateCloneLocation,
-  drawingTemplateWorkspaceLocation,
   loadDrawingWorkspace,
   loadDrawingWorkspaceMeasurementState,
   loadDrawingWorkspaceCapability,
@@ -39,6 +37,7 @@ import {
   resolveDrawingDocumentEntry,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
+import { drawingWorkspacePath } from "~/lukas/lib/drawing-workspace-paths";
 import { assertProjectOrganizationFeature } from "~/lukas/lib/organization-administration.server";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type {
@@ -48,8 +47,8 @@ import type {
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
-    title: page?.workspace?.file
-      ? `${page.workspace.file.original_filename} | 도면 편집 작업실 | 1HK Platform`
+    title: page?.workspace?.primarySource
+      ? `${page.workspace.primarySource.original_filename} | 도면 편집 작업실 | 1HK Platform`
       : "도면 편집 작업실 | 1HK Platform",
   },
 ];
@@ -143,18 +142,28 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       project.id,
       "ifc_workspace",
     );
-  const workspace = await loadDrawingWorkspace(
-    client,
-    project.id,
-    params.fileId ?? null,
-    new URL(request.url).searchParams.get("document") ?? undefined,
-    lineageSearch.revisionId ?? undefined,
-    lineageSearch.objectId ?? undefined,
-    lineageSearch.evidenceFileId ?? undefined,
-  );
+  const workspace = params.workspaceId
+    ? await loadDrawingWorkspace(client, {
+        projectId: project.id,
+        workspaceId: params.workspaceId,
+        revisionId: lineageSearch.revisionId ?? undefined,
+        focusObjectId: lineageSearch.objectId ?? undefined,
+        focusEvidenceFileId: lineageSearch.evidenceFileId ?? undefined,
+      })
+    : await loadDrawingWorkspace(
+        client,
+        project.id,
+        params.fileId ?? null,
+        new URL(request.url).searchParams.get("document") ?? undefined,
+        lineageSearch.revisionId ?? undefined,
+        lineageSearch.objectId ?? undefined,
+        lineageSearch.evidenceFileId ?? undefined,
+      );
   const selectedIfcFileId =
     viewState.ifcFileId ??
-    (workspace.file?.kind === "ifc" ? workspace.file.id : null);
+    (workspace.primarySource?.kind === "ifc"
+      ? workspace.primarySource.id
+      : null);
   const sourceBundle = await loadDrawingWorkspaceSourceBundle(
     client,
     workspace,
@@ -186,7 +195,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (workspace.document && lineageObjectId) {
     try {
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId ?? workspace.file?.id ?? "",
+        fileId: params.fileId ?? workspace.primarySource?.id ?? "",
         revisionId: workspace.document.revision.id,
         objectId: lineageObjectId,
       });
@@ -197,7 +206,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           workspace.document.id,
           lineageObjectId,
         );
-        if (!workspace.file || entry.fileId !== workspace.file.id)
+        if (
+          !workspace.primarySource ||
+          entry.fileId !== workspace.primarySource.id
+        )
           throw new Error("workspace entry mismatch");
       }
     } catch {
@@ -246,8 +258,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     : null;
   const collaborationClient = client as unknown as DrawingClient;
   const [collaborationRoom, assignees] = await Promise.all([
-    workspace.file
-      ? loadDrawingRoom(collaborationClient, project.id, workspace.file.id)
+    workspace.primarySource
+      ? loadDrawingRoom(
+          collaborationClient,
+          project.id,
+          workspace.primarySource.id,
+        )
       : Promise.resolve(null),
     listDrawingAssignees(collaborationClient, project.id, project.owner_id),
   ]);
@@ -285,13 +301,19 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
   const form = await request.formData();
   const searchParams = new URL(request.url).searchParams;
-  const workspace = await loadDrawingWorkspace(
-    client,
-    project.id,
-    params.fileId ?? null,
-    searchParams.get("document") ?? undefined,
-    searchParams.get("revision") ?? undefined,
-  );
+  const workspace = params.workspaceId
+    ? await loadDrawingWorkspace(client, {
+        projectId: project.id,
+        workspaceId: params.workspaceId,
+        revisionId: searchParams.get("revision") ?? undefined,
+      })
+    : await loadDrawingWorkspace(
+        client,
+        project.id,
+        params.fileId ?? null,
+        searchParams.get("document") ?? undefined,
+        searchParams.get("revision") ?? undefined,
+      );
   const intent = form.get("intent");
   if (intent === "create_drawing_quantity_link") {
     await assertProjectOrganizationFeature(
@@ -303,7 +325,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const mutation = parseDrawingQuantityLinkForm(form);
       const scope = assertDrawingQuantityWorkspaceScope(workspace, {
-        fileId: params.fileId ?? workspace.file?.id ?? "",
+        fileId: params.fileId ?? workspace.primarySource?.id ?? "",
         revisionId: mutation.drawingRevisionId,
         objectId: mutation.drawingObjectId,
       });
@@ -314,7 +336,10 @@ export async function action({ request, params }: Route.ActionArgs) {
           workspace.document!.id,
           mutation.drawingObjectId,
         );
-        if (workspace.file && entry.fileId !== workspace.file.id)
+        if (
+          workspace.primarySource &&
+          entry.fileId !== workspace.primarySource.id
+        )
           throw new DrawingQuantityLineageServerError("P6O01");
       }
       const created = await createDrawingQuantityLink(client, user.id, {
@@ -434,18 +459,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     result.status === 200 &&
     result.body.ok
   ) {
-    if (!workspace.file)
-      throw new Response("도면 template 원본은 사용할 수 없습니다.", {
-        status: 400,
-      });
-    return redirect(
-      drawingTemplateCloneLocation(
-        project.id,
-        workspace.file.id,
-        result.body.result,
-      ),
-      { headers },
-    );
+    const cloned = result.body.result as { documentId: string };
+    return redirect(drawingWorkspacePath(project.id, cloned.documentId), {
+      headers,
+    });
   }
   if (
     form.get("intent") === "restore_approved_snapshot" &&
@@ -453,14 +470,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     result.body.ok
   ) {
     const restored = result.body.result as { documentId: string };
-    return redirect(
-      drawingTemplateWorkspaceLocation(
-        project.id,
-        workspace.file?.id ?? restored.documentId,
-        restored.documentId,
-      ),
-      { headers },
-    );
+    return redirect(drawingWorkspacePath(project.id, restored.documentId), {
+      headers,
+    });
   }
   return data(result.body, { status: result.status, headers });
 }
@@ -483,16 +495,16 @@ export default function DrawingWorkspaceScreen({
         collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
         activityPage={loaderData.activityPage ?? undefined}
         assignees={loaderData.assignees}
-        collaborationRoom={loaderData.collaborationRoom}
+        collaborationRoom={loaderData.collaborationRoom ?? undefined}
         currentUserId={loaderData.currentUserId}
         measurementEvidence={loaderData.measurementEvidence}
         measurementEvidenceError={loaderData.measurementEvidenceError}
         projectId={project.id}
         quantityLineage={quantityLineage}
         roomUrl={
-          workspace.file
-            ? `/projects/${project.id}/drawings/${workspace.file.id}`
-            : `/projects/${project.id}`
+          workspace.primarySource
+            ? `/projects/${project.id}/drawings/${workspace.primarySource.id}`
+            : `/projects/${project.id}/drawings`
         }
         sourceBundle={loaderData.sourceBundle}
         selectedIfcFileId={loaderData.selectedIfcFileId}
@@ -506,13 +518,13 @@ export default function DrawingWorkspaceScreen({
       <Link
         className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground underline underline-offset-4"
         to={
-          workspace.file
-            ? `/projects/${project.id}/drawings/${workspace.file.id}`
+          workspace.primarySource
+            ? `/projects/${project.id}/drawings/${workspace.primarySource.id}`
             : `/projects/${project.id}`
         }
       >
         <ArrowLeft className="size-4" />{" "}
-        {workspace.file ? "협업 도면실" : "프로젝트 개요"}
+        {workspace.primarySource ? "협업 도면실" : "프로젝트 개요"}
       </Link>
 
       <header className="mt-4 border-b pb-6">
@@ -520,11 +532,11 @@ export default function DrawingWorkspaceScreen({
           {project.name} · 도면 편집 작업실
         </p>
         <h1 className="mt-2 truncate text-3xl font-bold tracking-tight">
-          {workspace.file?.original_filename ?? "빈 작업실"}
+          {workspace.primarySource?.original_filename ?? "빈 작업실"}
         </h1>
-        {workspace.file ? (
+        {workspace.primarySource ? (
           <p className="mt-2 font-mono text-xs text-muted-foreground">
-            원본 SHA-256: {workspace.file.sha256}
+            원본 SHA-256: {workspace.primarySource.sha256}
           </p>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
@@ -558,8 +570,10 @@ export default function DrawingWorkspaceScreen({
               <input
                 className="min-h-11 w-full rounded-lg border bg-background px-3"
                 defaultValue={
-                  workspace.file?.original_filename.replace(/\.[^.]+$/, "") ??
-                  project.name
+                  workspace.primarySource?.original_filename.replace(
+                    /\.[^.]+$/,
+                    "",
+                  ) ?? project.name
                 }
                 id="drawing-title"
                 maxLength={240}
@@ -575,7 +589,7 @@ export default function DrawingWorkspaceScreen({
                 >
                   빈 도면
                 </button>
-                {workspace.file?.kind === "pdf" ? (
+                {workspace.primarySource?.kind === "pdf" ? (
                   <button
                     className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground"
                     name="document_mode"
@@ -585,11 +599,11 @@ export default function DrawingWorkspaceScreen({
                     PDF 배경 사용
                   </button>
                 ) : null}
-                {workspace.file ? (
+                {workspace.primarySource ? (
                   <DrawingTemplateDialog
                     actionError={actionData?.error ?? undefined}
                     candidates={workspace.templateCandidates}
-                    sourceFile={workspace.file}
+                    sourceFile={workspace.primarySource}
                   />
                 ) : null}
               </div>

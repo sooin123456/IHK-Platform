@@ -10,6 +10,14 @@ const workspaceView = await import(
 const workspaceServer = await import(
   "../app/lukas/lib/drawing-workspace.server.ts"
 ).catch(() => ({}));
+const workspacePaths = await import(
+  "../app/lukas/lib/drawing-workspace-paths.ts"
+).catch(() => ({}));
+const ids = {
+  project: "00000000-0000-4000-8000-000000000002",
+  file: "00000000-0000-4000-8000-000000000003",
+  document: "00000000-0000-4000-8000-000000000004",
+};
 
 function flatten(routesToFlatten) {
   return routesToFlatten.flatMap((route) => [
@@ -42,6 +50,55 @@ test("workspace route is additive and keeps the collaboration room", () => {
         "lukas/screens/drawing-workspace-export.ts",
       ],
     ],
+  );
+});
+
+test("workspace routes expose document-scoped canonical identity alongside compatibility aliases", () => {
+  const byPath = new Map(
+    flatten(routes).map((route) => [route.path, route.file]),
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspaces/:workspaceId"),
+    "lukas/screens/drawing-workspace.tsx",
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspaces/:workspaceId/operation"),
+    "lukas/screens/drawing-workspace-operation.ts",
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspaces/:workspaceId/export"),
+    "lukas/screens/drawing-workspace-export.ts",
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/drawings/:fileId/workspace"),
+    "lukas/screens/drawing-workspace.tsx",
+  );
+});
+
+test("workspace paths validate UUID identity and keep source optional", () => {
+  assert.equal(
+    workspacePaths.drawingWorkspacePath(ids.project, ids.document),
+    `/projects/${ids.project}/workspaces/${ids.document}`,
+  );
+  assert.equal(
+    workspacePaths.drawingWorkspaceNewPath(ids.project),
+    `/projects/${ids.project}/workspaces/new`,
+  );
+  assert.equal(
+    workspacePaths.drawingWorkspaceNewPath(ids.project, ids.file),
+    `/projects/${ids.project}/workspaces/new?sourceFileId=${ids.file}`,
+  );
+  assert.equal(
+    workspacePaths.drawingWorkspaceOperationPath(ids.project, ids.document),
+    `/projects/${ids.project}/workspaces/${ids.document}/operation`,
+  );
+  assert.equal(
+    workspacePaths.drawingWorkspaceExportPath(ids.project, ids.document),
+    `/projects/${ids.project}/workspaces/${ids.document}/export`,
+  );
+  assert.throws(
+    () => workspacePaths.drawingWorkspacePath("not-a-uuid", ids.document),
+    /uuid/i,
   );
 });
 
@@ -463,6 +520,19 @@ test("PDF and blank workspace surfaces remain a single canvas", () => {
     originalFilename: "plan.pdf",
     byteSize: 2048,
   };
+  assert.deepEqual(
+    workspaceView.drawingWorkspaceSurface({
+      file: null,
+      page: { width: 200, height: 100, backgroundPdfPage: null },
+      sourceUrl: null,
+    }),
+    {
+      layout: "canvas",
+      background: { kind: "blank", width: 200, height: 100 },
+      ifcViewer: null,
+      sourceError: null,
+    },
+  );
   assert.deepEqual(
     workspaceView.drawingWorkspaceSurface({
       file,

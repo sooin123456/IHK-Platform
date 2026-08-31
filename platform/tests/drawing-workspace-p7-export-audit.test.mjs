@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { createServer } from "vite";
+
+const projectId = "74000000-0000-4000-8000-000000000002";
+const workspaceId = "74000000-0000-4000-8000-000000000003";
+const revisionId = "74000000-0000-4000-8000-000000000004";
 
 const migration = readFileSync(
   new URL(
@@ -82,6 +87,129 @@ test("every actual project export response crosses the audit boundary", () => {
   );
 });
 
+test("drawing export audit posts to the canonical workspace identity", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  const original = {
+    createObjectURL: URL.createObjectURL,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    revokeObjectURL: URL.revokeObjectURL,
+  };
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls.push([String(url), init]);
+      return new Response(new Blob(["pdf"], { type: "application/pdf" }), {
+        headers: { "content-type": "application/pdf" },
+        status: 200,
+      });
+    };
+    URL.createObjectURL = () => "blob:test";
+    URL.revokeObjectURL = () => {};
+    globalThis.document = {
+      createElement() {
+        return { click() {} };
+      },
+    };
+    const { auditDrawingExport } = await vite.ssrLoadModule(
+      "/app/lukas/components/drawing-export-dialog.tsx",
+    );
+    await auditDrawingExport(
+      new Blob(["pdf"], { type: "application/pdf" }),
+      "drawing.pdf",
+      workspaceId,
+      projectId,
+      revisionId,
+    );
+    assert.equal(
+      calls[0][0],
+      `/projects/${projectId}/workspaces/${workspaceId}/export`,
+    );
+    assert.equal(calls[0][1].method, "POST");
+    assert.doesNotMatch(calls[0][0], /\/drawings\//);
+  } finally {
+    globalThis.fetch = original.fetch;
+    globalThis.document = original.document;
+    URL.createObjectURL = original.createObjectURL;
+    URL.revokeObjectURL = original.revokeObjectURL;
+    await vite.close();
+  }
+});
+
+test("drawing export scope binds canonical workspace/revision and preserves legacy file export", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const { validateDrawingExportScope } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.ts",
+    );
+    const calls = [];
+    const client = {
+      from(table) {
+        const call = { table, filters: [] };
+        calls.push(call);
+        const builder = {
+          select() {
+            return builder;
+          },
+          eq(column, value) {
+            call.filters.push([column, value]);
+            return builder;
+          },
+          maybeSingle() {
+            if (table === "lukas_drawing_revisions")
+              return Promise.resolve({
+                data: { id: revisionId, document_id: workspaceId },
+              });
+            if (table === "lukas_drawing_documents")
+              return Promise.resolve({
+                data: { id: workspaceId, source_file_id: sourceFileId },
+              });
+            return Promise.resolve({ data: { id: sourceFileId } });
+          },
+        };
+        return builder;
+      },
+    };
+    const sourceFileId = "74000000-0000-4000-8000-000000000005";
+    await validateDrawingExportScope(client, {
+      fileId: null,
+      projectId,
+      revisionId,
+      workspaceId,
+    });
+    assert.deepEqual(
+      calls.map((call) => call.table),
+      ["lukas_drawing_revisions", "lukas_drawing_documents"],
+    );
+    assert.deepEqual(calls[1].filters, [
+      ["id", workspaceId],
+      ["project_id", projectId],
+    ]);
+
+    calls.length = 0;
+    await validateDrawingExportScope(client, {
+      fileId: sourceFileId,
+      projectId,
+      revisionId,
+      workspaceId: null,
+    });
+    assert.deepEqual(
+      calls.map((call) => call.table),
+      ["lukas_drawing_revisions", "lukas_drawing_documents", "lukas_qto_files"],
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
 test("Revit release download keeps its existing server-side append-only SHA audit", () => {
   const source = readFileSync(
     new URL("../app/features/home/screens/revit-download.ts", import.meta.url),
@@ -114,8 +242,9 @@ test("Revit release download keeps its existing server-side append-only SHA audi
 });
 
 test("anonymous Revit redirect records through the trusted ledger and fails closed", async () => {
-  const { recordRevitDownloadAudit } =
-    await import("../app/features/home/lib/revit-download-audit.server.ts");
+  const { recordRevitDownloadAudit } = await import(
+    "../app/features/home/lib/revit-download-audit.server.ts"
+  );
   const calls = [];
   const client = {
     async rpc(name, args) {
@@ -180,8 +309,9 @@ test("published Revit ZIP is hashed at download time and rejects a mismatched bo
 });
 
 test("server export helper hashes the exact response bytes and fails closed", async () => {
-  const { recordProjectExport } =
-    await import("../app/lukas/lib/project-export-audit.server.ts");
+  const { recordProjectExport } = await import(
+    "../app/lukas/lib/project-export-audit.server.ts"
+  );
   const calls = [];
   const client = {
     async rpc(name, args) {

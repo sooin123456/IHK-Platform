@@ -177,8 +177,11 @@ test("current canonical preview opens the editable 2D canvas before loading IFC"
     loaded.sourceBundle.pdf.sha256,
     "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
   );
-  assert.equal(loaded.workspace.file.byte_size, 62_602);
-  assert.equal(loaded.workspace.file.sha256, loaded.sourceBundle.pdf.sha256);
+  assert.equal(loaded.workspace.primarySource.byte_size, 62_602);
+  assert.equal(
+    loaded.workspace.primarySource.sha256,
+    loaded.sourceBundle.pdf.sha256,
+  );
   assert.equal(loaded.sourceBundle.previousPdf.byteSize, 63_118);
   assert.equal(
     loaded.sourceBundle.previousPdf.sha256,
@@ -217,7 +220,7 @@ test("current canonical preview opens the editable 2D canvas before loading IFC"
       (canvas) =>
         canvas.id === loaded.workspace.document.revision.activeCanvasId,
     ).background.sourceFileId,
-    loaded.workspace.file.id,
+    loaded.workspace.primarySource.id,
   );
   assert.equal(loaded.canonicalP5, true);
 
@@ -477,9 +480,9 @@ test("P4 preview is visibly populated with canonical hosted objects and schedule
   const fixture = preview.localDrawingWorkspacePreviewFixture();
   const revision = fixture.workspace.document.revision;
   const beforeSource = {
-    byteSize: fixture.workspace.file.byte_size,
+    byteSize: fixture.workspace.primarySource.byte_size,
     documentSha256: fixture.workspace.document.source_sha256,
-    fileSha256: fixture.workspace.file.sha256,
+    fileSha256: fixture.workspace.primarySource.sha256,
   };
   const semantic = revision.objects.filter((object) =>
     ["wall", "opening", "space", "area", "grid", "arc"].includes(
@@ -533,9 +536,9 @@ test("P4 preview is visibly populated with canonical hosted objects and schedule
   );
   assert.deepEqual(
     {
-      byteSize: fixture.workspace.file.byte_size,
+      byteSize: fixture.workspace.primarySource.byte_size,
       documentSha256: fixture.workspace.document.source_sha256,
-      fileSha256: fixture.workspace.file.sha256,
+      fileSha256: fixture.workspace.primarySource.sha256,
     },
     beforeSource,
   );
