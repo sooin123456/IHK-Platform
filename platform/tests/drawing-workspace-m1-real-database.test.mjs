@@ -809,35 +809,41 @@ if (!databaseUrl) {
       let workerA;
       let workerB;
       let schemaReady = false;
-      let databaseCreated = false;
+      let databaseCleanupIntent = false;
       let primaryError;
       const cleanupErrors = [];
       try {
         const [{ current_user: currentUser }] = await admin`select current_user`;
         for (const role of appRoles) {
-          const state = { role, created: false, granted: false };
+          const state = { role, dropIntent: false, revokeIntent: false };
           roleState.push(state);
           const [existing] = await admin`
             select exists(select 1 from pg_catalog.pg_roles where rolname=${role}) present
           `;
           if (!existing.present) {
+            state.dropIntent = true;
             await admin.unsafe(
               `create role ${quoteIdentifier(role)} nologin${role === "service_role" ? " bypassrls" : ""}`,
             );
-            state.created = true;
           }
           const [membership] = await admin`
             select pg_catalog.pg_has_role(${currentUser},${role},'MEMBER') member
           `;
           if (!membership.member) {
+            state.revokeIntent = true;
             await admin.unsafe(
               `grant ${quoteIdentifier(role)} to ${quoteIdentifier(currentUser)}`,
             );
-            state.granted = true;
           }
         }
+        const [databasePreflight] = await admin`
+          select exists(
+            select 1 from pg_catalog.pg_database where datname=${databaseName}
+          ) present
+        `;
+        assert.equal(databasePreflight.present, false, "isolated database name collision");
+        databaseCleanupIntent = true;
         await admin.unsafe(`create database ${quoteIdentifier(databaseName)}`);
-        databaseCreated = true;
         const targetUrl = isolatedUrl(databaseUrl, databaseName);
         owner = postgres(targetUrl, { max: 1, prepare: false });
         workerA = postgres(targetUrl, { max: 1, prepare: false });
@@ -914,7 +920,7 @@ if (!databaseUrl) {
                 );
           } finally {
             try {
-              if (databaseCreated) {
+              if (databaseCleanupIntent) {
                 await attemptCleanup(cleanupErrors, "terminate isolated database sessions", () => admin`
                   select pg_catalog.pg_terminate_backend(pid)
                   from pg_catalog.pg_stat_activity
@@ -927,15 +933,26 @@ if (!databaseUrl) {
             } finally {
               try {
                 for (const state of roleState.reverse()) {
-                  if (state.granted)
+                  if (state.revokeIntent)
                     await attemptCleanup(
                       cleanupErrors,
                       `revoke temporary membership ${state.role}`,
-                      () => admin.unsafe(
-                        `revoke ${quoteIdentifier(state.role)} from current_user`,
-                      ),
+                      () => admin.unsafe(`
+                        do $m1_cleanup$
+                        begin
+                          if exists(
+                            select 1 from pg_catalog.pg_roles
+                            where rolname='${state.role}'
+                          ) then
+                            execute pg_catalog.format(
+                              'revoke %I from %I','${state.role}',current_user
+                            );
+                          end if;
+                        end
+                        $m1_cleanup$
+                      `),
                     );
-                  if (state.created)
+                  if (state.dropIntent)
                     await attemptCleanup(
                       cleanupErrors,
                       `drop temporary role ${state.role}`,
