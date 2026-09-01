@@ -39,6 +39,7 @@ import {
 } from "~/lukas/lib/drawing-workspace-paths";
 
 type ProjectMetric = {
+  canCreateWorkspace: boolean;
   fileCount: number;
   ifcCount: number;
   openReviewCount: number;
@@ -117,7 +118,9 @@ function formatDate(value: string) {
 function projectHref(projectId: string, metric: ProjectMetric | undefined) {
   if (metric?.latestDrawingId)
     return drawingWorkspacePath(projectId, metric.latestDrawingId);
-  return drawingWorkspaceNewPath(projectId);
+  return metric?.canCreateWorkspace
+    ? drawingWorkspaceNewPath(projectId)
+    : `/projects/${projectId}/drawings`;
 }
 
 function NewProjectDialog({ actionError }: { actionError?: string }) {
@@ -542,7 +545,9 @@ export function WorkspaceDashboard({
                               ? "3D IFC"
                               : metric?.fileCount
                                 ? "도면 파일"
-                                : "새 프로젝트"}
+                                : metric?.canCreateWorkspace
+                                  ? "새 프로젝트"
+                                  : "도면 목록"}
                           </span>
                         </Link>
                         <div className="min-w-0 flex-1 p-4">
@@ -625,7 +630,11 @@ export function WorkspaceDashboard({
                               className="inline-flex items-center gap-1 font-bold text-[#2925d9] dark:text-[#aaa7ff]"
                               to={openHref}
                             >
-                              {metric?.latestDrawingId ? "열기" : "새 작업실"}{" "}
+                              {metric?.latestDrawingId
+                                ? "열기"
+                                : metric?.canCreateWorkspace
+                                  ? "새 작업실"
+                                  : "도면 목록"}{" "}
                               <ArrowUpRight className="size-3.5" />
                             </Link>
                           </div>

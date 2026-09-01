@@ -272,10 +272,47 @@ function p2State() {
   return createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [p2.page]: { id: p2.page, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
-      canvases: { [p2.paper]: { id: p2.paper, pageId: p2.page, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
-      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: p2.paper, sortOrder: 0, version: 1 } },
-      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      pages: {
+        [p2.page]: {
+          id: p2.page,
+          revisionId: ids.revisionA,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [p2.paper]: {
+          id: p2.paper,
+          pageId: p2.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: p2.paper,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: { [ids.object]: rectangle() },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
 }
@@ -305,35 +342,85 @@ function compactedAddUndoRedoFixture() {
 }
 
 function structureOperation(snapshot, clientOperationId, actions) {
-  return applyDrawingCommand(snapshot, {
-    type: "mutate_structure",
-    actorId: ids.ownerA,
-    actions,
-  }, { createId: () => clientOperationId, now: () => "2026-08-25T00:00:00.000Z" });
+  return applyDrawingCommand(
+    snapshot,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions,
+    },
+    {
+      createId: () => clientOperationId,
+      now: () => "2026-08-25T00:00:00.000Z",
+    },
+  );
 }
 
 function createModel(snapshot = p2State()) {
   return structureOperation(snapshot, p2.create, [
-    { kind: "put_canvas", entity: { id: p2.model, pageId: p2.page, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
-    { kind: "put_layer", entity: { id: p2.modelLayer, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: p2.model, sortOrder: 0, version: 1 }, baseVersion: null },
+    {
+      kind: "put_canvas",
+      entity: {
+        id: p2.model,
+        pageId: p2.page,
+        name: "Model",
+        spaceKind: "model",
+        widthMillimeters: 100,
+        heightMillimeters: 100,
+        background: null,
+        sortOrder: 1,
+        version: 1,
+      },
+      baseVersion: null,
+    },
+    {
+      kind: "put_layer",
+      entity: {
+        id: p2.modelLayer,
+        name: "Model work",
+        visible: true,
+        locked: false,
+        systemKind: "custom",
+        canvasId: p2.model,
+        sortOrder: 0,
+        version: 1,
+      },
+      baseVersion: null,
+    },
   ]);
 }
 
 function renameModel(snapshot, clientOperationId, name) {
   const model = snapshot.structure.canvases[p2.model];
   return structureOperation(snapshot, clientOperationId, [
-    { kind: "put_canvas", entity: { ...model, name }, baseVersion: model.version },
+    {
+      kind: "put_canvas",
+      entity: { ...model, name },
+      baseVersion: model.version,
+    },
   ]);
 }
 
 function deleteModel(snapshot) {
   return structureOperation(snapshot, p2.delete, [
-    { kind: "delete_layer", id: p2.modelLayer, baseVersion: snapshot.structure.layers[p2.modelLayer].version },
-    { kind: "delete_canvas", id: p2.model, baseVersion: snapshot.structure.canvases[p2.model].version },
+    {
+      kind: "delete_layer",
+      id: p2.modelLayer,
+      baseVersion: snapshot.structure.layers[p2.modelLayer].version,
+    },
+    {
+      kind: "delete_canvas",
+      id: p2.model,
+      baseVersion: snapshot.structure.canvases[p2.model].version,
+    },
   ]);
 }
 
-async function restoreAcknowledgedP2(serverState, operations, pendingId = null) {
+async function restoreAcknowledgedP2(
+  serverState,
+  operations,
+  pendingId = null,
+) {
   const outbox = scopedOutbox(memoryAdapter());
   for (const candidate of operations) await outbox.enqueue(candidate.operation);
   const recovered = await restoreDrawingWorkspaceState({
@@ -341,7 +428,10 @@ async function restoreAcknowledgedP2(serverState, operations, pendingId = null) 
     outbox,
     send: async (operation) => {
       if (operation.clientOperationId === pendingId) throw new Error("offline");
-      return { clientOperationId: operation.clientOperationId, status: "acked" };
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
     },
     serverState,
   });
@@ -366,30 +456,119 @@ test("enqueue is durable before send and stores only the canonical operation", a
   assert.deepEqual(await outbox.pending(), []);
 });
 
+test("flush reports only durable acknowledgements so loader data can revalidate once", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.enqueue(operation(ids.operation2));
+
+  const acknowledged = await outbox.flush(async (queued) => ({
+    clientOperationId: queued.clientOperationId,
+    status: "acked",
+  }));
+
+  assert.equal(acknowledged, 2);
+  assert.deepEqual(await outbox.pending(), []);
+  assert.equal(
+    await outbox.flush(async () => {
+      throw new Error("an empty outbox must not send");
+    }),
+    0,
+  );
+});
+
 test("a recorded mutate_structure operation parses and enqueues unchanged", async () => {
   const pageId = "00000000-0000-4000-8000-000000000030";
   const paperId = "00000000-0000-4000-8000-000000000031";
   const modelId = "00000000-0000-4000-8000-000000000032";
   const modelLayerId = "00000000-0000-4000-8000-000000000036";
   const workLayer = {
-    id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1,
+    id: ids.layer,
+    name: "Work",
+    visible: true,
+    locked: false,
+    systemKind: "work",
+    canvasId: paperId,
+    sortOrder: 0,
+    version: 1,
   };
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "Page 1", sortOrder: 0, version: 1 } },
-      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
-      layers: { [ids.layer]: workLayer }, objects: { [ids.object]: rectangle({ layerId: ids.layer }) }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revisionA,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [paperId]: {
+          id: paperId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: { [ids.layer]: workLayer },
+      objects: { [ids.object]: rectangle({ layerId: ids.layer }) },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const applied = applyDrawingCommand(initial, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: [
-      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
-      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
-    ],
-  }, { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" });
-  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  const applied = applyDrawingCommand(
+    initial,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions: [
+        {
+          kind: "put_canvas",
+          entity: {
+            id: modelId,
+            pageId,
+            name: "Model",
+            spaceKind: "model",
+            widthMillimeters: 100,
+            heightMillimeters: 100,
+            background: null,
+            sortOrder: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_layer",
+          entity: {
+            id: modelLayerId,
+            name: "Model work",
+            visible: true,
+            locked: false,
+            systemKind: "custom",
+            canvasId: modelId,
+            sortOrder: 0,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    },
+    { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" },
+  );
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(applied.operation).success,
+    true,
+  );
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(applied.operation);
   assert.equal((await outbox.pending())[0].type, "mutate_structure");
@@ -417,32 +596,105 @@ test("referenced-style updates survive the command, operation, outbox, and serve
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "Page 1", sortOrder: 0, version: 1 } },
-      canvases: { [canvasId]: { id: canvasId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
-      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId, sortOrder: 0, version: 1 } },
-      objects: { [ids.object]: rectangle({ layerId: ids.layer, styleId, style: { fill: "#ffffff" } }) },
-      styles: { [styleId]: { id: styleId, revisionId: ids.revisionA, name: "Default", value: { stroke: "#111111", strokeWidth: 2, fill: null }, version: 1 } },
-      blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revisionA,
+          name: "Page 1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [canvasId]: {
+          id: canvasId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: {
+        [ids.object]: rectangle({
+          layerId: ids.layer,
+          styleId,
+          style: { fill: "#ffffff" },
+        }),
+      },
+      styles: {
+        [styleId]: {
+          id: styleId,
+          revisionId: ids.revisionA,
+          name: "Default",
+          value: { stroke: "#111111", strokeWidth: 2, fill: null },
+          version: 1,
+        },
+      },
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const applied = applyDrawingCommand(initial, {
-    type: "update_objects", actorId: ids.ownerA,
-    updates: [{ objectId: ids.object, patch: { styleId, style: { fill: "#aabbcc" } } }],
-  }, { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" });
-  assert.equal(DrawingOperationInputSchema.safeParse(applied.operation).success, true);
+  const applied = applyDrawingCommand(
+    initial,
+    {
+      type: "update_objects",
+      actorId: ids.ownerA,
+      updates: [
+        {
+          objectId: ids.object,
+          patch: { styleId, style: { fill: "#aabbcc" } },
+        },
+      ],
+    },
+    { createId: () => ids.operation3, now: () => "2026-08-24T01:00:00.000Z" },
+  );
+  assert.equal(
+    DrawingOperationInputSchema.safeParse(applied.operation).success,
+    true,
+  );
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(applied.operation);
   const queued = (await outbox.pending())[0];
-  assert.deepEqual(queued.forward.updates[0].patch, { styleId, style: { fill: "#aabbcc" } });
+  assert.deepEqual(queued.forward.updates[0].patch, {
+    styleId,
+    style: { fill: "#aabbcc" },
+  });
   const operation = Object.fromEntries(
-    ["baseVersions", "clientOperationId", "createdAt", "forward", "inverse", "revisionId", "type"]
-      .map((key) => [key, applied.operation[key]]),
+    [
+      "baseVersions",
+      "clientOperationId",
+      "createdAt",
+      "forward",
+      "inverse",
+      "revisionId",
+      "type",
+    ].map((key) => [key, applied.operation[key]]),
   );
   const form = new FormData();
   form.set("intent", "apply_operation");
   form.set("operation_json", JSON.stringify(operation));
   assert.deepEqual(parseWorkspaceMutation(form), {
-    intent: "apply_operation", operation,
+    intent: "apply_operation",
+    operation,
   });
 });
 
@@ -528,7 +780,11 @@ test("flush orders the scoped revision and never accepts another revision", asyn
 
 test("connection failures retain data and schedule bounded exponential retries", async () => {
   const scheduled = [];
+  const acknowledged = [];
   const outbox = scopedOutbox(memoryAdapter(), {
+    onAcknowledged(count) {
+      acknowledged.push(count);
+    },
     schedule(delayMs, retry) {
       scheduled.push({ delayMs, retry });
       return scheduled.length;
@@ -552,6 +808,7 @@ test("connection failures retain data and schedule bounded exponential retries",
   assert.equal(finalRetry.delayMs, 15000);
   await finalRetry.retry();
   assert.deepEqual(await outbox.pending(), []);
+  assert.deepEqual(acknowledged, [1]);
 });
 
 test("concurrent flush calls never double-send an operation", async () => {
@@ -878,18 +1135,24 @@ test("a hung durable enqueue remains visibly saving", () => {
 });
 
 test("reload recovery applies exact-base work and retains ambiguous stale work", () => {
-  const matching = recoverPendingDrawingState(state(), [
-    operation(ids.operation1),
-  ], recoveryScope());
+  const matching = recoverPendingDrawingState(
+    state(),
+    [operation(ids.operation1)],
+    recoveryScope(),
+  );
   assert.equal(matching.state.objects[ids.object].name, "Door");
   assert.equal(matching.state.objects[ids.object].version, 2);
   assert.deepEqual(matching.conflictedOperationIds, []);
 
-  const stale = recoverPendingDrawingState(state(), [
-    operation(ids.operation1, {
-      baseVersions: { [ids.object]: 2 },
-    }),
-  ], recoveryScope());
+  const stale = recoverPendingDrawingState(
+    state(),
+    [
+      operation(ids.operation1, {
+        baseVersions: { [ids.object]: 2 },
+      }),
+    ],
+    recoveryScope(),
+  );
   assert.equal(stale.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(stale.conflictedOperationIds, []);
   assert.deepEqual(stale.ambiguousOperationIds, [ids.operation1]);
@@ -897,24 +1160,28 @@ test("reload recovery applies exact-base work and retains ambiguous stale work",
 
 test("reload recovery never partially applies a conflicted multi-object operation", () => {
   const invalidSecondObject = "00000000-0000-4000-8000-000000000099";
-  const recovered = recoverPendingDrawingState(state(), [
-    operation(ids.operation1, {
-      forward: {
-        type: "update_objects",
-        updates: [
-          { objectId: ids.object, patch: { name: "Partially changed" } },
-          { objectId: invalidSecondObject, patch: { name: "Missing" } },
-        ],
-      },
-      inverse: {
-        type: "update_objects",
-        updates: [
-          { objectId: ids.object, patch: { name: "Rectangle" } },
-          { objectId: invalidSecondObject, patch: { name: "Missing" } },
-        ],
-      },
-    }),
-  ], recoveryScope());
+  const recovered = recoverPendingDrawingState(
+    state(),
+    [
+      operation(ids.operation1, {
+        forward: {
+          type: "update_objects",
+          updates: [
+            { objectId: ids.object, patch: { name: "Partially changed" } },
+            { objectId: invalidSecondObject, patch: { name: "Missing" } },
+          ],
+        },
+        inverse: {
+          type: "update_objects",
+          updates: [
+            { objectId: ids.object, patch: { name: "Rectangle" } },
+            { objectId: invalidSecondObject, patch: { name: "Missing" } },
+          ],
+        },
+      }),
+    ],
+    recoveryScope(),
+  );
 
   assert.equal(recovered.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -923,23 +1190,27 @@ test("reload recovery never partially applies a conflicted multi-object operatio
 
 test("reload recovery restores a pending custom layer with its creation-version base", () => {
   const newLayer = "00000000-0000-4000-8000-000000000098";
-  const recovered = recoverPendingDrawingState(state(), [
-    operation(ids.operation1, {
-      type: "add_layer",
-      baseVersions: { [newLayer]: 1 },
-      forward: {
+  const recovered = recoverPendingDrawingState(
+    state(),
+    [
+      operation(ids.operation1, {
         type: "add_layer",
-        layer: {
-          id: newLayer,
-          name: "Markup",
-          visible: true,
-          locked: false,
-          version: 1,
+        baseVersions: { [newLayer]: 1 },
+        forward: {
+          type: "add_layer",
+          layer: {
+            id: newLayer,
+            name: "Markup",
+            visible: true,
+            locked: false,
+            version: 1,
+          },
         },
-      },
-      inverse: {},
-    }),
-  ], recoveryScope());
+        inverse: {},
+      }),
+    ],
+    recoveryScope(),
+  );
 
   assert.equal(recovered.state.layers[newLayer].systemKind, "custom");
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -953,19 +1224,88 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
-      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
-      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 } },
-      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revisionA,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [paperId]: {
+          id: paperId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: paperId,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: { [ids.object]: rectangle() },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const applied = applyDrawingCommand(initial, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: [
-      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
-      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
-    ],
-  }, { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" });
+  const applied = applyDrawingCommand(
+    initial,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions: [
+        {
+          kind: "put_canvas",
+          entity: {
+            id: modelId,
+            pageId,
+            name: "Model",
+            spaceKind: "model",
+            widthMillimeters: 100,
+            heightMillimeters: 100,
+            background: null,
+            sortOrder: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_layer",
+          entity: {
+            id: modelLayerId,
+            name: "Model work",
+            visible: true,
+            locked: false,
+            systemKind: "custom",
+            canvasId: modelId,
+            sortOrder: 0,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    },
+    { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" },
+  );
 
   const recovered = recoverPendingDrawingState(
     initial,
@@ -975,7 +1315,10 @@ test("reload recovery replays a P2 structure batch as one atomic unit", () => {
 
   assert.equal(recovered.ambiguousOperationIds.length, 0);
   assert.equal(recovered.state.structure.canvases[modelId].name, "Model");
-  assert.equal(recovered.state.structure.layers[modelLayerId].canvasId, modelId);
+  assert.equal(
+    recovered.state.structure.layers[modelLayerId].canvasId,
+    modelId,
+  );
 });
 
 function referenceAwareDeleteFixture() {
@@ -1008,7 +1351,12 @@ function referenceAwareDeleteFixture() {
     revisionId: ids.revisionA,
     name: "Door schedule",
     columns: [
-      { id: columnId, name: "Name", kind: "object_name", propertySchemaId: null },
+      {
+        id: columnId,
+        name: "Name",
+        kind: "object_name",
+        propertySchemaId: null,
+      },
     ],
     rows: [
       { id: rowId, objectId: ids.object, blockInstanceId: null, cells: {} },
@@ -1056,53 +1404,140 @@ const semanticRecoveryIds = {
 function semanticRecoveryFixture() {
   const style = { stroke: "#112233", strokeWidth: 2, fill: null };
   const wall = {
-    id: semanticRecoveryIds.wall, name: "W-01", layerId: ids.layer, style, version: 1,
-    geometry: { type: "wall", semanticVersion: 1, start: { x: 0, y: 0 }, end: { x: 1000, y: 0 }, thicknessMillimeters: 200, heightMillimeters: 3000 },
+    id: semanticRecoveryIds.wall,
+    name: "W-01",
+    layerId: ids.layer,
+    style,
+    version: 1,
+    geometry: {
+      type: "wall",
+      semanticVersion: 1,
+      start: { x: 0, y: 0 },
+      end: { x: 1000, y: 0 },
+      thicknessMillimeters: 200,
+      heightMillimeters: 3000,
+    },
   };
   const retained = {
-    id: semanticRecoveryIds.retained, name: "D-01", layerId: ids.layer, style, version: 1,
-    geometry: { type: "opening", semanticVersion: 1, hostWallId: wall.id, offsetMillimeters: 500, widthMillimeters: 200, heightMillimeters: 2100, sillHeightMillimeters: 0, openingKind: "door" },
+    id: semanticRecoveryIds.retained,
+    name: "D-01",
+    layerId: ids.layer,
+    style,
+    version: 1,
+    geometry: {
+      type: "opening",
+      semanticVersion: 1,
+      hostWallId: wall.id,
+      offsetMillimeters: 500,
+      widthMillimeters: 200,
+      heightMillimeters: 2100,
+      sillHeightMillimeters: 0,
+      openingKind: "door",
+    },
   };
   const deleted = {
-    id: semanticRecoveryIds.deleted, name: "D-02", layerId: ids.layer,
+    id: semanticRecoveryIds.deleted,
+    name: "D-02",
+    layerId: ids.layer,
     geometry: { ...retained.geometry, offsetMillimeters: 850 },
-    style, version: 1,
+    style,
+    version: 1,
   };
   const base = p2State();
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
       ...base.structure,
-      objects: Object.fromEntries([wall, retained, deleted].map((object) => [object.id, object])),
-      propertySchemas: { [semanticRecoveryIds.schema]: { id: semanticRecoveryIds.schema, revisionId: ids.revisionA, name: "Mark", valueType: "text", enumOptions: [], appliesTo: ["opening"], required: false, version: 1 } },
-      propertyValues: { [semanticRecoveryIds.value]: { id: semanticRecoveryIds.value, schemaId: semanticRecoveryIds.schema, objectId: deleted.id, blockInstanceId: null, value: "D-02", version: 1 } },
-      tables: { [semanticRecoveryIds.table]: {
-        id: semanticRecoveryIds.table, revisionId: ids.revisionA, name: "Door schedule",
-        columns: [{ id: semanticRecoveryIds.column, name: "Name", kind: "object_name", propertySchemaId: null }],
-        rows: [{ id: semanticRecoveryIds.row, objectId: deleted.id, blockInstanceId: null, cells: {} }],
-        version: 1,
-      } },
+      objects: Object.fromEntries(
+        [wall, retained, deleted].map((object) => [object.id, object]),
+      ),
+      propertySchemas: {
+        [semanticRecoveryIds.schema]: {
+          id: semanticRecoveryIds.schema,
+          revisionId: ids.revisionA,
+          name: "Mark",
+          valueType: "text",
+          enumOptions: [],
+          appliesTo: ["opening"],
+          required: false,
+          version: 1,
+        },
+      },
+      propertyValues: {
+        [semanticRecoveryIds.value]: {
+          id: semanticRecoveryIds.value,
+          schemaId: semanticRecoveryIds.schema,
+          objectId: deleted.id,
+          blockInstanceId: null,
+          value: "D-02",
+          version: 1,
+        },
+      },
+      tables: {
+        [semanticRecoveryIds.table]: {
+          id: semanticRecoveryIds.table,
+          revisionId: ids.revisionA,
+          name: "Door schedule",
+          columns: [
+            {
+              id: semanticRecoveryIds.column,
+              name: "Name",
+              kind: "object_name",
+              propertySchemaId: null,
+            },
+          ],
+          rows: [
+            {
+              id: semanticRecoveryIds.row,
+              objectId: deleted.id,
+              blockInstanceId: null,
+              cells: {},
+            },
+          ],
+          version: 1,
+        },
+      },
     },
   });
-  const applied = applyDrawingCommand(initial,
-    updateDrawingObjectsWithOpeningDeletionsCommand(initial, ids.ownerA, [
-      { objectId: wall.id, baseVersion: 1, patch: { geometry: { ...wall.geometry, end: { x: 700, y: 0 } } } },
-      { objectId: retained.id, baseVersion: 1, patch: { geometry: { ...retained.geometry, offsetMillimeters: 400 } } },
-    ], [deleted.id]),
+  const applied = applyDrawingCommand(
+    initial,
+    updateDrawingObjectsWithOpeningDeletionsCommand(
+      initial,
+      ids.ownerA,
+      [
+        {
+          objectId: wall.id,
+          baseVersion: 1,
+          patch: { geometry: { ...wall.geometry, end: { x: 700, y: 0 } } },
+        },
+        {
+          objectId: retained.id,
+          baseVersion: 1,
+          patch: { geometry: { ...retained.geometry, offsetMillimeters: 400 } },
+        },
+      ],
+      [deleted.id],
+    ),
     { createId: () => ids.operation1, now: () => "2026-08-26T01:00:00.000Z" },
   );
   const undone = undoDrawingCommand(applied.state, ids.ownerA, {
-    createId: () => ids.operation2, now: () => "2026-08-26T01:01:00.000Z",
+    createId: () => ids.operation2,
+    now: () => "2026-08-26T01:01:00.000Z",
   });
   assert.ok(undone && !("kind" in undone));
   const redone = redoDrawingCommand(undone.state, ids.ownerA, {
-    createId: () => ids.operation3, now: () => "2026-08-26T01:02:00.000Z",
+    createId: () => ids.operation3,
+    now: () => "2026-08-26T01:02:00.000Z",
   });
   assert.ok(redone && !("kind" in redone));
   return { applied, initial, redone, undone, wall };
 }
 
-async function reopenSemanticOperations(serverState, operations, acknowledgedIds = []) {
+async function reopenSemanticOperations(
+  serverState,
+  operations,
+  acknowledgedIds = [],
+) {
   const acknowledged = new Set(acknowledgedIds);
   const outbox = scopedOutbox(memoryAdapter());
   for (const candidate of operations) await outbox.enqueue(candidate);
@@ -1110,8 +1545,12 @@ async function reopenSemanticOperations(serverState, operations, acknowledgedIds
     online: acknowledged.size > 0,
     outbox,
     send: async (operation) => {
-      if (!acknowledged.has(operation.clientOperationId)) throw new Error("offline after accepted prefix");
-      return { clientOperationId: operation.clientOperationId, status: "acked" };
+      if (!acknowledged.has(operation.clientOperationId))
+        throw new Error("offline after accepted prefix");
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
     },
     serverState,
   });
@@ -1129,43 +1568,93 @@ test("mixed semantic mutation survives pending crash recovery and chained undo r
     const { recovered } = await reopenSemanticOperations(initial, operations);
     assert.deepEqual(recovered.conflictedOperationIds, [], name);
     assert.deepEqual(recovered.ambiguousOperationIds, [], name);
-    assert.equal(recovered.state.objects[semanticRecoveryIds.deleted] === undefined, expectedDeleted, name);
-    assert.equal(recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x, expectedDeleted ? 700 : 1000, name);
+    assert.equal(
+      recovered.state.objects[semanticRecoveryIds.deleted] === undefined,
+      expectedDeleted,
+      name,
+    );
+    assert.equal(
+      recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x,
+      expectedDeleted ? 700 : 1000,
+      name,
+    );
   }
-  const followup = applyDrawingCommand(applied.state, {
-    type: "update_objects", actorId: ids.ownerA,
-    updates: [{ objectId: semanticRecoveryIds.wall, baseVersion: 2, patch: { name: "W-02" } }],
-  }, { createId: () => ids.operation3, now: () => "2026-08-26T01:03:00.000Z" });
-  const chained = await reopenSemanticOperations(initial, [applied.operation, followup.operation]);
+  const followup = applyDrawingCommand(
+    applied.state,
+    {
+      type: "update_objects",
+      actorId: ids.ownerA,
+      updates: [
+        {
+          objectId: semanticRecoveryIds.wall,
+          baseVersion: 2,
+          patch: { name: "W-02" },
+        },
+      ],
+    },
+    { createId: () => ids.operation3, now: () => "2026-08-26T01:03:00.000Z" },
+  );
+  const chained = await reopenSemanticOperations(initial, [
+    applied.operation,
+    followup.operation,
+  ]);
   assert.deepEqual(chained.recovered.ambiguousOperationIds, []);
-  assert.equal(chained.recovered.state.objects[semanticRecoveryIds.wall].name, "W-02");
+  assert.equal(
+    chained.recovered.state.objects[semanticRecoveryIds.wall].name,
+    "W-02",
+  );
 });
 
 test("mixed semantic recovery consumes an accepted prefix before pending undo", async () => {
   const { applied, undone } = semanticRecoveryFixture();
   const { outbox, recovered } = await reopenSemanticOperations(
-    applied.state, [applied.operation, undone.operation], [applied.operation.clientOperationId],
+    applied.state,
+    [applied.operation, undone.operation],
+    [applied.operation.clientOperationId],
   );
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.deepEqual(recovered.ambiguousOperationIds, []);
-  assert.equal(recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x, 1000);
-  assert.equal(recovered.state.objects[semanticRecoveryIds.deleted].geometry.offsetMillimeters, 850);
-  assert.deepEqual((await outbox.entries()).map((entry) => entry.operation.clientOperationId), [undone.operation.clientOperationId]);
+  assert.equal(
+    recovered.state.objects[semanticRecoveryIds.wall].geometry.end.x,
+    1000,
+  );
+  assert.equal(
+    recovered.state.objects[semanticRecoveryIds.deleted].geometry
+      .offsetMillimeters,
+    850,
+  );
+  assert.deepEqual(
+    (await outbox.entries()).map((entry) => entry.operation.clientOperationId),
+    [undone.operation.clientOperationId],
+  );
 });
 
 test("mixed semantic recovery distinguishes stale state from a malformed bypass", async () => {
   const { applied, initial, wall } = semanticRecoveryFixture();
   const staleState = structuredClone(initial);
-  staleState.objects[wall.id] = { ...staleState.objects[wall.id], version: 2, name: "Server divergence" };
+  staleState.objects[wall.id] = {
+    ...staleState.objects[wall.id],
+    version: 2,
+    name: "Server divergence",
+  };
   staleState.structure.objects[wall.id] = staleState.objects[wall.id];
   const stale = await reopenSemanticOperations(staleState, [applied.operation]);
   assert.deepEqual(stale.recovered.conflictedOperationIds, []);
   assert.deepEqual(stale.recovered.ambiguousOperationIds, [ids.operation1]);
-  assert.equal(stale.recovered.state.objects[wall.id].name, "Server divergence");
+  assert.equal(
+    stale.recovered.state.objects[wall.id].name,
+    "Server divergence",
+  );
 
   const malformed = structuredClone(applied.operation);
-  const wallAction = malformed.forward.actions.find((action) => action.kind === "put_object" && action.entity.id === wall.id);
-  wallAction.entity = rectangle({ id: wall.id, name: wall.name, version: wall.version });
+  const wallAction = malformed.forward.actions.find(
+    (action) => action.kind === "put_object" && action.entity.id === wall.id,
+  );
+  wallAction.entity = rectangle({
+    id: wall.id,
+    name: wall.name,
+    version: wall.version,
+  });
   const invalid = await reopenSemanticOperations(initial, [malformed]);
   assert.deepEqual(invalid.recovered.conflictedOperationIds, [ids.operation1]);
   assert.deepEqual(invalid.recovered.ambiguousOperationIds, []);
@@ -1206,18 +1695,21 @@ test("reference-aware object deletion enqueues once and pending recovery stays a
 test("pending reference restore reconstructs exact object and structure tombstones", () => {
   const { applied, initial, restored, serverAfterDelete, tableId, valueId } =
     referenceAwareDeleteFixture();
-  const chained = recoverPendingDrawingState(initial, [
-    applied.operation,
-    restored.operation,
-  ], recoveryScope());
+  const chained = recoverPendingDrawingState(
+    initial,
+    [applied.operation, restored.operation],
+    recoveryScope(),
+  );
   assert.deepEqual(chained.ambiguousOperationIds, []);
   assert.equal(chained.state.objects[ids.object].version, 3);
   assert.equal(chained.state.structure.propertyValues[valueId].version, 3);
   assert.equal(chained.state.structure.tables[tableId].version, 3);
 
-  const recovered = recoverPendingDrawingState(serverAfterDelete, [
-    restored.operation,
-  ], recoveryScope());
+  const recovered = recoverPendingDrawingState(
+    serverAfterDelete,
+    [restored.operation],
+    recoveryScope(),
+  );
 
   assert.deepEqual(recovered.ambiguousOperationIds, []);
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -1245,7 +1737,10 @@ test("acknowledged reference delete is consumed before its pending undo on offli
     send: async (operation) => {
       if (operation.clientOperationId === restored.operation.clientOperationId)
         throw new Error("offline after acknowledged delete");
-      return { clientOperationId: operation.clientOperationId, status: "acked" };
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
     },
     serverState: serverAfterDelete,
   });
@@ -1277,7 +1772,10 @@ test("compacted acknowledged add and undo authorize the exact pending redo acros
     send: async (operation) => {
       if (operation.clientOperationId === redone.operation.clientOperationId)
         throw new Error("crashed after acknowledged prefix");
-      return { clientOperationId: operation.clientOperationId, status: "acked" };
+      return {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+      };
     },
     serverState: authoritative,
   });
@@ -1321,7 +1819,10 @@ test("compacted object redo rejects missing lineage, changed payload, and an act
       name: "active UUID owner",
       state: (() => {
         const claimed = structuredClone(authoritative);
-        claimed.objects[ids.object] = rectangle({ name: "server owner", version: 5 });
+        claimed.objects[ids.object] = rectangle({
+          name: "server owner",
+          version: 5,
+        });
         claimed.structure.objects[ids.object] = claimed.objects[ids.object];
         return claimed;
       })(),
@@ -1337,8 +1838,16 @@ test("compacted object redo rejects missing lineage, changed payload, and an act
       [{ ownerId: ids.ownerA, operation, status: "pending" }],
       recoveryScope(),
     );
-    assert.equal(recovered.state.objects[ids.object]?.version, candidate.name === "active UUID owner" ? 5 : undefined, candidate.name);
-    assert.deepEqual(recovered.ambiguousOperationIds, [ids.operation3], candidate.name);
+    assert.equal(
+      recovered.state.objects[ids.object]?.version,
+      candidate.name === "active UUID owner" ? 5 : undefined,
+      candidate.name,
+    );
+    assert.deepEqual(
+      recovered.ambiguousOperationIds,
+      [ids.operation3],
+      candidate.name,
+    );
   }
 });
 
@@ -1400,7 +1909,9 @@ test("compacted redo is bound to trusted outbox owner and current revision", asy
     retryCount: 0,
     enqueueSequence: 1,
   };
-  const missingContext = recoverPendingDrawingState(authoritative, [trustedEntry]);
+  const missingContext = recoverPendingDrawingState(authoritative, [
+    trustedEntry,
+  ]);
   assert.equal(missingContext.state.objects[ids.object], undefined);
   assert.deepEqual(missingContext.ambiguousOperationIds, [ids.operation3]);
 
@@ -1410,7 +1921,9 @@ test("compacted redo is bound to trusted outbox owner and current revision", asy
     { trustedOwnerId: ids.ownerA, revisionId: ids.revisionB },
   );
   assert.equal(wrongCurrentRevision.state.objects[ids.object], undefined);
-  assert.deepEqual(wrongCurrentRevision.ambiguousOperationIds, [ids.operation3]);
+  assert.deepEqual(wrongCurrentRevision.ambiguousOperationIds, [
+    ids.operation3,
+  ]);
 
   const mismatchedHistory = recoverPendingDrawingState(
     crossRevisionHistory,
@@ -1433,11 +1946,10 @@ test("compacted redo is bound to trusted outbox owner and current revision", asy
   const spoofed = structuredClone(trustedEntry);
   spoofed.ownerId = ids.ownerB;
   spoofed.operation.actorId = ids.ownerA;
-  const metadataSpoof = recoverPendingDrawingState(
-    authoritative,
-    [spoofed],
-    { trustedOwnerId: ids.ownerB, revisionId: ids.revisionA },
-  );
+  const metadataSpoof = recoverPendingDrawingState(authoritative, [spoofed], {
+    trustedOwnerId: ids.ownerB,
+    revisionId: ids.revisionA,
+  });
   assert.equal(metadataSpoof.state.objects[ids.object], undefined);
   assert.deepEqual(metadataSpoof.ambiguousOperationIds, [ids.operation3]);
 });
@@ -1486,13 +1998,21 @@ test("pending reference restore quarantines mismatched object and structure resu
       serverState: serverAfterDelete,
     });
 
-    assert.equal(recovered.state.objects[ids.object], undefined, candidate.name);
+    assert.equal(
+      recovered.state.objects[ids.object],
+      undefined,
+      candidate.name,
+    );
     assert.deepEqual(
       recovered.conflictedOperationIds,
       [restored.operation.clientOperationId],
       candidate.name,
     );
-    assert.equal((await outbox.entries())[0].status, "conflicted", candidate.name);
+    assert.equal(
+      (await outbox.entries())[0].status,
+      "conflicted",
+      candidate.name,
+    );
   }
 });
 
@@ -1504,29 +2024,91 @@ test("P2 recovery restores a deleted tombstone at the authoritative inverse vers
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revisionA,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
       canvases: {
-        [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 },
-        [modelId]: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 },
+        [paperId]: {
+          id: paperId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+        [modelId]: {
+          id: modelId,
+          pageId,
+          name: "Model",
+          spaceKind: "model",
+          widthMillimeters: 100,
+          heightMillimeters: 100,
+          background: null,
+          sortOrder: 1,
+          version: 1,
+        },
       },
       layers: {
-        [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 },
-        [modelLayerId]: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 },
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: paperId,
+          sortOrder: 0,
+          version: 1,
+        },
+        [modelLayerId]: {
+          id: modelLayerId,
+          name: "Model work",
+          visible: true,
+          locked: false,
+          systemKind: "custom",
+          canvasId: modelId,
+          sortOrder: 0,
+          version: 1,
+        },
       },
-      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      objects: { [ids.object]: rectangle() },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const deleted = applyDrawingCommand(initial, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: [
-      { kind: "delete_layer", id: modelLayerId, baseVersion: 1 },
-      { kind: "delete_canvas", id: modelId, baseVersion: 1 },
-    ],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:00.000Z" });
-  const restored = applyDrawingCommand(deleted.state, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: deleted.operation.inverse.actions,
-  }, { createId: () => ids.operation2, now: () => "2026-08-25T00:01:00.000Z" });
+  const deleted = applyDrawingCommand(
+    initial,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions: [
+        { kind: "delete_layer", id: modelLayerId, baseVersion: 1 },
+        { kind: "delete_canvas", id: modelId, baseVersion: 1 },
+      ],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:00.000Z" },
+  );
+  const restored = applyDrawingCommand(
+    deleted.state,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions: deleted.operation.inverse.actions,
+    },
+    { createId: () => ids.operation2, now: () => "2026-08-25T00:01:00.000Z" },
+  );
   const serverAfterDelete = structuredClone(deleted.state);
   delete serverAfterDelete.structure.tombstones;
   const recovered = recoverPendingDrawingState(
@@ -1538,8 +2120,18 @@ test("P2 recovery restores a deleted tombstone at the authoritative inverse vers
   assert.equal(recovered.ambiguousOperationIds.length, 0);
   assert.equal(recovered.state.structure.canvases[modelId].version, 3);
   const next = applyDrawingCommand(recovered.state, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: [{ kind: "put_canvas", entity: { ...recovered.state.structure.canvases[modelId], name: "Model 2" }, baseVersion: 3 }],
+    type: "mutate_structure",
+    actorId: ids.ownerA,
+    actions: [
+      {
+        kind: "put_canvas",
+        entity: {
+          ...recovered.state.structure.canvases[modelId],
+          name: "Model 2",
+        },
+        baseVersion: 3,
+      },
+    ],
   });
   assert.equal(next.operation.baseVersions[modelId], 3);
 });
@@ -1552,25 +2144,97 @@ test("an acknowledged P2 create already present in the loader does not become co
   const initial = createDrawingDocumentState({
     revisionId: ids.revisionA,
     structure: {
-      pages: { [pageId]: { id: pageId, revisionId: ids.revisionA, name: "A1", sortOrder: 0, version: 1 } },
-      canvases: { [paperId]: { id: paperId, pageId, name: "Paper", spaceKind: "paper", widthMillimeters: 210, heightMillimeters: 297, background: null, sortOrder: 0, version: 1 } },
-      layers: { [ids.layer]: { id: ids.layer, name: "Work", visible: true, locked: false, systemKind: "work", canvasId: paperId, sortOrder: 0, version: 1 } },
-      objects: { [ids.object]: rectangle() }, styles: {}, blocks: {}, blockInstances: {}, propertySchemas: {}, propertyValues: {}, tables: {},
+      pages: {
+        [pageId]: {
+          id: pageId,
+          revisionId: ids.revisionA,
+          name: "A1",
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      canvases: {
+        [paperId]: {
+          id: paperId,
+          pageId,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 210,
+          heightMillimeters: 297,
+          background: null,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      layers: {
+        [ids.layer]: {
+          id: ids.layer,
+          name: "Work",
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          canvasId: paperId,
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+      objects: { [ids.object]: rectangle() },
+      styles: {},
+      blocks: {},
+      blockInstances: {},
+      propertySchemas: {},
+      propertyValues: {},
+      tables: {},
     },
   });
-  const created = applyDrawingCommand(initial, {
-    type: "mutate_structure", actorId: ids.ownerA,
-    actions: [
-      { kind: "put_canvas", entity: { id: modelId, pageId, name: "Model", spaceKind: "model", widthMillimeters: 100, heightMillimeters: 100, background: null, sortOrder: 1, version: 1 }, baseVersion: null },
-      { kind: "put_layer", entity: { id: modelLayerId, name: "Model work", visible: true, locked: false, systemKind: "custom", canvasId: modelId, sortOrder: 0, version: 1 }, baseVersion: null },
-    ],
-  }, { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" });
+  const created = applyDrawingCommand(
+    initial,
+    {
+      type: "mutate_structure",
+      actorId: ids.ownerA,
+      actions: [
+        {
+          kind: "put_canvas",
+          entity: {
+            id: modelId,
+            pageId,
+            name: "Model",
+            spaceKind: "model",
+            widthMillimeters: 100,
+            heightMillimeters: 100,
+            background: null,
+            sortOrder: 1,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+        {
+          kind: "put_layer",
+          entity: {
+            id: modelLayerId,
+            name: "Model work",
+            visible: true,
+            locked: false,
+            systemKind: "custom",
+            canvasId: modelId,
+            sortOrder: 0,
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ],
+    },
+    { createId: () => ids.operation3, now: () => "2026-08-25T00:00:00.000Z" },
+  );
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(created.operation);
   const restored = await restoreDrawingWorkspaceState({
     online: true,
     outbox,
-    send: async (operation) => ({ clientOperationId: operation.clientOperationId, status: "acked" }),
+    send: async (operation) => ({
+      clientOperationId: operation.clientOperationId,
+      status: "acked",
+    }),
     serverState: created.state,
   });
 
@@ -1581,14 +2245,20 @@ test("an acknowledged P2 create already present in the loader does not become co
 test("recovery consumes an acknowledged fresh object add with no object base", async () => {
   const initial = p2State();
   const objectId = "00000000-0000-4000-8000-000000000225";
-  const added = applyDrawingCommand(initial, {
-    type: "add_objects",
-    actorId: ids.ownerA,
-    objects: [rectangle({ id: objectId })],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  const added = applyDrawingCommand(
+    initial,
+    {
+      type: "add_objects",
+      actorId: ids.ownerA,
+      objects: [rectangle({ id: objectId })],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" },
+  );
   assert.deepEqual(added.operation.baseVersions, {});
 
-  const { outbox, recovered } = await restoreAcknowledgedP2(added.state, [added]);
+  const { outbox, recovered } = await restoreAcknowledgedP2(added.state, [
+    added,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.objects[objectId].version, 1);
@@ -1596,21 +2266,26 @@ test("recovery consumes an acknowledged fresh object add with no object base", a
 });
 
 test("recovery consumes an acknowledged tombstone restore with the preceding base", async () => {
-  const deleted = applyDrawingCommand(p2State(), {
-    type: "delete_objects",
-    actorId: ids.ownerA,
-    objectIds: [ids.object],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
-  const restored = undoDrawingCommand(
-    deleted.state,
-    ids.ownerA,
-    { createId: () => ids.operation2, now: () => "2026-08-25T00:00:02.000Z" },
+  const deleted = applyDrawingCommand(
+    p2State(),
+    {
+      type: "delete_objects",
+      actorId: ids.ownerA,
+      objectIds: [ids.object],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" },
   );
+  const restored = undoDrawingCommand(deleted.state, ids.ownerA, {
+    createId: () => ids.operation2,
+    now: () => "2026-08-25T00:00:02.000Z",
+  });
   assert.ok(restored && !("kind" in restored));
   assert.equal(restored.state.objects[ids.object].version, 3);
   assert.deepEqual(restored.operation.baseVersions, { [ids.object]: 2 });
 
-  const { outbox, recovered } = await restoreAcknowledgedP2(restored.state, [restored]);
+  const { outbox, recovered } = await restoreAcknowledgedP2(restored.state, [
+    restored,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.objects[ids.object].version, 3);
@@ -1620,16 +2295,20 @@ test("recovery consumes an acknowledged tombstone restore with the preceding bas
 test("recovery reconciles acknowledged structure and object additions as one mixed prefix", async () => {
   const created = createModel();
   const objectId = "00000000-0000-4000-8000-000000000226";
-  const added = applyDrawingCommand(created.state, {
-    type: "add_objects",
-    actorId: ids.ownerA,
-    objects: [rectangle({ id: objectId, layerId: p2.modelLayer })],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
-
-  const { outbox, recovered } = await restoreAcknowledgedP2(
-    added.state,
-    [created, added],
+  const added = applyDrawingCommand(
+    created.state,
+    {
+      type: "add_objects",
+      actorId: ids.ownerA,
+      objects: [rectangle({ id: objectId, layerId: p2.modelLayer })],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" },
   );
+
+  const { outbox, recovered } = await restoreAcknowledgedP2(added.state, [
+    created,
+    added,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model].version, 1);
@@ -1641,37 +2320,75 @@ test("acknowledged object additions quarantine noncanonical bases and result ver
   const initial = p2State();
   const objectId = "00000000-0000-4000-8000-000000000227";
   const extraId = "00000000-0000-4000-8000-000000000228";
-  const added = applyDrawingCommand(initial, {
-    type: "add_objects",
-    actorId: ids.ownerA,
-    objects: [rectangle({ id: objectId })],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
-  const deleted = applyDrawingCommand(initial, {
-    type: "delete_objects",
-    actorId: ids.ownerA,
-    objectIds: [ids.object],
-  }, { createId: () => ids.operation2, now: () => "2026-08-25T00:00:02.000Z" });
-  const restored = undoDrawingCommand(
-    deleted.state,
-    ids.ownerA,
-    { createId: () => ids.operation3, now: () => "2026-08-25T00:00:03.000Z" },
+  const added = applyDrawingCommand(
+    initial,
+    {
+      type: "add_objects",
+      actorId: ids.ownerA,
+      objects: [rectangle({ id: objectId })],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" },
   );
+  const deleted = applyDrawingCommand(
+    initial,
+    {
+      type: "delete_objects",
+      actorId: ids.ownerA,
+      objectIds: [ids.object],
+    },
+    { createId: () => ids.operation2, now: () => "2026-08-25T00:00:02.000Z" },
+  );
+  const restored = undoDrawingCommand(deleted.state, ids.ownerA, {
+    createId: () => ids.operation3,
+    now: () => "2026-08-25T00:00:03.000Z",
+  });
   assert.ok(restored && !("kind" in restored));
   const cases = [
-    { name: "wrong fresh base", applied: added, baseVersions: { [objectId]: 1 }, serverState: added.state },
-    { name: "missing restore base", applied: restored, baseVersions: {}, serverState: restored.state },
-    { name: "wrong restore base", applied: restored, baseVersions: { [ids.object]: 3 }, serverState: restored.state },
-    { name: "extra base", applied: added, baseVersions: { [extraId]: 1 }, serverState: added.state },
-    { name: "wrong loader result version", applied: added, baseVersions: {}, serverState: {
-      ...added.state,
-      objects: { ...added.state.objects, [objectId]: { ...added.state.objects[objectId], version: 2 } },
-    } },
+    {
+      name: "wrong fresh base",
+      applied: added,
+      baseVersions: { [objectId]: 1 },
+      serverState: added.state,
+    },
+    {
+      name: "missing restore base",
+      applied: restored,
+      baseVersions: {},
+      serverState: restored.state,
+    },
+    {
+      name: "wrong restore base",
+      applied: restored,
+      baseVersions: { [ids.object]: 3 },
+      serverState: restored.state,
+    },
+    {
+      name: "extra base",
+      applied: added,
+      baseVersions: { [extraId]: 1 },
+      serverState: added.state,
+    },
+    {
+      name: "wrong loader result version",
+      applied: added,
+      baseVersions: {},
+      serverState: {
+        ...added.state,
+        objects: {
+          ...added.state.objects,
+          [objectId]: { ...added.state.objects[objectId], version: 2 },
+        },
+      },
+    },
   ];
 
   for (const candidate of cases) {
     const malformed = {
       ...candidate.applied,
-      operation: { ...candidate.applied.operation, baseVersions: candidate.baseVersions },
+      operation: {
+        ...candidate.applied.operation,
+        baseVersions: candidate.baseVersions,
+      },
     };
     const { outbox, recovered } = await restoreAcknowledgedP2(
       candidate.serverState,
@@ -1682,14 +2399,21 @@ test("acknowledged object additions quarantine noncanonical bases and result ver
       [candidate.applied.operation.clientOperationId],
       candidate.name,
     );
-    assert.equal((await outbox.entries())[0].status, "conflicted", candidate.name);
+    assert.equal(
+      (await outbox.entries())[0].status,
+      "conflicted",
+      candidate.name,
+    );
   }
 });
 
 test("recovery consumes an acknowledged P2 create then update as one final-state chain", async () => {
   const created = createModel();
   const updated = renameModel(created.state, p2.updateOne, "Model v2");
-  const { recovered } = await restoreAcknowledgedP2(updated.state, [created, updated]);
+  const { recovered } = await restoreAcknowledgedP2(updated.state, [
+    created,
+    updated,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v2");
@@ -1698,11 +2422,15 @@ test("recovery consumes an acknowledged P2 create then update as one final-state
 
 test("recovery reconciles one mixed legacy and P2 acknowledged prefix against its final loader", async () => {
   const created = createModel();
-  const movedObject = applyDrawingCommand(created.state, {
-    type: "update_objects",
-    actorId: ids.ownerA,
-    updates: [{ objectId: ids.object, patch: { name: "Door" } }],
-  }, { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" });
+  const movedObject = applyDrawingCommand(
+    created.state,
+    {
+      type: "update_objects",
+      actorId: ids.ownerA,
+      updates: [{ objectId: ids.object, patch: { name: "Door" } }],
+    },
+    { createId: () => ids.operation1, now: () => "2026-08-25T00:00:01.000Z" },
+  );
   const renamed = renameModel(movedObject.state, p2.updateOne, "Model v2");
   const { recovered } = await restoreAcknowledgedP2(renamed.state, [
     created,
@@ -1720,7 +2448,10 @@ test("recovery consumes successive acknowledged P2 updates from their final auth
   const created = createModel();
   const first = renameModel(created.state, p2.updateOne, "Model v2");
   const second = renameModel(first.state, p2.updateTwo, "Model v3");
-  const { recovered } = await restoreAcknowledgedP2(second.state, [first, second]);
+  const { recovered } = await restoreAcknowledgedP2(second.state, [
+    first,
+    second,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
@@ -1730,8 +2461,15 @@ test("recovery consumes successive acknowledged P2 updates from their final auth
 test("recovery consumes acknowledged P2 delete then restore against a final restored loader", async () => {
   const created = createModel();
   const deleted = deleteModel(created.state);
-  const restored = structureOperation(deleted.state, p2.restore, deleted.operation.inverse.actions);
-  const { recovered } = await restoreAcknowledgedP2(restored.state, [deleted, restored]);
+  const restored = structureOperation(
+    deleted.state,
+    p2.restore,
+    deleted.operation.inverse.actions,
+  );
+  const { recovered } = await restoreAcknowledgedP2(restored.state, [
+    deleted,
+    restored,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
@@ -1742,7 +2480,10 @@ test("recovery consumes acknowledged P2 create then delete when the final loader
   const initial = p2State();
   const created = createModel(initial);
   const deleted = deleteModel(created.state);
-  const { recovered } = await restoreAcknowledgedP2(initial, [created, deleted]);
+  const { recovered } = await restoreAcknowledgedP2(initial, [
+    created,
+    deleted,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model], undefined);
@@ -1752,7 +2493,10 @@ test("recovery consumes acknowledged P2 create then delete when the final loader
 test("a partially reflected acknowledged P2 chain remains exact conflict evidence atomically", async () => {
   const created = createModel();
   const updated = renameModel(created.state, p2.updateOne, "Model v2");
-  const { recovered } = await restoreAcknowledgedP2(created.state, [created, updated]);
+  const { recovered } = await restoreAcknowledgedP2(created.state, [
+    created,
+    updated,
+  ]);
 
   assert.deepEqual(recovered.conflictedOperationIds, [p2.create, p2.updateOne]);
   assert.deepEqual(recovered.ambiguousOperationIds, [p2.create, p2.updateOne]);
@@ -1778,7 +2522,10 @@ test("a conflicted acknowledged prefix quarantines later pending work without ch
     p2.updateOne,
     p2.updateTwo,
   ]);
-  assert.equal(recovered.state.structure.canvases[p2.model].name, "Server divergence");
+  assert.equal(
+    recovered.state.structure.canvases[p2.model].name,
+    "Server divergence",
+  );
   assert.equal(recovered.state.structure.canvases[p2.model].version, 2);
   assert.deepEqual(
     (await outbox.entries())
@@ -1801,24 +2548,31 @@ test("a final acknowledged P2 prefix is consumed before the remaining pending op
   assert.deepEqual(recovered.conflictedOperationIds, []);
   assert.equal(recovered.state.structure.canvases[p2.model].name, "Model v3");
   assert.equal(recovered.state.structure.canvases[p2.model].version, 3);
-  assert.deepEqual((await outbox.pending()).map((entry) => entry.clientOperationId), [p2.updateTwo]);
+  assert.deepEqual(
+    (await outbox.pending()).map((entry) => entry.clientOperationId),
+    [p2.updateTwo],
+  );
 });
 
 test("reload recovery does not apply later work from a blocked revision", () => {
-  const recovered = recoverPendingDrawingState(state(), [
-    {
-      operation: operation(ids.operation1),
-      status: "conflicted",
-      retryCount: 0,
-    },
-    {
-      operation: operation(ids.operation2, {
-        createdAt: "2026-08-24T02:00:00.000Z",
-      }),
-      status: "pending",
-      retryCount: 0,
-    },
-  ], recoveryScope());
+  const recovered = recoverPendingDrawingState(
+    state(),
+    [
+      {
+        operation: operation(ids.operation1),
+        status: "conflicted",
+        retryCount: 0,
+      },
+      {
+        operation: operation(ids.operation2, {
+          createdAt: "2026-08-24T02:00:00.000Z",
+        }),
+        status: "pending",
+        retryCount: 0,
+      },
+    ],
+    recoveryScope(),
+  );
 
   assert.equal(recovered.state.objects[ids.object].name, "Rectangle");
   assert.deepEqual(recovered.conflictedOperationIds, []);
@@ -2230,8 +2984,14 @@ test("local persistence capability fails closed", () => {
 });
 
 test("immutable revisions deny editor/admin persistence and legacy attribution", async () => {
-  assert.equal(canPersistDrawingMutation("editor", undefined, "review_requested"), false);
-  assert.equal(canPersistDrawingMutation("admin", undefined, "approved"), false);
+  assert.equal(
+    canPersistDrawingMutation("editor", undefined, "review_requested"),
+    false,
+  );
+  assert.equal(
+    canPersistDrawingMutation("admin", undefined, "approved"),
+    false,
+  );
   const outbox = scopedOutbox(memoryAdapter());
   await assert.rejects(
     claimLegacyDrawingOperations({

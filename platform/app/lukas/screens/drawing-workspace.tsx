@@ -1,12 +1,9 @@
 import type { Route } from "./+types/drawing-workspace";
 
-import { ArrowLeft } from "lucide-react";
-import { Form, Link, data, redirect } from "react-router";
+import { data, redirect } from "react-router";
 import { z } from "zod";
 
-import { DrawingTemplateDialog } from "~/lukas/components/drawing-template-dialog";
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
-import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import {
   drawingContext,
   listDrawingAssignees,
@@ -177,80 +174,100 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     focusObjectId: lineageSearch.objectId ?? undefined,
     focusEvidenceFileId: lineageSearch.evidenceFileId ?? undefined,
   });
-  let estimateSummary = null;
-  let estimateOptions: Awaited<ReturnType<typeof loadDrawingEstimateOptions>> =
-    [];
-  if (workspace.document)
-    try {
-      [estimateSummary, estimateOptions] = await Promise.all([
-        loadDrawingEstimateSummary(client, {
-          actorId: user.id,
-          projectId: project.id,
-          workspace,
-        }),
-        loadDrawingEstimateOptions(client, project.id),
-      ]);
-    } catch (error) {
-      throw new Response(
-        error instanceof DrawingWorkspaceRejectedError
-          ? error.message
-          : "견적 결과를 불러오지 못했습니다.",
-        {
-          status:
-            error instanceof DrawingWorkspaceRejectedError
-              ? 400
-              : error instanceof DrawingWorkspaceRpcError
-                ? 503
-                : 500,
-        },
-      );
-    }
   const selectedIfcFileId =
     viewState.ifcFileId ??
     (workspace.primarySource?.kind === "ifc"
       ? workspace.primarySource.id
       : null);
-  let sourceBundle;
-  try {
-    sourceBundle = {
-      ...(await loadDrawingWorkspaceSourceBundle(
-        client,
-        workspace,
-        selectedIfcFileId,
-        viewState.view !== "2d",
-      )),
-      error: null,
-    };
-  } catch (error) {
-    if (
-      !(error instanceof DrawingWorkspaceSourceUnavailableError) &&
-      !(
-        error instanceof Error &&
-        error.name === "DrawingWorkspaceSourceUnavailableError"
-      )
-    )
-      throw error;
-    console.error("Drawing workspace source failed", {
-      workspaceId: workspace.document?.id ?? params.workspaceId,
-      error,
-    });
-    sourceBundle = {
-      primary: null,
-      pdf: null,
-      ifc: null,
-      previousPdf: null,
-      revisionEdge: null,
-      catalog: [],
-      error: "도면 원본을 표시하지 못했습니다. 다시 시도해 주세요.",
-    };
-  }
-  const measurementState = workspace.document
-    ? await loadDrawingWorkspaceMeasurementState(client, {
-        documentId: workspace.document.id,
-        revisionId: workspace.document.revision.id,
-        revisionVersion: workspace.document.revision.version,
-      })
-    : null;
+  const collaborationClient = client as unknown as DrawingClient;
+  const [
+    estimate,
+    sourceBundle,
+    measurementState,
+    activityPage,
+    collaborationRoom,
+    assignees,
+  ] = await Promise.all([
+    (async () => {
+      try {
+        const [summary, options] = await Promise.all([
+          loadDrawingEstimateSummary(client, {
+            actorId: user.id,
+            projectId: project.id,
+            workspace,
+          }),
+          canEdit(capability)
+            ? loadDrawingEstimateOptions(client, project.id)
+            : Promise.resolve([]),
+        ]);
+        return { summary, options };
+      } catch (error) {
+        throw new Response(
+          error instanceof DrawingWorkspaceRejectedError
+            ? error.message
+            : "견적 결과를 불러오지 못했습니다.",
+          {
+            status:
+              error instanceof DrawingWorkspaceRejectedError
+                ? 400
+                : error instanceof DrawingWorkspaceRpcError
+                  ? 503
+                  : 500,
+          },
+        );
+      }
+    })(),
+    (async () => {
+      try {
+        return {
+          ...(await loadDrawingWorkspaceSourceBundle(
+            client,
+            workspace,
+            selectedIfcFileId,
+            viewState.view !== "2d",
+          )),
+          error: null,
+        };
+      } catch (error) {
+        if (
+          !(error instanceof DrawingWorkspaceSourceUnavailableError) &&
+          !(
+            error instanceof Error &&
+            error.name === "DrawingWorkspaceSourceUnavailableError"
+          )
+        )
+          throw error;
+        console.error("Drawing workspace source failed", {
+          workspaceId: workspace.document.id,
+          error,
+        });
+        return {
+          primary: null,
+          pdf: null,
+          ifc: null,
+          previousPdf: null,
+          revisionEdge: null,
+          catalog: [],
+          error: "도면 원본을 표시하지 못했습니다. 다시 시도해 주세요.",
+        };
+      }
+    })(),
+    loadDrawingWorkspaceMeasurementState(client, {
+      documentId: workspace.document.id,
+      revisionId: workspace.document.revision.id,
+      revisionVersion: workspace.document.revision.version,
+    }),
+    loadDrawingActivityPage(
+      client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
+      project.id,
+      workspace.document.revision.id,
+      { cursor: searchParams.get("historyCursor") },
+    ),
+    loadDrawingWorkspaceIssueRoom(collaborationClient, project.id, workspace),
+    listDrawingAssignees(collaborationClient, project.id, project.owner_id),
+  ]);
+  const estimateSummary = estimate.summary;
+  const estimateOptions = estimate.options;
   const collaborationBootstrap =
     measurementState?.collaborationBootstrap ?? null;
   const lineageObjectId = lineageSearch.objectId;
@@ -258,15 +275,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const lineageCursor = lineageSearch.cursor;
   if (
     requestedRevisionId &&
-    workspace.document?.revision.id !== requestedRevisionId
+    workspace.document.revision.id !== requestedRevisionId
   )
     throw new Response("연결된 도면 근거를 열 수 없습니다.", { status: 404 });
   let quantityLineage = null;
-  if (lineageObjectId && !workspace.document)
-    throw new Response("연결된 도면 근거를 열 수 없습니다.", {
-      status: 404,
-    });
-  if (workspace.document && lineageObjectId) {
+  if (lineageObjectId) {
     try {
       if (workspace.primarySource) {
         const scope = assertDrawingQuantityWorkspaceScope(workspace, {
@@ -326,19 +339,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       });
     }
   }
-  const activityPage = workspace.document
-    ? await loadDrawingActivityPage(
-        client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
-        project.id,
-        workspace.document.revision.id,
-        { cursor: searchParams.get("historyCursor") },
-      )
-    : null;
-  const collaborationClient = client as unknown as DrawingClient;
-  const [collaborationRoom, assignees] = await Promise.all([
-    loadDrawingWorkspaceIssueRoom(collaborationClient, project.id, workspace),
-    listDrawingAssignees(collaborationClient, project.id, project.owner_id),
-  ]);
   const loaderMs = finishLoaderStage();
   headers.append(
     "Server-Timing",
@@ -399,8 +399,8 @@ export async function action({ request, params }: Route.ActionArgs) {
       mutation = parseDrawingEstimateBindingForm(form, {
         capability,
         projectId: project.id,
-        revisionId: workspace.document?.revision.id ?? "",
-        revisionStatus: workspace.document?.revision.status ?? "",
+        revisionId: workspace.document.revision.id,
+        revisionStatus: workspace.document.revision.status,
       });
       const result = await bindDrawingEstimate(client, user.id, mutation);
       return data(
@@ -460,7 +460,7 @@ export async function action({ request, params }: Route.ActionArgs) {
             throw new DrawingQuantityLineageServerError("P6O01");
         }
       } else if (
-        workspace.document?.revision.id !== mutation.drawingRevisionId ||
+        workspace.document.revision.id !== mutation.drawingRevisionId ||
         !workspace.document.revision.objects.some(
           (object) => object.id === mutation.drawingObjectId,
         )
@@ -552,7 +552,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       const mutation = parseDrawingMutationForm(form);
       if (
         mutation.intent === "add_canvas_region_anchor" &&
-        workspace.document?.revision.id !== mutation.revisionId
+        workspace.document.revision.id !== mutation.revisionId
       )
         throw new Response("현재 도면 영역만 연결할 수 있습니다.", {
           status: 409,
@@ -586,10 +586,6 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Response("도면 객체에 이슈를 연결할 권한이 없습니다.", {
           status: 403,
         });
-      if (!workspace.document)
-        throw new DrawingWorkspaceConflictError(
-          "초안 개정에서만 이슈를 연결할 수 있습니다.",
-        );
       if (
         workspace.document.revision.status === "approved" ||
         workspace.document.revision.status === "superseded"
@@ -664,142 +660,35 @@ export default function DrawingWorkspaceScreen({
   actionData,
 }: Route.ComponentProps) {
   const { project, capability, workspace } = loaderData;
-  const editable = canEdit(capability);
   const quantityLineage =
     actionData && "quantityLineage" in actionData
       ? actionData.quantityLineage
       : loaderData.quantityLineage;
-  if (workspace.document) {
-    return (
-      <DrawingWorkspaceClient
-        actionError={actionData?.error}
-        capability={capability}
-        collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
-        activityPage={loaderData.activityPage ?? undefined}
-        assignees={loaderData.assignees}
-        collaborationRoom={loaderData.collaborationRoom ?? undefined}
-        currentUserId={loaderData.currentUserId}
-        measurementEvidence={loaderData.measurementEvidence}
-        measurementEvidenceError={loaderData.measurementEvidenceError}
-        estimateOptions={loaderData.estimateOptions}
-        estimateSummary={loaderData.estimateSummary ?? undefined}
-        boqReturnHref={loaderData.boqReturnHref}
-        projectId={project.id}
-        quantityLineage={quantityLineage}
-        roomUrl={
-          workspace.primarySource
-            ? `/projects/${project.id}/drawings/${workspace.primarySource.id}`
-            : `/projects/${project.id}/drawings`
-        }
-        sourceBundle={loaderData.sourceBundle}
-        selectedIfcFileId={loaderData.selectedIfcFileId}
-        viewMode={loaderData.viewState.view}
-        workspace={{ ...workspace, document: workspace.document }}
-      />
-    );
-  }
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 pb-28 pt-8 sm:px-8 sm:pb-12">
-      <Link
-        className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground underline underline-offset-4"
-        to={
-          workspace.primarySource
-            ? `/projects/${project.id}/drawings/${workspace.primarySource.id}`
-            : `/projects/${project.id}`
-        }
-      >
-        <ArrowLeft className="size-4" />{" "}
-        {workspace.primarySource ? "협업 도면실" : "프로젝트 개요"}
-      </Link>
-
-      <header className="mt-4 border-b pb-6">
-        <p className="text-sm font-semibold text-primary">
-          {project.name} · 도면 편집 작업실
-        </p>
-        <h1 className="mt-2 truncate text-3xl font-bold tracking-tight">
-          {workspace.primarySource?.original_filename ?? "빈 작업실"}
-        </h1>
-        {workspace.primarySource ? (
-          <p className="mt-2 font-mono text-xs text-muted-foreground">
-            원본 SHA-256: {workspace.primarySource.sha256}
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">
-            원본 파일 없이 빈 도면에서 시작합니다.
-          </p>
-        )}
-      </header>
-      <ProjectWorkspaceNav current="drawings" projectId={project.id} />
-
-      {actionData?.error ? (
-        <p
-          className="mt-5 rounded-xl bg-destructive/10 p-3 text-sm text-destructive"
-          role="alert"
-        >
-          {actionData.error}
-        </p>
-      ) : null}
-
-      <section className="mt-8 max-w-2xl rounded-2xl border p-6">
-        <h2 className="text-xl font-bold">편집 도면 만들기</h2>
-        {editable ? (
-          <>
-            <Form className="mt-5 space-y-4" method="post">
-              <input name="intent" type="hidden" value="create_document" />
-              <label
-                className="block text-sm font-semibold"
-                htmlFor="drawing-title"
-              >
-                도면 제목
-              </label>
-              <input
-                className="min-h-11 w-full rounded-lg border bg-background px-3"
-                defaultValue={
-                  workspace.primarySource?.original_filename.replace(
-                    /\.[^.]+$/,
-                    "",
-                  ) ?? project.name
-                }
-                id="drawing-title"
-                maxLength={240}
-                name="title"
-                required
-              />
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className="min-h-11 rounded-lg border px-4 font-semibold"
-                  name="document_mode"
-                  type="submit"
-                  value="blank"
-                >
-                  빈 도면
-                </button>
-                {workspace.primarySource?.kind === "pdf" ? (
-                  <button
-                    className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground"
-                    name="document_mode"
-                    type="submit"
-                    value="pdf_background"
-                  >
-                    PDF 배경 사용
-                  </button>
-                ) : null}
-                {workspace.primarySource ? (
-                  <DrawingTemplateDialog
-                    actionError={actionData?.error ?? undefined}
-                    candidates={workspace.templateCandidates}
-                    sourceFile={workspace.primarySource}
-                  />
-                ) : null}
-              </div>
-            </Form>
-          </>
-        ) : (
-          <p className="mt-4 text-sm text-muted-foreground">
-            이 파일을 볼 수 있지만 편집 도면을 만들 권한은 없습니다.
-          </p>
-        )}
-      </section>
-    </main>
+    <DrawingWorkspaceClient
+      actionError={actionData?.error}
+      capability={capability}
+      collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
+      activityPage={loaderData.activityPage ?? undefined}
+      assignees={loaderData.assignees}
+      collaborationRoom={loaderData.collaborationRoom ?? undefined}
+      currentUserId={loaderData.currentUserId}
+      measurementEvidence={loaderData.measurementEvidence}
+      measurementEvidenceError={loaderData.measurementEvidenceError}
+      estimateOptions={loaderData.estimateOptions}
+      estimateSummary={loaderData.estimateSummary ?? undefined}
+      boqReturnHref={loaderData.boqReturnHref}
+      projectId={project.id}
+      quantityLineage={quantityLineage}
+      roomUrl={
+        workspace.primarySource
+          ? `/projects/${project.id}/drawings/${workspace.primarySource.id}`
+          : `/projects/${project.id}/drawings`
+      }
+      sourceBundle={loaderData.sourceBundle}
+      selectedIfcFileId={loaderData.selectedIfcFileId}
+      viewMode={loaderData.viewState.view}
+      workspace={workspace}
+    />
   );
 }

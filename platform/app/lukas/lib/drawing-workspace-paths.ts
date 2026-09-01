@@ -16,13 +16,6 @@ export function drawingWorkspaceNewPath(
     : base;
 }
 
-export function drawingWorkspaceOperationPath(
-  projectId: string,
-  workspaceId: string,
-) {
-  return `${drawingWorkspacePath(projectId, workspaceId)}/operation`;
-}
-
 export function drawingWorkspaceOperationLocation({
   previewMode,
   projectId,
@@ -34,7 +27,7 @@ export function drawingWorkspaceOperationLocation({
 }) {
   return previewMode
     ? "/workspace-preview/drawing-workspace/operation"
-    : drawingWorkspaceOperationPath(projectId, workspaceId);
+    : `${drawingWorkspacePath(projectId, workspaceId)}/operation`;
 }
 
 export function drawingWorkspaceExportPath(
@@ -58,8 +51,4 @@ export function drawingWorkspaceBoqReturnLocation(
 
 export function legacyDrawingWorkspacePath(projectId: string, fileId: string) {
   return `/projects/${Uuid.parse(projectId)}/drawings/${Uuid.parse(fileId)}/workspace`;
-}
-
-export function legacyProjectWorkspacePath(projectId: string) {
-  return `/projects/${Uuid.parse(projectId)}/workspace`;
 }

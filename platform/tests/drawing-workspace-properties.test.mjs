@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 import { createElement } from "react";
@@ -613,29 +614,20 @@ const propertyComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-properties-panel.tsx")
   .catch(() => ({}));
 
-test("property field selection identity synchronously discards prior dirty edits", () => {
-  assert.equal(
-    typeof propertyComponents.synchronizeDrawingPropertyDirtySelection,
-    "function",
-  );
-  const dirty = new Set([ids.text]);
-  const identity = { current: ids.objectA };
-  assert.equal(
-    propertyComponents.synchronizeDrawingPropertyDirtySelection(
-      dirty,
-      identity,
-      [ids.objectB, ids.objectA],
+test("property field selection keys the state owner so evidence drafts and errors reset together", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/components/drawing-properties-panel.tsx",
+      import.meta.url,
     ),
-    `${ids.objectB}|${ids.objectA}`,
+    "utf8",
   );
-  assert.deepEqual([...dirty], []);
-  assert.equal(identity.current, `${ids.objectB}|${ids.objectA}`);
-  dirty.add(ids.text);
-  propertyComponents.synchronizeDrawingPropertyDirtySelection(dirty, identity, [
-    ids.objectA,
-    ids.objectB,
-  ]);
-  assert.deepEqual([...dirty], []);
+  assert.match(
+    source,
+    /<DrawingPropertyFieldState[\s\S]*key=\{selectionIdentity\}/,
+  );
+  assert.doesNotMatch(source, /useEffect\(/);
+  assert.doesNotMatch(source, /synchronizeDrawingPropertyDirtySelection/);
 });
 
 test("viewer property markup stays readable while every mutation control is absent", () => {

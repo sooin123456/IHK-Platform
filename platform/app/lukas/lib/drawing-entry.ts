@@ -75,16 +75,8 @@ export function fileMatchesProjectKind(
   return lower.endsWith(".csv");
 }
 
-export function drawingWorkspacePath(projectId: string, fileId: string) {
-  return `/projects/${projectId}/drawings/${fileId}/workspace`;
-}
-
 export function drawingRoomPath(projectId: string, fileId: string) {
   return `/projects/${projectId}/drawings/${fileId}`;
-}
-
-export function drawingProjectWorkspacePath(projectId: string) {
-  return `/projects/${projectId}/workspace`;
 }
 
 export function drawingUploadPath(projectId: string) {
@@ -113,12 +105,8 @@ export function projectActorRole({
   return membershipRole ?? null;
 }
 
-export function canRegisterOfficialArtifacts(
-  role: string | null | undefined,
-) {
-  return (
-    role === "owner" || role === "staff" || role === "estimator"
-  );
+export function canRegisterOfficialArtifacts(role: string | null | undefined) {
+  return role === "owner" || role === "staff" || role === "estimator";
 }
 
 export function projectUploadDestination({

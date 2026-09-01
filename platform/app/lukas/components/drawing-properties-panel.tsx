@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import {
   applicableDrawingPropertySchemas,
@@ -349,43 +349,19 @@ function shown(value: ReturnType<typeof drawingPropertyValue>) {
   return value === null ? "" : String(value);
 }
 
-export function synchronizeDrawingPropertyDirtySelection(
-  dirty: Set<string>,
-  previous: { current: string | null },
-  selectedIds: readonly string[],
-) {
-  const identity = selectedIds.join("|");
-  if (previous.current !== identity) {
-    dirty.clear();
-    previous.current = identity;
-  }
-  return identity;
-}
-
-/** Inspector fields write every dirty schema/target pair in one structure command. */
-export function DrawingPropertyFields({
+function DrawingPropertyFieldState({
   actorId,
   canEdit,
   onCommand,
   selectedIds,
+  schemas,
   state,
-}: FieldProps) {
+}: FieldProps & { schemas: DrawingPropertySchema[] }) {
   const dirty = useRef(new Set<string>());
-  const selectionIdentityRef = useRef<string | null>(null);
-  const selectionIdentity = synchronizeDrawingPropertyDirtySelection(
-    dirty.current,
-    selectionIdentityRef,
-    selectedIds,
-  );
   const [error, setError] = useState<string | null>(null);
   const [editedEvidenceKind, setEditedEvidenceKind] = useState<string | null>(
     null,
   );
-  useEffect(() => setEditedEvidenceKind(null), [selectionIdentity]);
-  if (!state.structure?.propertySchemas || !state.structure.propertyValues)
-    return null;
-  const schemas = applicableDrawingPropertySchemas(state, selectedIds);
-  if (schemas.length === 0) return null;
 
   const shared = (schemaId: string) => {
     const values = selectedIds.map((targetId) =>
@@ -436,12 +412,12 @@ export function DrawingPropertyFields({
       <form
         className="mt-3 grid gap-3"
         data-drawing-shortcuts="ignore"
-        key={`${selectionIdentity}:${schemas
+        key={schemas
           .map(
             (schema) =>
               `${schema.id}:${schema.version}:${shown(shared(schema.id))}`,
           )
-          .join("|")}`}
+          .join("|")}
         onSubmit={(event) => {
           event.preventDefault();
           try {
@@ -547,5 +523,27 @@ export function DrawingPropertyFields({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** Inspector fields write every dirty schema/target pair in one structure command. */
+export function DrawingPropertyFields(props: FieldProps) {
+  if (
+    !props.state.structure?.propertySchemas ||
+    !props.state.structure.propertyValues
+  )
+    return null;
+  const schemas = applicableDrawingPropertySchemas(
+    props.state,
+    props.selectedIds,
+  );
+  if (schemas.length === 0) return null;
+  const selectionIdentity = props.selectedIds.join("|");
+  return (
+    <DrawingPropertyFieldState
+      {...props}
+      key={selectionIdentity}
+      schemas={schemas}
+    />
   );
 }

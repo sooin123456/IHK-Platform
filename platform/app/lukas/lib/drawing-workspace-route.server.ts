@@ -304,7 +304,7 @@ export async function loadDrawingWorkspaceIssueRoom(
 ) {
   if (workspace.primarySource)
     return loadFileRoom(client, projectId, workspace.primarySource.id);
-  const issues = workspace.document?.revision.issues ?? [];
+  const issues = workspace.document.revision.issues;
   const issueIds = issues.map((issue) => issue.id);
   if (issueIds.length === 0)
     return {
@@ -401,27 +401,5 @@ export function parseDrawingEstimateBindingForm(
     projectId: scope.projectId,
     drawingRevisionId,
     boqVersionId,
-  };
-}
-
-export async function drawingEstimateBindingErrorResponse(error: unknown) {
-  if (error instanceof Response)
-    return {
-      status: error.status,
-      error: (await error.text()) || "견적 연결 요청이 올바르지 않습니다.",
-    };
-  if (
-    error instanceof DrawingWorkspaceConflictError ||
-    (error instanceof Error && error.name === "DrawingWorkspaceConflictError")
-  )
-    return {
-      status: 409,
-      error: "현재 도면 개정 또는 BOQ 버전에 이미 견적이 연결되어 있습니다.",
-    };
-  if (error instanceof DrawingWorkspaceRejectedError)
-    return { status: 400, error: error.message };
-  return {
-    status: error instanceof DrawingWorkspaceRpcError ? 503 : 400,
-    error: "견적 연결을 저장하지 못했습니다.",
   };
 }

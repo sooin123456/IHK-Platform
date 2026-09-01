@@ -160,13 +160,6 @@ test("estimate binding route bounds malformed workspace and revision identities"
     }
     assert.ok(thrown instanceof Response);
     assert.equal(thrown.status, 400);
-    assert.deepEqual(
-      await workspaceScreen.drawingEstimateBindingErrorResponse(thrown.clone()),
-      {
-        status: 400,
-        error: "견적 연결 경로 식별자가 올바르지 않습니다.",
-      },
-    );
     assert.equal(
       await thrown.text(),
       "견적 연결 경로 식별자가 올바르지 않습니다.",
@@ -174,29 +167,7 @@ test("estimate binding route bounds malformed workspace and revision identities"
   }
 });
 
-test("estimate binding failures stay bounded for validation and duplicate conflicts", async () => {
-  const bounded = workspaceScreen.drawingEstimateBindingErrorResponse;
-  assert.equal(typeof bounded, "function");
-  assert.deepEqual(
-    await bounded(
-      new workspaceServer.DrawingWorkspaceConflictError("raw db detail"),
-    ),
-    {
-      status: 409,
-      error: "현재 도면 개정 또는 BOQ 버전에 이미 견적이 연결되어 있습니다.",
-    },
-  );
-  assert.deepEqual(
-    await bounded(
-      new Response("견적 연결에는 도면 편집 권한이 필요합니다.", {
-        status: 403,
-      }),
-    ),
-    {
-      status: 403,
-      error: "견적 연결에는 도면 편집 권한이 필요합니다.",
-    },
-  );
+test("estimate binding action uses the shared bounded error response", async () => {
   const routeSource = await readFile(
     new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
     "utf8",
@@ -379,7 +350,9 @@ test("real mutation failures retain Zod fields, unknown secrecy, and approved-re
   const workspace = {
     primarySource: null,
     templateCandidates: [],
-    document: null,
+    document: {
+      revision: { id: ids.document, status: "draft" },
+    },
   };
   let validationError;
   try {
@@ -406,19 +379,18 @@ test("real mutation failures retain Zod fields, unknown secrecy, and approved-re
   let unknownError;
   try {
     const create = new FormData();
-    create.set("intent", "create_document");
-    create.set("title", "A-101");
-    create.set("document_mode", "blank");
+    create.set("intent", "request_review");
+    create.set("revision_id", ids.document);
+    create.set("freeze_request_id", ids.file);
     await workspaceServer.handleWorkspaceMutation({
-      client: {
-        async rpc() {
-          throw new TypeError("server-only transport detail");
-        },
-      },
+      client: {},
       projectId: ids.project,
       capability: "editor",
       workspace,
       form: create,
+      async requestReview() {
+        throw new TypeError("server-only transport detail");
+      },
     });
   } catch (error) {
     unknownError = error;
@@ -439,7 +411,7 @@ test("real mutation failures retain Zod fields, unknown secrecy, and approved-re
 
   const approvedWorkspace = {
     ...workspace,
-    document: { revision: { status: "approved" } },
+    document: { revision: { id: ids.document, status: "approved" } },
   };
   const createLayer = new FormData();
   createLayer.set("intent", "create_layer");
@@ -1029,21 +1001,6 @@ test("failed start validation preserves the submitted retry identity and isolate
   );
 });
 
-test("sourceFileId and starterKey focus only their exact matching start choice", () => {
-  assert.equal(
-    startComponent.drawingWorkspaceStartChoiceFocused(ids.file, ids.file),
-    true,
-  );
-  assert.equal(
-    startComponent.drawingWorkspaceStartChoiceFocused(ids.file, ids.document),
-    false,
-  );
-  assert.equal(
-    startComponent.drawingWorkspaceStartChoiceFocused(undefined, ids.file),
-    false,
-  );
-});
-
 test("workspace paths validate UUID identity and keep source optional", () => {
   assert.equal(
     workspacePaths.drawingWorkspacePath(ids.project, ids.document),
@@ -1056,10 +1013,6 @@ test("workspace paths validate UUID identity and keep source optional", () => {
   assert.equal(
     workspacePaths.drawingWorkspaceNewPath(ids.project, ids.file),
     `/projects/${ids.project}/workspaces/new?sourceFileId=${ids.file}`,
-  );
-  assert.equal(
-    workspacePaths.drawingWorkspaceOperationPath(ids.project, ids.document),
-    `/projects/${ids.project}/workspaces/${ids.document}/operation`,
   );
   assert.equal(
     workspacePaths.drawingWorkspaceExportPath(ids.project, ids.document),
@@ -1119,7 +1072,8 @@ test("workspace document renders the accessible editor shell", async () => {
   ]);
 
   assert.match(screen, /DrawingWorkspaceClient/);
-  assert.match(screen, /협업 도면실/);
+  assert.doesNotMatch(screen, /DrawingWorkspaceStart/);
+  assert.doesNotMatch(screen, /document\s*===\s*null/);
   assert.match(shell, /도면 작업실/);
   assert.match(shell, /저장됨/);
   assert.match(shell, /aria-label=\{`저장 상태:/);
@@ -1603,6 +1557,21 @@ test("workspace route wires the verified source bundle and controlled IFC surfac
   assert.doesNotMatch(canvas, /containPdfSource/);
   assert.match(canvas, /x=\{pdfSource\.bounds\.x\}/);
   assert.match(canvas, /y=\{pdfSource\.bounds\.y\}/);
+});
+
+test("workspace loader starts identity-independent data together and skips bind options for read-only actors", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    screen,
+    /await Promise\.all\(\[\s*[\s\S]*loadDrawingEstimateSummary\([\s\S]*canEdit\(capability\)[\s\S]*loadDrawingEstimateOptions\([\s\S]*loadDrawingWorkspaceSourceBundle\([\s\S]*loadDrawingWorkspaceMeasurementState\([\s\S]*loadDrawingActivityPage\([\s\S]*loadDrawingWorkspaceIssueRoom\([\s\S]*listDrawingAssignees\(/,
+  );
+  assert.match(
+    screen,
+    /canEdit\(capability\)[\s\S]*\? loadDrawingEstimateOptions\([\s\S]*: Promise\.resolve\(\[\]\)/,
+  );
 });
 
 test("workspace exposes six authoring tools, transient previews, and an accessible native command menu", async () => {

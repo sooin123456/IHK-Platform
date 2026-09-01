@@ -67,7 +67,10 @@ import {
   type ProjectFileKind,
 } from "~/lukas/lib/drawing-entry";
 import { drawingWorkspaceNewPath } from "~/lukas/lib/drawing-workspace-paths";
-import type { DrawingWorkspaceDatabase } from "~/lukas/lib/drawing-workspace.server";
+import {
+  loadDrawingWorkspaceCapability,
+  type DrawingWorkspaceDatabase,
+} from "~/lukas/lib/drawing-workspace.server";
 import { uploadProjectFileResumable } from "~/lukas/lib/project-file-upload";
 import {
   finalizedProjectUploadSchema,
@@ -294,6 +297,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .single();
   if (projectError || !project)
     throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+  const isStaff = user.app_metadata.role === "hangil_staff";
 
   const [
     { data: files, error: filesError },
@@ -305,6 +309,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     { data: preflightArtifacts, error: preflightArtifactsError },
     { data: materialPlans, error: materialPlansError },
     { data: drawingDocuments, error: drawingDocumentsError },
+    drawingWorkspaceCapability,
   ] = await Promise.all([
     client
       .from("lukas_qto_files")
@@ -360,6 +365,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .from("lukas_drawing_documents")
       .select("id")
       .eq("project_id", project.id),
+    loadDrawingWorkspaceCapability(
+      drawingDb as any,
+      project.id,
+      user.id,
+      project.owner_id,
+      isStaff ? "staff" : null,
+    ),
   ]);
   if (
     filesError ||
@@ -442,8 +454,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     preflightApprovals: preflightApprovalRows ?? [],
     materialPlans: materialPlans ?? [],
     drawingDocuments: drawingDocuments ?? [],
+    canCreateWorkspace:
+      drawingWorkspaceCapability === "admin" ||
+      drawingWorkspaceCapability === "editor",
     publicShareEnabled: true,
-    isStaff: user.app_metadata.role === "hangil_staff",
+    isStaff,
     isOwner: project.owner_id === user.id,
     suggestionPilotEnabled:
       user.app_metadata.role === "hangil_staff" &&
@@ -1868,8 +1883,15 @@ export default function Project({
           </p>
         </div>
         <Button asChild className="min-h-11 shrink-0">
-          <Link to={drawingWorkspaceNewPath(loaderData.project.id)}>
-            새 작업실 <ArrowRight className="size-4" />
+          <Link
+            to={
+              loaderData.canCreateWorkspace
+                ? drawingWorkspaceNewPath(loaderData.project.id)
+                : `/projects/${loaderData.project.id}/drawings`
+            }
+          >
+            {loaderData.canCreateWorkspace ? "새 작업실" : "도면 목록"}{" "}
+            <ArrowRight className="size-4" />
           </Link>
         </Button>
       </section>

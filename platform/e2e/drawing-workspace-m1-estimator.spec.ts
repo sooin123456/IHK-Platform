@@ -1370,21 +1370,21 @@ test.describe
           code: "W-001",
           quantity: "0.3 m",
           rate: "10,000원",
-          state: "확정",
+          state: "초안",
         },
         {
           amount: "600원",
           code: "F-001",
           quantity: "0.02 m2",
           rate: "30,000원",
-          state: "확정",
+          state: "가정값",
         },
         {
           amount: "150,000원",
           code: "D-001",
           quantity: "1 EA",
           rate: "150,000원",
-          state: "확정",
+          state: "초안",
         },
       ]) {
         await expectExactEstimateRow(editorPage, expected);
@@ -1485,6 +1485,39 @@ test.describe
       await expect(
         boqReviewerPage.getByText("승인 완료", { exact: true }).first(),
       ).toBeVisible();
+
+      await editorPage.goto(
+        `${baseUrl}${canonicalPath(fixture.projectId, estimatorWorkspaceId)}`,
+      );
+      await openResultRail(editorPage);
+      for (const expected of [
+        {
+          amount: "3,000원",
+          code: "W-001",
+          quantity: "0.3 m",
+          rate: "10,000원",
+          state: "확정",
+        },
+        {
+          amount: "600원",
+          code: "F-001",
+          quantity: "0.02 m2",
+          rate: "30,000원",
+          state: "확정",
+        },
+        {
+          amount: "150,000원",
+          code: "D-001",
+          quantity: "1 EA",
+          rate: "150,000원",
+          state: "확정",
+        },
+      ]) {
+        await expectExactEstimateRow(editorPage, expected);
+        await expect(estimateRow(editorPage, expected.code)).toContainText(
+          "근거 1건",
+        );
+      }
 
       const csv = await downloadNamed(boqReviewerPage, "CSV");
       const xlsx = await downloadNamed(boqReviewerPage, "Excel");

@@ -40,6 +40,7 @@ import {
   useBlocker,
   useFetcher,
   useNavigation,
+  useRevalidator,
   useSearchParams,
 } from "react-router";
 import * as Y from "yjs";
@@ -1194,6 +1195,9 @@ export default function DrawingWorkspaceClient({
   const sourceSha256 =
     file?.sha256 ?? drawingDocument.source_sha256 ?? "0".repeat(64);
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
+  const revalidateAfterAcknowledgementRef = useRef(revalidator.revalidate);
+  revalidateAfterAcknowledgementRef.current = revalidator.revalidate;
   const { revision } = drawingDocument;
   const authority = drawingCollaborationAuthority({
     bootstrap: collaborationBootstrap,
@@ -1884,6 +1888,9 @@ export default function DrawingWorkspaceClient({
     outbox = createDrawingOutbox(undefined, {
       ownerId: currentUserId,
       revisionId: revision.id,
+      onAcknowledged: () => {
+        if (active) revalidateAfterAcknowledgementRef.current();
+      },
       onChange: () => void refresh(),
     });
     legacyOutboxRef.current = outbox;

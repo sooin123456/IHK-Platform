@@ -62,6 +62,7 @@ type DrawingOutboxOptions = {
   ownerId: string;
   revisionId: string;
   schedule?: RetryScheduler;
+  onAcknowledged?: (count: number) => void;
   onChange?: () => void;
 };
 
@@ -70,7 +71,7 @@ export type DrawingOutbox = {
   claimLegacyEntries(): Promise<number>;
   enqueue(operation: unknown): Promise<DrawingOperationInput>;
   entries(): Promise<DrawingOutboxEntry[]>;
-  flush(send: DrawingOutboxSend): Promise<void>;
+  flush(send: DrawingOutboxSend): Promise<number>;
   markAcked(clientOperationId: string): Promise<boolean>;
   markConflicted(
     clientOperationId: string,
@@ -114,7 +115,7 @@ function defaultSchedule(delayMs: number, retry: () => Promise<void>) {
   return () => globalThis.clearTimeout(timeout);
 }
 
-type RealmCoordinator = { active: Promise<void> | null; generation: number };
+type RealmCoordinator = { active: Promise<number> | null; generation: number };
 const realmCoordinators = new Map<string, RealmCoordinator>();
 
 export function createDrawingOutbox(
@@ -174,6 +175,7 @@ export function createDrawingOutbox(
   };
 
   const flushOnce = async (send: DrawingOutboxSend) => {
+    let acknowledged = 0;
     let observedGeneration = -1;
     while (!disposed) {
       const queued = await entries();
@@ -182,14 +184,14 @@ export function createDrawingOutbox(
         ? []
         : queued.filter((entry) => entry.status === "pending");
       if (pending.length === 0) {
-        if (observedGeneration === coordinator.generation) return;
+        if (observedGeneration === coordinator.generation) return acknowledged;
         observedGeneration = coordinator.generation;
         await Promise.resolve();
         continue;
       }
       observedGeneration = coordinator.generation;
       for (const entry of pending) {
-        if (disposed) return;
+        if (disposed) return acknowledged;
         const { operation } = entry;
         try {
           const controller = new AbortController();
@@ -212,7 +214,7 @@ export function createDrawingOutbox(
             throw error;
           }
           if (response.status === "acked") {
-            await markAcked(operation.clientOperationId);
+            if (await markAcked(operation.clientOperationId)) acknowledged += 1;
             continue;
           }
           await markConflicted(
@@ -220,7 +222,7 @@ export function createDrawingOutbox(
             response.status,
             response.error,
           );
-          return;
+          return acknowledged;
         } catch (error) {
           const current = (await entries()).find(
             (candidate) =>
@@ -244,7 +246,7 @@ export function createDrawingOutbox(
             const scheduled = schedule(delay, async () => {
               cancelRetries.delete(cancel);
               scheduledRevisions.delete(operation.revisionId);
-              if (!disposed) return api.flush(send);
+              if (!disposed) await api.flush(send);
             });
             if (typeof scheduled === "function")
               cancel = scheduled as () => void;
@@ -254,6 +256,7 @@ export function createDrawingOutbox(
         }
       }
     }
+    return acknowledged;
   };
 
   const api: DrawingOutbox = {
@@ -288,15 +291,21 @@ export function createDrawingOutbox(
     },
     entries,
     flush(send) {
-      if (disposed) return Promise.resolve();
+      if (disposed) return Promise.resolve(0);
       if (coordinator.active)
         return coordinator.active.then(
-          () => (disposed ? undefined : api.flush(send)),
-          () => (disposed ? undefined : api.flush(send)),
+          () => (disposed ? 0 : api.flush(send)),
+          () => (disposed ? 0 : api.flush(send)),
         );
-      coordinator.active = flushOnce(send).finally(() => {
-        coordinator.active = null;
-      });
+      coordinator.active = flushOnce(send)
+        .then((acknowledged) => {
+          if (!disposed && acknowledged > 0)
+            options.onAcknowledged?.(acknowledged);
+          return acknowledged;
+        })
+        .finally(() => {
+          coordinator.active = null;
+        });
       return coordinator.active;
     },
     markAcked,
@@ -710,7 +719,11 @@ function hasActiveUuidOwner(state: DrawingDocumentState, id: string) {
   if (state.objects[id] || state.layers[id]) return true;
   if (!state.structure) return false;
   for (const [collection, entities] of Object.entries(state.structure)) {
-    if (collection === "tombstones" || !entities || typeof entities !== "object")
+    if (
+      collection === "tombstones" ||
+      !entities ||
+      typeof entities !== "object"
+    )
       continue;
     if (Object.hasOwn(entities, id)) return true;
   }
@@ -759,7 +772,8 @@ function exactCompactedObjectRedo(
     return false;
   const orderedEvidence = [...byId.values()];
   const lineage = orderedEvidence.filter(
-    (candidate) => candidate.originalOperationId === operation.originalOperationId,
+    (candidate) =>
+      candidate.originalOperationId === operation.originalOperationId,
   );
   const undo = lineage.at(-1);
   if (
@@ -1056,9 +1070,7 @@ function acknowledgedFinalEffects(
           operation.historyAction === "undo"
             ? operation.baseVersions[id] + 2
             : operation.baseVersions[id];
-        return (
-          restored?.id === id && restored.version === expectedVersion
-        );
+        return restored?.id === id && restored.version === expectedVersion;
       })
     )
       throw new Error("Object delete inverse is not exact.");
@@ -1231,8 +1243,7 @@ export function recoverPendingDrawingState(
       return {
         index,
         operation: DrawingOperationInputSchema.parse(entry.operation),
-        ownerId:
-          typeof entry.ownerId === "string" ? entry.ownerId : undefined,
+        ownerId: typeof entry.ownerId === "string" ? entry.ownerId : undefined,
         status: entry.status,
       };
     }
@@ -1264,11 +1275,7 @@ export function recoverPendingDrawingState(
   );
 
   for (const queuedOperation of queued
-    .filter(
-      (entry) =>
-        !revisionBlocked &&
-        entry.status === "pending",
-    )
+    .filter((entry) => !revisionBlocked && entry.status === "pending")
     .sort((left, right) => left.index - right.index)) {
     const { operation, ownerId } = queuedOperation;
     if (operation.type === "mutate_objects_with_references") {

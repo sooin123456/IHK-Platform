@@ -24,6 +24,7 @@ const projects = [
 
 const projectMetrics = {
   "preview-community-center": {
+    canCreateWorkspace: true,
     fileCount: 6,
     ifcCount: 2,
     openReviewCount: 3,
@@ -35,6 +36,7 @@ const projectMetrics = {
     latestFilename: "근린생활시설_260504.ifc",
   },
   "preview-kindergarten": {
+    canCreateWorkspace: true,
     fileCount: 9,
     ifcCount: 1,
     openReviewCount: 2,

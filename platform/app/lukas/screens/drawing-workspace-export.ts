@@ -20,10 +20,9 @@ const Filename = z
 export async function validateDrawingExportScope(
   scopeClient: any,
   input: {
-    fileId: string | null;
     projectId: string;
     revisionId: string;
-    workspaceId: string | null;
+    workspaceId: string;
   },
 ) {
   const { data: revision } = await scopeClient
@@ -38,32 +37,14 @@ export async function validateDrawingExportScope(
     });
   const { data: document } = await scopeClient
     .from("lukas_drawing_documents")
-    .select("id,source_file_id")
-    .eq("id", input.workspaceId ?? revision.document_id)
+    .select("id")
+    .eq("id", input.workspaceId)
     .eq("project_id", input.projectId)
     .maybeSingle();
-  if (
-    !document ||
-    revision.document_id !== document.id ||
-    (input.workspaceId === null &&
-      document.source_file_id !== null &&
-      document.source_file_id !== input.fileId)
-  )
+  if (!document || revision.document_id !== document.id)
     throw new Response("내보내기 도면 계보가 일치하지 않습니다.", {
       status: 404,
     });
-  if (input.fileId) {
-    const { data: file } = await scopeClient
-      .from("lukas_qto_files")
-      .select("id")
-      .eq("id", input.fileId)
-      .eq("project_id", input.projectId)
-      .maybeSingle();
-    if (!file)
-      throw new Response("내보내기 도면 범위를 찾을 수 없습니다.", {
-        status: 404,
-      });
-  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -108,7 +89,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
   const scopeClient = client as any;
   await validateDrawingExportScope(scopeClient, {
-    fileId: null,
     projectId,
     revisionId,
     workspaceId,

@@ -13,7 +13,6 @@ import {
 import * as workspaceServer from "../app/lukas/lib/drawing-workspace.server.ts";
 import {
   applyDrawingOperation,
-  createDrawingDocument,
   createDrawingDocumentIdempotent,
   createDrawingDocumentFromTemplate,
   handleWorkspaceMutation,
@@ -974,7 +973,10 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
     },
   });
   await assert.rejects(
-    loadDrawingWorkspace(malformed, ids.project, ids.file),
+    loadDrawingWorkspace(malformed, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
     /source evidence|ancestry/i,
   );
 });
@@ -1262,7 +1264,10 @@ test("P2 blank canvases do not sign an undefined legacy background and select th
     lukas_drawing_property_values: { data: [], error: null },
     lukas_drawing_tables: { data: [], error: null },
   });
-  const workspace = await loadDrawingWorkspace(client, ids.project, ids.file);
+  const workspace = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
   assert.equal(workspace.document.revision.activePageId, ids.page);
   assert.equal(workspace.document.revision.activeCanvasId, p2Ids.canvas);
   assert.equal(
@@ -1368,25 +1373,6 @@ test("template clone rejects browser authority fields, foreign candidates, and n
     form: cloneForm,
   });
   assert.equal(accepted.status, 200);
-  const fromDocumentCreation = await handleWorkspaceMutation({
-    client: {
-      async rpc() {
-        return {
-          data: {
-            documentId: ids.document,
-            revisionId: ids.revision,
-            sourceRevisionId: p2Ids.template,
-          },
-          error: null,
-        };
-      },
-    },
-    projectId: ids.project,
-    capability: "editor",
-    workspace: { ...base, document: null },
-    form: cloneForm,
-  });
-  assert.equal(fromDocumentCreation.status, 200);
   const foreign = await handleWorkspaceMutation({
     client: {
       async rpc() {
@@ -1606,54 +1592,6 @@ test("server parses and acknowledges the exact reference-aware object mutation c
       ),
     (error) => error.name === "DrawingWorkspaceRpcError",
   );
-});
-
-test("blank canvas creation retains route source identity while omitting its PDF background", async () => {
-  const calls = [];
-  const client = {
-    async rpc(name, args) {
-      calls.push([name, args]);
-      return { data: { documentId: ids.document }, error: null };
-    },
-  };
-  await createDrawingDocument(
-    client,
-    ids.project,
-    { id: ids.file, kind: "pdf" },
-    {
-      title: "Blank",
-      mode: "blank",
-    },
-  );
-  await createDrawingDocument(
-    client,
-    ids.project,
-    { id: ids.file, kind: "pdf" },
-    {
-      title: "Background",
-      mode: "pdf_background",
-    },
-  );
-  assert.equal(calls[0][1].p_source_file_id, ids.file);
-  assert.equal(calls[0][1].p_blank, true);
-  assert.equal(calls[1][1].p_source_file_id, ids.file);
-  assert.equal(calls[1][1].p_blank, false);
-});
-
-test("blank workspace creation can omit a drawing source file", async () => {
-  const calls = [];
-  const client = {
-    async rpc(name, args) {
-      calls.push([name, args]);
-      return { data: { documentId: ids.document }, error: null };
-    },
-  };
-  await createDrawingDocument(client, ids.project, null, {
-    title: "빈 작업실",
-    mode: "blank",
-  });
-  assert.equal(calls[0][1].p_source_file_id, null);
-  assert.equal(calls[0][1].p_blank, true);
 });
 
 test("workspace loading opens a source-less document without a drawing file", async () => {
@@ -1904,12 +1842,6 @@ test("pasted add payload is exact canonical DrawingObject input for server parsi
 test("mutation parsing accepts only the approved narrow intent shapes", () => {
   const revision = ids.revision;
   assert.deepEqual(
-    parseWorkspaceMutation(
-      form({ intent: "create_document", title: " A-101 " }),
-    ),
-    { intent: "create_document", title: "A-101" },
-  );
-  assert.deepEqual(
     parseWorkspaceMutation(form({ intent: "create_layer", name: " 주석 " })),
     { intent: "create_layer", name: "주석" },
   );
@@ -1961,7 +1893,7 @@ test("mutation parsing accepts only the approved narrow intent shapes", () => {
   assert.throws(() => parseWorkspaceMutation(form({ intent: "unknown" })));
   assert.throws(() =>
     parseWorkspaceMutation(
-      form({ intent: "create_document", title: "A-101", role: "owner" }),
+      form({ intent: "create_layer", name: "A-101", role: "owner" }),
     ),
   );
 });
@@ -2577,7 +2509,10 @@ test("workspace loading scopes searchable issues and current links to the projec
     responses,
   );
 
-  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
   assert.deepEqual(loaded.document.revision.issues, manyIssues);
   assert.deepEqual(loaded.document.revision.issueLinks, [...manyLinks]);
   const issueCall = client.calls.find(
@@ -2646,7 +2581,10 @@ test("workspace loading fails closed when source-layer metadata is missing", asy
   });
 
   await assert.rejects(
-    loadDrawingWorkspace(client, ids.project, ids.file),
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
     /source layer metadata/i,
   );
 });
@@ -2677,7 +2615,10 @@ test("workspace loading rejects invisible or unlocked source metadata", async ()
     ]);
 
     await assert.rejects(
-      loadDrawingWorkspace(client, ids.project, ids.file),
+      loadDrawingWorkspace(client, {
+        projectId: ids.project,
+        workspaceId: ids.document,
+      }),
       /source layer metadata/i,
     );
   }
@@ -2706,36 +2647,11 @@ test("workspace loading rejects a page without an editable user layer", async ()
   ]);
 
   await assert.rejects(
-    loadDrawingWorkspace(client, ids.project, ids.file),
+    loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    }),
     /editable layer metadata/i,
-  );
-});
-
-test("workspace loading returns a null document without creating one", async () => {
-  const client = queryClient({
-    lukas_qto_files: {
-      data: {
-        id: ids.file,
-        project_id: ids.project,
-        kind: "ifc",
-        sha256: sourceSha,
-        immutable: true,
-      },
-      error: null,
-    },
-    lukas_drawing_documents: { data: null, error: null },
-  });
-  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
-  assert.equal(loaded.document, null);
-  assert.deepEqual(
-    client.calls.map((call) => call.table),
-    [
-      "lukas_qto_files",
-      "lukas_drawing_documents",
-      "lukas_drawing_revisions",
-      "lukas_drawing_documents",
-      "lukas_drawing_snapshots",
-    ],
   );
 });
 
@@ -2812,7 +2728,10 @@ test("review-requested workspace loads its exact project-bound snapshot evidence
     },
   });
 
-  const loaded = await loadDrawingWorkspace(client, ids.project, ids.file);
+  const loaded = await loadDrawingWorkspace(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
 
   assert.deepEqual(loaded.document.revision.reviewEvidence, {
     subjectVersion: 7,
@@ -2902,48 +2821,6 @@ test("workspace source signing never mints a raw IFC capability and preserves ex
     (error) => error instanceof Response && error.status === 409,
   );
   assert.equal(calls.length, 0);
-});
-
-test("document creation derives blank/background behavior from the authoritative file kind", async () => {
-  const rpcCalls = [];
-  const client = {
-    async rpc(name, args) {
-      rpcCalls.push([name, args]);
-      return { data: { documentId: ids.document }, error: null };
-    },
-  };
-  await createDrawingDocument(
-    client,
-    ids.project,
-    { id: ids.file, kind: "pdf" },
-    { title: " A-101 ", mode: "pdf_background" },
-  );
-  await createDrawingDocument(
-    client,
-    ids.project,
-    { id: ids.file, kind: "ifc" },
-    { title: " IFC 스케치 ", mode: "pdf_background" },
-  );
-  assert.deepEqual(rpcCalls, [
-    [
-      "lukas_drawing_create_document",
-      {
-        p_project_id: ids.project,
-        p_source_file_id: ids.file,
-        p_title: "A-101",
-        p_blank: false,
-      },
-    ],
-    [
-      "lukas_drawing_create_document",
-      {
-        p_project_id: ids.project,
-        p_source_file_id: ids.file,
-        p_title: "IFC 스케치",
-        p_blank: true,
-      },
-    ],
-  ]);
 });
 
 test("idempotent document creation sends source-optional retry identity and exposes mismatches", async () => {
@@ -3373,12 +3250,8 @@ test("trusted staff context is admin without membership while viewer and outside
         client: { async rpc() {} },
         projectId: ids.project,
         capability: "viewer",
-        workspace: { ...loadedWorkspace(), document: null },
-        form: form({
-          intent: "create_document",
-          title: "A-101",
-          document_mode: "blank",
-        }),
+        workspace: loadedWorkspace(),
+        form: form({ intent: "create_layer", name: "A-101" }),
       }),
     (error) => error instanceof Response && error.status === 403,
   );
@@ -3466,7 +3339,7 @@ test("apply action echoes the server-validated client operation id for exact out
   });
 });
 
-test("action contract returns 409 for stale revision and pre-existing document preconditions", async () => {
+test("action contract returns 409 for stale revision preconditions", async () => {
   let rpcCalls = 0;
   const client = {
     async rpc() {
@@ -3494,27 +3367,6 @@ test("action contract returns 409 for stale revision and pre-existing document p
       },
     },
   );
-  assert.deepEqual(
-    await handleWorkspaceMutation({
-      client,
-      projectId: ids.project,
-      capability: "editor",
-      workspace: loadedWorkspace(),
-      form: form({
-        intent: "create_document",
-        title: "A-101",
-        document_mode: "blank",
-      }),
-    }),
-    {
-      status: 409,
-      body: {
-        ok: false,
-        kind: "conflict",
-        error: "이 파일에는 이미 도면 문서가 있습니다.",
-      },
-    },
-  );
   assert.equal(rpcCalls, 0);
 });
 
@@ -3532,12 +3384,8 @@ test("action contract maps stable database conflict codes to 409 and validation 
       client: raceClient,
       projectId: ids.project,
       capability: "editor",
-      workspace: { ...loadedWorkspace(), document: null },
-      form: form({
-        intent: "create_document",
-        title: "A-101",
-        document_mode: "blank",
-      }),
+      workspace: loadedWorkspace(),
+      form: form({ intent: "create_layer", name: "A-101" }),
     }),
     {
       status: 409,
@@ -3554,7 +3402,7 @@ test("action contract maps stable database conflict codes to 409 and validation 
       client: raceClient,
       projectId: ids.project,
       capability: "editor",
-      workspace: { ...loadedWorkspace(), document: null },
+      workspace: loadedWorkspace(),
       form: form({ intent: "unknown" }),
     }),
     (error) => {
@@ -3575,12 +3423,8 @@ test("action contract maps stable database conflict codes to 409 and validation 
     },
     projectId: ids.project,
     capability: "editor",
-    workspace: { ...loadedWorkspace(), document: null },
-    form: form({
-      intent: "create_document",
-      title: "A-101",
-      document_mode: "blank",
-    }),
+    workspace: loadedWorkspace(),
+    form: form({ intent: "create_layer", name: "A-101" }),
   });
   assert.equal(rpcFailure.status, 400);
   assert.equal(rpcFailure.body.kind, "rpc");

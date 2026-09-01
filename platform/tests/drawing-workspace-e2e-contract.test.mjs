@@ -170,6 +170,46 @@ test("M1 estimator journey locks negative rate, viewer RLS, and interaction evid
     spec,
     /const changedSelectionPoint[\s\S]*recordInteractionFrames\([\s\S]*page\.mouse\.click\(changedSelectionPoint\.x, changedSelectionPoint\.y\)/,
   );
+
+  const negativeDelete = spec.indexOf(
+    "await selectObject(page, missingRateObjectId);",
+  );
+  const negativeGone = spec.indexOf(
+    'page.getByText("M1-C-001", { exact: true })',
+    negativeDelete,
+  );
+  const firstReloadAfterDelete = spec.indexOf(
+    "await page.reload();",
+    negativeDelete,
+  );
+  assert.ok(negativeDelete >= 0 && negativeGone > negativeDelete);
+  assert.ok(
+    firstReloadAfterDelete < 0 || negativeGone < firstReloadAfterDelete,
+    "the acknowledged deletion must remove the stale estimate row before an explicit reload",
+  );
+
+  const quantitiesLoaded = spec.indexOf(
+    "const quantities = await fixture.admin",
+  );
+  const boqNavigation = spec.indexOf("const boqPath =", quantitiesLoaded);
+  const beforeBoqApproval = spec.slice(quantitiesLoaded, boqNavigation);
+  assert.match(beforeBoqApproval, /state: "초안"/);
+  assert.match(beforeBoqApproval, /state: "가정값"/);
+  assert.doesNotMatch(beforeBoqApproval, /state: "확정"/);
+
+  const boqApproval = spec.indexOf(
+    'getByLabel("승인 결정").selectOption("approved")',
+  );
+  const exportStart = spec.indexOf(
+    "const csv = await downloadNamed",
+    boqApproval,
+  );
+  const afterBoqApproval = spec.slice(boqApproval, exportStart);
+  assert.match(
+    afterBoqApproval,
+    /editorPage\.goto\([\s\S]*canonicalPath\(fixture\.projectId, estimatorWorkspaceId\)/,
+  );
+  assert.match(afterBoqApproval, /state: "확정"/);
 });
 
 test("release documentation keeps local evidence separate from external gates", async () => {

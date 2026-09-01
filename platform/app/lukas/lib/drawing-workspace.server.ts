@@ -971,10 +971,6 @@ function parseOperation(value: unknown): DrawingOperationInput {
   return operation;
 }
 
-const CreateDocumentMutationSchema = z.object({
-  intent: z.literal("create_document"),
-  title: Title,
-});
 const CreateFromTemplateMutationSchema = z
   .object({
     intent: z.literal("create_from_template"),
@@ -1105,7 +1101,6 @@ export function assertDrawingBoqEvidenceScope(
 }
 
 export type WorkspaceMutation =
-  | z.infer<typeof CreateDocumentMutationSchema>
   | z.infer<typeof CreateFromTemplateMutationSchema>
   | { intent: "apply_operation"; operation: DrawingOperationInput }
   | z.infer<typeof CreateLayerMutationSchema>
@@ -1115,7 +1110,6 @@ export type WorkspaceMutation =
   | z.infer<typeof RecordRevisionDecisionMutationSchema>;
 
 const allowedFormFields = {
-  create_document: new Set(["intent", "title", "document_mode"]),
   create_from_template: new Set([
     "intent",
     "source_revision_id",
@@ -1178,11 +1172,6 @@ export function parseWorkspaceMutation(form: FormData): WorkspaceMutation {
   const knownIntent = intent as keyof typeof allowedFormFields;
   assertAllowedFormFields(form, knownIntent);
 
-  if (knownIntent === "create_document")
-    return CreateDocumentMutationSchema.parse({
-      intent,
-      title: form.get("title"),
-    });
   if (knownIntent === "create_from_template")
     return CreateFromTemplateMutationSchema.parse({
       intent,
@@ -1261,25 +1250,14 @@ export type DrawingWorkspace = {
   document: DrawingWorkspaceDocument;
 };
 
-export type DrawingWorkspacePreCreation = {
-  primarySource: DrawingWorkspaceFile | null;
-  templateCandidates: DrawingTemplateCandidate[];
-  document: null;
-};
-
-export type DrawingWorkspaceState =
-  | DrawingWorkspace
-  | DrawingWorkspacePreCreation;
-
 export function assertDrawingQuantityWorkspaceScope(
-  workspace: DrawingWorkspaceState,
+  workspace: DrawingWorkspace,
   input: { fileId: string; revisionId: string; objectId: string },
 ) {
   const document = workspace.document;
   if (
     !workspace.primarySource ||
     workspace.primarySource.id !== Uuid.parse(input.fileId) ||
-    !document ||
     document.revision.id !== Uuid.parse(input.revisionId) ||
     !document.revision.objects.some((object) => object.id === input.objectId) ||
     (document.source_file_id !== null &&
@@ -2500,77 +2478,30 @@ type LoadDrawingWorkspaceInput = {
   focusEvidenceFileId?: string;
 };
 
-export function loadDrawingWorkspace(
-  client: DrawingWorkspaceClient,
-  input: LoadDrawingWorkspaceInput,
-): Promise<DrawingWorkspace>;
-/** Compatibility overload for the routes removed by Task 3. */
-export function loadDrawingWorkspace(
-  client: DrawingWorkspaceClient,
-  projectId: string,
-  fileId?: string | null,
-  documentId?: string,
-  revisionId?: string,
-  focusObjectId?: string,
-  focusEvidenceFileId?: string,
-): Promise<DrawingWorkspaceState>;
 export async function loadDrawingWorkspace(
   client: DrawingWorkspaceClient,
-  input: LoadDrawingWorkspaceInput | string,
-  legacyFileId?: string | null,
-  legacyDocumentId?: string,
-  legacyRevisionId?: string,
-  legacyFocusObjectId?: string,
-  legacyFocusEvidenceFileId?: string,
-): Promise<DrawingWorkspaceState> {
-  const canonical = typeof input !== "string";
-  const projectId = canonical ? input.projectId : input;
-  const fileId = canonical ? null : legacyFileId;
-  const documentId = canonical ? input.workspaceId : legacyDocumentId;
-  const revisionId = canonical ? input.revisionId : legacyRevisionId;
-  const focusObjectId = canonical ? input.focusObjectId : legacyFocusObjectId;
-  const focusEvidenceFileId = canonical
-    ? input.focusEvidenceFileId
-    : legacyFocusEvidenceFileId;
-  let file = fileId
-    ? await loadDrawingWorkspaceFile(client, projectId, fileId)
-    : null;
+  input: LoadDrawingWorkspaceInput,
+): Promise<DrawingWorkspace> {
+  const projectId = input.projectId;
+  const documentId = input.workspaceId;
+  const revisionId = input.revisionId;
+  const focusObjectId = input.focusObjectId;
+  const focusEvidenceFileId = input.focusEvidenceFileId;
+  let file: DrawingWorkspaceFile | null = null;
 
-  let documentQuery = client
+  const documentQuery = client
     .from("lukas_drawing_documents")
     .select("*")
-    .eq("project_id", projectId);
-  if (documentId) {
-    documentQuery = documentQuery.eq("id", Uuid.parse(documentId));
-  } else if (file) {
-    documentQuery = documentQuery
-      .eq("source_file_id", file.id)
-      .eq("source_sha256", file.sha256)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-  } else {
-    documentQuery = documentQuery
-      .order("updated_at", { ascending: false })
-      .limit(1);
-  }
+    .eq("project_id", projectId)
+    .eq("id", Uuid.parse(documentId));
   const { data: document, error: documentError } =
     await documentQuery.maybeSingle();
   if (documentError)
     throw new Error(
       `도면 문서를 불러오지 못했습니다: ${documentError.message}`,
     );
-  if (!document) {
-    if (canonical)
-      throw new Response("도면 문서를 찾을 수 없습니다.", { status: 404 });
-    return {
-      primarySource: file,
-      templateCandidates: await loadDrawingTemplateCandidates(
-        client,
-        projectId,
-      ),
-      document: null,
-    };
-  }
+  if (!document)
+    throw new Response("도면 문서를 찾을 수 없습니다.", { status: 404 });
 
   let revisionQuery = client
     .from("lukas_drawing_revisions")
@@ -2586,15 +2517,8 @@ export async function loadDrawingWorkspace(
     throw new Error(
       `도면 리비전을 불러오지 못했습니다: ${revisionError.message}`,
     );
-  if (!revision) {
-    if (canonical)
-      throw new Response("도면 리비전을 찾을 수 없습니다.", { status: 404 });
-    return {
-      primarySource: file,
-      templateCandidates: [],
-      document: null,
-    };
-  }
+  if (!revision)
+    throw new Response("도면 리비전을 찾을 수 없습니다.", { status: 404 });
   if (
     document.project_id !== projectId ||
     revision.project_id !== projectId ||
@@ -2625,13 +2549,6 @@ export async function loadDrawingWorkspace(
       `도면 캔버스 형식을 확인하지 못했습니다: ${canvasProbeError.message}`,
     );
   if (Array.isArray(canvasProbe) && canvasProbe.length > 0) {
-    if (
-      !documentId &&
-      file !== null &&
-      (document.source_file_id !== file.id ||
-        document.source_sha256 !== file.sha256)
-    )
-      throw new Error("Drawing document source ancestry is invalid.");
     const [
       pages,
       canvases,
@@ -2976,9 +2893,9 @@ export async function loadDrawingWorkspace(
 
 export async function loadDrawingWorkspaceSourceUrl(
   client: DrawingWorkspaceClient,
-  workspace: DrawingWorkspaceState,
+  workspace: DrawingWorkspace,
 ): Promise<string | null> {
-  if (!workspace.document || !workspace.primarySource) return null;
+  if (!workspace.primarySource) return null;
   if (workspace.primarySource.kind === "ifc") return null;
   const backgroundPage = workspace.document.revision.pages.find(
     (page): page is DrawingPageRow =>
@@ -3783,7 +3700,7 @@ export async function validateManagedIfcDerivativePair(input: {
 
 export async function loadDrawingWorkspaceSourceBundle(
   client: DrawingWorkspaceClient,
-  workspace: DrawingWorkspaceState,
+  workspace: DrawingWorkspace,
   selectedIfcFileId: string | null,
   loadSelectedIfc = true,
 ): Promise<DrawingWorkspaceSourceBundle> {
@@ -3841,15 +3758,6 @@ export async function loadDrawingWorkspaceSourceBundle(
     .sort((left, right) => left.id.localeCompare(right.id));
   if (!catalog.some((file) => file.id === workspace.primarySource!.id))
     catalog.push(drawingWorkspaceSourceCatalogItem(workspace.primarySource));
-  if (!workspace.document)
-    return {
-      primary: drawingWorkspaceSourceCatalogItem(workspace.primarySource),
-      pdf: null,
-      ifc: null,
-      previousPdf: null,
-      revisionEdge: null,
-      catalog,
-    };
   const workspaceRevision = workspace.document.revision;
 
   const revisionEdges =
@@ -3990,15 +3898,11 @@ export async function loadDrawingWorkspaceSourceBundle(
 
 export async function loadDrawingWorkspacePreviousPdf(
   client: DrawingWorkspaceClient,
-  workspace: DrawingWorkspaceState,
+  workspace: DrawingWorkspace,
   request: DrawingWorkspacePreviousPdfRequest,
 ): Promise<DrawingWorkspacePdfSourceDescriptor> {
   const input = DrawingWorkspacePreviousPdfRequestSchema.parse(request);
-  if (
-    !workspace.document ||
-    !workspace.primarySource ||
-    workspace.primarySource.kind !== "pdf"
-  )
+  if (!workspace.primarySource || workspace.primarySource.kind !== "pdf")
     throw new Response("PDF 개정 비교를 사용할 수 없습니다.", {
       status: 409,
     });
@@ -4101,6 +4005,12 @@ const capabilityByRole: Record<string, DrawingWorkspaceCapability> = {
   viewer: "viewer",
 };
 
+export function drawingWorkspaceCapabilityForRole(
+  role: string | null | undefined,
+): DrawingWorkspaceCapability | null {
+  return role ? (capabilityByRole[role] ?? null) : null;
+}
+
 export async function loadDrawingWorkspaceCapability(
   client: DrawingWorkspaceClient,
   projectId: string,
@@ -4118,7 +4028,7 @@ export async function loadDrawingWorkspaceCapability(
     .maybeSingle();
   if (error)
     throw new Error(`도면 작업 권한을 확인하지 못했습니다: ${error.message}`);
-  return membership ? (capabilityByRole[membership.role] ?? null) : null;
+  return drawingWorkspaceCapabilityForRole(membership?.role);
 }
 
 export class DrawingWorkspaceRpcError extends Error {
@@ -4192,11 +4102,6 @@ function rpcResult<T>(
   return data;
 }
 
-const CreateDocumentInputSchema = z.object({
-  title: Title,
-  mode: z.enum(["blank", "pdf_background"]),
-});
-
 const CreateDocumentIdempotentInputSchema = z
   .object({
     title: Title,
@@ -4209,22 +4114,6 @@ const CreateDocumentIdempotentInputSchema = z
     libraryVersionId: Uuid.optional(),
   })
   .strict();
-
-export async function createDrawingDocument(
-  client: DrawingWorkspaceClient,
-  projectId: string,
-  file: Pick<DrawingWorkspaceFile, "id" | "kind"> | null,
-  input: { title: string; mode: "blank" | "pdf_background" },
-) {
-  const parsed = CreateDocumentInputSchema.parse(input);
-  const { data, error } = await client.rpc("lukas_drawing_create_document", {
-    p_project_id: projectId,
-    p_source_file_id: file?.id ?? null,
-    p_title: parsed.title,
-    p_blank: file == null || file.kind !== "pdf" || parsed.mode === "blank",
-  });
-  return rpcResult(data, error);
-}
 
 export async function createDrawingDocumentIdempotent(
   client: DrawingWorkspaceClient,
@@ -4894,13 +4783,12 @@ function canRestoreApprovedWorkspace(capability: DrawingWorkspaceCapability) {
   );
 }
 
-function currentWorkspaceRevisionId(workspace: DrawingWorkspaceState) {
-  if (!workspace.document) throw new Error("먼저 도면 문서를 만들어야 합니다.");
+function currentWorkspaceRevisionId(workspace: DrawingWorkspace) {
   return workspace.document.revision.id;
 }
 
 function assertCurrentWorkspaceRevision(
-  workspace: DrawingWorkspaceState,
+  workspace: DrawingWorkspace,
   revisionId: string,
 ) {
   if (currentWorkspaceRevisionId(workspace) !== revisionId)
@@ -4909,23 +4797,18 @@ function assertCurrentWorkspaceRevision(
     );
 }
 
-function assertDraftWorkspace(workspace: DrawingWorkspaceState) {
-  const revision = workspace.document?.revision;
-  if (revision?.status === "approved" || revision?.status === "superseded")
+function assertDraftWorkspace(workspace: DrawingWorkspace) {
+  const revision = workspace.document.revision;
+  if (revision.status === "approved" || revision.status === "superseded")
     throw new DrawingWorkspaceRejectedError(
       "승인된 개정은 변경할 수 없습니다.",
     );
-  if (
-    !revision ||
-    (revision.status !== undefined && revision.status !== "draft")
-  )
+  if (revision.status !== undefined && revision.status !== "draft")
     throw new DrawingWorkspaceConflictError(
       "초안 리비전에서만 도면을 변경할 수 있습니다.",
     );
   return revision;
 }
-
-const WorkspaceDocumentModeSchema = z.enum(["blank", "pdf_background"]);
 
 export async function handleWorkspaceMutation({
   client,
@@ -4945,7 +4828,7 @@ export async function handleWorkspaceMutation({
   client: DrawingWorkspaceClient;
   projectId: string;
   capability: DrawingWorkspaceCapability;
-  workspace: DrawingWorkspaceState;
+  workspace: DrawingWorkspace;
   form: FormData;
   actorId?: string;
   deliverOutcome?: typeof deliverDrawingCollaborationOutcome;
@@ -4979,25 +4862,8 @@ export async function handleWorkspaceMutation({
       )
         throw new Response("도면을 편집할 권한이 없습니다.", { status: 403 });
 
-      if (mutation.intent === "create_document") {
-        if (workspace.document)
-          throw new DrawingWorkspaceConflictError(
-            "이 파일에는 이미 도면 문서가 있습니다.",
-          );
-        const mode = WorkspaceDocumentModeSchema.parse(
-          form.get("document_mode") ?? "blank",
-        );
-        result = await createDrawingDocument(
-          client,
-          projectId,
-          workspace.primarySource,
-          {
-            title: mutation.title,
-            mode: workspace.primarySource ? mode : "blank",
-          },
-        );
-      } else if (mutation.intent === "create_from_template") {
-        if (workspace.document) assertDraftWorkspace(workspace);
+      if (mutation.intent === "create_from_template") {
+        assertDraftWorkspace(workspace);
         if (
           !workspace.templateCandidates.some(
             (candidate) => candidate.revisionId === mutation.sourceRevisionId,
@@ -5095,11 +4961,7 @@ export async function handleWorkspaceMutation({
           mutation.requestId,
         );
       } else {
-        const revision = workspace.document?.revision;
-        if (!revision)
-          throw new DrawingWorkspaceConflictError(
-            "먼저 도면 문서를 만들어야 합니다.",
-          );
+        const revision = workspace.document.revision;
         if (revision.status !== "draft")
           throw new DrawingWorkspaceConflictError(
             "초안 리비전에서만 이슈를 연결할 수 있습니다.",

@@ -31,13 +31,6 @@ export function drawingWorkspaceStartFieldError(
     : undefined;
 }
 
-export function drawingWorkspaceStartChoiceFocused(
-  selected: string | undefined,
-  candidate: string,
-) {
-  return selected === candidate;
-}
-
 function StartForm({
   children,
   className = "grid gap-3",
@@ -191,10 +184,8 @@ export function DrawingWorkspaceStart({
                 <article
                   className="rounded-xl border p-4"
                   data-focused={
-                    drawingWorkspaceStartChoiceFocused(
-                      loaderData.starterKey,
-                      starter.definition.key,
-                    ) || undefined
+                    loaderData.starterKey === starter.definition.key ||
+                    undefined
                   }
                   key={starter.definition.key}
                 >
@@ -220,10 +211,9 @@ export function DrawingWorkspaceStart({
                       <Input
                         aria-describedby={titleError ? errorId : undefined}
                         aria-invalid={Boolean(titleError)}
-                        autoFocus={drawingWorkspaceStartChoiceFocused(
-                          loaderData.starterKey,
-                          starter.definition.key,
-                        )}
+                        autoFocus={
+                          loaderData.starterKey === starter.definition.key
+                        }
                         defaultValue={starter.definition.name}
                         id={titleId}
                         maxLength={240}
@@ -311,10 +301,7 @@ export function DrawingWorkspaceStart({
                       <Input
                         aria-describedby={titleError ? errorId : undefined}
                         aria-invalid={Boolean(titleError)}
-                        autoFocus={drawingWorkspaceStartChoiceFocused(
-                          loaderData.sourceFileId,
-                          file.id,
-                        )}
+                        autoFocus={loaderData.sourceFileId === file.id}
                         defaultValue={file.original_filename.replace(
                           /\.pdf$/i,
                           "",

@@ -10,6 +10,7 @@ import {
   listDrawingIssueMetrics,
   type DrawingClient,
 } from "~/lukas/lib/drawing-collaboration.server";
+import { drawingWorkspaceCapabilityForRole } from "~/lukas/lib/drawing-workspace.server";
 
 const newProjectSchema = z.object({
   name: z.string().trim().min(1, "프로젝트명을 입력하세요.").max(160),
@@ -41,7 +42,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   ] = await Promise.all([
     client
       .from("lukas_qto_projects")
-      .select("id, name, description, workflow_status, created_at, updated_at")
+      .select(
+        "id, name, owner_id, description, workflow_status, created_at, updated_at",
+      )
       .is("archived_at", null)
       .order("updated_at", { ascending: false }),
     client
@@ -114,7 +117,7 @@ export async function loader({ request }: Route.LoaderArgs) {
             .order("created_at", { ascending: false }),
           client
             .from("lukas_qto_project_members")
-            .select("project_id, user_id")
+            .select("project_id, user_id, role")
             .in("project_id", projectIds),
         ]);
 
@@ -140,6 +143,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
   const projectMetrics = Object.fromEntries(
     projectIds.map((projectId) => {
+      const project = (projects ?? []).find(
+        (candidate) => candidate.id === projectId,
+      );
       const projectFiles = files.filter(
         (file) => file.project_id === projectId,
       );
@@ -148,9 +154,21 @@ export async function loader({ request }: Route.LoaderArgs) {
         (document: { id: string; project_id: string }) =>
           document.project_id === projectId,
       );
+      const membershipRole = members.find(
+        (member) =>
+          member.project_id === projectId && member.user_id === user.id,
+      )?.role;
+      const capability = drawingWorkspaceCapabilityForRole(
+        isStaff
+          ? "staff"
+          : project?.owner_id === user.id
+            ? "owner"
+            : membershipRole,
+      );
       return [
         projectId,
         {
+          canCreateWorkspace: capability === "admin" || capability === "editor",
           fileCount: projectFiles.length,
           ifcCount: projectFiles.filter((file) => file.kind === "ifc").length,
           openReviewCount: reviews.filter(

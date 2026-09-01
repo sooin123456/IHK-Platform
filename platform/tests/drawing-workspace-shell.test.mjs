@@ -206,6 +206,12 @@ test("estimate result rail renders server amounts, gap names, and BOQ navigation
   assert.match(html, /현장 원본을 연결하세요/);
 });
 
+test("viewer estimate rail keeps read-only BOQ access without the rate mutation entry", () => {
+  const html = renderEstimateRail({ capability: "viewer" });
+  assert.doesNotMatch(html, />단가표 가져오기</);
+  assert.match(html, /aria-label="BOQ 상세 열기"/);
+});
+
 test("estimate result rail exposes the approved binding control names", () => {
   const html = renderEstimateRail({
     estimateOptions: [

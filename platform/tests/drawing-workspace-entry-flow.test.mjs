@@ -206,6 +206,7 @@ function projectLoaderData(overrides = {}) {
     preflightApprovals: [],
     materialPlans: [],
     drawingDocuments: [],
+    canCreateWorkspace: true,
     publicShareEnabled: true,
     isStaff: false,
     isOwner: true,
@@ -524,6 +525,7 @@ function workspaceFixture({
     ],
     projectMetrics: {
       "00000000-0000-4000-8000-000000000001": {
+        canCreateWorkspace: true,
         fileCount: drawingId ? 1 : 0,
         ifcCount: 0,
         openReviewCount: 0,
@@ -553,6 +555,7 @@ function workspaceLoaderFixture() {
     lukas_qto_projects: [
       {
         id: projectWithDocument,
+        owner_id: "00000000-0000-4000-8000-000000000046",
         name: "문서가 있는 프로젝트",
         description: "canonical document",
         workflow_status: "confirmed",
@@ -561,6 +564,7 @@ function workspaceLoaderFixture() {
       },
       {
         id: projectWithFileOnly,
+        owner_id: "00000000-0000-4000-8000-000000000046",
         name: "파일만 있는 프로젝트",
         description: "no document",
         workflow_status: "confirmed",
@@ -788,13 +792,6 @@ test("verified PDF uploads prefill the workspace start while IFC and other uploa
   assert.equal(
     drawingEntry.projectUploadDestination?.({ ...input, kind: "qto_csv" }),
     "/projects/00000000-0000-4000-8000-000000000001",
-  );
-});
-
-test("a project workspace path does not require a drawing file id", () => {
-  assert.equal(
-    drawingEntry.drawingProjectWorkspacePath("project-a"),
-    "/projects/project-a/workspace",
   );
 });
 
@@ -1126,6 +1123,7 @@ test("private route tree retains both the legacy room and the workspace", () => 
 test("drawing documents open canonically, original sources remain usable, and empty projects start without upload", () => {
   const cardHtml = renderComponent(projectDrawings.default, {
     loaderData: {
+      canCreateWorkspace: true,
       project: {
         id: "00000000-0000-4000-8000-000000000001",
         name: "1HK 테스트 프로젝트",
@@ -1151,6 +1149,7 @@ test("drawing documents open canonically, original sources remain usable, and em
   });
   const emptyHtml = renderComponent(projectDrawings.default, {
     loaderData: {
+      canCreateWorkspace: true,
       project: {
         id: "00000000-0000-4000-8000-000000000001",
         name: "1HK 테스트 프로젝트",
@@ -1161,6 +1160,7 @@ test("drawing documents open canonically, original sources remain usable, and em
   });
   const ifcHtml = renderComponent(projectDrawings.default, {
     loaderData: {
+      canCreateWorkspace: true,
       project: {
         id: "00000000-0000-4000-8000-000000000001",
         name: "1HK 테스트 프로젝트",
@@ -1182,10 +1182,6 @@ test("drawing documents open canonically, original sources remain usable, and em
     cardHtml,
     /href="\/projects\/00000000-0000-4000-8000-000000000001\/workspaces\/00000000-0000-4000-8000-000000000003"/,
   );
-  assert.match(
-    cardHtml,
-    /href="\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000002\/workspace"/,
-  );
   assert.match(cardHtml, /새 작업실/);
   assert.match(
     emptyHtml,
@@ -1200,6 +1196,34 @@ test("drawing documents open canonically, original sources remain usable, and em
     ifcHtml,
     /drawings\/00000000-0000-4000-8000-000000000004\/workspace/,
   );
+});
+
+test("read-only drawing lists never expose workspace creation or legacy source creation traps", () => {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const fileId = "00000000-0000-4000-8000-000000000002";
+  const html = renderComponent(projectDrawings.default, {
+    loaderData: {
+      canCreateWorkspace: false,
+      project: { id: projectId, name: "Viewer project" },
+      documents: [],
+      files: [
+        {
+          id: fileId,
+          kind: "pdf",
+          original_filename: "A-101.pdf",
+          byte_size: 1024,
+          created_at: "2026-08-02T00:00:00.000Z",
+        },
+      ],
+    },
+  });
+
+  assert.doesNotMatch(
+    html,
+    new RegExp(`/projects/${projectId}/workspaces/new`),
+  );
+  assert.doesNotMatch(html, new RegExp(`/drawings/${fileId}/workspace`));
+  assert.match(html, new RegExp(`href="/projects/${projectId}/files"`));
 });
 
 test("project root exposes the canonical workspace start and labels a file-and-drawing empty project", () => {
@@ -1224,6 +1248,19 @@ test("project root exposes the canonical workspace start and labels a file-and-d
     new RegExp(`href="/projects/${projectId}/workspaces/new"`),
   );
   assert.doesNotMatch(populatedHtml, /아직 등록된 도면이 없습니다\./);
+});
+
+test("read-only project root routes the workspace card to the drawing list", () => {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const html = renderProjectRoot(
+    projectLoaderData({ canCreateWorkspace: false, isOwner: false }),
+  );
+  assert.doesNotMatch(
+    html,
+    new RegExp(`/projects/${projectId}/workspaces/new`),
+  );
+  assert.match(html, new RegExp(`href="/projects/${projectId}/drawings"`));
+  assert.match(html, /도면 목록/);
 });
 
 test("project root loader preserves zero drawing rows for the canonical empty entry", async () => {
@@ -1280,6 +1317,20 @@ test("workspace dashboard opens documents canonically, starts empty projects, an
     previewHtml,
     /href="\/workspace-preview\/projects\/00000000-0000-4000-8000-000000000001\/drawings\/00000000-0000-4000-8000-000000000002"/,
   );
+});
+
+test("read-only dashboard project cards open the drawing list instead of workspace creation", () => {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const fixture = workspaceFixture({ drawingId: null });
+  fixture.projectMetrics[projectId].canCreateWorkspace = false;
+  const html = renderComponent(workspaceDashboard.WorkspaceDashboard, fixture);
+
+  assert.doesNotMatch(
+    html,
+    new RegExp(`/projects/${projectId}/workspaces/new`),
+  );
+  assert.match(html, new RegExp(`href="/projects/${projectId}/drawings"`));
+  assert.match(html, /도면 목록/);
 });
 
 test("workspace loader renders only drawing document IDs as canonical dashboard destinations", async () => {

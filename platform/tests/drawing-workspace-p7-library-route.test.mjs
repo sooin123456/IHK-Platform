@@ -22,7 +22,9 @@ const vite = await createServer({
   appType: "custom",
   configFile: false,
   logLevel: "silent",
-  resolve: { alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) } },
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
   server: { middlewareMode: true },
 });
 const libraryScreen = await vite.ssrLoadModule(
@@ -72,9 +74,7 @@ function renderLibrary(props) {
       },
     ],
     {
-      initialEntries: [
-        `/organizations/${ids.organization}/drawing-library`,
-      ],
+      initialEntries: [`/organizations/${ids.organization}/drawing-library`],
     },
   );
   return renderToStaticMarkup(
@@ -153,8 +153,7 @@ function listClient() {
   return {
     from(table) {
       const result = {
-        data:
-          table === "lukas_drawing_library_entries" ? entries : versions,
+        data: table === "lukas_drawing_library_entries" ? entries : versions,
         error: null,
       };
       const chain = {
@@ -348,22 +347,32 @@ test("platform starter rows keep nullable provenance, a closed payload, and read
   assert.equal(custom.source_revision_id, ids.revision);
 
   const html = renderLibrary({
-          actionData: undefined,
-          loaderData: {
-            organization: { id: ids.organization, name: "1HK 조직" },
-            importRequestId: ids.request,
-            mayManage: true,
-            filters: {},
-            projects: [
-              { id: ids.project, name: "서울 프로젝트", organization_id: ids.organization },
-              { id: ids.projectTwo, name: "부산 프로젝트", organization_id: ids.organization },
-            ],
-            revisions: [],
-            sources: { style: [], block: [], property_schema: [] },
-            versions,
-            allVersions: versions,
-          },
-        });
+    actionData: undefined,
+    loaderData: {
+      organization: { id: ids.organization, name: "1HK 조직" },
+      importRequestId: ids.request,
+      mayManage: true,
+      filters: {},
+      projects: [
+        {
+          id: ids.project,
+          name: "서울 프로젝트",
+          organization_id: ids.organization,
+          can_create_workspace: true,
+        },
+        {
+          id: ids.projectTwo,
+          name: "부산 프로젝트",
+          organization_id: ids.organization,
+          can_create_workspace: true,
+        },
+      ],
+      revisions: [],
+      sources: { style: [], block: [], property_schema: [] },
+      versions,
+      allVersions: versions,
+    },
+  });
   assert.match(html, /1HK 기본 · 읽기 전용/);
   assert.match(
     html,
@@ -377,7 +386,10 @@ test("platform starter rows keep nullable provenance, a closed payload, and read
       `href="/projects/${ids.projectTwo}/workspaces/new\\?starterKey=interior-basic"[^>]*>부산 프로젝트 · 사용<`,
     ),
   );
-  assert.equal((html.match(/name="intent" value="deprecate"/g) ?? []).length, 1);
+  assert.equal(
+    (html.match(/name="intent" value="deprecate"/g) ?? []).length,
+    1,
+  );
   assert.equal((html.match(/name="intent" value="import"/g) ?? []).length, 2);
   assert.doesNotMatch(
     html,
@@ -392,23 +404,69 @@ test("a platform starter without an accessible project renders no ambient use ta
     {},
   );
   const html = renderLibrary({
-          actionData: undefined,
-          loaderData: {
-            organization: { id: ids.organization, name: "1HK 조직" },
-            importRequestId: ids.request,
-            mayManage: true,
-            filters: {},
-            projects: [],
-            revisions: [],
-            sources: { style: [], block: [], property_schema: [] },
-            versions: versions.filter(
-              ({ source_kind }) => source_kind === "platform_starter",
-            ),
-            allVersions: versions,
-          },
-        });
+    actionData: undefined,
+    loaderData: {
+      organization: { id: ids.organization, name: "1HK 조직" },
+      importRequestId: ids.request,
+      mayManage: true,
+      filters: {},
+      projects: [],
+      revisions: [],
+      sources: { style: [], block: [], property_schema: [] },
+      versions: versions.filter(
+        ({ source_kind }) => source_kind === "platform_starter",
+      ),
+      allVersions: versions,
+    },
+  });
   assert.match(html, /사용 가능한 프로젝트가 없습니다/);
   assert.doesNotMatch(html, /workspaces\/new\?starterKey=/);
+});
+
+test("library workspace creation targets only projects with server-derived create capability", async () => {
+  const versions = await listOrganizationDrawingLibrary(
+    listClient(),
+    ids.organization,
+    {},
+  );
+  const html = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      organization: { id: ids.organization, name: "1HK 조직" },
+      importRequestId: ids.request,
+      mayManage: false,
+      filters: {},
+      projects: [
+        {
+          id: ids.project,
+          name: "편집 가능",
+          organization_id: ids.organization,
+          can_create_workspace: true,
+        },
+        {
+          id: ids.projectTwo,
+          name: "읽기 전용",
+          organization_id: ids.organization,
+          can_create_workspace: false,
+        },
+      ],
+      revisions: [],
+      sources: { style: [], block: [], property_schema: [] },
+      versions,
+      allVersions: versions,
+    },
+  });
+
+  assert.match(html, new RegExp(`/projects/${ids.project}/workspaces/new`));
+  assert.doesNotMatch(
+    html,
+    new RegExp(`/projects/${ids.projectTwo}/workspaces/new`),
+  );
+  assert.doesNotMatch(html, />읽기 전용 · 사용</);
+  assert.doesNotMatch(
+    html,
+    new RegExp(`name="project_id" value="${ids.projectTwo}"`),
+  );
 });
 
 test("generic library publish, deprecate, and import mutations reject platform starters server-side", () => {

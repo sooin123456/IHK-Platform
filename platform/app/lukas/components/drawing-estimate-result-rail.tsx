@@ -198,12 +198,14 @@ export function DrawingEstimateResultRail({
       </ul>
 
       <nav aria-label="견적 이동" className="grid gap-2">
-        <Link
-          className="min-h-10 rounded border border-white/20 px-3 py-2 text-center font-bold text-white"
-          to={boqHref(projectId, workspaceId)}
-        >
-          단가표 가져오기
-        </Link>
+        {mayBind ? (
+          <Link
+            className="min-h-10 rounded border border-white/20 px-3 py-2 text-center font-bold text-white"
+            to={boqHref(projectId, workspaceId)}
+          >
+            단가표 가져오기
+          </Link>
+        ) : null}
         <Link
           aria-label="BOQ 상세 열기"
           className="min-h-10 rounded border border-white/20 px-3 py-2 text-center font-bold text-white"

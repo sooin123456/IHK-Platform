@@ -141,7 +141,7 @@ test("drawing export audit posts to the canonical workspace identity", async () 
   }
 });
 
-test("drawing export scope binds canonical workspace/revision and preserves legacy file export", async () => {
+test("drawing export scope binds the canonical workspace and revision", async () => {
   const vite = await createServer({
     appType: "custom",
     logLevel: "silent",
@@ -173,15 +173,13 @@ test("drawing export scope binds canonical workspace/revision and preserves lega
               return Promise.resolve({
                 data: { id: workspaceId, source_file_id: null },
               });
-            return Promise.resolve({ data: { id: sourceFileId } });
+            return Promise.resolve({ data: null });
           },
         };
         return builder;
       },
     };
-    const sourceFileId = "74000000-0000-4000-8000-000000000005";
     await validateDrawingExportScope(client, {
-      fileId: null,
       projectId,
       revisionId,
       workspaceId,
@@ -197,18 +195,6 @@ test("drawing export scope binds canonical workspace/revision and preserves lega
     assert.equal(
       calls.some((call) => call.table === "lukas_qto_files"),
       false,
-    );
-
-    calls.length = 0;
-    await validateDrawingExportScope(client, {
-      fileId: sourceFileId,
-      projectId,
-      revisionId,
-      workspaceId: null,
-    });
-    assert.deepEqual(
-      calls.map((call) => call.table),
-      ["lukas_drawing_revisions", "lukas_drawing_documents", "lukas_qto_files"],
     );
   } finally {
     await vite.close();
@@ -255,7 +241,6 @@ test("canonical export rejects mismatched workspace/revision before audit", asyn
     await assert.rejects(
       (async () => {
         await validateDrawingExportScope(client, {
-          fileId: null,
           projectId,
           revisionId,
           workspaceId,
