@@ -33,6 +33,9 @@ const vite = await createServer({
 const drawingTools = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-canvas.client.tsx",
 );
+const measurements = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-measurements.ts",
+);
 const propertyComponents = await vite.ssrLoadModule(
   "/app/lukas/components/drawing-properties-panel.tsx",
 );
@@ -1355,6 +1358,54 @@ test("line click-click snaps both committed points and emits one add command", (
   assert.equal(completed.nextTool, "select");
 });
 
+test("object-snapped measurable tools commit six-decimal geometry", () => {
+  const candidate = { x: 205.87499999999997, y: 295.62499999999994 };
+  const objectSnap = {
+    gridSize: 0,
+    objectCandidates: [candidate],
+    tolerancePixels: 0,
+    zoom: 1,
+  };
+  const line = drawingTools.commitDrawingPoint(
+    drawingTools.beginDrawingToolSession("line", { x: 0, y: 0 }, objectSnap),
+    candidate,
+    commitOptions({ snap: objectSnap }),
+  );
+  const rectangle = drawingTools.commitDrawingPoint(
+    drawingTools.beginDrawingToolSession("rectangle", candidate, objectSnap),
+    { x: 207.47499999999997, y: 297.22499999999997 },
+    commitOptions({ snap: objectSnap }),
+  );
+  const circle = drawingTools.commitDrawingPoint(
+    drawingTools.beginDrawingToolSession("circle", candidate, objectSnap),
+    { x: 206.97499999999997, y: 296.72499999999997 },
+    commitOptions({ snap: objectSnap }),
+  );
+
+  assert.deepEqual(line.command.objects[0].geometry, {
+    type: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 205.875, y: 295.625 },
+  });
+  assert.deepEqual(rectangle.command.objects[0].geometry, {
+    type: "rectangle",
+    origin: { x: 205.875, y: 295.625 },
+    width: 1.6,
+    height: 1.6,
+    rotation: 0,
+  });
+  assert.deepEqual(circle.command.objects[0].geometry, {
+    type: "circle",
+    center: { x: 205.875, y: 295.625 },
+    radius: 1.555635,
+  });
+  for (const result of [line, rectangle, circle]) {
+    assert.doesNotThrow(() =>
+      measurements.measureDrawingObject(result.command.objects[0]),
+    );
+  }
+});
+
 test("polyline multi-click plus Enter snaps every vertex into one command", () => {
   let session = drawingTools.beginDrawingToolSession(
     "polyline",
@@ -1529,12 +1580,10 @@ test("Shift constrains line and dimension endpoints to 45-degree increments", ()
         snap: { ...snap, gridSize: 0, objectCandidates: [] },
       }),
     );
-    assert.ok(
-      Math.abs(completed.command.objects[0].geometry.end.x - 6.964) < 0.001,
-    );
-    assert.ok(
-      Math.abs(completed.command.objects[0].geometry.end.y - 6.964) < 0.001,
-    );
+    assert.deepEqual(completed.command.objects[0].geometry.end, {
+      x: 6.964194,
+      y: 6.964194,
+    });
   }
 });
 

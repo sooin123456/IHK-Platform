@@ -39,6 +39,33 @@ const estimateRailModule = await vite
   .catch(() => ({}));
 test.after(() => vite.close());
 
+test("P2 revision fallback projects nested page envelopes to canonical pages", () => {
+  const revision =
+    previewModule.localDrawingWorkspacePreviewFixture().workspace.document
+      .revision;
+  const page = revision.pages[0];
+  const hydrated = workspaceModule.drawingStateFromRevision({
+    ...revision,
+    pages: revision.pages.map((candidate) => ({
+      ...candidate,
+      canvases: revision.canvases.filter(
+        (canvas) => canvas.pageId === candidate.id,
+      ),
+      layers: revision.layers,
+      objects: revision.objects,
+      blockInstances: revision.blockInstances,
+    })),
+  });
+
+  assert.deepEqual(Object.keys(hydrated.structure.pages[page.id]).sort(), [
+    "id",
+    "name",
+    "revisionId",
+    "sortOrder",
+    "version",
+  ]);
+});
+
 test("drawing export audit refuses a followed login redirect as an artifact", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({

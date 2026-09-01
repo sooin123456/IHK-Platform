@@ -242,11 +242,13 @@ export type DimensionCalibrationEvidence = {
 };
 
 function snapPoint(point: Point, context: DrawingSnapContext) {
-  return snapWorldPoint(point, context.objectCandidates, {
-    gridSize: context.gridSize,
-    tolerancePixels: context.tolerancePixels,
-    zoom: context.zoom,
-  }).point;
+  return semanticPoint(
+    snapWorldPoint(point, context.objectCandidates, {
+      gridSize: context.gridSize,
+      tolerancePixels: context.tolerancePixels,
+      zoom: context.zoom,
+    }).point,
+  );
 }
 
 function nextTool(
@@ -403,7 +405,7 @@ export function commitDrawingPoint(
     options.constrain &&
     (session.tool === "line" || session.tool === "dimension")
   ) {
-    committed = constrainTo45Degrees(session.start, committed);
+    committed = semanticPoint(constrainTo45Degrees(session.start, committed));
   }
   if (
     session.tool === "polyline" ||
@@ -493,17 +495,21 @@ export function commitDrawingPoint(
     );
   }
   if (session.tool === "rectangle") {
-    const width = Math.abs(committed.x - session.start.x);
-    const height = Math.abs(committed.y - session.start.y);
+    const width = normalizeDrawingSemanticNumber(
+      Math.abs(committed.x - session.start.x),
+    );
+    const height = normalizeDrawingSemanticNumber(
+      Math.abs(committed.y - session.start.y),
+    );
     const geometry =
       width === 0 || height === 0
         ? null
         : ({
             type: "rectangle",
-            origin: {
+            origin: semanticPoint({
               x: Math.min(session.start.x, committed.x),
               y: Math.min(session.start.y, committed.y),
-            },
+            }),
             width,
             height,
             rotation: 0,
@@ -511,14 +517,20 @@ export function commitDrawingPoint(
     return completedResult(session.tool, geometry, options);
   }
   if (session.tool === "circle") {
-    const radius = Math.hypot(
-      committed.x - session.center.x,
-      committed.y - session.center.y,
+    const radius = normalizeDrawingSemanticNumber(
+      Math.hypot(
+        committed.x - session.center.x,
+        committed.y - session.center.y,
+      ),
     );
     const geometry =
       radius === 0
         ? null
-        : ({ type: "circle", center: session.center, radius } as const);
+        : ({
+            type: "circle",
+            center: semanticPoint(session.center),
+            radius,
+          } as const);
     return completedResult(session.tool, geometry, options);
   }
   if (session.tool === "dimension") {

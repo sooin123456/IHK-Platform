@@ -763,7 +763,7 @@ export function drawingEditingContext(
     : { canEdit: false, layerId: null };
 }
 
-function drawingStateFromRevision(
+export function drawingStateFromRevision(
   revision: NonNullable<DrawingWorkspace["document"]>["revision"],
 ): DrawingDocumentState {
   const p2Pages = revision.pages.filter(
@@ -792,7 +792,13 @@ function drawingStateFromRevision(
   ) {
     return hydrateDrawingDocumentState({
       revisionId: revision.id,
-      pages: p2Pages,
+      pages: p2Pages.map(({ id, revisionId, name, sortOrder, version }) => ({
+        id,
+        revisionId,
+        name,
+        sortOrder,
+        version,
+      })),
       canvases: revision.canvases,
       layers: p2Layers.map((layer) => ({
         ...layer,
