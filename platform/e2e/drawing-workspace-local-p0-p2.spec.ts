@@ -141,6 +141,43 @@ test("local P0 primitive reloads from IndexedDB", async ({ page }) => {
     .toBe(true);
 });
 
+test("local canvas-authored line selects its durable object for inspector editing", async ({
+  page,
+}) => {
+  await openPreview(page);
+  const initialIds = new Set(Object.keys((await snapshot(page)).objects));
+  await drawClicks(page, "선 도구", [
+    { x: 940, y: 160 },
+    { x: 1110, y: 160 },
+  ]);
+  await expect
+    .poll(async () =>
+      Object.values((await snapshot(page)).objects).find(
+        (object) =>
+          object.geometry.type === "line" && !initialIds.has(object.id),
+      )?.id,
+    )
+    .not.toBeUndefined();
+  const createdId = Object.values((await snapshot(page)).objects).find(
+    (object) => object.geometry.type === "line" && !initialIds.has(object.id),
+  )!.id;
+  await expect.poll(async () => (await snapshot(page)).selectedIds).toEqual([
+    createdId,
+  ]);
+
+  const inspector = page.getByRole("complementary", { name: "속성 검사기" });
+  await inspector.getByRole("tab", { name: "객체", exact: true }).click();
+  await inspector
+    .getByLabel("객체 이름", { exact: true })
+    .fill("로컬 새 선 근거");
+  await inspector
+    .getByRole("button", { name: "속성 적용", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await snapshot(page)).objects[createdId].name)
+    .toBe("로컬 새 선 근거");
+});
+
 test("local P0-P2 vertical authors, structures, reuses, exports, and enforces viewer access", async ({
   page,
 }) => {

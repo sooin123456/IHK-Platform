@@ -2394,7 +2394,7 @@ export default function DrawingWorkspaceClient({
   );
 
   const applyCommand = useCallback(
-    (command: DrawingCommand) => {
+    (command: DrawingCommand, canvasCreatedObjectIds?: readonly string[]) => {
       const lockConflict = drawingCommandSoftLockConflict(
         command,
         awarenessLockPeers,
@@ -2434,6 +2434,12 @@ export default function DrawingWorkspaceClient({
             ? rebaseDrawingCommandForProjection(command, source, latest)
             : command;
           const prepared = await bridge.applyCommand(nextCommand);
+          if (
+            nextCommand.type === "add_objects" &&
+            canvasCreatedObjectIds?.length &&
+            canvasCreatedObjectIds.every((id) => prepared.state.objects[id])
+          )
+            setAuthorizedSelection([...canvasCreatedObjectIds]);
           return prepared.state;
         },
         (error) => {
@@ -2455,8 +2461,19 @@ export default function DrawingWorkspaceClient({
       outboxReady,
       persistenceState,
       reportLockConflict,
+      setAuthorizedSelection,
       setAwarenessSoftLock,
     ],
+  );
+  const applyCanvasCommand = useCallback(
+    (command: DrawingCommand) =>
+      applyCommand(
+        command,
+        command.type === "add_objects"
+          ? command.objects.map((object) => object.id)
+          : undefined,
+      ),
+    [applyCommand],
   );
   const runVerticalInvalidShrink = useCallback(async () => {
     const wall =
@@ -5069,7 +5086,7 @@ export default function DrawingWorkspaceClient({
                   layers={activeDrawingLayers}
                   blockInstances={resolvedBlockInstances.instances}
                   objects={resolvedObjects.objects}
-                  onCommand={applyCommand}
+                  onCommand={applyCanvasCommand}
                   onCursorWorldChange={onCanvasCursorWorldChange}
                   onSelectionChange={onCanvasSelectionChange}
                   onToolComplete={onCanvasToolComplete}
