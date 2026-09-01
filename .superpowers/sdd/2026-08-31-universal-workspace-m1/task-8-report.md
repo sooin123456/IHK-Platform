@@ -4,7 +4,7 @@
 
 Task 8 now contains a fail-closed disposable-Supabase controller, status-bound Playwright preflight, process-group and partial-failure-safe cleanup, exact estimator journey assertions, measurable primitive quantity UI, server-validated BOQ reverse focus, and executable real-PostgreSQL purge attacks.
 
-The latest tested behavior commit is `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`). The Editor-boundary post-commit commands ran after that clean commit existed and before this report/evidence-only change. The preceding security behavior remains `f60998d5b430427817f8e8ec2ae8d2c1f787172d`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
+The latest tested behavior commit is `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`). Every final-wave post-commit command below ran after that exact clean commit existed and before this report/evidence-only change. The preceding Editor-boundary behavior remains `00d55985f236aa9d36acbe73c52a4e43531f8c5a`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
 
 M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and Finch are absent, so disposable Supabase never started and the canonical browser, Hocuspocus, visual, source-integrity, and M1 10k gates did not run. No local preview, P7 result, static test, or standalone PostgreSQL run is presented as replacement authority.
 
@@ -217,6 +217,8 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 
 - Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-00d5598.nNr60B` on loopback port 59459 was stopped and removed; root absence and closed port were independently verified.
 - Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-f60998d.GOxeAa` on loopback port 57822 was stopped and removed; root absence and closed port were independently verified.
+- Final whole-branch PostgreSQL root `/private/tmp/1hk-m1-real-pg-729f07d.J072KQ` on loopback port 63388 was stopped and removed; root absence and closed port were independently verified.
+- Latest Supabase recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z` is retained for project `1hk-m1-fd97ecea` because start/stop lacked a container engine. Exact cleanup-target validation passes and API/DB ports 51074/51075 are closed.
 - New Supabase recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` is retained because start and stop lacked a container engine. Exact cleanup-target validation passed for project `1hk-m1-a9fe0b64`, API port 52549, and DB port 52550; both ports are closed. Previously disclosed roots `.../1hk-m1-supabase-VvWi6t` (`1hk-m1-9cb85afd`, 53965/53966) and `.../1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remain. Deleting them after failed starts/stops would violate the approved recovery rule.
 - The exact blocker is a missing supported container runtime. Install/start one and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged.
 
@@ -227,5 +229,64 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 - Second-round code/tests/harness behavior SHA: `819e88fd6d533e63a769d9f37d04b1268ab6543b` (`fix: close M1 authority proof gaps`).
 - Final security behavior SHA: `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`).
 - Final Editor-boundary test behavior SHA: `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`).
+- Final whole-branch behavior SHA: `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`).
 - Prior evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as a behavior SHA.
 - Latest evidence-only subject: `docs: correct M1 editor authority evidence`; its Git SHA is intentionally not presented as the behavior SHA.
+- Current evidence-only subject: `docs: finalize universal workspace branch evidence`; its eventual Git SHA is documentation identity, not the tested behavior SHA.
+
+## Final whole-branch review closure
+
+### Functional findings and strict TDD
+
+The final wave began at `00af54549cde643fb3689d4c9d0a23beac244726`. Each functional contract was first added against that HEAD and run in its focused Node test before production code changed:
+
+- RED: the canonical Viewer rail rendered `단가표 가져오기`; GREEN: the mutation entry is inside the existing server-derived `mayBind` boundary while BOQ detail and download remain readable.
+- RED: a successful two-operation flush returned `undefined` rather than the expected durable acknowledgement count `2`; a retry callback separately expected `[1]` and received `[]`. GREEN: `flush()` counts only persisted acknowledgements and one optional batch callback drives a stable React Router revalidation after both immediate and scheduled successful flushes. Conflict, retry, disposal, concurrency, and failed-mark behavior remain unchanged.
+- RED: the M1 static journey asserted `확정` before BOQ approval and had no draft/assumption phase. GREEN: pre-approval W/D evidence is `초안`, F evidence is `가정값`, and `확정` is asserted only after BOQ approval followed by canonical workspace navigation.
+- RED: read-only drawing-list, project-root, dashboard, and organization-library tests found `/workspaces/new` creation traps. GREEN: every create affordance uses the existing loader-derived admin/editor capability; read-only cards navigate to project/drawing/file views, while server action and database authority remain unchanged.
+- RED: the canonical loader had no independent-I/O parallel group and loaded unused estimate options for non-binding roles. GREEN: once workspace identity is known, estimate summary and conditional options, source bundle, measurements, activity, room, and assignees begin in one `Promise.all`; only `mayBind` actors load binding options.
+- RED: property selection still used an effect/helper and allowed the prior evidence kind or validation error to survive owner changes. GREEN: a keyed inner field owner resets value, evidence kind, dirty state, and error together without synchronization effects.
+
+The final focused union command was:
+
+`node --test tests/drawing-workspace-shell.test.mjs tests/drawing-workspace-outbox.test.mjs tests/drawing-workspace-e2e-contract.test.mjs tests/drawing-workspace-entry-flow.test.mjs tests/drawing-workspace-p7-library-route.test.mjs tests/drawing-workspace-route.test.mjs tests/drawing-workspace-properties.test.mjs tests/drawing-workspace-server.test.mjs tests/drawing-workspace-p5-server.test.mjs tests/drawing-workspace-p7-export-audit.test.mjs`
+
+It passed 268/268 before the behavior commit and again against clean `729f07d96c33902a8f3f4f551863af75383af5b9`.
+
+### Ponytail deletion audit
+
+Production-caller `rg` checks were run before deletion. The final production/E2E delta is 681 added and 782 deleted lines, net -101 despite the six functional fixes. All requested dead compatibility surfaces were removed:
+
+- A/B: `DrawingWorkspacePreCreation`, the string loader overload, pre-creation null guards/tests, and the canonical null-document creation fallback.
+- C: the unreachable route `create_document` schema/parser/handler/form mode and branch-only tests. The legacy database RPC and its migration/runtime coverage remain intentionally intact.
+- D: nullable removed-file-route `workspaceId`/`fileId` export fallbacks; canonical export scope now requires the workspace ID.
+- E: self-only `drawingEstimateBindingErrorResponse`.
+- F: equality-only `drawingWorkspaceStartChoiceFocused`; the comparison is inline.
+- G: dead file/project workspace entry builders and their self-tests.
+- H: the one-caller `drawingWorkspaceOperationPath`; its behavior is inline in `drawingWorkspaceOperationLocation` and the preview/canonical path test remains.
+- I: zero-caller `legacyProjectWorkspacePath`.
+
+Post-deletion `rg` finds none of the named wrappers/types/legacy paths. The only remaining `create_document` matches are the explicitly retained database RPC/type/migration and legacy database/browser fixture callers, not the deleted route action. Ponytail review result: **Lean already. Ship.** No further safe cut was identified.
+
+### React review
+
+The final React checklist found no remaining corrective item. Loader work is parallel after the necessary identity dependency, read-only actors skip unused options, the revalidation callback uses a stable ref and is triggered only by durable acknowledgement batches, field-local state is keyed rather than synchronized by an effect, and all role-gated controls retain native accessible links/buttons. No client monetary calculation, new context/store, dependency, or test-only production mode was introduced.
+
+### Post-commit verification for `729f07d96c33902a8f3f4f551863af75383af5b9`
+
+| KST start–end                     | Command                                                                             | Exit/result                                                                                | Artifact or residue                                                                                       | Status       |
+| --------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------ |
+| 2026-09-01T13:02:08–13:02:15+0900 | final focused 10-file Node union                                                    | exit 0; 268 passed, 0 failed                                                               | functional, entry, loader, outbox, E2E static, properties, export, and Ponytail contracts                 | `PASS`       |
+| 2026-09-01T13:03:35–13:03:44+0900 | `npm run typecheck`; `npm run typecheck:collaboration`                              | both exit 0                                                                                | React Router typegen and both TypeScript graphs                                                           | `PASS`       |
+| 2026-09-01T13:03:48–13:04:04+0900 | `npm run build`; `npm run build:collaboration`                                      | both exit 0                                                                                | approved production client/SSR `build/` and collaboration `dist/`                                         | `PASS`       |
+| 2026-09-01T13:04:30–13:04:31+0900 | UTF-8 `mktemp` PostgreSQL plus required M1 real-database test                       | exit 0; 1 passed; full migration, operation boundary, guard attacks, and legal cascade ran | root `/private/tmp/1hk-m1-real-pg-729f07d.J072KQ`, port 63388; stopped, removed, root absent, port closed | `PASS`       |
+| 2026-09-01T13:04:56–13:04:59+0900 | `npm run test:e2e:drawing-workspace-m1:local`                                       | exit 1 before build/fixture/browser; Docker and Podman unavailable                         | recovery root `.../1hk-m1-supabase-yXX21z` intentionally retained                                         | `UNEXECUTED` |
+| 2026-09-01T13:05:49–13:06:26+0900 | `npm run test:drawing-workspace`                                                    | exit 1; 1,065 total / 1,056 pass / 7 skip / 2 fail                                         | exactly the two legacy P7 SHA checks; generated P6 evidence restored                                      | `NOT MET`    |
+| 2026-09-01T13:08:10–13:08:11+0900 | scoped package Prettier check plus `git diff --check` and clean-tree assertion      | exit 0; all 28 behavior files match package formatting; clean                              | Playwright reports/results and `node_modules/.vite` scratch removed                                       | `PASS`       |
+| 2026-09-01T13:09:34+0900          | `git show --check 729f07d96c33902a8f3f4f551863af75383af5b9`; clean status assertion | exit 0                                                                                     | exact tested behavior commit                                                                              | `PASS`       |
+
+The full-suite failures are only committed P7 evidence SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus tested behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9`. No P7 file was hand-edited. Earlier accepted P0–P5/P7 browser results remain tied to `819e88fd6d533e63a769d9f37d04b1268ab6543b` and are not relabeled as executions on this commit.
+
+The canonical runner created project `1hk-m1-fd97ecea` at `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z` with API/DB ports 51074/51075. `supabase status` independently reported `docker: command not found (podman also not found)`. Exact cleanup-target validation passes and both ports are closed. Because start/stop could not complete, the recovery root remains by design and was not deleted. The three earlier disclosed recovery roots also remain.
+
+Canonical disposable Supabase, browser acceptance 1–16, production Hocuspocus/outbox, visual widths/logs/screenshots, source before/after hashes, and canonical M1 10k performance remain `UNEXECUTED`. Standalone PostgreSQL and legacy P7 are not substitutes. The required next action is still to install/start a supported container runtime and rerun the unchanged canonical M1 command.
