@@ -533,15 +533,36 @@ export async function createDrawingFixture(options?: {
     createdProjectId = project.id;
     createdOrganizationId = project.organization_id;
 
-    const { error: memberError } = await ownerAuth
-      .from("lukas_qto_project_members")
-      .insert([
-        { project_id: project.id, user_id: editor.id, role: "estimator" },
-        { project_id: project.id, user_id: reviewer.id, role: "reviewer" },
-        { project_id: project.id, user_id: approver.id, role: "reviewer" },
-        { project_id: project.id, user_id: viewer.id, role: "viewer" },
-      ]);
-    if (memberError) throw memberError;
+    const projectMembers = [
+      { user: editor, role: "estimator" },
+      { user: reviewer, role: "reviewer" },
+      { user: approver, role: "approver" },
+      { user: viewer, role: "viewer" },
+    ] as const;
+    const { error: organizationMemberError } = await admin
+      .from("lukas_qto_organization_members")
+      .insert(
+        projectMembers.map(({ user }) => ({
+          organization_id: project.organization_id,
+          user_id: user.id,
+          role: "member",
+          library_access: true,
+        })),
+      );
+    if (organizationMemberError) throw organizationMemberError;
+    for (const { user, role } of projectMembers) {
+      const { error: memberError } = await ownerAuth.rpc(
+        "lukas_qto_set_project_member",
+        {
+          p_organization_id: project.organization_id,
+          p_project_id: project.id,
+          p_email: user.email,
+          p_role: role,
+          p_request_id: randomUUID(),
+        },
+      );
+      if (memberError) throw memberError;
+    }
 
     const pdf = twoPagePdf();
     const ifcResponse = await fetch(IFC_URL);

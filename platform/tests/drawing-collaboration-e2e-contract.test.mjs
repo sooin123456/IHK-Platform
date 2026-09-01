@@ -68,6 +68,27 @@ test("drawing collaboration E2E covers roles, realtime, mobile, and cleanup", as
   assert.match(spec, /status\(\)\)\.toBe\(404\)/);
 });
 
+test("drawing fixture provisions organization members before assigning RPC-only project roles", async () => {
+  const fixture = await read("e2e/utils/drawing-collaboration-fixture.ts");
+
+  assert.doesNotMatch(
+    fixture,
+    /ownerAuth\s*\.from\("lukas_qto_project_members"\)\s*\.insert\(/,
+    "project membership must not bypass the audited authority RPC",
+  );
+  assert.match(
+    fixture,
+    /admin\s*\.from\("lukas_qto_organization_members"\)\s*\.insert\(/,
+    "trusted fixture setup must establish organization membership",
+  );
+  assert.match(
+    fixture,
+    /ownerAuth\.rpc\(\s*"lukas_qto_set_project_member",\s*\{[\s\S]*?p_organization_id:[\s\S]*?p_project_id:[\s\S]*?p_email:[\s\S]*?p_role:[\s\S]*?p_request_id:\s*randomUUID\(\)/,
+    "project roles must use owner-authenticated requests with unique IDs",
+  );
+  assert.match(fixture, /user:\s*approver,\s*role:\s*"approver"/);
+});
+
 test("production drawing E2E has one deterministic npm entrypoint", async () => {
   const packageJson = JSON.parse(await read("package.json"));
 
