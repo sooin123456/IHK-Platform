@@ -190,7 +190,13 @@ async function drawTwoPointShape(
   input: { x1: number; y1: number; x2: number; y2: number },
 ) {
   await page.getByRole("button", { name: tool }).click();
-  await drawLine(page, input);
+  const surface = page.getByLabel(/도면 화면/);
+  const box = await surface.boundingBox();
+  if (!box) throw new Error("Drawing surface has no layout box");
+  await page.mouse.move(box.x + input.x1, box.y + input.y1);
+  await page.mouse.down();
+  await page.mouse.move(box.x + input.x2, box.y + input.y2, { steps: 6 });
+  await page.mouse.up();
 }
 
 async function classifySelectedObject(

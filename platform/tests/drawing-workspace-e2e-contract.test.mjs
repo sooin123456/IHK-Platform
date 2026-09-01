@@ -212,6 +212,24 @@ test("M1 estimator journey locks negative rate, viewer RLS, and interaction evid
   assert.match(afterBoqApproval, /state: "확정"/);
 });
 
+test("M1 two-point shapes use the canvas drag gesture instead of line clicks", async () => {
+  const spec = await read("e2e/drawing-workspace-m1-estimator.spec.ts");
+  const helper = spec.match(
+    /async function drawTwoPointShape\([\s\S]*?\n}\n\n(?=async function classifySelectedObject)/,
+  )?.[0];
+  assert.ok(helper, "drawTwoPointShape helper must exist");
+  assert.doesNotMatch(helper, /drawLine\(/);
+  assert.match(helper, /const surface = page\.getByLabel\(\/도면 화면\/\)/);
+  assert.match(helper, /const box = await surface\.boundingBox\(\)/);
+  assert.match(helper, /await page\.mouse\.move\(box\.x \+ input\.x1, box\.y \+ input\.y1\)/);
+  assert.match(helper, /await page\.mouse\.down\(\)/);
+  assert.match(
+    helper,
+    /await page\.mouse\.move\(box\.x \+ input\.x2, box\.y \+ input\.y2, \{ steps: \d+ \}\)/,
+  );
+  assert.match(helper, /await page\.mouse\.up\(\)/);
+});
+
 test("release documentation keeps local evidence separate from external gates", async () => {
   const deployment = await read("DEPLOYMENT.md");
   const matrix = await read("../docs/P0_P5_IMPLEMENTATION_MATRIX.md");
