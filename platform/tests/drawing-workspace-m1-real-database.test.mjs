@@ -8,7 +8,7 @@ const required = process.env.M1_REAL_POSTGRES_REQUIRED === "1";
 
 if (!databaseUrl) {
   test(
-    "M1 real PostgreSQL proves idempotency, starter provenance, and binding authority",
+    "M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority",
     { skip: required ? false : "M1 real PostgreSQL gate is UNEXECUTED" },
     () => assert.fail("M1_REAL_POSTGRES_DATABASE_URL is required"),
   );
@@ -534,6 +534,247 @@ if (!databaseUrl) {
     return first;
   }
 
+  async function proveAuthenticatedEditorOperationBoundary(owner, ids, document) {
+    const editor = ids.users.editor;
+    const pageId = randomUUID();
+    const canvasId = randomUUID();
+    const layerId = randomUUID();
+    const objectId = randomUUID();
+    const page = {
+      id: pageId,
+      revisionId: document.revisionId,
+      name: "Editor page",
+      sortOrder: 1,
+      version: 1,
+    };
+    const canvas = {
+      id: canvasId,
+      pageId,
+      name: "Editor paper",
+      spaceKind: "paper",
+      widthMillimeters: 420,
+      heightMillimeters: 297,
+      background: null,
+      sortOrder: 0,
+      version: 1,
+    };
+    const layer = {
+      id: layerId,
+      name: "Editor work",
+      visible: true,
+      locked: false,
+      systemKind: "custom",
+      canvasId,
+      sortOrder: 0,
+      version: 1,
+    };
+    const updatedPage = { ...page, name: "Editor page updated" };
+
+    const [directPrivileges] = await owner`
+      select
+        pg_catalog.has_table_privilege(
+          'authenticated','public.lukas_drawing_pages','INSERT,UPDATE,DELETE'
+        ) pages,
+        pg_catalog.has_table_privilege(
+          'authenticated','public.lukas_drawing_objects','INSERT,UPDATE,DELETE'
+        ) objects
+    `;
+    assert.deepEqual(
+      directPrivileges,
+      { pages: false, objects: false },
+      "drawing mutations stay operation-only",
+    );
+
+    const apply = (baseVersions, forward, inverse) =>
+      session(
+        owner,
+        "authenticated",
+        editor,
+        (tx) => tx`
+        select public.lukas_drawing_apply_operation(
+          ${document.revisionId}::uuid,${randomUUID()}::uuid,
+          'mutate_structure',${tx.json(baseVersions)}::jsonb,
+          ${tx.json({ type: "mutate_structure", actions: forward })}::jsonb,
+          ${tx.json({ type: "mutate_structure", actions: inverse })}::jsonb
+        ) value
+      `,
+      );
+
+    await apply(
+      {},
+      [
+        { kind: "put_page", entity: page, baseVersion: null },
+        { kind: "put_canvas", entity: canvas, baseVersion: null },
+        { kind: "put_layer", entity: layer, baseVersion: null },
+      ],
+      [
+        { kind: "delete_layer", id: layerId, baseVersion: 1 },
+        { kind: "delete_canvas", id: canvasId, baseVersion: 1 },
+        { kind: "delete_page", id: pageId, baseVersion: 1 },
+      ],
+    );
+    await assertSqlState(
+      session(
+        owner,
+        "authenticated",
+        editor,
+        (tx) => tx`
+        update public.lukas_drawing_pages
+        set name='Forbidden direct page update' where id=${pageId}::uuid
+      `,
+      ),
+      "42501",
+    );
+    await assertSqlState(
+      session(
+        owner,
+        "authenticated",
+        editor,
+        (tx) => tx`
+        delete from public.lukas_drawing_pages where id=${pageId}::uuid
+      `,
+      ),
+      "42501",
+    );
+    await apply(
+      { [pageId]: 1 },
+      [{ kind: "put_page", entity: updatedPage, baseVersion: 1 }],
+      [{ kind: "put_page", entity: page, baseVersion: 2 }],
+    );
+    const [rpcUpdatedPage] = await owner`
+      select name,version::integer version
+      from public.lukas_drawing_pages where id=${pageId}::uuid
+    `;
+    assert.deepEqual(rpcUpdatedPage, { name: updatedPage.name, version: 2 });
+    await apply(
+      { [pageId]: 2, [canvasId]: 1, [layerId]: 1 },
+      [
+        { kind: "delete_layer", id: layerId, baseVersion: 1 },
+        { kind: "delete_canvas", id: canvasId, baseVersion: 1 },
+        { kind: "delete_page", id: pageId, baseVersion: 2 },
+      ],
+      [
+        {
+          kind: "put_page",
+          entity: { ...updatedPage, version: 2 },
+          baseVersion: null,
+        },
+        { kind: "put_canvas", entity: canvas, baseVersion: null },
+        { kind: "put_layer", entity: layer, baseVersion: null },
+      ],
+    );
+    const [rpcDeletedPage] = await owner`
+      select pg_catalog.count(*)::integer count
+      from public.lukas_drawing_pages where id=${pageId}::uuid
+    `;
+    assert.equal(rpcDeletedPage.count, 0);
+
+    const object = {
+      id: objectId,
+      name: "Editor object",
+      layerId: document.workLayerId,
+      geometry: { type: "line", start: { x: 0, y: 0 }, end: { x: 5, y: 0 } },
+      style: { stroke: "#112233", strokeWidth: 1, fill: null },
+      version: 1,
+    };
+    const [added] = await session(
+      owner,
+      "authenticated",
+      editor,
+      (tx) => tx`
+      select public.lukas_drawing_apply_operation(
+        ${document.revisionId}::uuid,${randomUUID()}::uuid,'add_objects',
+        '{}'::jsonb,
+        ${tx.json({ type: "add_objects", objects: [object] })}::jsonb,
+        ${tx.json({ type: "delete_objects", objectIds: [objectId] })}::jsonb
+      ) value
+    `,
+    );
+    assert.equal(added.value.resultVersions[objectId], 1);
+
+    await assertSqlState(
+      session(
+        owner,
+        "authenticated",
+        editor,
+        (tx) => tx`
+        update public.lukas_drawing_objects
+        set name='Forbidden direct object update'
+        where id=${objectId}::uuid
+      `,
+      ),
+      "42501",
+    );
+    const [updated] = await session(
+      owner,
+      "authenticated",
+      editor,
+      (tx) => tx`
+      select public.lukas_drawing_apply_operation(
+        ${document.revisionId}::uuid,${randomUUID()}::uuid,'update_objects',
+        ${tx.json({ [objectId]: 1 })}::jsonb,
+        ${tx.json({
+          type: "update_objects",
+          updates: [{ objectId, patch: { name: "Editor object updated" } }],
+        })}::jsonb,
+        ${tx.json({
+          type: "update_objects",
+          updates: [{ objectId, patch: { name: object.name } }],
+        })}::jsonb
+      ) value
+    `,
+    );
+    assert.equal(updated.value.resultVersions[objectId], 2);
+    const [updatedObject] = await owner`
+      select name,version::integer version,updated_by,status
+      from public.lukas_drawing_objects where id=${objectId}::uuid
+    `;
+    assert.deepEqual(updatedObject, {
+      name: "Editor object updated",
+      version: 2,
+      updated_by: editor,
+      status: "active",
+    });
+    await assertSqlState(
+      session(
+        owner,
+        "authenticated",
+        editor,
+        (tx) => tx`
+        delete from public.lukas_drawing_objects
+        where id=${objectId}::uuid
+      `,
+      ),
+      "42501",
+    );
+    const [deleted] = await session(
+      owner,
+      "authenticated",
+      editor,
+      (tx) => tx`
+      select public.lukas_drawing_apply_operation(
+        ${document.revisionId}::uuid,${randomUUID()}::uuid,'delete_objects',
+        ${tx.json({ [objectId]: 2 })}::jsonb,
+        ${tx.json({ type: "delete_objects", objectIds: [objectId] })}::jsonb,
+        ${tx.json({
+          type: "add_objects",
+          objects: [{ ...object, name: "Editor object updated", version: 4 }],
+        })}::jsonb
+      ) value
+    `,
+    );
+    assert.equal(deleted.value.resultVersions[objectId], null);
+    const [deletedObject] = await owner`
+      select name,version::integer version,status
+      from public.lukas_drawing_objects where id=${objectId}::uuid
+    `;
+    assert.deepEqual(deletedObject, {
+      name: "Editor object updated",
+      version: 3,
+      status: "deleted",
+    });
+  }
+
   async function proveBindingAndPurge(owner, ids, concurrentDocument) {
     const deniedDocument = await createDocument(owner, "authenticated", ids.users.owner,
       ids.project, "Denied binding target", randomUUID());
@@ -985,7 +1226,7 @@ if (!databaseUrl) {
   }
 
   test(
-    "M1 real PostgreSQL proves idempotency, starter provenance, and binding authority",
+    "M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority",
     { timeout: 180_000 },
     async () => {
       const { default: postgres } = await import("postgres");
@@ -1057,6 +1298,7 @@ if (!databaseUrl) {
         const concurrent = await proveCreationConcurrencyAndIdentity(
           owner,workerA,workerB,ids,
         );
+        await proveAuthenticatedEditorOperationBoundary(owner, ids, concurrent);
         await proveBindingAndPurge(owner, ids, concurrent);
         await proveStarterRollback(owner, ids);
       } catch (error) {
