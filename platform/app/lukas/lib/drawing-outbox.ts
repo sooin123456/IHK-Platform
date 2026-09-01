@@ -176,6 +176,14 @@ export function createDrawingOutbox(
 
   const flushOnce = async (send: DrawingOutboxSend) => {
     let acknowledged = 0;
+    const rejectAfterPartialAcknowledgement = (error: unknown): never => {
+      try {
+        if (!disposed && acknowledged > 0)
+          options.onAcknowledged?.(acknowledged);
+      } finally {
+        throw error;
+      }
+    };
     let observedGeneration = -1;
     while (!disposed) {
       const queued = await entries();
@@ -230,7 +238,8 @@ export function createDrawingOutbox(
               operation.clientOperationId,
           );
           if (!current) continue;
-          if (current.status !== "pending") throw error;
+          if (current.status !== "pending")
+            rejectAfterPartialAcknowledgement(error);
           const retryCount = current.retryCount + 1;
           await adapter.put({
             ...current,
@@ -252,7 +261,7 @@ export function createDrawingOutbox(
               cancel = scheduled as () => void;
             cancelRetries.add(cancel);
           }
-          throw error;
+          rejectAfterPartialAcknowledgement(error);
         }
       }
     }

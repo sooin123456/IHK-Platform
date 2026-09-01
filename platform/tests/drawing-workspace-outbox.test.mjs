@@ -457,7 +457,12 @@ test("enqueue is durable before send and stores only the canonical operation", a
 });
 
 test("flush reports only durable acknowledgements so loader data can revalidate once", async () => {
-  const outbox = scopedOutbox(memoryAdapter());
+  const acknowledgedBatches = [];
+  const outbox = scopedOutbox(memoryAdapter(), {
+    onAcknowledged(count) {
+      acknowledgedBatches.push(count);
+    },
+  });
   await outbox.enqueue(operation(ids.operation1));
   await outbox.enqueue(operation(ids.operation2));
 
@@ -467,6 +472,7 @@ test("flush reports only durable acknowledgements so loader data can revalidate 
   }));
 
   assert.equal(acknowledged, 2);
+  assert.deepEqual(acknowledgedBatches, [2]);
   assert.deepEqual(await outbox.pending(), []);
   assert.equal(
     await outbox.flush(async () => {
@@ -474,6 +480,65 @@ test("flush reports only durable acknowledgements so loader data can revalidate 
     }),
     0,
   );
+  assert.deepEqual(acknowledgedBatches, [2]);
+});
+
+test("a transport failure after a durable ACK reports that partial batch once before retry", async () => {
+  const acknowledged = [];
+  const scheduled = [];
+  const outbox = scopedOutbox(memoryAdapter(), {
+    onAcknowledged(count) {
+      acknowledged.push(count);
+    },
+    schedule(delayMs, retry) {
+      scheduled.push({ delayMs, retry });
+      return scheduled.length;
+    },
+  });
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.enqueue(operation(ids.operation2));
+  const transportError = new Error("offline after a partial ACK");
+  const sent = [];
+  let operation2Attempts = 0;
+  const send = async (queued) => {
+    sent.push(queued.clientOperationId);
+    if (queued.clientOperationId === ids.operation2) {
+      operation2Attempts += 1;
+      if (operation2Attempts === 1) throw transportError;
+    }
+    return { clientOperationId: queued.clientOperationId, status: "acked" };
+  };
+
+  await assert.rejects(outbox.flush(send), (error) => error === transportError);
+
+  assert.deepEqual(acknowledged, [1]);
+  assert.deepEqual(sent, [ids.operation1, ids.operation2]);
+  assert.deepEqual(
+    (await outbox.entries()).map(
+      ({ operation: queued, retryCount, status, error }) => ({
+        clientOperationId: queued.clientOperationId,
+        error,
+        retryCount,
+        status,
+      }),
+    ),
+    [
+      {
+        clientOperationId: ids.operation2,
+        error: transportError.message,
+        retryCount: 1,
+        status: "pending",
+      },
+    ],
+  );
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].delayMs, 1000);
+
+  await scheduled[0].retry();
+
+  assert.deepEqual(acknowledged, [1, 1]);
+  assert.deepEqual(sent, [ids.operation1, ids.operation2, ids.operation2]);
+  assert.deepEqual(await outbox.pending(), []);
 });
 
 test("a recorded mutate_structure operation parses and enqueues unchanged", async () => {
@@ -738,6 +803,55 @@ test("a mismatched acknowledgement retains the operation and markAcked is idempo
   assert.equal(await outbox.markAcked(ids.operation1), false);
 });
 
+test("a mismatched second ACK still reports the earlier durable ACK without retry", async () => {
+  const acknowledged = [];
+  const scheduled = [];
+  const outbox = scopedOutbox(memoryAdapter(), {
+    onAcknowledged(count) {
+      acknowledged.push(count);
+    },
+    schedule(delayMs, retry) {
+      scheduled.push({ delayMs, retry });
+      return scheduled.length;
+    },
+  });
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.enqueue(operation(ids.operation2));
+  const sent = [];
+
+  await assert.rejects(
+    outbox.flush(async (queued) => {
+      sent.push(queued.clientOperationId);
+      return {
+        clientOperationId:
+          queued.clientOperationId === ids.operation1
+            ? ids.operation1
+            : ids.operation3,
+        status: "acked",
+      };
+    }),
+    /Server acknowledgement did not match the queued operation\./,
+  );
+
+  assert.deepEqual(acknowledged, [1]);
+  assert.deepEqual(sent, [ids.operation1, ids.operation2]);
+  assert.deepEqual(
+    (await outbox.entries()).map(({ operation: queued, status, error }) => ({
+      clientOperationId: queued.clientOperationId,
+      error,
+      status,
+    })),
+    [
+      {
+        clientOperationId: ids.operation2,
+        error: "Server acknowledgement did not match the queued operation.",
+        status: "rejected",
+      },
+    ],
+  );
+  assert.deepEqual(scheduled, []);
+});
+
 test("flush orders the scoped revision and never accepts another revision", async () => {
   const outbox = scopedOutbox(memoryAdapter());
   await outbox.enqueue(
@@ -799,10 +913,12 @@ test("connection failures retain data and schedule bounded exponential retries",
   };
 
   await assert.rejects(outbox.flush(send), /offline/);
+  assert.deepEqual(acknowledged, []);
   for (const expectedDelay of [1000, 2000, 4000, 8000]) {
     const scheduledRetry = scheduled.shift();
     assert.equal(scheduledRetry.delayMs, expectedDelay);
     await assert.rejects(scheduledRetry.retry(), /offline/);
+    assert.deepEqual(acknowledged, []);
   }
   const finalRetry = scheduled.shift();
   assert.equal(finalRetry.delayMs, 15000);
