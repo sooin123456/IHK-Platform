@@ -290,18 +290,23 @@ export async function assertProjectOrganizationFeature(
   client: ProjectFeatureClient,
   projectId: string,
   feature: OrganizationFeature,
+  organizationId?: string,
 ) {
-  const project = await client
-    .from("lukas_qto_projects")
-    .select("organization_id")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (project.error || !project.data)
+  const resolvedOrganizationId =
+    organizationId ??
+    (
+      await client
+        .from("lukas_qto_projects")
+        .select("organization_id")
+        .eq("id", projectId)
+        .maybeSingle()
+    ).data?.organization_id;
+  if (!resolvedOrganizationId)
     throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
   const entitlement = await client.rpc(
     "lukas_qto_organization_feature_enabled",
     {
-      p_organization_id: project.data.organization_id,
+      p_organization_id: resolvedOrganizationId,
       p_feature: feature,
     },
   );

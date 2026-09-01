@@ -56,38 +56,11 @@ export function drawingCollaborationPhaseForProviderStatus(status: string) {
   return "connecting" as const;
 }
 
-type DrawingCollaborationCapability =
-  "admin" | "editor" | "reviewer" | "approver" | "commenter" | "viewer";
-type DrawingCollaborationRevisionStatus =
-  "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
-
-export function drawingCollaborationAuthority({
-  bootstrap,
-  fallbackCapability,
-  fallbackRevisionStatus,
-}: {
-  bootstrap?: {
-    capability: DrawingCollaborationCapability;
-    revisionStatus: DrawingCollaborationRevisionStatus;
-    canWrite: boolean;
-  };
-  fallbackCapability: DrawingCollaborationCapability;
-  fallbackRevisionStatus: DrawingCollaborationRevisionStatus;
-}) {
-  if (bootstrap)
-    return {
-      capability: bootstrap.capability,
-      revisionStatus: bootstrap.revisionStatus,
-      canWrite: bootstrap.canWrite,
-    };
-  return {
-    capability: fallbackCapability,
-    revisionStatus: fallbackRevisionStatus,
-    canWrite:
-      fallbackRevisionStatus === "draft" &&
-      (fallbackCapability === "admin" || fallbackCapability === "editor"),
-  };
-}
+export {
+  drawingCollaborationAuthority,
+  drawingCollaborationLifecycleKey,
+  drawingCollaborationProviderReady,
+} from "./drawing-runtime.ts";
 
 export async function openDrawingCollaborationLocalAttempt<
   Document extends { destroy(): void },
@@ -313,21 +286,6 @@ function outcomeOperation(
     // accepted envelope uses the stable operation ID as its deterministic time.
     createdAt: "1970-01-01T00:00:00.000Z",
   });
-}
-
-export function drawingCollaborationLifecycleKey(
-  userId: string,
-  projectId: string,
-  revisionId: string,
-) {
-  return `${userId}\u0000${projectId}\u0000${revisionId}`;
-}
-
-export function drawingCollaborationProviderReady(input: {
-  sourceReady: boolean;
-  checkpointInstalled: boolean;
-}) {
-  return input.sourceReady && input.checkpointInstalled;
 }
 
 /** Catches an adapter up to the latest coherent route checkpoint before it is exposed. */

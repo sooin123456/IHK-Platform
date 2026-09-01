@@ -2940,6 +2940,7 @@ test("trusted staff context is admin without membership while viewer and outside
     ),
     "viewer",
   );
+  assert.equal(viewerClient.calls.length, 0);
 
   const outsiderClient = queryClient({
     lukas_qto_project_members: { data: null, error: null },

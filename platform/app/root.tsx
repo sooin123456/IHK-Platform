@@ -323,11 +323,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
       // Report error to Sentry in production
       Sentry.captureException(error);
     }
-    if (import.meta.env.DEV) {
-      // Show detailed error information in development
-      details = error.message;
-      stack = error.stack;
-    }
+    details = error.message || details;
+    if (import.meta.env.DEV) stack = error.stack;
   }
 
   // Render a simple error page with available information

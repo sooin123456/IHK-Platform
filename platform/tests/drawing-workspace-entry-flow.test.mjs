@@ -425,6 +425,7 @@ test("the root boundary explains a JavaScript failure in Korean", () => {
   });
 
   assert.match(html, /오류/);
+  assert.match(html, /도면 문서를 불러오지 못했습니다/);
   assert.doesNotMatch(html, /Oops!/);
   assert.doesNotMatch(html, /An unexpected error occurred/);
 });

@@ -15,7 +15,7 @@ import {
   normalizeDragRegion,
   type PdfNormalizedRegion,
 } from "~/lukas/lib/pdf-anchor";
-import { markDrawingFirstUsable } from "~/lukas/lib/drawing-runtime";
+import { markDrawingFirstUsable, createDrawingFrameQueue } from "~/lukas/lib/drawing-runtime";
 import {
   openPdfDocument,
   renderPdfPageToCanvas,
@@ -56,6 +56,7 @@ export default function PdfDrawingViewer({
   const [regionMode, setRegionMode] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [dragCurrent, setDragCurrent] = useState<Point | null>(null);
+  const dragMoveQueueRef = useRef(createDrawingFrameQueue());
   const [selectedRegion, setSelectedRegion] =
     useState<PdfNormalizedRegion | null>(
       activeRegion?.pageNumber === pageNumber ? activeRegion : null,
@@ -70,6 +71,8 @@ export default function PdfDrawingViewer({
     observer.observe(host);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => () => dragMoveQueueRef.current.dispose(), []);
 
   useEffect(() => {
     let alive = true;
@@ -298,6 +301,7 @@ export default function PdfDrawingViewer({
           className={`relative mx-auto w-fit shadow-2xl ${regionMode ? "cursor-crosshair touch-none" : ""}`}
           data-testid="pdf-canvas"
           onPointerCancel={() => {
+            dragMoveQueueRef.current.flush();
             setDragStart(null);
             setDragCurrent(null);
           }}
@@ -309,9 +313,14 @@ export default function PdfDrawingViewer({
             setDragCurrent(next);
           }}
           onPointerMove={(event) => {
-            if (dragStart && regionMode) setDragCurrent(point(event));
+            if (!dragStart || !regionMode) return;
+            const next = point(event);
+            dragMoveQueueRef.current.schedule(() => setDragCurrent(next));
           }}
-          onPointerUp={finishDrag}
+          onPointerUp={(event) => {
+            dragMoveQueueRef.current.flush();
+            finishDrag(event);
+          }}
         >
           <canvas
             aria-label={`${pageNumber}쪽 PDF`}

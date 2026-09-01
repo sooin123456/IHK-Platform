@@ -8,13 +8,10 @@ import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
 import {
   drawingContext,
-  listDrawingAssignees,
-  loadDrawingRoom,
   mutateDrawingIssue,
   parseDrawingMutationForm,
   type DrawingClient,
 } from "~/lukas/lib/drawing-collaboration.server";
-import { loadDrawingActivityPage } from "~/lukas/lib/drawing-history.server";
 import {
   createDrawingQuantityLink,
   DrawingQuantityLineageServerError,
@@ -58,21 +55,38 @@ function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
 }
 
+function throwDrawingWorkspaceLoaderFailure(error: unknown): never {
+  if (error instanceof Response) throw error;
+  const raw =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim().slice(0, 240)
+      : "도면 작업실을 불러오지 못했습니다.";
+  throw new Response(
+    /^[\uac00-\ud7a3]/.test(raw)
+      ? raw
+      : `도면 작업실을 불러오지 못했습니다. ${raw}`,
+    { status: 500 },
+  );
+}
+
 async function workspaceContext(request: Request, projectId: string) {
   const context = await drawingContext(request, projectId);
   const client = context.client as unknown as DrawingWorkspaceDatabaseClient;
-  await assertProjectOrganizationFeature(
-    client as any,
-    context.project.id,
-    "drawing_workspace",
-  );
-  const capability = await loadDrawingWorkspaceCapability(
-    client,
-    context.project.id,
-    context.user.id,
-    context.project.owner_id,
-    context.role,
-  );
+  const [, capability] = await Promise.all([
+    assertProjectOrganizationFeature(
+      client as any,
+      context.project.id,
+      "drawing_workspace",
+      context.project.organization_id,
+    ),
+    loadDrawingWorkspaceCapability(
+      client,
+      context.project.id,
+      context.user.id,
+      context.project.owner_id,
+      context.role,
+    ),
+  ]);
   if (!capability)
     throw new Response("도면 작업 권한이 없습니다.", { status: 403 });
   return { ...context, client, capability };
@@ -80,6 +94,7 @@ async function workspaceContext(request: Request, projectId: string) {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const finishLoaderStage = startDrawingWorkspaceStage("loader");
+  try {
   const { client, headers, project, user, capability } = await workspaceContext(
     request,
     params.projectId!,
@@ -98,6 +113,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       client as any,
       project.id,
       "quantity_lineage",
+      project.organization_id,
     );
   if (lineageSearch.boqVersionId && lineageSearch.boqLineId) {
     try {
@@ -142,6 +158,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       client as any,
       project.id,
       "ifc_workspace",
+      project.organization_id,
     );
   const workspace = await loadDrawingWorkspace(
     client,
@@ -155,21 +172,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const selectedIfcFileId =
     viewState.ifcFileId ??
     (workspace.file?.kind === "ifc" ? workspace.file.id : null);
-  const sourceBundle = await loadDrawingWorkspaceSourceBundle(
-    client,
-    workspace,
-    selectedIfcFileId,
-    viewState.view !== "2d",
-  );
-  const measurementState = workspace.document
-    ? await loadDrawingWorkspaceMeasurementState(client, {
-        documentId: workspace.document.id,
-        revisionId: workspace.document.revision.id,
-        revisionVersion: workspace.document.revision.version,
-      })
-    : null;
-  const collaborationBootstrap =
-    measurementState?.collaborationBootstrap ?? null;
   const lineageObjectId = lineageSearch.objectId;
   const requestedRevisionId = lineageSearch.revisionId;
   const lineageCursor = lineageSearch.cursor;
@@ -236,21 +238,26 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       });
     }
   }
-  const activityPage = workspace.document
-    ? await loadDrawingActivityPage(
-        client as unknown as Parameters<typeof loadDrawingActivityPage>[0],
-        project.id,
-        workspace.document.revision.id,
-        { cursor: searchParams.get("historyCursor") },
-      )
-    : null;
-  const collaborationClient = client as unknown as DrawingClient;
-  const [collaborationRoom, assignees] = await Promise.all([
-    workspace.file
-      ? loadDrawingRoom(collaborationClient, project.id, workspace.file.id)
+  const [
+    sourceBundle,
+    measurementState,
+  ] = await Promise.all([
+    loadDrawingWorkspaceSourceBundle(
+      client,
+      workspace,
+      selectedIfcFileId,
+      viewState.view !== "2d",
+    ),
+    workspace.document
+      ? loadDrawingWorkspaceMeasurementState(client, {
+          documentId: workspace.document.id,
+          revisionId: workspace.document.revision.id,
+          revisionVersion: workspace.document.revision.version,
+        })
       : Promise.resolve(null),
-    listDrawingAssignees(collaborationClient, project.id, project.owner_id),
   ]);
+  const collaborationBootstrap =
+    measurementState?.collaborationBootstrap ?? null;
   const loaderMs = finishLoaderStage();
   headers.append(
     "Server-Timing",
@@ -266,9 +273,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       measurementEvidenceError:
         measurementState?.measurementEvidenceError ?? null,
       quantityLineage,
-      activityPage,
-      collaborationRoom,
-      assignees,
       workspace,
       sourceBundle,
       selectedIfcFileId,
@@ -276,6 +280,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     },
     { headers },
   );
+  } catch (error) {
+    finishLoaderStage();
+    throwDrawingWorkspaceLoaderFailure(error);
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -298,6 +306,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       client as any,
       project.id,
       "quantity_lineage",
+      project.organization_id,
     );
     const stableLinkId = form.get("link_id");
     try {
@@ -481,9 +490,6 @@ export default function DrawingWorkspaceScreen({
         actionError={actionData?.error}
         capability={capability}
         collaborationBootstrap={loaderData.collaborationBootstrap ?? undefined}
-        activityPage={loaderData.activityPage ?? undefined}
-        assignees={loaderData.assignees}
-        collaborationRoom={loaderData.collaborationRoom}
         currentUserId={loaderData.currentUserId}
         measurementEvidence={loaderData.measurementEvidence}
         measurementEvidenceError={loaderData.measurementEvidenceError}

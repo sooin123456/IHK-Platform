@@ -38,10 +38,10 @@ import {
   Link,
   useBlocker,
   useFetcher,
+  useLocation,
   useNavigation,
   useSearchParams,
 } from "react-router";
-import * as Y from "yjs";
 
 import { Button } from "~/core/components/ui/button";
 import {
@@ -106,27 +106,11 @@ import {
   type DrawingOutbox,
   type DrawingPersistenceSnapshot,
 } from "~/lukas/lib/drawing-outbox";
-import {
-  createDrawingAccessTokenResolver,
-  createDrawingCollaborationCommandBridge,
-  drawingCollaborationAuthority,
-  drawingCollaborationLifecycleKey,
-  drawingCollaborationProviderReady,
-  initializeDrawingCollaborationDocument,
-  openDrawingCollaborationLocalAttempt,
-  openDrawingCollaborationConnection,
-  reconcileDrawingCollaborationDraft,
-  synchronizeDrawingCollaborationCheckpoint,
-  type DrawingCollaborationConnection,
+import type {
+  DrawingCollaborationConnection,
 } from "~/lukas/lib/drawing-collaboration-client";
-import {
-  createDrawingDraftAdapter,
-  type DrawingDraftAdapter,
-} from "~/lukas/lib/drawing-yjs-draft";
-import {
-  openDrawingYjsPersistence,
-  type DrawingYjsPersistence,
-} from "~/lukas/lib/drawing-yjs-persistence.client";
+import type { DrawingDraftAdapter } from "~/lukas/lib/drawing-yjs-draft";
+import type { DrawingYjsPersistence } from "~/lukas/lib/drawing-yjs-persistence.client";
 import type {
   DrawingWorkspace,
   DrawingWorkspaceCollaborationBootstrap,
@@ -192,6 +176,9 @@ import {
 } from "~/lukas/lib/drawing-workspace-realtime";
 import {
   drawingAuthoritativeSnapshotKey,
+  drawingCollaborationAuthority,
+  drawingCollaborationLifecycleKey,
+  drawingCollaborationProviderReady,
   drawingLocalEditReady,
   scheduleDrawingLocalInitialization,
   scheduleDrawingSourceReadyConnection,
@@ -215,12 +202,8 @@ import {
 } from "./drawing-command-menu";
 import type { DrawingExportDialogProps } from "./drawing-export-dialog";
 import { DrawingInspector } from "./drawing-inspector";
-import { DrawingBlocksPanel } from "./drawing-blocks-panel";
 import { DrawingLayersPanel } from "./drawing-layers-panel";
 import { DrawingPagesPanel } from "./drawing-pages-panel";
-import { DrawingPropertiesPanel } from "./drawing-properties-panel";
-import { DrawingStylesPanel } from "./drawing-styles-panel";
-import { DrawingTablesPanel } from "./drawing-tables-panel";
 import {
   DrawingCollaborationConnectionStatus,
   DrawingCollaborationLockStatus,
@@ -250,6 +233,26 @@ type IfcComponent = IfcModule["default"];
 const LazyDrawingExportDialog = lazy(() =>
   import("./drawing-export-dialog").then(({ DrawingExportDialog }) => ({
     default: DrawingExportDialog,
+  })),
+);
+const LazyDrawingStylesPanel = lazy(() =>
+  import("./drawing-styles-panel").then(({ DrawingStylesPanel }) => ({
+    default: DrawingStylesPanel,
+  })),
+);
+const LazyDrawingPropertiesPanel = lazy(() =>
+  import("./drawing-properties-panel").then(({ DrawingPropertiesPanel }) => ({
+    default: DrawingPropertiesPanel,
+  })),
+);
+const LazyDrawingTablesPanel = lazy(() =>
+  import("./drawing-tables-panel").then(({ DrawingTablesPanel }) => ({
+    default: DrawingTablesPanel,
+  })),
+);
+const LazyDrawingBlocksPanel = lazy(() =>
+  import("./drawing-blocks-panel").then(({ DrawingBlocksPanel }) => ({
+    default: DrawingBlocksPanel,
   })),
 );
 
@@ -921,8 +924,8 @@ type Props = {
     }) => void;
   };
   collaborationBootstrap?: DrawingWorkspaceCollaborationBootstrap;
-  collaborationConnectionFactory?: typeof openDrawingCollaborationConnection;
-  collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
+  collaborationConnectionFactory?: typeof import("~/lukas/lib/drawing-collaboration-client").openDrawingCollaborationConnection;
+  collaborationPersistenceFactory?: typeof import("~/lukas/lib/drawing-yjs-persistence.client").openDrawingYjsPersistence;
   measurementEvidence?: DrawingServerMeasurementEvidence | null;
   measurementEvidenceError?: DrawingMeasurementEvidenceError | null;
   quantityLineage?: {
@@ -969,19 +972,19 @@ export function drawingObjectHasQuantityLineage(
 
 export default function DrawingWorkspaceClient({
   actionError,
-  activityPage,
-  assignees = [],
+  activityPage: activityPageProp,
+  assignees: assigneesProp = [],
   capability,
   currentUserId,
-  collaborationRoom,
+  collaborationRoom: collaborationRoomProp,
   projectId,
   previewMode = false,
   workspaceNotice,
   realtimeAdapter,
   previewHarness,
   collaborationBootstrap,
-  collaborationConnectionFactory = openDrawingCollaborationConnection,
-  collaborationPersistenceFactory = openDrawingYjsPersistence,
+  collaborationConnectionFactory,
+  collaborationPersistenceFactory,
   measurementEvidence,
   measurementEvidenceError,
   quantityLineage,
@@ -993,6 +996,22 @@ export default function DrawingWorkspaceClient({
   workspace,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const extrasFetcher = useFetcher<{
+    activityPage: Props["activityPage"];
+    collaborationRoom: Props["collaborationRoom"];
+    assignees: DrawingAssignee[];
+    checkpoints: NonNullable<
+      Props["workspace"]["document"]
+    >["revision"]["checkpoints"];
+  }>();
+  const extrasLoadedKeyRef = useRef("");
+  const activityPage = extrasFetcher.data?.activityPage ?? activityPageProp;
+  const collaborationRoom =
+    extrasFetcher.data?.collaborationRoom ?? collaborationRoomProp;
+  const assignees = extrasFetcher.data?.assignees ?? assigneesProp;
+  const checkpoints =
+    extrasFetcher.data?.checkpoints ?? workspace.document.revision.checkpoints;
   useEffect(() => {
     if (
       performance.getEntriesByName("drawing-workspace:hydration:start").length >
@@ -1056,14 +1075,16 @@ export default function DrawingWorkspaceClient({
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [repeatMode, setRepeatMode] = useState(false);
   const [activePanel, setActivePanel] =
-    useState<DrawingWorkspacePanel>("structure");
+    useState<DrawingWorkspacePanel>(() =>
+      searchParams.get("historyCursor") ? "history" : "structure",
+    );
   const [leftDockOpen, setLeftDockOpen] = useState(true);
   const [inspectorOpenOverride, setInspectorOpenOverride] = useState<
     boolean | null
   >(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState(
-    collaborationRoom?.issues[0]?.id ?? "",
+    collaborationRoomProp?.issues[0]?.id ?? "",
   );
   const [selectedIds, setSelectedIds] = useState<string[]>(() => {
     const linkedObjectId = searchParams.get("object");
@@ -1149,6 +1170,36 @@ export default function DrawingWorkspaceClient({
   };
   const navigation = useNavigation();
   const { revision } = drawingDocument;
+  const extrasKey = `${revision.id}:${sourceFile?.id ?? ""}:${searchParams.get("historyCursor") ?? ""}:${activePanel === "history" ? "h" : ""}`;
+  useEffect(() => {
+    if (previewMode) return;
+    if (activePanel !== "collaboration" && activePanel !== "history") return;
+    if (extrasFetcher.state !== "idle") return;
+    if (extrasLoadedKeyRef.current === extrasKey) return;
+    extrasLoadedKeyRef.current = extrasKey;
+    const query = new URLSearchParams();
+    query.set("revision", revision.id);
+    if (sourceFile?.id) query.set("file", sourceFile.id);
+    const cursor = searchParams.get("historyCursor");
+    if (cursor) query.set("historyCursor", cursor);
+    if (activePanel === "history") query.set("history", "1");
+    extrasFetcher.load(
+      `${location.pathname.replace(/\/$/, "")}/shell?${query}`,
+    );
+  }, [
+    activePanel,
+    extrasFetcher,
+    extrasKey,
+    location.pathname,
+    previewMode,
+    revision.id,
+    searchParams,
+    sourceFile?.id,
+  ]);
+  useEffect(() => {
+    if (selectedIssueId || !collaborationRoom?.issues[0]) return;
+    setSelectedIssueId(collaborationRoom.issues[0].id);
+  }, [collaborationRoom, selectedIssueId]);
   const authority = drawingCollaborationAuthority({
     bootstrap: collaborationBootstrap,
     fallbackCapability: capability,
@@ -1241,19 +1292,35 @@ export default function DrawingWorkspaceClient({
     proof: documentStore.getValidatedInitialState(),
   };
   const collaborationAdapterRef = useRef<DrawingDraftAdapter | null>(null);
-  const collaborationCommandRef = useRef<ReturnType<
-    typeof createDrawingCollaborationCommandBridge
-  > | null>(null);
+  const collaborationCommandRef = useRef<{
+    applyRecorded(
+      applied: AppliedDrawingCommand,
+    ): Promise<unknown>;
+    applyCommand(
+      command: DrawingCommand,
+    ): Promise<{ state: DrawingDocumentState }>;
+  } | null>(null);
   const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
   const commandQueueProjectionRef = useRef<DrawingDocumentState | null>(null);
   const commandQueueSizeRef = useRef(0);
   const collaborationConnectionRef =
     useRef<DrawingCollaborationConnection | null>(null);
+  const reconcileDraftRef = useRef<
+    | ((input: {
+        actorId: string;
+        adapter: DrawingDraftAdapter;
+        outbox: DrawingOutbox;
+        recentOutcomes: DrawingWorkspaceCollaborationBootstrap["recentOutcomes"];
+      }) => Promise<unknown>)
+    | null
+  >(null);
   const awarenessStoreRef = useRef(createDrawingAwarenessPeerStore());
   const awarenessLockPeers = useDrawingAwarenessLocks(
     awarenessStoreRef.current,
   );
-  const awarenessPeers = useDrawingAwarenessPeers(awarenessStoreRef.current);
+  const awarenessPeers = useDrawingAwarenessPeers(
+    viewMode !== "2d" ? awarenessStoreRef.current : undefined,
+  );
   const awarenessLeaseRef = useRef<ReturnType<
     typeof createDrawingSoftLockLease
   > | null>(null);
@@ -1796,7 +1863,7 @@ export default function DrawingWorkspaceClient({
     let active = true;
     let outbox: DrawingOutbox;
     let attempt: {
-      document: Y.Doc;
+      document: import("yjs").Doc;
       persistence: DrawingYjsPersistence | null;
       adapter: DrawingDraftAdapter;
       dispose(): Promise<void>;
@@ -1808,6 +1875,14 @@ export default function DrawingWorkspaceClient({
     let initializing: Promise<void> | null = null;
     let attemptReadyForProvider = false;
     let cancelInitialization: (() => void) | null = null;
+    const collaborationModulePromise = import(
+      "~/lukas/lib/drawing-collaboration-client"
+    );
+    const yjsModulePromise = import("yjs");
+    const draftModulePromise = import("~/lukas/lib/drawing-yjs-draft");
+    const persistenceModulePromise = import(
+      "~/lukas/lib/drawing-yjs-persistence.client"
+    );
     const clearAwareness = () => {
       unsubscribeAwareness?.();
       unsubscribeAwareness = null;
@@ -1890,11 +1965,15 @@ export default function DrawingWorkspaceClient({
       )
         return;
       try {
-        const opened = await collaborationConnectionFactory({
+        const collaboration = await collaborationModulePromise;
+        const opened = await (
+          collaborationConnectionFactory ??
+          collaboration.openDrawingCollaborationConnection
+        )({
           document: attempt.document,
           projectId: revision.project_id,
           revisionId: revision.id,
-          resolveToken: createDrawingAccessTokenResolver(),
+          resolveToken: collaboration.createDrawingAccessTokenResolver(),
           url: import.meta.env.VITE_DRAWING_COLLABORATION_URL,
           onPhase: (phase) => active && setCollaborationPhase(phase),
         });
@@ -1948,6 +2027,23 @@ export default function DrawingWorkspaceClient({
     const runInitialize = async () => {
       const capturedCheckpoint = authoritativeCheckpointRef.current;
       try {
+        const [
+          Y,
+          collaboration,
+          { createDrawingDraftAdapter },
+          persistenceModule,
+        ] = await Promise.all([
+          yjsModulePromise,
+          collaborationModulePromise,
+          draftModulePromise,
+          persistenceModulePromise,
+        ]);
+        if (!active) return;
+        reconcileDraftRef.current =
+          collaboration.reconcileDrawingCollaborationDraft;
+        const openPersistence =
+          collaborationPersistenceFactory ??
+          persistenceModule.openDrawingYjsPersistence;
         attemptReadyForProvider = false;
         setLocalEditBridgeReady(false);
         if (!previewMode) setOutboxReady(false);
@@ -1961,12 +2057,12 @@ export default function DrawingWorkspaceClient({
         attempt = null;
         await previousAttempt?.dispose();
         let localBaseMeta:
-          | ReturnType<typeof initializeDrawingCollaborationDocument>
+          | ReturnType<typeof collaboration.initializeDrawingCollaborationDocument>
           | undefined;
-        attempt = await openDrawingCollaborationLocalAttempt({
+        attempt = await collaboration.openDrawingCollaborationLocalAttempt({
           createDocument() {
             const document = new Y.Doc();
-            localBaseMeta = initializeDrawingCollaborationDocument({
+            localBaseMeta = collaboration.initializeDrawingCollaborationDocument({
               document,
               projectId: revision.project_id,
               revisionId: revision.id,
@@ -1976,7 +2072,7 @@ export default function DrawingWorkspaceClient({
             return document;
           },
           openPersistence: (document) =>
-            collaborationPersistenceFactory({
+            openPersistence({
               revisionId: revision.id,
               document,
             }),
@@ -2002,7 +2098,7 @@ export default function DrawingWorkspaceClient({
             });
           },
           reconcile: (adapter) =>
-            reconcileDrawingCollaborationDraft({
+            collaboration.reconcileDrawingCollaborationDraft({
               actorId: currentUserId,
               adapter,
               outbox,
@@ -2019,14 +2115,14 @@ export default function DrawingWorkspaceClient({
         };
         const draft = attempt.adapter;
         const installedCheckpointKey =
-          await synchronizeDrawingCollaborationCheckpoint({
+          await collaboration.synchronizeDrawingCollaborationCheckpoint({
             appliedKey: capturedCheckpoint.key,
             getCurrentCheckpoint: () => authoritativeCheckpointRef.current,
             applyCheckpoint: async (checkpoint) => {
               draft.replaceAuthoritative(checkpoint.state, {
                 baseOperationSequence: checkpoint.operationSequence,
               });
-              await reconcileDrawingCollaborationDraft({
+              await collaboration.reconcileDrawingCollaborationDraft({
                 actorId: currentUserId,
                 adapter: draft,
                 outbox,
@@ -2042,7 +2138,7 @@ export default function DrawingWorkspaceClient({
         installedAuthoritativeCheckpointKeyRef.current = installedCheckpointKey;
         collaborationAdapterRef.current = attempt.adapter;
         collaborationCommandRef.current =
-          createDrawingCollaborationCommandBridge({
+          collaboration.createDrawingCollaborationCommandBridge({
             adapter: draft,
             outbox,
             afterAppend: () => {
@@ -2231,7 +2327,7 @@ export default function DrawingWorkspaceClient({
       baseOperationSequence: checkpoint.operationSequence,
     });
     installedAuthoritativeCheckpointKeyRef.current = checkpoint.key;
-    void reconcileDrawingCollaborationDraft({
+    void reconcileDraftRef.current?.({
       actorId: currentUserId,
       adapter,
       outbox,
@@ -4687,13 +4783,13 @@ export default function DrawingWorkspaceClient({
                 </Form>
               ) : null}
               {effectiveRevisionStatus === "draft" &&
-              revision.checkpoints.length ? (
+              checkpoints.length ? (
                 <section
                   aria-label="체크포인트 복원"
                   className="space-y-2 rounded-md border border-white/10 p-2"
                 >
                   <h3 className="text-xs font-bold">검토 체크포인트</h3>
-                  {revision.checkpoints.map((checkpoint) => (
+                  {checkpoints.map((checkpoint) => (
                     <button
                       className="min-h-10 w-full rounded-md border border-white/20 px-2 text-left text-xs"
                       disabled={
@@ -4831,12 +4927,14 @@ export default function DrawingWorkspaceClient({
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
             id="drawing-panel-styles"
           >
-            <DrawingStylesPanel
+            <Suspense fallback={null}>
+            <LazyDrawingStylesPanel
               actorId={currentUserId}
               canEdit={editing.canEdit}
               onCommand={applyCommand}
               state={drawingState}
             />
+            </Suspense>
           </DrawingWorkspaceTabPanel>
           <DrawingWorkspaceTabPanel
             active={activePanel === "properties"}
@@ -4845,12 +4943,14 @@ export default function DrawingWorkspaceClient({
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
             id="drawing-panel-properties"
           >
-            <DrawingPropertiesPanel
+            <Suspense fallback={null}>
+            <LazyDrawingPropertiesPanel
               actorId={currentUserId}
               canEdit={baseCanEdit}
               onCommand={applyCommand}
               state={drawingState}
             />
+            </Suspense>
           </DrawingWorkspaceTabPanel>
           <DrawingWorkspaceTabPanel
             active={activePanel === "schedules"}
@@ -4859,7 +4959,8 @@ export default function DrawingWorkspaceClient({
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
             id="drawing-panel-schedules"
           >
-            <DrawingTablesPanel
+            <Suspense fallback={null}>
+            <LazyDrawingTablesPanel
               actorId={currentUserId}
               canEdit={baseCanEdit}
               evidence={measurementEvidence}
@@ -4870,6 +4971,7 @@ export default function DrawingWorkspaceClient({
               selectedIds={transient.selectedIds}
               state={drawingState}
             />
+            </Suspense>
           </DrawingWorkspaceTabPanel>
           <DrawingWorkspaceTabPanel
             active={activePanel === "blocks"}
@@ -4878,7 +4980,8 @@ export default function DrawingWorkspaceClient({
             className="min-h-0 flex-1 overflow-y-auto p-3 [&>section]:mt-0 [&>section]:border-t-0 [&>section]:pt-0"
             id="drawing-panel-blocks"
           >
-            <DrawingBlocksPanel
+            <Suspense fallback={null}>
+            <LazyDrawingBlocksPanel
               activeCanvasId={drawingState.activeCanvasId}
               activeLayerId={resolvedActiveLayerId}
               actorId={currentUserId}
@@ -4891,6 +4994,7 @@ export default function DrawingWorkspaceClient({
               )}
               state={drawingState}
             />
+            </Suspense>
           </DrawingWorkspaceTabPanel>
         </aside>
 

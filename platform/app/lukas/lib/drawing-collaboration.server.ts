@@ -417,7 +417,7 @@ export async function drawingContext(request: Request, projectId: string) {
 
   const { data: project } = await baseClient
     .from("lukas_qto_projects")
-    .select("id, name, owner_id")
+    .select("id, name, owner_id, organization_id")
     .eq("id", projectId)
     .single();
   if (!project)

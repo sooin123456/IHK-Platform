@@ -365,50 +365,52 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw new Response("프로젝트 자료를 불러오지 못했습니다.", { status: 500 });
 
   const suggestionIds = (suggestions ?? []).map((suggestion) => suggestion.id);
-  const { data: suggestionDecisionRows, error: decisionsError } =
+  const takeoffArtifactIds = (takeoffArtifacts ?? []).map(
+    (artifact) => artifact.id,
+  );
+  const preflightArtifactIds = (preflightArtifacts ?? []).map(
+    (artifact) => artifact.id,
+  );
+  const [
+    { data: suggestionDecisionRows, error: decisionsError },
+    { data: takeoffApprovalRows, error: takeoffApprovalsError },
+    { data: preflightApprovalRows, error: preflightApprovalsError },
+  ] = await Promise.all([
     suggestionIds.length === 0
-      ? { data: [], error: null }
-      : await client
+      ? Promise.resolve({ data: [], error: null })
+      : client
           .from("lukas_qto_suggestion_decisions")
           .select(
             "id, suggestion_id, decision, note, decision_sequence, created_at",
           )
           .in("suggestion_id", suggestionIds)
-          .order("decision_sequence", { ascending: false });
-  if (decisionsError)
-    throw new Response("자동 검토 결정을 불러오지 못했습니다.", {
-      status: 500,
-    });
-
-  const takeoffArtifactIds = (takeoffArtifacts ?? []).map(
-    (artifact) => artifact.id,
-  );
-  const { data: takeoffApprovalRows, error: takeoffApprovalsError } =
+          .order("decision_sequence", { ascending: false }),
     takeoffArtifactIds.length === 0
-      ? { data: [], error: null }
-      : await client
+      ? Promise.resolve({ data: [], error: null })
+      : client
           .from("lukas_qto_takeoff_approvals")
           .select(
             "id, artifact_id, decision, note, decision_sequence, created_at",
           )
           .in("artifact_id", takeoffArtifactIds)
-          .order("decision_sequence", { ascending: false });
-  if (takeoffApprovalsError)
-    throw new Response("산출 근거 승인 이력을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  const preflightArtifactIds = (preflightArtifacts ?? []).map(
-    (artifact) => artifact.id,
-  );
-  const { data: preflightApprovalRows, error: preflightApprovalsError } =
+          .order("decision_sequence", { ascending: false }),
     preflightArtifactIds.length === 0
-      ? { data: [], error: null }
-      : await client
+      ? Promise.resolve({ data: [], error: null })
+      : client
           .from("lukas_qto_preflight_approvals")
           .select("id, artifact_id, decision, note, created_at")
           .in("artifact_id", preflightArtifactIds)
           .order("created_at", { ascending: false })
-          .order("id", { ascending: false });
+          .order("id", { ascending: false }),
+  ]);
+  if (decisionsError)
+    throw new Response("자동 검토 결정을 불러오지 못했습니다.", {
+      status: 500,
+    });
+  if (takeoffApprovalsError)
+    throw new Response("산출 근거 승인 이력을 불러오지 못했습니다.", {
+      status: 500,
+    });
   if (preflightApprovalsError)
     throw new Response("사전검토 승인 이력을 불러오지 못했습니다.", {
       status: 500,

@@ -77,6 +77,10 @@ export default [
         "lukas/screens/drawing-workspace-operation.ts",
       ),
       route(
+        "/projects/:projectId/workspace/shell",
+        "lukas/screens/drawing-workspace-shell.ts",
+      ),
+      route(
         "/projects/:projectId/files/:fileId/download",
         "lukas/screens/project-file-download.ts",
       ),
@@ -99,6 +103,10 @@ export default [
       route(
         "/projects/:projectId/drawings/:fileId/workspace/export",
         "lukas/screens/drawing-workspace-export.ts",
+      ),
+      route(
+        "/projects/:projectId/drawings/:fileId/workspace/shell",
+        "lukas/screens/drawing-workspace-shell.ts",
       ),
       route("/projects/:projectId/files", "lukas/screens/project-files.tsx"),
       route(

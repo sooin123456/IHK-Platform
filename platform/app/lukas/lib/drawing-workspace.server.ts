@@ -2490,7 +2490,6 @@ export async function loadDrawingWorkspace(
       links,
       templateCandidates,
       reviewEvidence,
-      checkpoints,
     ] = await Promise.all([
       loadAllDrawingRows(client, {
         table: "lukas_drawing_pages",
@@ -2601,15 +2600,6 @@ export async function loadDrawingWorkspace(
       }),
       loadDrawingTemplateCandidates(client, projectId),
       loadReviewEvidence(client, projectId, revision),
-      loadAllDrawingRows<DrawingSnapshotRow>(client, {
-        table: "lukas_drawing_snapshots",
-        projectId,
-        revisionId: revision.id,
-        order: [
-          { column: "created_at", direction: "desc" },
-          { column: "id", direction: "asc" },
-        ],
-      }),
     ]);
     const p2 = parseP2Workspace(
       projectId,
@@ -2646,11 +2636,7 @@ export async function loadDrawingWorkspace(
               objectIds.has(link.object_id) && issueIds.has(link.issue_id),
           ),
           reviewEvidence,
-          checkpoints: checkpoints.map((checkpoint) => ({
-            id: checkpoint.id,
-            createdAt: checkpoint.created_at,
-            canonicalJson: checkpoint.canonical_json,
-          })),
+          checkpoints: [],
         },
       },
     };
@@ -2783,15 +2769,6 @@ export async function loadDrawingWorkspace(
       };
     }
   }
-  const checkpoints = await loadAllDrawingRows<DrawingSnapshotRow>(client, {
-    table: "lukas_drawing_snapshots",
-    projectId,
-    revisionId: revision.id,
-    order: [
-      { column: "created_at", direction: "desc" },
-      { column: "id", direction: "asc" },
-    ],
-  });
   return {
     file,
     templateCandidates: await loadDrawingTemplateCandidates(client, projectId),
@@ -2805,11 +2782,7 @@ export async function loadDrawingWorkspace(
         issues,
         issueLinks,
         reviewEvidence,
-        checkpoints: checkpoints.map((checkpoint) => ({
-          id: checkpoint.id,
-          createdAt: checkpoint.created_at,
-          canonicalJson: checkpoint.canonical_json,
-        })),
+        checkpoints: [],
       },
     },
   };
@@ -3939,7 +3912,10 @@ export async function loadDrawingWorkspaceCapability(
   projectOwnerId: string,
   trustedProjectRole: string | null = null,
 ): Promise<DrawingWorkspaceCapability | null> {
-  if (trustedProjectRole === "staff") return "admin";
+  if (trustedProjectRole === "staff" || trustedProjectRole === "owner")
+    return "admin";
+  if (trustedProjectRole)
+    return capabilityByRole[trustedProjectRole] ?? null;
   if (actorId === projectOwnerId) return "admin";
   const { data: membership, error } = await client
     .from("lukas_qto_project_members")

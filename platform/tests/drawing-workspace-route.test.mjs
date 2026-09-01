@@ -41,6 +41,10 @@ test("workspace route is additive and keeps the collaboration room", () => {
         "/projects/:projectId/drawings/:fileId/workspace/export",
         "lukas/screens/drawing-workspace-export.ts",
       ],
+      [
+        "/projects/:projectId/drawings/:fileId/workspace/shell",
+        "lukas/screens/drawing-workspace-shell.ts",
+      ],
     ],
   );
 });
@@ -562,6 +566,144 @@ test("workspace route wires the verified source bundle and controlled IFC surfac
   assert.doesNotMatch(canvas, /containPdfSource/);
   assert.match(canvas, /x=\{pdfSource\.bounds\.x\}/);
   assert.match(canvas, /y=\{pdfSource\.bounds\.y\}/);
+});
+
+test("canvas pointer moves coalesce to one frame before commit", async () => {
+  const canvas = await readFile(
+    new URL(
+      "../app/lukas/components/drawing-canvas.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(canvas, /createDrawingFrameQueue/);
+  assert.match(canvas, /pointerMoveQueueRef\.current\.schedule/);
+  assert.match(canvas, /pointerMoveQueueRef\.current\.flush/);
+  assert.match(canvas, /wheelDeltaRef\.current \+=/);
+  assert.match(canvas, /wheelQueueRef\.current\.schedule/);
+  assert.doesNotMatch(canvas, /shadowBlur/);
+  assert.match(
+    canvas,
+    /activeTool === "select" \|\| activeTool === "pan"/,
+  );
+});
+
+test("workspace auth, feature, and capability checks overlap", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const context = screen.slice(
+    screen.indexOf("async function workspaceContext"),
+    screen.indexOf("export async function loader"),
+  );
+  assert.match(
+    context,
+    /await Promise\.all\(\[\s*assertProjectOrganizationFeature\(/s,
+  );
+  assert.match(context, /loadDrawingWorkspaceCapability\(/);
+  assert.match(context, /context\.project\.organization_id/);
+  assert.match(context, /context\.role/);
+  const collaboration = await readFile(
+    new URL(
+      "../app/lukas/lib/drawing-collaboration.server.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(collaboration, /select\("id, name, owner_id, organization_id"\)/);
+});
+
+test("remote cursors do not rerender the workspace chrome on 2D", async () => {
+  const shell = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    shell,
+    /useDrawingAwarenessPeers\(\s*viewMode !== "2d" \? awarenessStoreRef\.current : undefined/s,
+  );
+});
+
+test("workspace loader fetches source and measurement without history or room", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const extras = screen.slice(
+    screen.indexOf("const selectedIfcFileId"),
+    screen.indexOf("const loaderMs"),
+  );
+  assert.match(
+    extras,
+    /await Promise\.all\(\[\s*loadDrawingWorkspaceSourceBundle\(/s,
+  );
+  assert.match(extras, /loadDrawingWorkspaceMeasurementState\(/);
+  assert.doesNotMatch(extras, /loadDrawingActivityPage\(/);
+  assert.doesNotMatch(extras, /loadDrawingRoom\(/);
+  assert.doesNotMatch(extras, /listDrawingAssignees\(/);
+  assert.doesNotMatch(
+    extras,
+    /const sourceBundle = await loadDrawingWorkspaceSourceBundle/,
+  );
+  assert.match(screen, /throwDrawingWorkspaceLoaderFailure/);
+  const shell = await readFile(
+    new URL(
+      "../app/lukas/screens/drawing-workspace-shell.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(shell, /loadDrawingActivityPage\(/);
+  assert.match(shell, /loadDrawingRoom\(/);
+  assert.match(shell, /listDrawingAssignees\(/);
+  const client = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(client, /\/shell\?/);
+  assert.match(client, /activePanel !== "collaboration"/);
+  assert.doesNotMatch(client, /import \* as Y from "yjs"/);
+  assert.match(
+    client,
+    /import\("~\/lukas\/lib\/drawing-collaboration-client"\)/,
+  );
+  assert.match(client, /lazy\(\(\) =>\s*import\("\.\/drawing-styles-panel"\)/s);
+  assert.match(
+    client,
+    /lazy\(\(\) =>\s*import\("\.\/drawing-properties-panel"\)/s,
+  );
+  assert.match(client, /lazy\(\(\) =>\s*import\("\.\/drawing-tables-panel"\)/s);
+  assert.match(client, /lazy\(\(\) =>\s*import\("\.\/drawing-blocks-panel"\)/s);
+});
+
+test("workspace graph omits snapshot canonical json until history extras", async () => {
+  const server = await readFile(
+    new URL("../app/lukas/lib/drawing-workspace.server.ts", import.meta.url),
+    "utf8",
+  );
+  const graph = server.slice(
+    server.indexOf("export async function loadDrawingWorkspace("),
+    server.indexOf("export async function loadDrawingWorkspaceSourceUrl"),
+  );
+  assert.doesNotMatch(graph, /table: "lukas_drawing_snapshots"/);
+  assert.match(graph, /checkpoints: \[\]/);
+  const shell = await readFile(
+    new URL(
+      "../app/lukas/screens/drawing-workspace-shell.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(shell, /searchParams.get\("history"\)/);
+  assert.match(shell, /table: "lukas_drawing_snapshots"/);
+  assert.match(shell, /canonical_json/);
+  const client = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(client, /query.set\("history"/);
+  assert.match(client, /extrasFetcher.data\?\.checkpoints/);
 });
 
 test("workspace exposes six authoring tools, transient previews, and an accessible native command menu", async () => {

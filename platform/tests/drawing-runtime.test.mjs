@@ -476,3 +476,28 @@ test("realtime recovery requests one authoritative loader refresh", () => {
     false,
   );
 });
+
+test("pointer moves keep only the latest work until the next frame", () => {
+  const frames = [];
+  const queue = drawingRuntime.createDrawingFrameQueue({
+    requestFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelFrame(handle) {
+      frames[handle - 1] = null;
+    },
+  });
+  const runs = [];
+  queue.schedule(() => runs.push("a"));
+  queue.schedule(() => runs.push("b"));
+  assert.deepEqual(runs, []);
+  frames[0]();
+  assert.deepEqual(runs, ["b"]);
+  queue.schedule(() => runs.push("c"));
+  queue.flush();
+  assert.deepEqual(runs, ["b", "c"]);
+  queue.schedule(() => runs.push("d"));
+  queue.dispose();
+  assert.deepEqual(runs, ["b", "c"]);
+});

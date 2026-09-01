@@ -709,6 +709,7 @@ test("wall drag previews include visible hosted openings but commit only the wal
     selectedIds: [wallId],
   });
   assert.deepEqual(preview.objectIds, [wallId, openingId]);
+  assert.equal(Object.getPrototypeOf(preview.objects), objects);
   assert.deepEqual(preview.objects[openingId].geometry, hostedOpening.geometry);
   assert.deepEqual(preview.objects[wallId].geometry.start, { x: 100, y: 50 });
 

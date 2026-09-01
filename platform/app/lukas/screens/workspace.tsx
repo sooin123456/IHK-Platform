@@ -87,12 +87,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   }));
 
   const projectIds = (projects ?? []).map((project) => project.id);
-  const [filesResult, reviewsResult, membersResult] =
+  const [filesResult, reviewsResult, membersResult, drawingMetrics] =
     projectIds.length === 0
       ? [
           { data: [], error: null },
           { data: [], error: null },
           { data: [], error: null },
+          {} as Awaited<ReturnType<typeof listDrawingIssueMetrics>>,
         ]
       : await Promise.all([
           client
@@ -109,6 +110,11 @@ export async function loader({ request }: Route.LoaderArgs) {
             .from("lukas_qto_project_members")
             .select("project_id, user_id")
             .in("project_id", projectIds),
+          listDrawingIssueMetrics(
+            client as unknown as DrawingClient,
+            projectIds,
+            user.id,
+          ),
         ]);
 
   if (filesResult.error || reviewsResult.error || membersResult.error) {
@@ -120,11 +126,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const files = filesResult.data ?? [];
   const reviews = reviewsResult.data ?? [];
   const members = membersResult.data ?? [];
-  const drawingMetrics = await listDrawingIssueMetrics(
-    client as unknown as DrawingClient,
-    projectIds,
-    user.id,
-  );
   const projectMetrics = Object.fromEntries(
     projectIds.map((projectId) => {
       const projectFiles = files.filter(

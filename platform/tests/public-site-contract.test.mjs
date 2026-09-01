@@ -187,6 +187,11 @@ test("project overview leads with one next action, four progress stages and pend
   assert.match(project, /① 물량 결과 CSV/);
   assert.match(project, /② 계산 근거 CSV/);
   assert.match(project, /결정을 선택하세요/);
+  assert.doesNotMatch(
+    project,
+    /const \{ data: suggestionDecisionRows, error: decisionsError \}/,
+  );
+  assert.match(project, /lukas_qto_suggestion_decisions/);
   assert.match(project, /수정이 필요한 이유를 메모에 입력하세요/);
   assert.match(project, /최근 활동/);
   assert.match(project, /view === "files"/);
@@ -223,4 +228,8 @@ test("workspace cards lead to the drawing collaboration room with honest work co
   assert.match(screen, /미해결/);
   assert.match(screen, /내 담당/);
   assert.match(loader, /listDrawingIssueMetrics/);
+  assert.doesNotMatch(
+    loader,
+    /const drawingMetrics = await listDrawingIssueMetrics/,
+  );
 });

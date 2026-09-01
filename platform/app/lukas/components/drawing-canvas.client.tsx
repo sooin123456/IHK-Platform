@@ -56,6 +56,7 @@ import {
   type DrawingCanvasRenderItem,
 } from "~/lukas/lib/drawing-blocks";
 import {
+  createDrawingFrameQueue,
   markDrawingFirstUsable,
   startDrawingWorkspaceStage,
 } from "~/lukas/lib/drawing-runtime";
@@ -154,6 +155,7 @@ function drawingCanvasPngBlob(canvas: HTMLCanvasElement) {
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
 const BASE_GRID_SIZE = 10;
+const EMPTY_SNAP_CANDIDATES: Point[] = [];
 const SELECTION_HIT_TOLERANCE_PIXELS = 6;
 const VIEWPORT_OVERSCAN_PIXELS = 48;
 const DIRECTION_45 = [
@@ -1432,7 +1434,7 @@ export function drawingSelectionPreview({
   )
     return { objectIds: [] as string[], objects };
   const selected = new Set(selectedIds);
-  const previewObjects = { ...objects };
+  const previewObjects = Object.create(objects) as typeof objects;
   for (const id of selectedIds) {
     const object = objects[id];
     if (!object) continue;
@@ -2426,6 +2428,10 @@ export const DrawingCanvas = forwardRef<
   const spacePressedRef = useRef(false);
   const capturedPointerTargetRef = useRef<HTMLElement | null>(null);
   const capturedSelectionTargetRef = useRef<HTMLElement | null>(null);
+  const pointerMoveQueueRef = useRef(createDrawingFrameQueue());
+  const wheelQueueRef = useRef(createDrawingFrameQueue());
+  const wheelDeltaRef = useRef(0);
+  const wheelPointerRef = useRef<{ x: number; y: number } | null>(null);
   const layersById = useMemo(
     () => Object.fromEntries(layers.map((layer) => [layer.id, layer])),
     [layers],
@@ -2482,16 +2488,26 @@ export const DrawingCanvas = forwardRef<
       });
       return {
         ...projection,
-        objectCandidates: projection.projectedItems.flatMap((item) =>
-          item.kind === "object"
-            ? geometrySnapPoints(item.object.geometry, objectsById)
-            : [],
-        ),
+        objectCandidates:
+          activeTool === "select" || activeTool === "pan"
+            ? EMPTY_SNAP_CANDIDATES
+            : projection.projectedItems.flatMap((item) =>
+                item.kind === "object"
+                  ? geometrySnapPoints(item.object.geometry, objectsById)
+                  : [],
+              ),
       };
     } finally {
       finish();
     }
-  }, [layersById, objectsById, renderItems, viewport.zoom, viewportBounds]);
+  }, [
+    activeTool,
+    layersById,
+    objectsById,
+    renderItems,
+    viewport.zoom,
+    viewportBounds,
+  ]);
   const objectCandidates = viewportProjection.objectCandidates;
   const [controllerState, setControllerState] =
     useState<DrawingToolControllerState>(() =>
@@ -2649,6 +2665,14 @@ export const DrawingCanvas = forwardRef<
     if (size.width <= 0 || size.height <= 0) return;
     konvaMountFinishRef.current?.();
   }, [size.height, size.width]);
+
+  useEffect(
+    () => () => {
+      pointerMoveQueueRef.current.dispose();
+      wheelQueueRef.current.dispose();
+    },
+    [],
+  );
 
   useEffect(() => {
     fitPendingRef.current = true;
@@ -3343,7 +3367,10 @@ export const DrawingCanvas = forwardRef<
   ) {
     const result = drawingToolEventTransition(controllerRef.current, event, {
       ...toolContextRef.current,
-      objectId: crypto.randomUUID(),
+      objectId:
+        event.type === "pointer_move"
+          ? toolContextRef.current.objectId
+          : crypto.randomUUID(),
       viewport: viewportRef.current,
     });
     applyToolControllerResult(result, target);
@@ -3428,12 +3455,15 @@ export const DrawingCanvas = forwardRef<
     )
       return;
     event.stopPropagation();
+    const pointerId = event.pointerId;
     const pointer = pointerForHostEvent(event, event.currentTarget);
-    onCursorWorldChange(screenToWorld(pointer, viewportRef.current));
-    runSelectionEvent({
-      type: "pointer_move",
-      pointerId: event.pointerId,
-      screenPoint: pointer,
+    pointerMoveQueueRef.current.schedule(() => {
+      onCursorWorldChange(screenToWorld(pointer, viewportRef.current));
+      runSelectionEvent({
+        type: "pointer_move",
+        pointerId,
+        screenPoint: pointer,
+      });
     });
   }
 
@@ -3441,6 +3471,7 @@ export const DrawingCanvas = forwardRef<
     event: ReactPointerEvent<HTMLDivElement>,
     type: "pointer_up" | "pointer_cancel",
   ) {
+    pointerMoveQueueRef.current.flush();
     if (
       activeTool !== "select" ||
       (selectionRef.current.drag?.pointerId !== event.pointerId &&
@@ -3528,30 +3559,41 @@ export const DrawingCanvas = forwardRef<
 
   function continuePan(event: KonvaEventObject<PointerEvent>) {
     const stagePoint = event.target.getStage()?.getPointerPosition();
-    if (stagePoint)
-      onCursorWorldChange(screenToWorld(stagePoint, viewportRef.current));
-    const result = drawingPanGestureTransition(panGestureRef.current, {
-      type: "move",
+    const snapshot = {
       pointerId: event.evt.pointerId,
-      pointer: { x: event.evt.clientX, y: event.evt.clientY },
-    });
-    if (result.viewport) setViewport(result.viewport);
-    if (result.viewport || panGestureRef.current) return;
-    const pointer = stagePoint;
-    if (!pointer) return;
-    if (activeTool === "select") {
-      runSelectionEvent({
-        type: "pointer_move",
-        pointerId: event.evt.pointerId,
-        screenPoint: pointer,
-      });
-      return;
-    }
-    runToolEvent({
-      type: "pointer_move",
-      pointerId: event.evt.pointerId,
-      screenPoint: pointer,
+      clientX: event.evt.clientX,
+      clientY: event.evt.clientY,
       shiftKey: event.evt.shiftKey,
+      stagePoint: stagePoint ? { x: stagePoint.x, y: stagePoint.y } : null,
+    };
+    pointerMoveQueueRef.current.schedule(() => {
+      if (snapshot.stagePoint)
+        onCursorWorldChange(
+          screenToWorld(snapshot.stagePoint, viewportRef.current),
+        );
+      const result = drawingPanGestureTransition(panGestureRef.current, {
+        type: "move",
+        pointerId: snapshot.pointerId,
+        pointer: { x: snapshot.clientX, y: snapshot.clientY },
+      });
+      if (result.viewport) setViewport(result.viewport);
+      if (result.viewport || panGestureRef.current) return;
+      const pointer = snapshot.stagePoint;
+      if (!pointer) return;
+      if (activeTool === "select") {
+        runSelectionEvent({
+          type: "pointer_move",
+          pointerId: snapshot.pointerId,
+          screenPoint: pointer,
+        });
+        return;
+      }
+      runToolEvent({
+        type: "pointer_move",
+        pointerId: snapshot.pointerId,
+        screenPoint: pointer,
+        shiftKey: snapshot.shiftKey,
+      });
     });
   }
 
@@ -3559,6 +3601,7 @@ export const DrawingCanvas = forwardRef<
     event: KonvaEventObject<PointerEvent>,
     type: "end" | "cancel",
   ) {
+    pointerMoveQueueRef.current.flush();
     const previous = panGestureRef.current;
     const result = drawingPanGestureTransition(previous, {
       type,
@@ -3573,6 +3616,7 @@ export const DrawingCanvas = forwardRef<
   }
 
   function finishPointer(event: KonvaEventObject<PointerEvent>) {
+    pointerMoveQueueRef.current.flush();
     if (panGestureRef.current) {
       endPan(event, "end");
       return;
@@ -3714,12 +3758,23 @@ export const DrawingCanvas = forwardRef<
             event.evt.preventDefault();
             const pointer = event.target.getStage()?.getPointerPosition();
             if (!pointer) return;
-            const nextZoom = clampZoom(
-              viewportRef.current.zoom * Math.exp(-event.evt.deltaY * 0.002),
-            );
-            setViewport(
-              zoomViewportAroundPointer(pointer, viewportRef.current, nextZoom),
-            );
+            wheelDeltaRef.current += event.evt.deltaY;
+            wheelPointerRef.current = { x: pointer.x, y: pointer.y };
+            wheelQueueRef.current.schedule(() => {
+              const delta = wheelDeltaRef.current;
+              const point = wheelPointerRef.current;
+              wheelDeltaRef.current = 0;
+              if (!point || delta === 0) return;
+              setViewport(
+                zoomViewportAroundPointer(
+                  point,
+                  viewportRef.current,
+                  clampZoom(
+                    viewportRef.current.zoom * Math.exp(-delta * 0.002),
+                  ),
+                ),
+              );
+            });
           }}
           style={{ cursor }}
           width={size.width}
@@ -3737,9 +3792,6 @@ export const DrawingCanvas = forwardRef<
                 fill="#ffffff"
                 height={background.height}
                 listening={false}
-                shadowBlur={12 / viewport.zoom}
-                shadowColor="#000000"
-                shadowOpacity={0.35}
                 stroke="#cbd5e1"
                 strokeWidth={1 / viewport.zoom}
                 width={background.width}

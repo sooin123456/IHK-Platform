@@ -82,6 +82,39 @@ export function drawingAuthoritativeSnapshotKey(input: {
     : `${input.revisionId}\0revision\0${input.revisionVersion}\0${input.sourceSha256 ?? ""}`;
 }
 
+export function createDrawingFrameQueue({
+  requestFrame = requestAnimationFrame,
+  cancelFrame = cancelAnimationFrame,
+}: {
+  requestFrame?: (callback: FrameRequestCallback) => number;
+  cancelFrame?: (handle: number) => void;
+} = {}) {
+  let pending: (() => void) | null = null;
+  let handle: number | null = null;
+  const run = () => {
+    handle = null;
+    const work = pending;
+    pending = null;
+    work?.();
+  };
+  return {
+    schedule(work: () => void) {
+      pending = work;
+      if (handle === null) handle = requestFrame(run);
+    },
+    flush() {
+      if (handle !== null) cancelFrame(handle);
+      handle = null;
+      run();
+    },
+    dispose() {
+      if (handle !== null) cancelFrame(handle);
+      handle = null;
+      pending = null;
+    },
+  };
+}
+
 type DrawingLocalInitializationScheduler = {
   requestAnimationFrame(callback: FrameRequestCallback): number;
   cancelAnimationFrame(handle: number): void;
@@ -242,4 +275,61 @@ export function createVisibilityRenderGate({
       }
     },
   };
+}
+
+type DrawingCollaborationCapability =
+  | "admin"
+  | "editor"
+  | "reviewer"
+  | "approver"
+  | "commenter"
+  | "viewer";
+type DrawingCollaborationRevisionStatus =
+  | "draft"
+  | "review_requested"
+  | "reviewed"
+  | "approved"
+  | "superseded";
+
+export function drawingCollaborationAuthority({
+  bootstrap,
+  fallbackCapability,
+  fallbackRevisionStatus,
+}: {
+  bootstrap?: {
+    capability: DrawingCollaborationCapability;
+    revisionStatus: DrawingCollaborationRevisionStatus;
+    canWrite: boolean;
+  };
+  fallbackCapability: DrawingCollaborationCapability;
+  fallbackRevisionStatus: DrawingCollaborationRevisionStatus;
+}) {
+  if (bootstrap)
+    return {
+      capability: bootstrap.capability,
+      revisionStatus: bootstrap.revisionStatus,
+      canWrite: bootstrap.canWrite,
+    };
+  return {
+    capability: fallbackCapability,
+    revisionStatus: fallbackRevisionStatus,
+    canWrite:
+      fallbackRevisionStatus === "draft" &&
+      (fallbackCapability === "admin" || fallbackCapability === "editor"),
+  };
+}
+
+export function drawingCollaborationLifecycleKey(
+  userId: string,
+  projectId: string,
+  revisionId: string,
+) {
+  return `${userId}\u0000${projectId}\u0000${revisionId}`;
+}
+
+export function drawingCollaborationProviderReady(input: {
+  sourceReady: boolean;
+  checkpointInstalled: boolean;
+}) {
+  return input.sourceReady && input.checkpointInstalled;
 }
