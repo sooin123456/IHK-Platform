@@ -486,9 +486,13 @@ test("flush reports only durable acknowledgements so loader data can revalidate 
 test("a transport failure after a durable ACK reports that partial batch once before retry", async () => {
   const acknowledged = [];
   const scheduled = [];
+  const callbackError = new Error(
+    "partial acknowledgement callback must not replace transport failure",
+  );
   const outbox = scopedOutbox(memoryAdapter(), {
     onAcknowledged(count) {
       acknowledged.push(count);
+      if (acknowledged.length === 1) throw callbackError;
     },
     schedule(delayMs, retry) {
       scheduled.push({ delayMs, retry });
@@ -509,7 +513,11 @@ test("a transport failure after a durable ACK reports that partial batch once be
     return { clientOperationId: queued.clientOperationId, status: "acked" };
   };
 
-  await assert.rejects(outbox.flush(send), (error) => error === transportError);
+  await assert.rejects(outbox.flush(send), (error) => {
+    assert.equal(error, transportError);
+    assert.notEqual(error, callbackError);
+    return true;
+  });
 
   assert.deepEqual(acknowledged, [1]);
   assert.deepEqual(sent, [ids.operation1, ids.operation2]);
@@ -806,9 +814,13 @@ test("a mismatched acknowledgement retains the operation and markAcked is idempo
 test("a mismatched second ACK still reports the earlier durable ACK without retry", async () => {
   const acknowledged = [];
   const scheduled = [];
+  const callbackError = new Error(
+    "partial acknowledgement callback must not replace mismatch failure",
+  );
   const outbox = scopedOutbox(memoryAdapter(), {
     onAcknowledged(count) {
       acknowledged.push(count);
+      throw callbackError;
     },
     schedule(delayMs, retry) {
       scheduled.push({ delayMs, retry });
@@ -830,7 +842,14 @@ test("a mismatched second ACK still reports the earlier durable ACK without retr
         status: "acked",
       };
     }),
-    /Server acknowledgement did not match the queued operation\./,
+    (error) => {
+      assert.notEqual(error, callbackError);
+      assert.equal(
+        error.message,
+        "Server acknowledgement did not match the queued operation.",
+      );
+      return true;
+    },
   );
 
   assert.deepEqual(acknowledged, [1]);
