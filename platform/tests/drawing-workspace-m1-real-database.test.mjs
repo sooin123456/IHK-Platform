@@ -49,6 +49,85 @@ if (!databaseUrl) {
     }
   }
 
+  async function proveRuntimeCanAssumeCollaborationRole(sql) {
+    await sql.begin(async (tx) => {
+      const [{ session_user: sessionUser }] = await tx`select session_user`;
+      assert.equal(sessionUser, "postgres");
+      const [membership] = await tx`
+        select exists(
+          select 1
+          from pg_catalog.pg_auth_members membership
+          join pg_catalog.pg_roles member on member.oid=membership.member
+          join pg_catalog.pg_roles granted on granted.oid=membership.roleid
+          where member.rolname=session_user
+            and granted.rolname='lukas_drawing_collaboration'
+            and membership.set_option
+            and not membership.inherit_option
+        ) exact_runtime_membership
+      `;
+      assert.deepEqual(membership, { exact_runtime_membership: true });
+      await tx.unsafe("set local role lukas_drawing_collaboration");
+      const [{ current_user: currentUser }] = await tx`select current_user`;
+      assert.equal(currentUser, "lukas_drawing_collaboration");
+    });
+  }
+
+  async function proveCollaborationRoleBoundary(sql) {
+    const [role] = await sql`
+      select
+        not rolcanlogin nologin,
+        not rolinherit noinherit,
+        not exists(
+          select 1
+          from pg_catalog.pg_class relation
+          join pg_catalog.pg_namespace namespace
+            on namespace.oid=relation.relnamespace
+          where namespace.nspname in ('public','private')
+            and relation.relkind in ('r','p')
+            and (
+              pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'SELECT'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'INSERT'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'UPDATE'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'DELETE'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'TRUNCATE'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'REFERENCES'
+              )
+              or pg_catalog.has_table_privilege(
+                'lukas_drawing_collaboration',relation.oid,'TRIGGER'
+              )
+            )
+        ) no_table_privileges
+      from pg_catalog.pg_roles
+      where rolname='lukas_drawing_collaboration'
+    `;
+    assert.deepEqual(role, {
+      nologin: true,
+      noinherit: true,
+      no_table_privileges: true,
+    });
+    const applicationRoleAssumptions = await sql`
+      select member.rolname role, membership.set_option set_option
+      from pg_catalog.pg_auth_members membership
+      join pg_catalog.pg_roles member on member.oid=membership.member
+      join pg_catalog.pg_roles granted on granted.oid=membership.roleid
+      where granted.rolname='lukas_drawing_collaboration'
+        and member.rolname in ('anon','authenticated','service_role')
+      order by member.rolname
+    `;
+    assert.deepEqual(Array.from(applicationRoleAssumptions), []);
+  }
+
   async function session(sql, role, actorId, callback, options = {}) {
     assert.ok(appRoles.includes(role));
     return sql.begin(async (tx) => {
@@ -1289,6 +1368,7 @@ if (!databaseUrl) {
       const cleanupErrors = [];
       try {
         const [{ current_user: currentUser }] = await admin`select current_user`;
+        await proveRuntimeCanAssumeCollaborationRole(admin);
         for (const role of appRoles) {
           const state = { role, dropIntent: false, revokeIntent: false };
           roleState.push(state);
@@ -1325,6 +1405,7 @@ if (!databaseUrl) {
         workerB = postgres(targetUrl, { max: 1, prepare: false });
         await bootstrapDatabase(owner);
         schemaReady = true;
+        await proveCollaborationRoleBoundary(owner);
         const [[authority], [sessionA], [sessionB]] = await Promise.all([
           owner`
             select current_user,
