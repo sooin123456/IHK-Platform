@@ -7,13 +7,38 @@ Release verdict: **UNEXECUTED**. The hardened Task 8 runner, estimator fixture, 
 ## Evidence identity and environment
 
 - Checkout: `/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1`
-- Behavior/code/test commit verified by every final-round post-commit command below: `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`).
+- Latest behavior/code/test commit: `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`). Its Editor-boundary post-commit record is separate from the preserved `f60998d5b430427817f8e8ec2ae8d2c1f787172d` final-security record below.
 - This document is committed afterward in a documentation-only commit. That evidence commit is not claimed as the behavior SHA.
 - Host inventory refreshed at 2026-09-01T11:28:24+0900: Darwin 25.5.0 arm64, Node `v26.5.0`, npm `11.17.0`, Playwright `1.62.1`, Supabase CLI `2.114.0`.
 - Docker, Podman, Colima, OrbStack, and Finch: absent. Canonical disposable Supabase, M1 browser, production Hocuspocus, visual, and canonical 10k gates: `UNEXECUTED`.
 - Homebrew `psql`, `postgres`, `pg_ctl`, and `initdb` were used only for a separately labeled UTF-8 `mktemp` PostgreSQL cluster on a free loopback port. It was not used as a Supabase or browser substitute.
 - No dependency or lockfile changed. Repository `platform/supabase` was never started, stopped, copied over, or written by the runner.
 - Production `platform/build/`, `platform/collaboration/dist/`, and React Router type output are intentional approved build outputs. Playwright scratch was removed. All tracked P4/P5/P6/P7 screenshots and generated evidence were restored after measurements.
+
+## Latest Editor operation-boundary authority
+
+The review premise that authenticated Editors retain direct page/object DML is not reproducible against the final migration graph. P2 contract hardening revokes authenticated structural-page writes and declares the authenticated page RPC to be the only structural mutation boundary. The issue-link migration later drops object mutation policies and revokes authenticated object `INSERT`, `UPDATE`, and `DELETE`, requiring revision-first operation events. Therefore direct Editor page/object DML correctly fails at table privilege evaluation rather than at the invoker guard's revision row lock.
+
+Strict TDD record:
+
+- RED: the first new real-PG assertion expected direct authenticated Editor object mutation to succeed and exited 1 with SQLSTATE `42501`, `permission denied for table lukas_drawing_objects`. That result disproved the review premise; it did not identify a production guard defect.
+- Corrected contract: exact direct Editor page `UPDATE`/`DELETE` and object `UPDATE`/`DELETE` are denied, while canonical authenticated Editor `mutate_structure`, `add_objects`, `update_objects`, and `delete_objects` operations succeed with exact persisted versions, actor, names, status, and row counts. A test-only intermediate `null !== 3` mismatch was corrected because delete operation envelopes report `null` while the independently loaded soft-deleted row is version `3`.
+- GREEN: pre-commit and clean post-commit UTF-8 real-PG runs each passed 1/1. No production SQL, grant, RLS policy, trigger mode, or purge rule changed; `lukas_drawing_draft_child_guard` remains `SECURITY INVOKER` and the forged-attack/legal-cascade matrix remains intact.
+
+### Post-commit command record for `00d55985f236aa9d36acbe73c52a4e43531f8c5a`
+
+| KST start–end                     | Command                                                                                   | Exit/result                                                                                                      | Artifact or residue                                                                      | Status    |
+| --------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------- |
+| 2026-09-01T11:54:09–11:54:10+0900 | focused database/retention/M1 database/release-harness/start union                        | exit 0; 53 passed                                                                                                | includes static operation-only, invoker, lifecycle, guard, and starter contracts         | `PASS`    |
+| 2026-09-01T11:54:28–11:54:30+0900 | UTF-8 `mktemp` PG plus `M1_REAL_POSTGRES_REQUIRED=1` real-database test                   | exit 0; 1 passed; full migration graph, Editor direct denials/RPC positives, attacks, cascade, cleanup executed | root `/private/tmp/1hk-m1-real-pg-00d5598.nNr60B`, port 59459; stopped and removed        | `PASS`    |
+| 2026-09-01T11:54:36–11:54:46+0900 | app and collaboration typechecks                                                          | both exit 0                                                                                                      | no generated artifact retained as evidence                                                | `PASS`    |
+| 2026-09-01T11:54:50–11:55:06+0900 | production app and collaboration builds                                                   | both exit 0                                                                                                      | approved `platform/build/` and `platform/collaboration/dist/`                             | `PASS`    |
+| 2026-09-01T11:55:13–11:55:53+0900 | `npm run test:drawing-workspace`                                                          | exit 1; 1,065 total, 1,056 passed, 7 skipped, 2 failed                                                          | only stale P7 SHA checks; generated P6 evidence restored                                   | `NOT MET` |
+| 2026-09-01T11:58:36–11:58:37+0900 | exact focused union rerun from `platform/` cwd                                             | exit 0; 50 passed, 1 real-PG environment skip                                                                   | `git show --check 00d55985...` also passed                                                | `PASS`    |
+
+The full-suite failures are exactly the legacy P7 commit-bound evidence checks: committed artifact SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus tested behavior SHA `00d55985f236aa9d36acbe73c52a4e43531f8c5a`. No P7 evidence was hand-edited. An additional focused invocation at 2026-09-01T11:58:26+0900 was launched from the repository root instead of the harness-required `platform/` cwd and exited 1 in two direct-Playwright child-output assertions; it is disclosed, corrected by the immediate cwd-accurate rerun, and is not counted as gate authority.
+
+Independent cleanup checks reported `root_absent=true` and `port_closed=true` for the UTF-8 cluster. Runtime inventory at 2026-09-01T11:55:59+0900 again found Docker, Podman, Colima, OrbStack, and Finch absent. Canonical disposable Supabase, browser, production Hocuspocus, visual, source-integrity, and M1 10k gates remain `UNEXECUTED`.
 
 ## Source and migration identity
 
@@ -23,7 +48,7 @@ Release verdict: **UNEXECUTED**. The hardened Task 8 runner, estimator fixture, 
 - Company rate CSV SHA-256: `7592f8466e82cd829e29bb0258ecbc339fe0bda2dd34527178e5ef097096051c`.
 - Non-parseable RVT integrity sentinel bytes: `1HK-M1-RVT-IMMUTABILITY-SENTINEL-v1\n`; SHA-256 `c8b4cbb7e41bf48f3de429f8dd60a1c3dabed2db9566051c3b7dd76130b235a3`. It is integrity-only, never RVT import proof.
 
-## Automated command record
+## Prior final-security automated command record
 
 All commands in this table ran after clean code commit `f60998d5b430427817f8e8ec2ae8d2c1f787172d` existed and before this document changed.
 

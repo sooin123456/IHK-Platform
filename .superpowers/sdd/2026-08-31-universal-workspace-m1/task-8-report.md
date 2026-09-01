@@ -4,7 +4,7 @@
 
 Task 8 now contains a fail-closed disposable-Supabase controller, status-bound Playwright preflight, process-group and partial-failure-safe cleanup, exact estimator journey assertions, measurable primitive quantity UI, server-validated BOQ reverse focus, and executable real-PostgreSQL purge attacks.
 
-The tested behavior commit is `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`). Every final command was run after that clean commit existed and before this report/evidence-only change. The later documentation-only commit does not become the behavior SHA.
+The latest tested behavior commit is `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`). The Editor-boundary post-commit commands ran after that clean commit existed and before this report/evidence-only change. The preceding security behavior remains `f60998d5b430427817f8e8ec2ae8d2c1f787172d`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
 
 M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and Finch are absent, so disposable Supabase never started and the canonical browser, Hocuspocus, visual, source-integrity, and M1 10k gates did not run. No local preview, P7 result, static test, or standalone PostgreSQL run is presented as replacement authority.
 
@@ -115,6 +115,18 @@ These are the only files changed by the evidence-only commit.
 3. `lukas_drawing_draft_child_guard` is `SECURITY INVOKER`. The UTF-8 catalog assertion proves `prosecdef=false`; normal editor protection, forged direct/nested draft deletion denial, and the legitimate owner-context service cascade all pass.
 4. The binding mutation lock rejects changes to exact `tg_op='DELETE'`, the AND conjunction, depth, GUC name/equality, table-owner expression, absent-parent test, and `P1C01` append-only rejection. The executable matrix separately proves binding depth-1 and depth>1-with-parent attacks leave the row intact.
 
+## Final Editor operation-boundary review closure
+
+The reported premise that authenticated Editors retain direct page/object mutation authority is not true in the final migration graph. P2 contract hardening explicitly revokes authenticated structural-page mutation and makes the page RPC the only authenticated structural boundary. The later issue-link migration drops authenticated object mutation policies and revokes direct object `INSERT`, `UPDATE`, and `DELETE` because object writes are revision-first operation events. Accordingly, a direct Editor page/object statement is rejected at the table privilege boundary; it does not reach the draft-child trigger's revision `SELECT ... FOR UPDATE`.
+
+The real-PostgreSQL test now locks both sides of the binding contract against the complete migration graph:
+
+- authenticated Editor direct page `UPDATE`/`DELETE` and object `UPDATE`/`DELETE` each fail with SQLSTATE `42501`;
+- the same Editor creates, updates, and deletes a page/canvas/layer through canonical `lukas_drawing_apply_operation(..., 'mutate_structure', ...)`, with exact version and final row-count assertions;
+- the same Editor adds, updates, and soft-deletes an object through canonical `add_objects`, `update_objects`, and `delete_objects`, with exact result-version, actor, name, status, and persisted-version assertions;
+- catalog checks prove authenticated has no direct page/object `INSERT,UPDATE,DELETE` privilege;
+- `lukas_drawing_draft_child_guard` remains `SECURITY INVOKER`; no grant, RLS policy, guard, purge predicate, or migration changed. The existing forged GUC/depth attacks and legitimate service parent cascade continue to run in the same executable matrix.
+
 ## Strict TDD record
 
 ### Harness/security RED → GREEN
@@ -144,6 +156,12 @@ These are the only files changed by the evidence-only commit.
 - Final RED: the draft guard's table-owner predicate was caller-vacuous under `SECURITY DEFINER`, the executable matrix had no draft/page nested counterexample, and the binding static test did not mutation-lock its complete conjunction. GREEN: `SECURITY INVOKER`, catalog `prosecdef=false`, direct/nested page attacks with exact residue, legal cascade, and every binding mutation all pass.
 - A post-commit diagnostic invocation without `--encoding=UTF8` created SQL_ASCII and failed the Korean fixture before the authority matrix. It exited 1, stopped, and removed its root. The corrected UTF-8 command is separately recorded as PASS; the first is not counted as authority.
 
+### Editor operation-only boundary RED → GREEN
+
+- RED: a new full-migration real-PG check initially encoded the review premise by expecting authenticated direct object mutation to succeed. It exited 1 with SQLSTATE `42501`, `permission denied for table lukas_drawing_objects`. Migration inspection showed this was the intended operation-only table privilege boundary, not a revision-row-lock regression. The review's direct-page premise is likewise superseded by the P2 RPC-only contract.
+- The test was corrected to the binding contract: direct authenticated Editor page/object writes must fail, while canonical authenticated Editor operation RPCs must mutate both structures and objects successfully. An intermediate test-only expectation treated the soft-delete result version as `3`; actual operation output deliberately reports `null` for a deleted object, so the assertion was corrected while persisted row version `3` remains independently checked.
+- GREEN: the pre-commit UTF-8 isolated PostgreSQL run passed 1/1. After clean behavior commit `00d55985f236aa9d36acbe73c52a4e43531f8c5a`, the authoritative rerun again passed 1/1. No production SQL or privilege was changed.
+
 ### Second-round contract RED → GREEN
 
 - RED: fixture mutation tests found no real component-free `M1-C-001` line, no creator-authorized exact cleanup, and no Estimator session authentication. GREEN: the fixture now proves all three and the spec proves the negative row disappears without changing W/F/D.
@@ -155,7 +173,7 @@ These are the only files changed by the evidence-only commit.
 
 The spec/config/fixture typecheck and static contracts are GREEN. Canonical browser RED/GREEN cannot be claimed because the disposable stack never started. Every unrun browser condition is `UNEXECUTED`.
 
-## Post-commit command evidence
+## Prior final-security post-commit command evidence
 
 Exact command/timestamp/exit/artifact rows are in `docs/superpowers/evidence/2026-08-31-universal-workspace-m1.md`. Summary for behavior SHA `f60998d5b430427817f8e8ec2ae8d2c1f787172d`:
 
@@ -166,6 +184,20 @@ Exact command/timestamp/exit/artifact rows are in `docs/superpowers/evidence/202
 - `PASS`: scoped Prettier on all format-managed final-round files, `git diff --check`, generated P6 evidence restoration, and Playwright/Vite scratch removal.
 
 The previously accepted P0–P5/P7 browser and P7 performance results were produced on behavior SHA `819e88fd6d533e63a769d9f37d04b1268ab6543b`. The final security-only delta did not touch those product/browser surfaces, but those commands were not re-labeled as executions on `f60998d`.
+
+## Latest Editor-boundary post-commit evidence
+
+Every command in this subsection ran against clean behavior SHA `00d55985f236aa9d36acbe73c52a4e43531f8c5a`; the evidence-only change did not exist yet.
+
+- `PASS` at 2026-09-01T11:54:09–11:54:10+0900: focused database/retention/M1 database/release-harness/start union, exit 0, 53/53.
+- `PASS` at 2026-09-01T11:54:28–11:54:30+0900: UTF-8 isolated real PostgreSQL, exit 0, 1/1. It replayed the full migration graph; exercised exact Editor direct denials and canonical page/object operation success plus the existing invoker/forgery/cascade matrix; stopped loopback port 59459; and removed `/private/tmp/1hk-m1-real-pg-00d5598.nNr60B`. Independent checks reported `root_absent=true` and `port_closed=true`.
+- `PASS` at 2026-09-01T11:54:36–11:54:46+0900: app and collaboration typechecks, both exit 0.
+- `PASS` at 2026-09-01T11:54:50–11:55:06+0900: production app and collaboration builds, both exit 0.
+- `NOT MET` at 2026-09-01T11:55:13–11:55:53+0900: full drawing suite, exit 1; 1,065 total / 1,056 pass / 7 skip / 2 fail. Both failures are the pre-existing P7 evidence SHA checks (`6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus `00d55985f236aa9d36acbe73c52a4e43531f8c5a`); no new product, database, security, or harness failure appeared. The generated P6 evidence file was restored exactly.
+- `PASS` at 2026-09-01T11:58:36–11:58:37+0900: exact focused union rerun from its required `platform/` cwd, exit 0, 50 pass / 1 environment-gated real-PG skip. A preceding non-authoritative invocation from the repository root at 11:58:26 exited 1 because two harness children require `platform/` cwd; it is disclosed and is not used as a gate result.
+- `PASS`: `git show --check 00d55985f236aa9d36acbe73c52a4e43531f8c5a`; the only behavior file in this final review is the established compact `.mjs` real-PG test, outside the package's format-managed app glob.
+
+Runtime inventory at 2026-09-01T11:55:59+0900 again found Docker, Podman, Colima, OrbStack, and Finch absent. Canonical disposable Supabase/browser/collaboration/visual/M1 10k remains `UNEXECUTED`; the standalone PostgreSQL result is not substituted for it.
 
 ## Performance and visual evidence
 
@@ -183,6 +215,7 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 
 ## Cleanup and blockers
 
+- Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-00d5598.nNr60B` on loopback port 59459 was stopped and removed; root absence and closed port were independently verified.
 - Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-f60998d.GOxeAa` on loopback port 57822 was stopped and removed; root absence and closed port were independently verified.
 - New Supabase recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` is retained because start and stop lacked a container engine. Exact cleanup-target validation passed for project `1hk-m1-a9fe0b64`, API port 52549, and DB port 52550; both ports are closed. Previously disclosed roots `.../1hk-m1-supabase-VvWi6t` (`1hk-m1-9cb85afd`, 53965/53966) and `.../1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remain. Deleting them after failed starts/stops would violate the approved recovery rule.
 - The exact blocker is a missing supported container runtime. Install/start one and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged.
@@ -193,4 +226,6 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 - First hardening behavior SHA: `21765f53a171992a9837bbcddbc0ac07244cb91d` (`fix: harden M1 acceptance authority`).
 - Second-round code/tests/harness behavior SHA: `819e88fd6d533e63a769d9f37d04b1268ab6543b` (`fix: close M1 authority proof gaps`).
 - Final security behavior SHA: `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`).
-- Evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as the behavior SHA.
+- Final Editor-boundary test behavior SHA: `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`).
+- Prior evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as a behavior SHA.
+- Latest evidence-only subject: `docs: correct M1 editor authority evidence`; its Git SHA is intentionally not presented as the behavior SHA.
