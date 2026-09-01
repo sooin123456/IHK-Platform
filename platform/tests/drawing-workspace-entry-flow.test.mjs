@@ -183,8 +183,8 @@ async function renderNavigationRoute({ ancestors = [], leaf, url }) {
   return new Response(stream).text();
 }
 
-function renderProjectForm() {
-  const loaderData = {
+function projectLoaderData(overrides = {}) {
+  return {
     project: {
       id: "00000000-0000-4000-8000-000000000001",
       name: "1HK 테스트 프로젝트",
@@ -205,11 +205,17 @@ function renderProjectForm() {
     preflightArtifacts: [],
     preflightApprovals: [],
     materialPlans: [],
+    drawingDocuments: [],
     publicShareEnabled: true,
     isStaff: false,
     isOwner: true,
     suggestionPilotEnabled: false,
+    ...overrides,
   };
+}
+
+function renderProjectForm() {
+  const loaderData = projectLoaderData();
   const router = createMemoryRouter(
     [
       {
@@ -222,6 +228,22 @@ function renderProjectForm() {
         "/projects/00000000-0000-4000-8000-000000000001/files?kind=pdf",
       ],
     },
+  );
+  return renderToStaticMarkup(
+    withTheme(React.createElement(RouterProvider, { router })),
+  );
+}
+
+function renderProjectRoot(loaderData) {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/projects/:projectId",
+        element: React.createElement(projectScreen.default, { loaderData }),
+      },
+    ],
+    { initialEntries: [`/projects/${projectId}`] },
   );
   return renderToStaticMarkup(
     withTheme(React.createElement(RouterProvider, { router })),
@@ -342,6 +364,67 @@ function uploadActionFixture(
   };
 
   return { adminClient, client, observations, ownerId, projectId, userId };
+}
+
+function projectRootLoaderFixture() {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const observations = { filters: [] };
+  const rows = {
+    lukas_drawing_documents: [],
+    lukas_qto_file_revisions: [],
+    lukas_qto_files: [],
+    lukas_qto_material_plans: [],
+    lukas_qto_preflight_artifacts: [],
+    lukas_qto_projects: {
+      contact_name: null,
+      contact_phone: null,
+      created_at: "2026-08-31T00:00:00.000Z",
+      description: null,
+      id: projectId,
+      name: "빈 프로젝트",
+      owner_id: "00000000-0000-4000-8000-000000000002",
+      updated_at: "2026-08-31T00:00:00.000Z",
+      workflow_status: "confirmed",
+    },
+    lukas_qto_reviews: [],
+    lukas_qto_shares: [],
+    lukas_qto_suggestions: [],
+    lukas_qto_takeoff_artifacts: [],
+  };
+  const client = {
+    auth: {
+      getUser: async () => ({
+        data: {
+          user: {
+            app_metadata: {},
+            id: "00000000-0000-4000-8000-000000000002",
+            is_anonymous: false,
+          },
+        },
+      }),
+    },
+    from(table) {
+      const result = { data: rows[table] ?? [], error: null };
+      const chain = {
+        eq(column, value) {
+          observations.filters.push({ column, table, value });
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        select() {
+          return chain;
+        },
+        single: async () => result,
+        then(resolve, reject) {
+          return Promise.resolve(result).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+  return { client, observations, projectId };
 }
 
 function verifiedUploadFixture({
@@ -1116,6 +1199,56 @@ test("drawing documents open canonically, original sources remain usable, and em
   assert.doesNotMatch(
     ifcHtml,
     /drawings\/00000000-0000-4000-8000-000000000004\/workspace/,
+  );
+});
+
+test("project root exposes the canonical workspace start and labels a file-and-drawing empty project", () => {
+  const projectId = "00000000-0000-4000-8000-000000000001";
+  const emptyHtml = renderProjectRoot(projectLoaderData());
+  const populatedHtml = renderProjectRoot(
+    projectLoaderData({
+      drawingDocuments: [{ id: "00000000-0000-4000-8000-000000000003" }],
+    }),
+  );
+
+  assert.match(emptyHtml, /아직 등록된 도면이 없습니다\./);
+  assert.match(
+    emptyHtml,
+    new RegExp(
+      `href="/projects/${projectId}/workspaces/new"[^>]*>[^<]*새 작업실`,
+    ),
+  );
+  assert.match(populatedHtml, /새 작업실/);
+  assert.match(
+    populatedHtml,
+    new RegExp(`href="/projects/${projectId}/workspaces/new"`),
+  );
+  assert.doesNotMatch(populatedHtml, /아직 등록된 도면이 없습니다\./);
+});
+
+test("project root loader preserves zero drawing rows for the canonical empty entry", async () => {
+  const fixture = projectRootLoaderFixture();
+  globalThis[actionClientFactoryKey] = () => [fixture.client, new Headers()];
+
+  const loaderData = await projectAction.loader({
+    params: { projectId: fixture.projectId },
+    request: new Request(`http://app.test/projects/${fixture.projectId}`),
+  });
+
+  assert.deepEqual(loaderData.files, []);
+  assert.deepEqual(loaderData.drawingDocuments, []);
+  assert.ok(
+    fixture.observations.filters.some(
+      (filter) =>
+        filter.table === "lukas_drawing_documents" &&
+        filter.column === "project_id" &&
+        filter.value === fixture.projectId,
+    ),
+  );
+  const html = renderProjectRoot(loaderData);
+  assert.match(
+    html,
+    new RegExp(`href="/projects/${fixture.projectId}/workspaces/new"`),
   );
 });
 

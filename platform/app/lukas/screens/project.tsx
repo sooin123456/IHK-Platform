@@ -66,6 +66,8 @@ import {
   projectUploadDestination,
   type ProjectFileKind,
 } from "~/lukas/lib/drawing-entry";
+import { drawingWorkspaceNewPath } from "~/lukas/lib/drawing-workspace-paths";
+import type { DrawingWorkspaceDatabase } from "~/lukas/lib/drawing-workspace.server";
 import { uploadProjectFileResumable } from "~/lukas/lib/project-file-upload";
 import {
   finalizedProjectUploadSchema,
@@ -276,6 +278,8 @@ export const meta: Route.MetaFunction = ({ data }) => [
 export async function loader({ request, params }: Route.LoaderArgs) {
   const [client] = makeServerClient(request);
   const materialDb = client as unknown as SupabaseClient<MaterialPlanDatabase>;
+  const drawingDb =
+    client as unknown as SupabaseClient<DrawingWorkspaceDatabase>;
   const {
     data: { user },
   } = await client.auth.getUser();
@@ -300,6 +304,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     { data: fileRevisions, error: fileRevisionsError },
     { data: preflightArtifacts, error: preflightArtifactsError },
     { data: materialPlans, error: materialPlansError },
+    { data: drawingDocuments, error: drawingDocumentsError },
   ] = await Promise.all([
     client
       .from("lukas_qto_files")
@@ -351,6 +356,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .select("id, created_at")
       .eq("project_id", project.id)
       .order("created_at", { ascending: false }),
+    drawingDb
+      .from("lukas_drawing_documents")
+      .select("id")
+      .eq("project_id", project.id),
   ]);
   if (
     filesError ||
@@ -360,7 +369,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     takeoffArtifactsError ||
     fileRevisionsError ||
     preflightArtifactsError ||
-    materialPlansError
+    materialPlansError ||
+    drawingDocumentsError
   )
     throw new Response("프로젝트 자료를 불러오지 못했습니다.", { status: 500 });
 
@@ -431,6 +441,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     preflightArtifacts: preflightArtifacts ?? [],
     preflightApprovals: preflightApprovalRows ?? [],
     materialPlans: materialPlans ?? [],
+    drawingDocuments: drawingDocuments ?? [],
     publicShareEnabled: true,
     isStaff: user.app_metadata.role === "hangil_staff",
     isOwner: project.owner_id === user.id,
@@ -1698,6 +1709,8 @@ export default function Project({
     },
   ];
   const completedStages = stages.filter((stage) => stage.done).length;
+  const drawingWorkspaceEmpty =
+    loaderData.files.length === 0 && loaderData.drawingDocuments.length === 0;
   const nextAction = !ifcFile
     ? {
         label: "IFC 파일 추가",
@@ -1837,6 +1850,29 @@ export default function Project({
         pendingReviews={pendingSuggestionCount + openReviewCount}
         projectId={loaderData.project.id}
       />
+
+      <section
+        aria-label="도면 작업실"
+        className="mt-4 flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div>
+          <h2 className="font-bold">
+            {drawingWorkspaceEmpty
+              ? "아직 등록된 도면이 없습니다."
+              : "도면 작업실"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {drawingWorkspaceEmpty
+              ? "원본 파일 없이 빈 작업실부터 시작할 수 있습니다."
+              : "새 도면 작업실을 만들거나 도면 목록에서 기존 작업을 여세요."}
+          </p>
+        </div>
+        <Button asChild className="min-h-11 shrink-0">
+          <Link to={drawingWorkspaceNewPath(loaderData.project.id)}>
+            새 작업실 <ArrowRight className="size-4" />
+          </Link>
+        </Button>
+      </section>
 
       {uploadError ? (
         <p

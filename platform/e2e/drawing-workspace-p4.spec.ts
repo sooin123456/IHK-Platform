@@ -16,6 +16,12 @@ async function openPreview(page: Page, query = "") {
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
 }
 
+async function openObjectInspector(page: Page) {
+  const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  await objectTab.click();
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
+}
+
 async function downloadBytes(download: Download) {
   const stream = await download.createReadStream();
   if (!stream) throw new Error("Download stream is unavailable");
@@ -127,6 +133,13 @@ function hostedOpeningCenter(snapshot: MountedSnapshot, openingId: string) {
   };
 }
 
+test("P4 preview keeps Result as the default inspector", async ({ page }) => {
+  await openPreview(page, "?verticalTest=1");
+  await expect(
+    page.getByRole("tab", { name: "결과", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
 test("P4 populated preview exports every semantic object", async ({ page }) => {
   const ifcPath = path.resolve("../samples/sample.ifc");
   const ifcBefore = createHash("sha256")
@@ -189,6 +202,7 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPreview(page, "?hiddenHostTest=1&awarenessTest=1&verticalTest=1");
+  await openObjectInspector(page);
   const surface = page.getByLabel(/도면 화면/);
   const semanticList = page.getByRole("list", { name: "건축 객체 목록" });
   const localAwareness = page.getByLabel("로컬 Awareness payload");
@@ -273,6 +287,7 @@ test("hidden host visibility excludes hosted openings from every mounted semanti
     )
     .toEqual([]);
   await expect(surface).toHaveAttribute("data-remote-selection-count", "0");
+  await openObjectInspector(page);
   await expect(remoteLockStatus).toContainText("김도윤님이 D-101 편집 중");
 
   await hostLayerVisibility.click();
@@ -301,6 +316,7 @@ test("capability loss releases a real local lease without renewal resurrection",
   page,
 }) => {
   await openPreview(page, "?awarenessTest=1&realtimeTest=1&verticalTest=1");
+  await openObjectInspector(page);
   const localAwareness = page.getByLabel("로컬 Awareness payload");
   const unlockedOpeningId = "00000000-0000-4000-8000-000000000102";
   const remoteLockStatus = page.getByRole("status", {
@@ -342,6 +358,7 @@ test("mounted bridge preserves a rapid hosted-wall keyboard burst", async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPreview(page, "?verticalTest=1");
+  await openObjectInspector(page);
   const wallId = "00000000-0000-4000-8000-000000000100";
   const openingId = "00000000-0000-4000-8000-000000000101";
   const before = await mountedSnapshot(page);
@@ -421,6 +438,7 @@ test("semantic inspector preserves a dirty field across an unrelated authoritati
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPreview(page, "?verticalTest=1");
+  await openObjectInspector(page);
   const wallId = "00000000-0000-4000-8000-000000000100";
   await page.getByRole("button", { name: "선택 도구" }).click();
   await clickWorld(page, { x: 500, y: 720 });
@@ -448,6 +466,7 @@ test("semantic inspector blocks same-field projections and clears on cancel, sel
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPreview(page, "?verticalTest=1");
+  await openObjectInspector(page);
   const wallId = "00000000-0000-4000-8000-000000000100";
   const arcId = "00000000-0000-4000-8000-000000000106";
   await page.getByRole("button", { name: "선택 도구" }).click();
@@ -536,6 +555,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
   await openPreview(page, "?verticalTest=1");
+  await openObjectInspector(page);
 
   await useSemanticTool(page, "벽 도구");
   await clickWorld(page, { x: 100, y: 400 });
@@ -714,6 +734,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   await expect
     .poll(async () => (await mountedSnapshot(page)).selectedIds)
     .toEqual([wallId]);
+  await openObjectInspector(page);
   await expect(page.getByLabel("벽 두께")).toBeVisible();
   await page.getByLabel("벽 두께").fill("240");
   await page.getByRole("button", { name: "건축 속성 적용" }).click();
@@ -805,6 +826,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
   );
 
   await openPreview(page, "?verticalTest=1&awarenessTest=1");
+  await openObjectInspector(page);
   await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
     "data-remote-selection-count",
     "3",
@@ -1010,6 +1032,7 @@ test("P4 integrated architectural authoring, conflict, restore, permissions, fre
 
 test("P4 awareness exposes semantic selection and lock", async ({ page }) => {
   await openPreview(page, "?awarenessTest=1");
+  await openObjectInspector(page);
   const surface = page.getByLabel(/도면 화면/);
   await expect(surface).toHaveAttribute("data-remote-selection-count", "3");
   await expect(

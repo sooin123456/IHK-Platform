@@ -74,19 +74,20 @@ test("current desktop release view is canvas-first, split-source capable, and ke
   );
 
   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+  const inspector = page.getByRole("complementary", { name: "속성 검사기" });
+  await expect(
+    inspector.getByRole("tab", { name: "결과", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(inspector).toBeVisible();
   await expect(tools).toBeHidden();
   await page.keyboard.press("[");
   await expect(tools).toBeVisible();
   await page.keyboard.press("[");
   await expect(tools).toBeHidden();
   await page.keyboard.press("]");
-  await expect(
-    page.getByRole("complementary", { name: "속성 검사기" }),
-  ).toBeVisible();
+  await expect(inspector).toBeHidden();
   await page.keyboard.press("]");
-  await expect(
-    page.getByRole("complementary", { name: "속성 검사기" }),
-  ).toBeHidden();
+  await expect(inspector).toBeVisible();
   await expect(canvas).toBeVisible();
   await page.screenshot({
     path: path.join(artifactRoot, "task-7-desktop-1280x720.png"),
@@ -107,10 +108,12 @@ for (const viewport of [
     const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
     const inspector = page.getByRole("complementary", { name: "속성 검사기" });
     await expect(drawing).toBeVisible();
-    if (viewport.width >= 1024) {
-      await expect(tools).toBeHidden();
-      await page.keyboard.press("[");
-    }
+    await expect(
+      inspector.getByRole("tab", { name: "결과", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(inspector).toBeVisible();
+    await expect(tools).toBeHidden();
+    await page.keyboard.press("[");
     await expect(tools).toBeVisible();
     await expect(inspector).toBeHidden();
     for (const target of await tools.getByRole("tab").all()) {

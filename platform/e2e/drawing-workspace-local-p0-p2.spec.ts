@@ -33,8 +33,15 @@ async function openPreview(page: Page) {
 
 async function snapshot(page: Page) {
   const output = page.getByLabel("P4 mounted workspace snapshot");
-  await expect(output).not.toHaveText("null");
-  return JSON.parse((await output.textContent()) ?? "null") as Snapshot;
+  let current: Snapshot | null = null;
+  await expect
+    .poll(async () => {
+      const text = await output.textContent();
+      current = text && text !== "null" ? (JSON.parse(text) as Snapshot) : null;
+      return current !== null;
+    })
+    .toBe(true);
+  return current!;
 }
 
 async function point(page: Page, world: { x: number; y: number }) {
@@ -209,6 +216,7 @@ test("local P0-P2 vertical authors, structures, reuses, exports, and enforces vi
   const rectanglePoint = await point(page, { x: 960, y: 370 });
   await page.getByLabel(/도면 화면/).click({ position: rectanglePoint.local });
   const inspector = page.getByRole("complementary", { name: "속성 검사기" });
+  await inspector.getByRole("tab", { name: "객체", exact: true }).click();
   await inspector
     .getByLabel("객체 이름", { exact: true })
     .fill("로컬 검토 영역");

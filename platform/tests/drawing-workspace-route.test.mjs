@@ -35,9 +35,14 @@ const newScreen = await vite
 const startComponent = await vite
   .ssrLoadModule("/app/lukas/components/drawing-workspace-start.tsx")
   .catch(() => ({}));
-const workspaceScreen = await vite
-  .ssrLoadModule("/app/lukas/screens/drawing-workspace.tsx")
-  .catch(() => ({}));
+const workspaceScreen = {
+  ...(await vite
+    .ssrLoadModule("/app/lukas/screens/drawing-workspace.tsx")
+    .catch(() => ({}))),
+  ...(await vite
+    .ssrLoadModule("/app/lukas/lib/drawing-workspace-route.server.ts")
+    .catch(() => ({}))),
+};
 const workspaceExport = await vite
   .ssrLoadModule("/app/lukas/screens/drawing-workspace-export.ts")
   .catch(() => ({}));
@@ -48,6 +53,48 @@ const ids = {
   file: "00000000-0000-4000-8000-000000000003",
   document: "00000000-0000-4000-8000-000000000004",
 };
+
+test("authorized drawing lineage builds one exact BOQ version and focused-line return", () => {
+  const location = workspacePaths.drawingWorkspaceBoqReturnLocation;
+  assert.equal(typeof location, "function");
+  assert.equal(
+    location(ids.project, ids.document, ids.file),
+    `/projects/${ids.project}/boq?version=${ids.document}&line=${ids.file}`,
+  );
+  for (const malformed of ["not-a-uuid", `${ids.file}?download=manifest`])
+    assert.throws(() => location(ids.project, ids.document, malformed));
+});
+
+test("drawing operation location is fixed for preview and canonical for production", () => {
+  const location = workspacePaths.drawingWorkspaceOperationLocation;
+  assert.equal(typeof location, "function");
+  assert.equal(
+    location({
+      previewMode: true,
+      projectId: ids.project,
+      workspaceId: ids.document,
+      pathname: "//attacker.example/operation",
+    }),
+    "/workspace-preview/drawing-workspace/operation",
+  );
+  assert.equal(
+    location({
+      previewMode: false,
+      projectId: ids.project,
+      workspaceId: ids.document,
+      pathname: "/workspace-preview/drawing-workspace",
+    }),
+    `/projects/${ids.project}/workspaces/${ids.document}/operation`,
+  );
+  assert.throws(() =>
+    location({
+      previewMode: false,
+      projectId: "not-a-uuid",
+      workspaceId: ids.document,
+      pathname: "/workspace-preview/drawing-workspace",
+    }),
+  );
+});
 
 test("estimate binding form accepts only an editable current draft revision and UUID BOQ", () => {
   const parse = workspaceScreen.parseDrawingEstimateBindingForm;

@@ -63,6 +63,15 @@ async function ready(page: Page, path: string) {
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
 }
 
+async function openObjectInspector(page: Page) {
+  await expect(
+    page.getByRole("tab", { name: "결과", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  await objectTab.click();
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
+}
+
 async function snapshot(page: Page) {
   return JSON.parse(
     (await page.getByLabel("P5 mounted workspace snapshot").textContent()) ??
@@ -195,14 +204,21 @@ test("offline unlink and undo survive reopen, acknowledge, and remain denied to 
       response.request().method() === "POST" &&
       body?.includes('name="operation_json"')
     ) {
-      operationResponses.push(response.status());
-      void response.json().then((body) => operationResponseBodies.push(body));
+      const status = response.status();
+      operationResponses.push(status);
+      const contentType = response.headers()["content-type"] ?? "";
+      if (status < 300 || status >= 400)
+        if (contentType.includes("application/json"))
+          void response
+            .json()
+            .then((body) => operationResponseBodies.push(body));
     }
   });
   let page = await context.newPage();
   const path = `${canonicalPath}?p5ReleaseTest=1&realtimeTest=1`;
   const sourceBefore = await sourceByteEvidence(page);
   await ready(page, path);
+  await openObjectInspector(page);
   await expect(
     page.getByRole("region", { name: "도면 캔버스" }),
   ).toHaveAttribute("data-edit-ready", "true");
@@ -233,6 +249,7 @@ test("offline unlink and undo survive reopen, acknowledge, and remain denied to 
   await context.setOffline(false);
   page = await context.newPage();
   await ready(page, path);
+  await openObjectInspector(page);
   await expect
     .poll(async () => (await snapshot(page)).operationIds)
     .toEqual(offline.operationIds);

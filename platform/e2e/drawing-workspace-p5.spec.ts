@@ -263,6 +263,12 @@ test("active PDF page compares only its exact predecessor with transient non-lis
     page.getByRole("group", { name: "PDF 개정 비교" }),
   ).toBeVisible();
   await expect(
+    page.getByRole("tab", { name: "결과", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  await objectTab.click();
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
+  await expect(
     page.getByRole("region", { name: "선택 객체 원본 근거" }),
   ).toContainText("조회 전용");
   await expect(
@@ -527,6 +533,12 @@ test("mounted PDF inspector uses operation commands for exact link and unlink", 
   await expect(snapshot).toContainText(
     '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
   );
+  await expect(
+    page.getByRole("tab", { name: "결과", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  await objectTab.click();
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "PDF 영역 원본 근거 연결" }).click();
   expect(pageErrors).toEqual([]);
   await expect(snapshot).toContainText('"sourceKind":"pdf_region"');

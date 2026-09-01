@@ -532,6 +532,23 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
   },
 ];
 
+export function verifiedBoqFocusedLineId(
+  versionId: string | null | undefined,
+  lines: Array<{ id: string; version_id?: string }>,
+  requestedLineId: string | null,
+) {
+  const parsedVersion = z.string().uuid().safeParse(versionId);
+  const parsedLine = z.string().uuid().safeParse(requestedLineId);
+  if (!parsedVersion.success || !parsedLine.success) return null;
+  return lines.some(
+    (line) =>
+      line.id === parsedLine.data &&
+      (!line.version_id || line.version_id === parsedVersion.data),
+  )
+    ? parsedLine.data
+    : null;
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const context = await getContext(request, params.projectId!);
   await assertProjectOrganizationFeature(
@@ -1015,6 +1032,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       drawingSources,
       drawingSourcesHaveMore,
       returnTo,
+      focusedLineId: verifiedBoqFocusedLineId(
+        version?.id,
+        versionRows?.lines ?? [],
+        url.searchParams.get("line"),
+      ),
     },
     { headers: context.headers },
   );
@@ -1763,6 +1785,7 @@ export default function VerifiedBoq({
     versionRows,
     result,
     returnTo,
+    focusedLineId,
   } = loaderData;
   const draft = version?.status === "draft" && loaderData.mayEdit;
   const activeBookId = version?.price_book_id ?? priceBooks[0]?.id ?? "";
@@ -2659,7 +2682,14 @@ export default function VerifiedBoq({
                 </thead>
                 <tbody>
                   {result?.lines.map((line) => (
-                    <tr className="border-b" key={line.lineId}>
+                    <tr
+                      autoFocus={line.lineId === focusedLineId}
+                      className="border-b focus:outline focus:outline-2 focus:outline-primary"
+                      data-focused={line.lineId === focusedLineId || undefined}
+                      id={`boq-line-${line.lineId}`}
+                      key={line.lineId}
+                      tabIndex={line.lineId === focusedLineId ? -1 : undefined}
+                    >
                       <td className="py-4">
                         <b>{line.itemCode}</b>
                         <br />

@@ -173,7 +173,7 @@ import {
   type DrawingClientModuleState,
   type DrawingWorkspaceViewMode,
 } from "~/lukas/lib/drawing-workspace-view";
-import { drawingWorkspaceOperationPath } from "~/lukas/lib/drawing-workspace-paths";
+import { drawingWorkspaceOperationLocation } from "~/lukas/lib/drawing-workspace-paths";
 import {
   canMutateDrawingObjectSources,
   createDrawingIfcSourceIndex,
@@ -950,6 +950,7 @@ type Props = {
   collaborationPersistenceFactory?: typeof openDrawingYjsPersistence;
   measurementEvidence?: DrawingServerMeasurementEvidence | null;
   measurementEvidenceError?: DrawingMeasurementEvidenceError | null;
+  boqReturnHref?: string | null;
   quantityLineage?: {
     rows: DrawingObjectQuantityLineageRow[];
     nextCursor: string | null;
@@ -1019,6 +1020,7 @@ export default function DrawingWorkspaceClient({
   collaborationPersistenceFactory = openDrawingYjsPersistence,
   measurementEvidence,
   measurementEvidenceError,
+  boqReturnHref = null,
   quantityLineage,
   roomUrl,
   sourceUrl = null,
@@ -1860,10 +1862,11 @@ export default function DrawingWorkspaceClient({
       awarenessPublicationRef.current?.disconnect();
       awarenessStoreRef.current.replace([]);
     };
-    const actionUrl = `${drawingWorkspaceOperationPath(
+    const actionUrl = `${drawingWorkspaceOperationLocation({
+      previewMode,
       projectId,
-      drawingDocument.id,
-    )}${window.location.search}`;
+      workspaceId: drawingDocument.id,
+    })}${window.location.search}`;
     const refresh = async () => {
       const [entries, legacy] = await Promise.all([
         outbox.entries(),
@@ -3863,6 +3866,14 @@ export default function DrawingWorkspaceClient({
           <ArrowLeft className="size-4" />
           <span className="drawing-workspace-topbar-label">협업 도면실</span>
         </Link>
+        {boqReturnHref ? (
+          <Link
+            className="inline-flex min-h-10 items-center rounded-md px-2 text-sm font-semibold text-indigo-200 hover:bg-white/10 hover:text-white"
+            to={boqReturnHref}
+          >
+            내역으로 돌아가기
+          </Link>
+        ) : null}
         <div className="drawing-workspace-topbar-title min-w-0 flex-1 border-l border-white/10 pl-3">
           <h1 className="truncate text-sm font-bold">
             {drawingDocument.title}

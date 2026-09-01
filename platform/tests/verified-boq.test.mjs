@@ -217,6 +217,24 @@ test("verified BOQ return path accepts only the exact same-project canonical wor
     );
 });
 
+test("verified BOQ focuses only a line that belongs to the selected version", () => {
+  const focus = verifiedBoqScreen.verifiedBoqFocusedLineId;
+  assert.equal(typeof focus, "function");
+  const versionId = "40000000-0000-4000-8000-000000000005";
+  const lineId = "40000000-0000-4000-8000-000000000006";
+  const rows = [{ id: lineId, version_id: versionId }];
+  assert.equal(focus(versionId, rows, lineId), lineId);
+  assert.equal(
+    focus(versionId, rows, "40000000-0000-4000-8000-000000000099"),
+    null,
+  );
+  assert.equal(
+    focus("40000000-0000-4000-8000-000000000099", rows, lineId),
+    null,
+  );
+  assert.equal(focus(versionId, rows, "not-a-uuid"), null);
+});
+
 test("verified BOQ redirect builder preserves one validated return path with version mutations", () => {
   const back = verifiedBoqScreen.verifiedBoqLocation;
   assert.equal(typeof back, "function");

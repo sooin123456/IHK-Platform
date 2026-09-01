@@ -34,6 +34,7 @@
     "test:e2e:drawing-workspace-p7:performance": "node scripts/run-drawing-p7-performance.mjs",
     "test:e2e:drawing-workspace-p7:release": "playwright test e2e/drawing-workspace-p7-release.spec.ts --config=playwright.p7-release.config.ts --project=chromium --workers=1",
     "test:e2e:drawing-workspace-p7:production": "playwright test e2e/drawing-workspace-p7-production.spec.ts --project=chromium --workers=1",
+    "test:e2e:drawing-workspace-m1:local": "node scripts/run-drawing-workspace-m1-e2e.mjs",
     "release:drawing-workspace-p4:local": "node scripts/run-drawing-workspace-p4-release.mjs local",
     "release:drawing-workspace-p4:production": "node scripts/run-drawing-workspace-p4-release.mjs production",
     "release:drawing-workspace-p5:local": "node scripts/run-drawing-workspace-p5-release.mjs local",

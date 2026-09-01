@@ -61,6 +61,16 @@ const snap = {
   zoom: 1,
 };
 
+test("viewport culling keeps two 16px frames of offscreen pan coverage", () => {
+  assert.deepEqual(
+    tools.drawingCanvasViewportBounds(
+      { width: 100, height: 80 },
+      { x: 0, y: 0, zoom: 1 },
+    ),
+    { x: -32, y: -32, width: 164, height: 144 },
+  );
+});
+
 function options(overrides = {}) {
   return {
     actorId: "actor-a",
