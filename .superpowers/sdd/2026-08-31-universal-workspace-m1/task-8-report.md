@@ -4,7 +4,7 @@
 
 Task 8 now contains a fail-closed disposable-Supabase controller, status-bound Playwright preflight, process-group and partial-failure-safe cleanup, exact estimator journey assertions, measurable primitive quantity UI, server-validated BOQ reverse focus, and executable real-PostgreSQL purge attacks.
 
-The latest tested behavior commit is `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`). Task 9 post-commit commands ran after that exact clean commit existed and before this report/evidence-only change. The preceding whole-branch behavior remains `729f07d96c33902a8f3f4f551863af75383af5b9`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
+The latest tested code/test commit is `967ef821725e578be4124c1231ac36503696c133` (`test: preserve partial ACK error priority`). It changes only the outbox regression test; production partial-ACK behavior remains `d24b3be90631f7d7a77c13a4d08715e5aa181df2`. Post-commit commands ran after the exact clean test SHA existed and before this report/evidence-only change. Historical command records remain separate, and the later documentation-only commit does not become a behavior SHA.
 
 M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and Finch are absent, so disposable Supabase never started and the canonical browser, Hocuspocus, visual, source-integrity, and M1 10k gates did not run. No local preview, P7 result, static test, or standalone PostgreSQL run is presented as replacement authority.
 
@@ -231,10 +231,12 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 - Final Editor-boundary test behavior SHA: `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`).
 - Final whole-branch behavior SHA: `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`).
 - Partial durable-ACK behavior SHA: `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`).
+- Partial-ACK error-priority test SHA: `967ef821725e578be4124c1231ac36503696c133` (`test: preserve partial ACK error priority`).
 - Prior evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as a behavior SHA.
 - Latest evidence-only subject: `docs: correct M1 editor authority evidence`; its Git SHA is intentionally not presented as the behavior SHA.
 - Preceding evidence-only subject: `docs: finalize universal workspace branch evidence`; its Git SHA is documentation identity, not a tested behavior SHA.
-- Current Task 9 evidence-only subject: `docs: record partial durable ACK evidence`; its eventual Git SHA is documentation identity, not the tested behavior SHA.
+- First Task 9 evidence-only subject: `docs: record partial durable ACK evidence`; its Git SHA is documentation identity, not the tested behavior SHA.
+- Current Task 9 evidence-only subject: `docs: prove partial ACK error priority`; its eventual Git SHA is documentation identity, not the tested code/test SHA.
 
 ## Final whole-branch review closure
 
@@ -309,3 +311,11 @@ Post-commit verification on the exact clean behavior SHA:
 - `PASS` 2026-09-01T18:41:39–18:41:40+0900: scoped Prettier, `git show --check`, scratch cleanup, and clean behavior status.
 
 Real PostgreSQL was not rerun because Task 9 changes no database or migration. The canonical disposable-Supabase command was deliberately not rerun, so no additional retained root was created. Canonical M1 remains `UNEXECUTED`; Task 9's unit proof is not substituted for browser/Hocuspocus authority. Full details are in `task-9-partial-ack-report.md`.
+
+### Task 9 review fix 1/5 — executable callback-error priority
+
+The original mixed-batch callbacks only appended counts, so they did not execute the stated `finally` error-priority guarantee. Both existing tests now append `1` and throw a distinct callback error. Transport must reject with the same original Error object while preserving pending residue, retry count 1, 1,000 ms scheduling, and later `[1, 1]`; mismatch must reject with the exact acknowledgement message while preserving rejected residue, `[1]`, and no retry.
+
+Because the intact code already passed this characterization 2/2, a temporary unstaged mutation removed the `try/finally` priority. At 2026-09-01T18:54:11+0900 the exact two-test command failed 0/2: transport exposed the callback Error instead of the reference-equal transport Error, and mismatch exposed the callback Error instead of the exact mismatch. The production file was immediately restored; the same command passed 2/2 and the whole outbox file passed 70/70 at 2026-09-01T18:54:23+0900. Test SHA `967ef821725e578be4124c1231ac36503696c133` contains only the test change.
+
+On that exact clean SHA, focused outbox passed 70/70, the 10-file union passed 270/270, both typechecks and both builds exited 0, and the full suite classified 1,067 total / 1,058 pass / 7 skip / 2 fail. The two failures remain only committed P7 SHA `6bf871cc...` versus `967ef821...`; P6 evidence was restored and scratch removed. Real PostgreSQL and canonical disposable Supabase were not rerun. Canonical M1 remains `UNEXECUTED`, and no fifth recovery root was created.

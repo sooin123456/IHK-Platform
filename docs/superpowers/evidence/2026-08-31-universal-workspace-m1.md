@@ -7,7 +7,7 @@ Release verdict: **UNEXECUTED**. The hardened Task 8 runner, estimator fixture, 
 ## Evidence identity and environment
 
 - Checkout: `/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1`
-- Latest behavior/code/test commit: `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`). Its Task 9 post-commit record is separate from the preserved `729f07d96c33902a8f3f4f551863af75383af5b9` whole-branch, `00d55985f236aa9d36acbe73c52a4e43531f8c5a` Editor-boundary, and earlier security records below.
+- Latest code/test commit: `967ef821725e578be4124c1231ac36503696c133` (`test: preserve partial ACK error priority`). It changes only the outbox regression test; production partial-ACK behavior remains `d24b3be90631f7d7a77c13a4d08715e5aa181df2`. Its post-commit record is separate from the preserved whole-branch, Editor-boundary, and security records below.
 - This document is committed afterward in a documentation-only commit. That evidence commit is not claimed as the behavior SHA.
 - Host inventory refreshed at 2026-09-01T13:08:36+0900: Darwin 25.5.0 arm64, Node `v26.5.0`, npm `11.17.0`, Playwright `1.62.1`, Supabase CLI `2.114.0`.
 - Docker, Podman, Colima, OrbStack, and Finch: absent. Canonical disposable Supabase, M1 browser, production Hocuspocus, visual, and canonical 10k gates: `UNEXECUTED`.
@@ -37,6 +37,23 @@ All rows ran after the exact clean behavior commit existed and before this docum
 | 2026-09-01T18:41:39–18:41:40+0900 | scoped Prettier, commit check, scratch and status checks | exit 0                                             | Playwright/Vite scratch removed; exact behavior worktree was clean | `PASS`    |
 
 The two full-suite failures compare committed P7 artifact SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` with Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2`; no legacy evidence was regenerated or hand-edited. Real PostgreSQL was not rerun because Task 9 changes no database or migration. Per the Task 9 brief, the known missing container runtime was not reconfirmed by rerunning the disposable-Supabase command, so no fifth recovery root was created. Canonical M1 remains `UNEXECUTED`.
+
+### Review fix 1/5 — callback failure priority
+
+The first Task 9 callbacks never threw, so they did not protect the claim that `finally` preserves the original transport or mismatched-ACK failure. Both real mixed-batch tests now append the durable partial count and throw a distinct callback Error. Transport asserts reference identity with the original Error plus pending residue/retry/later `[1, 1]`; mismatch asserts the exact acknowledgement message plus rejected residue, `[1]`, and no retry.
+
+The intact implementation first passed the characterization 2/2. An unstaged mutation then removed the `try/finally` priority. At 2026-09-01T18:54:11+0900 the exact run failed 0/2 because both branches exposed the callback Error. The production file was immediately restored; at 2026-09-01T18:54:23+0900 the same tests passed 2/2 and the complete outbox file passed 70/70. Test-only SHA `967ef821725e578be4124c1231ac36503696c133` contains no production change.
+
+| KST start–end                     | Post-commit command                      | Exit/result                                        | Classification                                                    | Status    |
+| --------------------------------- | ---------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- | --------- |
+| 2026-09-01T18:54:58–18:54:59+0900 | focused outbox test                      | exit 0; 70 passed, 0 failed                        | throwing-callback branches and complete outbox matrix             | `PASS`    |
+| 2026-09-01T18:55:06–18:55:09+0900 | final Task 8 10-file union               | exit 0; 270 passed, 0 failed                       | exact focused cross-feature regression set                        | `PASS`    |
+| 2026-09-01T18:55:14–18:55:25+0900 | app and collaboration typechecks         | both exit 0                                        | both TypeScript graphs                                            | `PASS`    |
+| 2026-09-01T18:55:30–18:55:46+0900 | production app and collaboration builds  | both exit 0                                        | approved build outputs                                            | `PASS`    |
+| 2026-09-01T18:56:11–18:56:50+0900 | `npm run test:drawing-workspace`         | exit 1; 1,067 total / 1,058 pass / 7 skip / 2 fail | only committed P7 SHA checks                                      | `NOT MET` |
+| 2026-09-01T18:57:30+0900          | restore/scratch/commit/clean-tree checks | exit 0                                             | P6 restored; Playwright/Vite scratch removed; exact SHA was clean | `PASS`    |
+
+The full-suite mismatches are only committed P7 SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus `967ef821725e578be4124c1231ac36503696c133`. Real PostgreSQL was not rerun because no database or migration changed. The canonical command was not rerun and no new recovery root was created; canonical M1 remains `UNEXECUTED`.
 
 ## Latest final whole-branch authority
 
@@ -221,6 +238,6 @@ React best-practices review found the BOQ focus effect depended on the whole res
 
 The final security review found two remaining authority gaps: normal leader close could discard a still-live group, and the draft guard's owner predicate was vacuous under `SECURITY DEFINER`. The final behavior SHA retains and reaps independently surviving groups, refuses its own PGID, changes the draft trigger to `SECURITY INVOKER`, and adds exact binding mutations plus executable page/draft attacks. Focused 155/155, both typechecks/builds, and UTF-8 real PG 1/1 passed on that clean SHA. The two full-suite failures remain only the disclosed stale P7 SHA checks.
 
-The latest whole-branch review then closed Viewer mutation visibility, fulfilled-batch acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` subsequently closed the rejected mixed-batch acknowledgement gap and passed focused 70/70, the 10-file union 270/270, and both typechecks/builds. Its full-suite result still has only the same two disclosed P7 SHA checks. No canonical browser authority ran.
+The latest whole-branch review then closed Viewer mutation visibility, fulfilled-batch acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` subsequently closed the rejected mixed-batch acknowledgement gap. Test SHA `967ef821725e578be4124c1231ac36503696c133` mutation-locks original-error priority when its callback throws and passed focused 70/70, the 10-file union 270/270, and both typechecks/builds. Its full-suite result still has only the same two disclosed P7 SHA checks. No canonical browser authority ran.
 
 Required next action: install/start a supported container runtime and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged. Until acceptance 1–16, canonical collaboration/outbox, canonical 10k, both visual widths, and source before/after attachments actually run and pass, M1 remains incomplete.
