@@ -7,13 +7,36 @@ Release verdict: **UNEXECUTED**. The hardened Task 8 runner, estimator fixture, 
 ## Evidence identity and environment
 
 - Checkout: `/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1`
-- Latest behavior/code/test commit: `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`). Its final whole-branch post-commit record is separate from the preserved `00d55985f236aa9d36acbe73c52a4e43531f8c5a` Editor-boundary and earlier security records below.
+- Latest behavior/code/test commit: `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`). Its Task 9 post-commit record is separate from the preserved `729f07d96c33902a8f3f4f551863af75383af5b9` whole-branch, `00d55985f236aa9d36acbe73c52a4e43531f8c5a` Editor-boundary, and earlier security records below.
 - This document is committed afterward in a documentation-only commit. That evidence commit is not claimed as the behavior SHA.
 - Host inventory refreshed at 2026-09-01T13:08:36+0900: Darwin 25.5.0 arm64, Node `v26.5.0`, npm `11.17.0`, Playwright `1.62.1`, Supabase CLI `2.114.0`.
 - Docker, Podman, Colima, OrbStack, and Finch: absent. Canonical disposable Supabase, M1 browser, production Hocuspocus, visual, and canonical 10k gates: `UNEXECUTED`.
 - Homebrew `psql`, `postgres`, `pg_ctl`, and `initdb` were used only for a separately labeled UTF-8 `mktemp` PostgreSQL cluster on a free loopback port. It was not used as a Supabase or browser substitute.
 - No dependency or lockfile changed. Repository `platform/supabase` was never started, stopped, copied over, or written by the runner.
 - Production `platform/build/`, `platform/collaboration/dist/`, and React Router type output are intentional approved build outputs. Playwright scratch was removed. All tracked P4/P5/P6/P7 screenshots and generated evidence were restored after measurements.
+
+## Latest Task 9 partial durable-ACK authority
+
+The preceding whole-branch outbox fix reported acknowledgements only when the whole sequential flush fulfilled. If operation 1 had already been durably acknowledged and operation 2 then failed transport or returned a mismatched acknowledgement ID, `flushOnce()` rejected before its local acknowledged count reached the outer callback. Task 9 moves only that positive partial count to the rejection boundary and rethrows the exact original error.
+
+Strict TDD against starting HEAD `cef7db53e6a52e7e2db7b2d208b26d784857594b` produced two real failures at 2026-09-01T18:37:03+0900: the focused outbox run exited 1 with 68 pass / 2 fail, and both new mixed-batch cases observed callback batches `[]` instead of `[1]`. The transport case still removed operation 1, retained operation 2 as pending with retry count 1 and a 1,000 ms retry, and preserved the original rejection. The mismatched-ID case retained operation 2 as rejected with no retry.
+
+GREEN behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` reports the positive local durable count exactly once before either rejection. The transport test proves callback batches `[1, 1]` across the rejected initial flush and its later successful retry; the mismatch test proves `[1]` with no retry; all-success proves `[2]` once; all-failure proves no callback. Operation order, conflict, concurrency, disposal, retry schedule, rejected/pending residue, and exact error identity remain covered by the focused file.
+
+### Post-commit command record for `d24b3be90631f7d7a77c13a4d08715e5aa181df2`
+
+All rows ran after the exact clean behavior commit existed and before this documentation-only change.
+
+| KST start–end                     | Command                                                  | Exit/result                                        | Artifact or classification                                         | Status    |
+| --------------------------------- | -------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | --------- |
+| 2026-09-01T18:39:39–18:39:42+0900 | focused outbox test                                      | exit 0; 70 passed, 0 failed                        | both partial-ACK regressions plus existing outbox matrix           | `PASS`    |
+| 2026-09-01T18:39:39–18:39:42+0900 | final Task 8 10-file focused union                       | exit 0; 270 passed, 0 failed                       | shell/outbox/E2E/entry/library/route/properties/server/export      | `PASS`    |
+| 2026-09-01T18:39:48–18:39:57+0900 | app and collaboration typechecks                         | both exit 0                                        | React Router typegen and both TypeScript graphs                    | `PASS`    |
+| 2026-09-01T18:40:02–18:40:18+0900 | production app and collaboration builds                  | both exit 0                                        | approved `platform/build/` and `platform/collaboration/dist/`      | `PASS`    |
+| 2026-09-01T18:40:24–18:41:07+0900 | `npm run test:drawing-workspace`                         | exit 1; 1,067 total / 1,058 pass / 7 skip / 2 fail | only committed P7 SHA checks; generated P6 evidence restored       | `NOT MET` |
+| 2026-09-01T18:41:39–18:41:40+0900 | scoped Prettier, commit check, scratch and status checks | exit 0                                             | Playwright/Vite scratch removed; exact behavior worktree was clean | `PASS`    |
+
+The two full-suite failures compare committed P7 artifact SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` with Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2`; no legacy evidence was regenerated or hand-edited. Real PostgreSQL was not rerun because Task 9 changes no database or migration. Per the Task 9 brief, the known missing container runtime was not reconfirmed by rerunning the disposable-Supabase command, so no fifth recovery root was created. Canonical M1 remains `UNEXECUTED`.
 
 ## Latest final whole-branch authority
 
@@ -22,7 +45,7 @@ The final review wave closed six product/React contracts and removed nine dead c
 Strict TDD results against starting HEAD `00af54549cde643fb3689d4c9d0a23beac244726`:
 
 - Viewer rail RED rendered `단가표 가져오기`; GREEN gates only that mutation entry by the existing server-derived `mayBind`, preserving read-only BOQ navigation/download.
-- Outbox RED returned `undefined` instead of two durable acknowledgements, and scheduled retry failed to report `[1]`; GREEN reports only successfully persisted acknowledgement batches and triggers one stable loader revalidation.
+- Outbox RED returned `undefined` instead of two durable acknowledgements, and scheduled retry failed to report `[1]`; that wave's GREEN reported fulfilled acknowledgement batches and later successful retries. It did not cover an earlier durable ACK followed by a later failure in the same batch; the Task 9 section above closes that gap.
 - Estimator contract RED asserted `확정` before BOQ approval; GREEN asserts W/D `초안` and F `가정값` before approval, then revisits the canonical workspace after approval to prove `확정` lineage.
 - Entry-flow REDs exposed `/workspaces/new` to read-only roles in drawing list, project root, dashboard, and organization library. GREEN reuses loader/server capability and sends non-editors to read-only project/drawing/file views.
 - Loader RED had no independent-I/O parallel group and loaded binding options for non-binding actors. GREEN starts the six independent surfaces in one `Promise.all` after identity and conditionally omits options.
@@ -30,7 +53,7 @@ Strict TDD results against starting HEAD `00af54549cde643fb3689d4c9d0a23beac2447
 
 Ponytail caller proof removed `DrawingWorkspacePreCreation`, string/null precreation compatibility, canonical null-document fallback, route-only `create_document`, nullable export fallbacks, `drawingEstimateBindingErrorResponse`, `drawingWorkspaceStartChoiceFocused`, dead entry builders, `drawingWorkspaceOperationPath`, and `legacyProjectWorkspacePath`. The legacy database `lukas_drawing_create_document` RPC remains deliberately covered. Production/E2E changed by 681 additions and 782 deletions, net -101. Final Ponytail finding: **Lean already. Ship.**
 
-React review found no residual fix after the GREEN implementation: the loader preserves identity dependencies while parallelizing independent work, acknowledgement revalidation has a stable ref and no feedback loop, property state is keyed without an effect, role gates remain loader-derived, and native accessible controls remain intact.
+React review found no residual React fix after the GREEN implementation: the loader preserves identity dependencies while parallelizing independent work, acknowledgement revalidation has a stable ref and no feedback loop, property state is keyed without an effect, role gates remain loader-derived, and native accessible controls remain intact. Task 9 later corrected the outbox's rejected mixed-batch delivery boundary without changing that React callback.
 
 ### Post-commit command record for `729f07d96c33902a8f3f4f551863af75383af5b9`
 
@@ -198,6 +221,6 @@ React best-practices review found the BOQ focus effect depended on the whole res
 
 The final security review found two remaining authority gaps: normal leader close could discard a still-live group, and the draft guard's owner predicate was vacuous under `SECURITY DEFINER`. The final behavior SHA retains and reaps independently surviving groups, refuses its own PGID, changes the draft trigger to `SECURITY INVOKER`, and adds exact binding mutations plus executable page/draft attacks. Focused 155/155, both typechecks/builds, and UTF-8 real PG 1/1 passed on that clean SHA. The two full-suite failures remain only the disclosed stale P7 SHA checks.
 
-The latest whole-branch review then closed Viewer mutation visibility, durable acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Its full-suite result still has only the same two disclosed P7 SHA checks. No canonical browser authority ran.
+The latest whole-branch review then closed Viewer mutation visibility, fulfilled-batch acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` subsequently closed the rejected mixed-batch acknowledgement gap and passed focused 70/70, the 10-file union 270/270, and both typechecks/builds. Its full-suite result still has only the same two disclosed P7 SHA checks. No canonical browser authority ran.
 
 Required next action: install/start a supported container runtime and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged. Until acceptance 1–16, canonical collaboration/outbox, canonical 10k, both visual widths, and source before/after attachments actually run and pass, M1 remains incomplete.

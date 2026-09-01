@@ -4,7 +4,7 @@
 
 Task 8 now contains a fail-closed disposable-Supabase controller, status-bound Playwright preflight, process-group and partial-failure-safe cleanup, exact estimator journey assertions, measurable primitive quantity UI, server-validated BOQ reverse focus, and executable real-PostgreSQL purge attacks.
 
-The latest tested behavior commit is `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`). Every final-wave post-commit command below ran after that exact clean commit existed and before this report/evidence-only change. The preceding Editor-boundary behavior remains `00d55985f236aa9d36acbe73c52a4e43531f8c5a`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
+The latest tested behavior commit is `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`). Task 9 post-commit commands ran after that exact clean commit existed and before this report/evidence-only change. The preceding whole-branch behavior remains `729f07d96c33902a8f3f4f551863af75383af5b9`; its historical command record is preserved separately. The later documentation-only commit does not become either behavior SHA.
 
 M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and Finch are absent, so disposable Supabase never started and the canonical browser, Hocuspocus, visual, source-integrity, and M1 10k gates did not run. No local preview, P7 result, static test, or standalone PostgreSQL run is presented as replacement authority.
 
@@ -230,9 +230,11 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 - Final security behavior SHA: `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`).
 - Final Editor-boundary test behavior SHA: `00d55985f236aa9d36acbe73c52a4e43531f8c5a` (`test: prove M1 operation-only editor authority`).
 - Final whole-branch behavior SHA: `729f07d96c33902a8f3f4f551863af75383af5b9` (`fix: close universal workspace review findings`).
+- Partial durable-ACK behavior SHA: `d24b3be90631f7d7a77c13a4d08715e5aa181df2` (`fix: preserve partial durable ACK revalidation`).
 - Prior evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as a behavior SHA.
 - Latest evidence-only subject: `docs: correct M1 editor authority evidence`; its Git SHA is intentionally not presented as the behavior SHA.
-- Current evidence-only subject: `docs: finalize universal workspace branch evidence`; its eventual Git SHA is documentation identity, not the tested behavior SHA.
+- Preceding evidence-only subject: `docs: finalize universal workspace branch evidence`; its Git SHA is documentation identity, not a tested behavior SHA.
+- Current Task 9 evidence-only subject: `docs: record partial durable ACK evidence`; its eventual Git SHA is documentation identity, not the tested behavior SHA.
 
 ## Final whole-branch review closure
 
@@ -241,7 +243,7 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 The final wave began at `00af54549cde643fb3689d4c9d0a23beac244726`. Each functional contract was first added against that HEAD and run in its focused Node test before production code changed:
 
 - RED: the canonical Viewer rail rendered `단가표 가져오기`; GREEN: the mutation entry is inside the existing server-derived `mayBind` boundary while BOQ detail and download remain readable.
-- RED: a successful two-operation flush returned `undefined` rather than the expected durable acknowledgement count `2`; a retry callback separately expected `[1]` and received `[]`. GREEN: `flush()` counts only persisted acknowledgements and one optional batch callback drives a stable React Router revalidation after both immediate and scheduled successful flushes. Conflict, retry, disposal, concurrency, and failed-mark behavior remain unchanged.
+- RED: a successful two-operation flush returned `undefined` rather than the expected durable acknowledgement count `2`; a retry callback separately expected `[1]` and received `[]`. Task 8 GREEN counted fulfilled batches and later successful retries, but did not cover an earlier durable ACK followed by a later operation failure in the same batch. Task 9 closes that partial-success gap without changing conflict, retry, disposal, concurrency, or failed-mark behavior.
 - RED: the M1 static journey asserted `확정` before BOQ approval and had no draft/assumption phase. GREEN: pre-approval W/D evidence is `초안`, F evidence is `가정값`, and `확정` is asserted only after BOQ approval followed by canonical workspace navigation.
 - RED: read-only drawing-list, project-root, dashboard, and organization-library tests found `/workspaces/new` creation traps. GREEN: every create affordance uses the existing loader-derived admin/editor capability; read-only cards navigate to project/drawing/file views, while server action and database authority remain unchanged.
 - RED: the canonical loader had no independent-I/O parallel group and loaded unused estimate options for non-binding roles. GREEN: once workspace identity is known, estimate summary and conditional options, source bundle, measurements, activity, room, and assignees begin in one `Promise.all`; only `mayBind` actors load binding options.
@@ -290,3 +292,20 @@ The full-suite failures are only committed P7 evidence SHA `6bf871cc6d5985529fa8
 The canonical runner created project `1hk-m1-fd97ecea` at `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z` with API/DB ports 51074/51075. `supabase status` independently reported `docker: command not found (podman also not found)`. Exact cleanup-target validation passes and both ports are closed. Because start/stop could not complete, the recovery root remains by design and was not deleted. The three earlier disclosed recovery roots also remain.
 
 Canonical disposable Supabase, browser acceptance 1–16, production Hocuspocus/outbox, visual widths/logs/screenshots, source before/after hashes, and canonical M1 10k performance remain `UNEXECUTED`. Standalone PostgreSQL and legacy P7 are not substitutes. The required next action is still to install/start a supported container runtime and rerun the unchanged canonical M1 command.
+
+## Task 9 partial durable-ACK correction
+
+The final whole-branch report overstated the acknowledgement closure by describing the revalidation callback as covering durable batches without distinguishing a rejected mixed batch. At `729f07d`, `flushOnce()` accumulated the durable count locally, but only its outer fulfilled `.then(...)` invoked `onAcknowledged`. If operation 1 was durably ACKed and operation 2 threw or returned a mismatched ID, the flush rejected and the count was lost to the loader revalidation boundary.
+
+Strict TDD on starting HEAD `cef7db53e6a52e7e2db7b2d208b26d784857594b` reproduced both paths. At 2026-09-01T18:37:03+0900 the focused outbox run exited 1 with 68 pass / 2 fail; both new tests observed callback batches `[]` instead of `[1]`. The transport test independently proved operation 1 was gone, operation 2 remained pending with retry count 1 and the original error, and a 1,000 ms retry existed. The mismatched-ID test proved operation 2 was rejected with the exact error and no retry.
+
+Behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` adds one rejection-boundary helper. It emits a positive local durable count once and rethrows the original error from `finally`, preserving identity even if the callback itself fails. The fulfilled path remains unchanged. GREEN focused runs passed 70/70; the later successful retry produces `[1, 1]` across its two separate durable batches, mismatched ACK produces `[1]` with no retry, all-success produces `[2]` once, and all-failure produces no callback.
+
+Post-commit verification on the exact clean behavior SHA:
+
+- `PASS` 2026-09-01T18:39:39–18:39:42+0900: focused outbox 70/70 and final 10-file union 270/270.
+- `PASS` 2026-09-01T18:39:48–18:40:18+0900: app/collaboration typechecks and production builds, all exit 0.
+- `NOT MET` 2026-09-01T18:40:24–18:41:07+0900: full drawing suite, 1,067 total / 1,058 pass / 7 skip / 2 fail. Only the same committed P7 SHA checks failed (`6bf871cc...` versus `d24b3be...`); generated P6 evidence was restored.
+- `PASS` 2026-09-01T18:41:39–18:41:40+0900: scoped Prettier, `git show --check`, scratch cleanup, and clean behavior status.
+
+Real PostgreSQL was not rerun because Task 9 changes no database or migration. The canonical disposable-Supabase command was deliberately not rerun, so no additional retained root was created. Canonical M1 remains `UNEXECUTED`; Task 9's unit proof is not substituted for browser/Hocuspocus authority. Full details are in `task-9-partial-ack-report.md`.
