@@ -11,6 +11,14 @@ const IFC_SHA256 =
 
 type TestUser = { id: string; email: string };
 
+type VerifiedFixtureUpload = {
+  bytes: Uint8Array;
+  contentType: string;
+  extension: string;
+  kind: "pdf" | "ifc" | "estimate" | "other";
+  originalFilename: string;
+};
+
 type WorkspaceFixture = {
   documentId: string;
   revisionId: string;
@@ -463,6 +471,71 @@ async function createUser(
   return { id: data.user.id, email };
 }
 
+export async function finalizeVerifiedFixtureUpload({
+  admin,
+  input,
+  ownerClient,
+  ownerId,
+  projectId,
+  storagePaths,
+}: {
+  admin: SupabaseClient;
+  input: VerifiedFixtureUpload;
+  ownerClient: SupabaseClient;
+  ownerId: string;
+  projectId: string;
+  storagePaths: string[];
+}) {
+  const storagePath = `${ownerId}/${projectId}/source-uploads/${randomUUID()}.${input.extension}`;
+  const digest = sha256(input.bytes);
+  storagePaths.push(storagePath);
+  const upload = await ownerClient.storage
+    .from("lukas-qto")
+    .upload(storagePath, input.bytes, {
+      contentType: input.contentType,
+      upsert: false,
+    });
+  if (upload.error) throw upload.error;
+  const verification = await admin
+    .from("lukas_qto_verified_uploads")
+    .insert({
+      actor_id: ownerId,
+      project_id: projectId,
+      kind: input.kind,
+      storage_path: storagePath,
+      original_filename: input.originalFilename,
+      content_type: input.contentType,
+      byte_size: input.bytes.byteLength,
+      sha256: digest,
+    })
+    .select("id")
+    .single();
+  if (verification.error || !verification.data?.id)
+    throw verification.error ?? new Error("Verified source setup failed");
+  const finalization = await admin.rpc("lukas_qto_finalize_verified_upload", {
+    p_verification_id: verification.data.id,
+    p_actor_id: ownerId,
+    p_project_id: projectId,
+  });
+  const finalized = finalization.data as {
+    byteSize?: number;
+    fileId?: string;
+    kind?: string;
+    sha256?: string;
+    storagePath?: string;
+  } | null;
+  if (
+    finalization.error ||
+    !finalized?.fileId ||
+    finalized.kind !== input.kind ||
+    finalized.storagePath !== storagePath ||
+    finalized.sha256 !== digest ||
+    finalized.byteSize !== input.bytes.byteLength
+  )
+    throw finalization.error ?? new Error("Verified source finalization failed");
+  return { fileId: finalized.fileId, storagePath };
+}
+
 export async function createDrawingFixture(options?: {
   p3RunId?: string;
 }): Promise<DrawingFixture> {
@@ -571,111 +644,57 @@ export async function createDrawingFixture(options?: {
     const ifc = new Uint8Array(await ifcResponse.arrayBuffer());
     if (sha256(ifc).toLowerCase() !== IFC_SHA256)
       throw new Error("Pinned IFC fixture hash changed");
-
-    storagePaths.push(
-      `${owner.id}/${project.id}/${randomUUID()}.pdf`,
-      `${owner.id}/${project.id}/${randomUUID()}.ifc`,
-      `${owner.id}/${project.id}/${randomUUID()}.pdf`,
-      `${owner.id}/${project.id}/${randomUUID()}.ifc`,
-    );
-    for (const [path, bytes, contentType] of [
-      [storagePaths[0], pdf, "application/pdf"],
-      [storagePaths[1], ifc, "application/octet-stream"],
-      [storagePaths[2], pdf, "application/pdf"],
-      [storagePaths[3], ifc, "application/octet-stream"],
+    const finalizedUploads = new Map<string, string>();
+    for (const source of [
+      {
+        label: "pdf",
+        bytes: pdf,
+        contentType: "application/pdf",
+        extension: "pdf",
+        kind: "pdf",
+        originalFilename: "1HK-test-drawing.pdf",
+      },
+      {
+        label: "ifc",
+        bytes: ifc,
+        contentType: "application/octet-stream",
+        extension: "ifc",
+        kind: "ifc",
+        originalFilename: "1HK-test-model.ifc",
+      },
+      {
+        label: "revisedPdf",
+        bytes: new Uint8Array([...pdf, 0x0a]),
+        contentType: "application/pdf",
+        extension: "pdf",
+        kind: "pdf",
+        originalFilename: "1HK-test-drawing-r2.pdf",
+      },
+      {
+        label: "revisedIfc",
+        bytes: new Uint8Array([...ifc, 0x0a]),
+        contentType: "application/octet-stream",
+        extension: "ifc",
+        kind: "ifc",
+        originalFilename: "1HK-test-model-r2.ifc",
+      },
     ] as const) {
-      const { error } = await ownerAuth.storage
-        .from("lukas-qto")
-        .upload(path, bytes, {
-          contentType,
-          upsert: false,
-        });
-      if (error) throw error;
+      const finalized = await finalizeVerifiedFixtureUpload({
+        admin,
+        input: source,
+        ownerClient: ownerAuth,
+        ownerId: owner.id,
+        projectId: project.id,
+        storagePaths,
+      });
+      finalizedUploads.set(source.label, finalized.fileId);
     }
-
-    const { data: files, error: fileError } = await ownerAuth
-      .from("lukas_qto_files")
-      .insert([
-        {
-          project_id: project.id,
-          uploaded_by: owner.id,
-          kind: "pdf",
-          storage_path: storagePaths[0],
-          original_filename: "1HK-test-drawing.pdf",
-          content_type: "application/pdf",
-          byte_size: pdf.byteLength,
-          sha256: sha256(pdf),
-          immutable: true,
-        },
-        {
-          project_id: project.id,
-          uploaded_by: owner.id,
-          kind: "ifc",
-          storage_path: storagePaths[1],
-          original_filename: "1HK-test-model.ifc",
-          content_type: "application/octet-stream",
-          byte_size: ifc.byteLength,
-          sha256: sha256(ifc),
-          immutable: true,
-        },
-        {
-          project_id: project.id,
-          uploaded_by: owner.id,
-          kind: "pdf",
-          storage_path: storagePaths[2],
-          original_filename: "1HK-test-drawing-r2.pdf",
-          content_type: "application/pdf",
-          byte_size: pdf.byteLength,
-          sha256: sha256(pdf),
-          immutable: true,
-        },
-        {
-          project_id: project.id,
-          uploaded_by: owner.id,
-          kind: "ifc",
-          storage_path: storagePaths[3],
-          original_filename: "1HK-test-model-r2.ifc",
-          content_type: "application/octet-stream",
-          byte_size: ifc.byteLength,
-          sha256: sha256(ifc),
-          immutable: true,
-        },
-      ])
-      .select("id,kind,original_filename");
-    if (fileError || !files)
-      throw fileError ?? new Error("File metadata setup failed");
-    const fileId = (name: string) =>
-      files.find((file) => file.original_filename === name)?.id;
-    const pdfFileId = fileId("1HK-test-drawing.pdf");
-    const ifcFileId = fileId("1HK-test-model.ifc");
-    const revisedPdfFileId = fileId("1HK-test-drawing-r2.pdf");
-    const revisedIfcFileId = fileId("1HK-test-model-r2.ifc");
+    const pdfFileId = finalizedUploads.get("pdf");
+    const ifcFileId = finalizedUploads.get("ifc");
+    const revisedPdfFileId = finalizedUploads.get("revisedPdf");
+    const revisedIfcFileId = finalizedUploads.get("revisedIfc");
     if (!pdfFileId || !ifcFileId || !revisedPdfFileId || !revisedIfcFileId)
-      throw new Error("Drawing IDs missing after setup");
-
-    const { error: revisionError } = await admin
-      .from("lukas_qto_file_revisions")
-      .insert([
-        {
-          project_id: project.id,
-          previous_file_id: pdfFileId,
-          previous_sha256: sha256(pdf),
-          current_file_id: revisedPdfFileId,
-          current_sha256: sha256(pdf),
-          relation_kind: "supersedes",
-          created_by: owner.id,
-        },
-        {
-          project_id: project.id,
-          previous_file_id: ifcFileId,
-          previous_sha256: sha256(ifc),
-          current_file_id: revisedIfcFileId,
-          current_sha256: sha256(ifc),
-          relation_kind: "supersedes",
-          created_by: owner.id,
-        },
-      ]);
-    if (revisionError) throw revisionError;
+      throw new Error("Drawing IDs missing after verified source setup");
 
     const { data: pdfWorkspaceData, error: pdfWorkspaceError } =
       await ownerAuth.rpc("lukas_drawing_create_document", {

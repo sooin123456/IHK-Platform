@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   authenticateApiClient,
   createDrawingFixture,
+  finalizeVerifiedFixtureUpload,
   type DrawingFixture,
 } from "./drawing-collaboration-fixture.ts";
 
@@ -120,40 +121,28 @@ async function uploadImmutableEvidence(
     kind: "estimate" | "other";
   },
 ) {
-  const storagePath = `${fixture.owner.id}/${fixture.projectId}/${randomUUID()}-${input.filename}`;
+  const extension = input.filename.split(".").pop();
+  if (!extension) throw new Error("M1 fixture source extension is missing");
   const digest = sha256(input.bytes);
-  const upload = await fixture.retentionClient.storage
-    .from("lukas-qto")
-    .upload(storagePath, input.bytes, {
-      contentType: input.contentType,
-      upsert: false,
-    });
-  if (upload.error) throw upload.error;
-  fixture.storagePaths.push(storagePath);
-  const file = await fixture.retentionClient
-    .from("lukas_qto_files")
-    .insert({
-      project_id: fixture.projectId,
-      uploaded_by: fixture.owner.id,
-      kind: input.kind,
-      storage_path: storagePath,
-      original_filename: input.filename,
-      content_type: input.contentType,
-      byte_size: input.bytes.byteLength,
-      sha256: digest,
-      immutable: true,
-    })
-    .select("id")
-    .single();
-  if (file.error || !file.data?.id)
-    throw file.error ?? new Error("M1 immutable evidence insert failed");
+  const file = await finalizeVerifiedFixtureUpload({
+    admin: fixture.admin,
+    input: {
+      ...input,
+      extension,
+      originalFilename: input.filename,
+    },
+    ownerClient: fixture.retentionClient,
+    ownerId: fixture.owner.id,
+    projectId: fixture.projectId,
+    storagePaths: fixture.storagePaths,
+  });
   const evidence = {
     metadataSha256: digest,
     storageByteSha256: digest,
     byteLength: input.bytes.byteLength,
   };
-  fixture.sourceEvidence[file.data.id] = evidence;
-  return { evidence, fileId: file.data.id };
+  fixture.sourceEvidence[file.fileId] = evidence;
+  return { evidence, fileId: file.fileId };
 }
 
 export async function createDrawingEstimatorFixture(): Promise<DrawingEstimatorFixture> {

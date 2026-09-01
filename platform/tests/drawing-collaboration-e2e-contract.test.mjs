@@ -89,6 +89,49 @@ test("drawing fixture provisions organization members before assigning RPC-only 
   assert.match(fixture, /user:\s*approver,\s*role:\s*"approver"/);
 });
 
+test("drawing fixture finalizes verified PDF and IFC uploads without direct source metadata writes", async () => {
+  const fixture = await read("e2e/utils/drawing-collaboration-fixture.ts");
+  const estimatorFixture = await read("e2e/utils/drawing-estimator-fixture.ts");
+
+  assert.doesNotMatch(
+    fixture,
+    /ownerAuth\s*\.from\("lukas_qto_files"\)\s*\.insert\(/,
+    "source metadata must not bypass verified finalization",
+  );
+  assert.doesNotMatch(
+    fixture,
+    /admin\s*\.from\("lukas_qto_file_revisions"\)\s*\.insert\(/,
+    "revision lineage must be created atomically by the finalizer",
+  );
+  assert.match(
+    fixture,
+    /\$\{ownerId\}\/\$\{projectId\}\/source-uploads\/\$\{randomUUID\(\)\}\.\$\{input\.extension\}/,
+    "fixture uploads must use production source-uploads paths",
+  );
+  assert.match(
+    fixture,
+    /admin\s*\.from\("lukas_qto_verified_uploads"\)\s*\.insert\(/,
+    "service setup must seed verifier output",
+  );
+  assert.match(
+    fixture,
+    /admin\.rpc\(\s*"lukas_qto_finalize_verified_upload",\s*\{[\s\S]*?p_verification_id:[\s\S]*?p_actor_id:[\s\S]*?p_project_id:/,
+    "service finalizer must create metadata and revision lineage",
+  );
+  assert.match(fixture, /new Uint8Array\(\[\.\.\.pdf,\s*0x0a\]\)/);
+  assert.match(fixture, /new Uint8Array\(\[\.\.\.ifc,\s*0x0a\]\)/);
+  assert.doesNotMatch(
+    estimatorFixture,
+    /fixture\.retentionClient\s*\.from\("lukas_qto_files"\)\s*\.insert\(/,
+    "estimate and RVT fixture evidence must not bypass verified finalization",
+  );
+  assert.match(
+    estimatorFixture,
+    /finalizeVerifiedFixtureUpload\(/,
+    "estimate and RVT evidence must reuse the verified fixture uploader",
+  );
+});
+
 test("production drawing E2E has one deterministic npm entrypoint", async () => {
   const packageJson = JSON.parse(await read("package.json"));
 
