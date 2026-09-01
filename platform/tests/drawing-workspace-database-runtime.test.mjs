@@ -297,6 +297,14 @@ const p3PreloadStoreFenceMigration = () =>
     ),
     "utf8",
   );
+const m1CollaborationServiceStoreMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260901112430_m1_collaboration_service_store_state.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const p4SemanticObjectsMigration = () =>
   readFile(
     new URL(
@@ -389,6 +397,7 @@ async function applyP0ThroughP3Migrations(targetDb) {
     p3ReviewRejectionRecoveryMigration,
     p3CrossInstanceFreezeLeaseMigration,
     p3PreloadStoreFenceMigration,
+    m1CollaborationServiceStoreMigration,
   ]) {
     await targetDb.exec(await readMigration());
   }
@@ -5182,6 +5191,64 @@ test("P3 preload lease fences every generic state store before detached freeze b
   assert.equal(frozen.rows[0].store_generation, 3);
   assert.equal(frozen.rows[0].frozen_yjs_state_vector, "AQ==");
   assert.equal(frozen.rows[0].freeze_state, "frozen");
+});
+
+test("P3 service store persists initial and CAS state through the unleased fenced wrapper", async () => {
+  const ids = await createDocument("P3 service store success");
+  const [sequence] = (await db.query(
+    `select coalesce(max(sequence),0::bigint) sequence
+     from public.lukas_drawing_operations where revision_id=$1`,
+    [ids.revisionId],
+  )).rows;
+  const baseOperationSequence = Number(sequence.sequence);
+  const initialBytes = Buffer.from([41, 42, 43]);
+  const initialSha = createHash("sha256").update(initialBytes).digest("hex");
+  const updatedBytes = Buffer.from([41, 42, 43, 44]);
+  const updatedSha = createHash("sha256").update(updatedBytes).digest("hex");
+
+  await db.exec("reset role; set role lukas_drawing_collaboration");
+  await assert.rejects(
+    db.query(
+      "select * from private.lukas_drawing_collaboration_service_store_state($1,$2,1::smallint,$3::bytea,$4::bigint,0::bigint,null)",
+      [PROJECT, ids.revisionId, Buffer.from([40]), baseOperationSequence + 1],
+    ),
+    (error) => error.code === "P3S01",
+  );
+  const initial = await db.query(
+    "select * from private.lukas_drawing_collaboration_service_store_state($1,$2,1::smallint,$3::bytea,$4::bigint,0::bigint,null)",
+    [PROJECT, ids.revisionId, initialBytes, baseOperationSequence],
+  );
+  assert.equal(initial.rows[0].store_generation, 1);
+  assert.equal(initial.rows[0].yjs_sha256, initialSha);
+  assert.deepEqual([...initial.rows[0].yjs_state], [...initialBytes]);
+  const updated = await db.query(
+    "select * from private.lukas_drawing_collaboration_service_store_state($1,$2,1::smallint,$3::bytea,$4::bigint,$5::bigint,$6)",
+    [
+      PROJECT,
+      ids.revisionId,
+      updatedBytes,
+      baseOperationSequence,
+      initial.rows[0].store_generation,
+      initial.rows[0].yjs_sha256,
+    ],
+  );
+  assert.equal(updated.rows[0].store_generation, 2);
+  assert.equal(updated.rows[0].yjs_sha256, updatedSha);
+  assert.deepEqual([...updated.rows[0].yjs_state], [...updatedBytes]);
+  await db.exec("reset role");
+  const persisted = await db.query(
+    `select yjs_state,yjs_sha256,store_generation,base_operation_sequence,byte_size
+     from private.lukas_drawing_collaboration_states where revision_id=$1`,
+    [ids.revisionId],
+  );
+  assert.deepEqual([...persisted.rows[0].yjs_state], [...updatedBytes]);
+  assert.equal(persisted.rows[0].yjs_sha256, updatedSha);
+  assert.equal(persisted.rows[0].store_generation, 2);
+  assert.equal(
+    persisted.rows[0].base_operation_sequence,
+    baseOperationSequence,
+  );
+  assert.equal(persisted.rows[0].byte_size, updatedBytes.byteLength);
 });
 
 test("P3 preload lease fences absent-state initialization and expired preload is cleaned", async () => {

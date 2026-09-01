@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -656,6 +656,115 @@ if (!databaseUrl) {
       assert.deepEqual(unchanged, stored);
     }
     return first;
+  }
+
+  async function proveCollaborationServiceStoreSuccess(owner, ids, document) {
+    const unfencedSignature =
+      "private.lukas_drawing_collaboration_service_store_state_unfenced(uuid,uuid,smallint,bytea,bigint,bigint,text)";
+    const fencedSignature =
+      "private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text)";
+    for (const role of [
+      "anon", "authenticated", "service_role", "lukas_drawing_collaboration",
+    ]) {
+      const [unfenced] = await owner`
+        select pg_catalog.has_function_privilege(
+          ${role},${unfencedSignature},'EXECUTE'
+        ) allowed
+      `;
+      assert.equal(unfenced.allowed, false, `${role} unfenced store`);
+    }
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      const [fenced] = await owner`
+        select pg_catalog.has_function_privilege(
+          ${role},${fencedSignature},'EXECUTE'
+        ) allowed
+      `;
+      assert.equal(fenced.allowed, false, `${role} fenced store`);
+    }
+    const [collaborationFenced] = await owner`
+      select pg_catalog.has_function_privilege(
+        'lukas_drawing_collaboration',${fencedSignature},'EXECUTE'
+      ) allowed
+    `;
+    assert.equal(collaborationFenced.allowed, true);
+    const [definition] = await owner`
+      select p.prosecdef security_definer,
+        p.proconfig @> array['search_path=""']::text[] has_empty_search_path
+      from pg_catalog.pg_proc p
+      where p.oid=${unfencedSignature}::regprocedure
+    `;
+    assert.equal(definition.security_definer, true);
+    assert.equal(definition.has_empty_search_path, true);
+    const [sequence] = await owner`
+      select coalesce(max(o.sequence),0::bigint) sequence
+      from public.lukas_drawing_operations o
+    where o.project_id=${ids.project}::uuid
+      and o.revision_id=${document.revisionId}::uuid
+    `;
+    await assertSqlState(
+      session(
+        owner,
+        "lukas_drawing_collaboration",
+        null,
+        (tx) => tx`
+          select * from private.lukas_drawing_collaboration_service_store_state(
+            ${ids.project}::uuid,${document.revisionId}::uuid,1::smallint,
+            ${Buffer.from([0x30])}::bytea,
+            ${BigInt(sequence.sequence) + 1n}::bigint,0::bigint,null
+          )
+        `,
+      ),
+      "P3S01",
+    );
+    const initialState = Buffer.from([0x31, 0x48, 0x4b]);
+    const initialSha256 = createHash("sha256").update(initialState).digest("hex");
+    const [initial] = await session(
+      owner,
+      "lukas_drawing_collaboration",
+      null,
+      (tx) => tx`
+        select * from private.lukas_drawing_collaboration_service_store_state(
+          ${ids.project}::uuid,${document.revisionId}::uuid,1::smallint,
+          ${initialState}::bytea,${sequence.sequence}::bigint,0::bigint,null
+        )
+      `,
+    );
+    assert.equal(initial.revision_id, document.revisionId);
+    assert.equal(initial.project_id, ids.project);
+    assert.equal(Number(initial.base_operation_sequence), Number(sequence.sequence));
+    assert.equal(Number(initial.store_generation), 1);
+    assert.equal(initial.yjs_sha256, initialSha256);
+    assert.deepEqual(Buffer.from(initial.yjs_state), initialState);
+    assert.equal(Number(initial.byte_size), initialState.byteLength);
+
+    const updatedState = Buffer.from([0x31, 0x48, 0x4b, 0x32]);
+    const updatedSha256 = createHash("sha256").update(updatedState).digest("hex");
+    const [updated] = await session(
+      owner,
+      "lukas_drawing_collaboration",
+      null,
+      (tx) => tx`
+        select * from private.lukas_drawing_collaboration_service_store_state(
+          ${ids.project}::uuid,${document.revisionId}::uuid,1::smallint,
+          ${updatedState}::bytea,${sequence.sequence}::bigint,
+          ${initial.store_generation}::bigint,${initial.yjs_sha256}
+        )
+      `,
+    );
+    assert.equal(Number(updated.store_generation), 2);
+    assert.equal(updated.yjs_sha256, updatedSha256);
+    assert.deepEqual(Buffer.from(updated.yjs_state), updatedState);
+    const [persisted] = await owner`
+      select yjs_state,yjs_sha256,store_generation,base_operation_sequence,byte_size
+      from private.lukas_drawing_collaboration_states
+      where project_id=${ids.project}::uuid
+        and revision_id=${document.revisionId}::uuid
+    `;
+    assert.equal(Number(persisted.store_generation), 2);
+    assert.equal(Number(persisted.base_operation_sequence), Number(sequence.sequence));
+    assert.equal(persisted.yjs_sha256, updatedSha256);
+    assert.equal(Number(persisted.byte_size), updatedState.byteLength);
+    assert.deepEqual(Buffer.from(persisted.yjs_state), updatedState);
   }
 
   async function proveAuthenticatedEditorOperationBoundary(owner, ids, document) {
@@ -1424,6 +1533,7 @@ if (!databaseUrl) {
         const concurrent = await proveCreationConcurrencyAndIdentity(
           owner,workerA,workerB,ids,
         );
+        await proveCollaborationServiceStoreSuccess(owner, ids, concurrent);
         await proveAuthenticatedEditorOperationBoundary(owner, ids, concurrent);
         await proveBindingAndPurge(owner, ids, concurrent);
         await proveStarterRollback(owner, ids);
