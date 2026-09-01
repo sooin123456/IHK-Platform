@@ -218,6 +218,21 @@ export function createProcessLifecycle({
 } = {}) {
   if (!Number.isInteger(escalationMilliseconds) || escalationMilliseconds < 1)
     throw new Error("M1 process escalation interval is invalid");
+  let ownProcessGroupId = null;
+  if (process.platform !== "win32") {
+    try {
+      ownProcessGroupId = Number(
+        execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim(),
+      );
+    } catch {
+      throw new Error("M1 could not establish its process-group boundary");
+    }
+    if (!Number.isInteger(ownProcessGroupId) || ownProcessGroupId < 1)
+      throw new Error("M1 could not establish its process-group boundary");
+  }
   const children = new Map();
   const terminationCompletions = new Set();
   let interruptedBy = null;
@@ -232,7 +247,7 @@ export function createProcessLifecycle({
   };
   const groupAlive = (entry) => {
     try {
-      process.kill(-entry.child.pid, 0);
+      process.kill(-entry.groupId, 0);
       return true;
     } catch (error) {
       if (error?.code === "ESRCH") return false;
@@ -242,7 +257,7 @@ export function createProcessLifecycle({
   };
   const signalEntry = (entry, signal) => {
     try {
-      if (entry.processGroup) process.kill(-entry.child.pid, signal);
+      if (entry.processGroup) process.kill(-entry.groupId, signal);
       else entry.child.kill(signal);
     } catch (error) {
       if (error?.code !== "ESRCH") {
@@ -324,17 +339,26 @@ export function createProcessLifecycle({
         resolve = accept;
         reject = decline;
       });
+      const groupId =
+        processGroup &&
+        process.platform !== "win32" &&
+        Number.isInteger(child.pid) &&
+        child.pid > 0
+          ? child.pid
+          : null;
+      if (
+        groupId !== null &&
+        (groupId === ownProcessGroupId || groupId === process.pid)
+      )
+        throw new Error("M1 refuses to track its own process group");
       const entry = {
         child,
         completion,
         escalationTimer: null,
+        groupId,
         hardStopTimer: null,
         probeTimer: null,
-        processGroup:
-          processGroup &&
-          process.platform !== "win32" &&
-          Number.isInteger(child.pid) &&
-          child.pid > 0,
+        processGroup: groupId !== null,
         reject,
         resolve,
         terminating: false,
@@ -342,12 +366,24 @@ export function createProcessLifecycle({
       children.set(child, entry);
       return () => {
         if (!children.has(child)) return;
-        if (entry.terminating && entry.processGroup) {
-          probeGroup(entry);
-          return;
+        if (entry.processGroup) {
+          try {
+            if (groupAlive(entry)) {
+              probeGroup(entry);
+              return;
+            }
+          } catch (error) {
+            settle(entry, error);
+            return;
+          }
         }
         settle(entry);
       };
+    },
+    async terminateTracked() {
+      const pending = [...children.values()];
+      for (const entry of pending) terminate(entry);
+      await Promise.all(pending.map((entry) => entry.completion));
     },
     async waitForTermination() {
       const pending = [...terminationCompletions];
@@ -722,12 +758,10 @@ async function main() {
     primaryError = error;
   } finally {
     const cleanupErrors = [];
-    if (lifecycle.signal) {
-      try {
-        await lifecycle.waitForTermination();
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      await lifecycle.terminateTracked();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
     if (root && projectId) {
       try {
@@ -736,20 +770,25 @@ async function main() {
           root,
           projectReady,
           startAttempted,
-          stop: () =>
-            runChildProcess(
-              "supabase",
-              [
-                "stop",
-                "--no-backup",
-                "--project-id",
-                projectId,
-                "--workdir",
-                root,
-              ],
-              process.env,
-              { allowAfterSignal: true, lifecycle, sensitive: true },
-            ),
+          stop: async () => {
+            try {
+              return await runChildProcess(
+                "supabase",
+                [
+                  "stop",
+                  "--no-backup",
+                  "--project-id",
+                  projectId,
+                  "--workdir",
+                  root,
+                ],
+                process.env,
+                { allowAfterSignal: true, lifecycle, sensitive: true },
+              );
+            } finally {
+              await lifecycle.terminateTracked();
+            }
+          },
         });
       } catch (error) {
         cleanupErrors.push(error);

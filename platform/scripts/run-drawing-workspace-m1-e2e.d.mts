@@ -50,6 +50,7 @@ export function createProcessLifecycle(options?: {
   assertCanStart(allowAfterSignal?: boolean): void;
   requestSignal(signal: NodeJS.Signals): void;
   track(child: TrackedChild, options?: { processGroup?: boolean }): () => void;
+  terminateTracked(): Promise<void>;
   waitForTermination(): Promise<void>;
 };
 

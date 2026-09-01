@@ -6,7 +6,7 @@ begin;
 -- ordinary nested drawing deletes.
 create or replace function private.lukas_drawing_draft_child_guard()
 returns trigger
-language plpgsql security definer
+language plpgsql security invoker
 set search_path = ''
 as $$
 declare

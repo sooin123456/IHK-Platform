@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -297,6 +298,24 @@ test("signal state terminates the tracked child and blocks ordinary new work", (
   assert.doesNotThrow(() => lifecycle.assertCanStart(true));
 });
 
+test("process lifecycle refuses its own POSIX process group", () => {
+  if (process.platform === "win32") return;
+  const ownProcessGroupId = Number(
+    execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+      encoding: "utf8",
+    }).trim(),
+  );
+  const lifecycle = createProcessLifecycle();
+  assert.throws(
+    () =>
+      lifecycle.track(
+        { pid: ownProcessGroupId, kill: () => true },
+        { processGroup: true },
+      ),
+    /own process group/,
+  );
+});
+
 test("signal termination kills the isolated parent and grandchild process group before cleanup", async () => {
   if (process.platform === "win32") return;
   const root = realpathSync(
@@ -367,6 +386,90 @@ test("signal termination kills the isolated parent and grandchild process group 
     rmSync(root, { recursive: true });
   }
 });
+
+test(
+  "normal leader exit retains and reaps its live process group before lifecycle cleanup",
+  { timeout: 5_000 },
+  async () => {
+    if (process.platform === "win32") return;
+    const root = realpathSync(
+      mkdtempSync(path.join(tmpdir(), "1hk-m1-orphaned-process-group-")),
+    );
+    const pidPath = path.join(root, "pids.json");
+    const readyPath = path.join(root, "grandchild-ready");
+    const grandchildSource = [
+      'const { writeFileSync } = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      'writeFileSync(process.argv[1], "ready");',
+      "setInterval(() => {}, 1000);",
+    ].join("");
+    const parentSource = [
+      'const { spawn } = require("node:child_process");',
+      'const { writeFileSync } = require("node:fs");',
+      "const grandchild = spawn(process.execPath,",
+      `["-e", ${JSON.stringify(grandchildSource)}, process.argv[2]],`,
+      '{ stdio: "ignore" });',
+      "writeFileSync(process.argv[1], JSON.stringify({",
+      "  parent: process.pid, grandchild: grandchild.pid",
+      "}));",
+      "grandchild.unref();",
+    ].join("");
+    const lifecycle = createProcessLifecycle({ escalationMilliseconds: 100 });
+    let pids;
+    const isAlive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        if (error?.code === "ESRCH") return false;
+        throw error;
+      }
+    };
+    try {
+      await runChildProcess(
+        process.execPath,
+        ["-e", parentSource, pidPath, readyPath],
+        process.env,
+        { lifecycle },
+      );
+      const deadline = Date.now() + 5_000;
+      while (
+        (!existsSync(pidPath) || !existsSync(readyPath)) &&
+        Date.now() < deadline
+      )
+        await delay(10);
+      assert.equal(
+        existsSync(pidPath) && existsSync(readyPath),
+        true,
+        "independent descendant did not become ready",
+      );
+      pids = JSON.parse(readFileSync(pidPath, "utf8"));
+      assert.equal(isAlive(pids.parent), false);
+      assert.equal(isAlive(pids.grandchild), true);
+
+      await lifecycle.terminateTracked();
+
+      assert.equal(isAlive(pids.grandchild), false);
+    } finally {
+      await lifecycle.terminateTracked?.().catch(() => {});
+      if (pids?.grandchild && isAlive(pids.grandchild))
+        process.kill(pids.grandchild, "SIGKILL");
+      rmSync(root, { recursive: true });
+    }
+  },
+);
+
+test(
+  "normal command without descendants completes and leaves no lifecycle work",
+  { timeout: 2_000 },
+  async () => {
+    const lifecycle = createProcessLifecycle({ escalationMilliseconds: 100 });
+    await runChildProcess(process.execPath, ["-e", ""], process.env, {
+      lifecycle,
+    });
+    await lifecycle.terminateTracked();
+  },
+);
 
 test("a child failure after SIGINT retains the interrupt exit identity", () => {
   const childFailure = new Error("child exited after termination");

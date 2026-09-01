@@ -649,7 +649,13 @@ if (!databaseUrl) {
       where revision_id=${purgeDocument.revisionId}::uuid
       order by sort_order,id limit 1
     `;
+    const [purgePage] = await owner`
+      select id from public.lukas_drawing_pages
+      where revision_id=${purgeDocument.revisionId}::uuid
+      order by sort_order,id limit 1
+    `;
     assert.ok(purgeLayer?.id, "purge fixture layer is required");
+    assert.ok(purgePage?.id, "purge fixture page is required");
     await assertSqlState(
       owner.begin(async (tx) => {
         await tx`select pg_catalog.set_config(
@@ -680,7 +686,30 @@ if (!databaseUrl) {
       }),
       "P0001",
     );
+    await assertSqlState(
+      owner.begin(async (tx) => {
+        await tx`select pg_catalog.set_config(
+          'request.jwt.claims','{"role":"service_role"}',true
+        )`;
+        await tx`select pg_catalog.set_config(
+          'app.lukas_retention_purge_project',${ids.purgeProject},true
+        )`;
+        return tx`
+          delete from public.lukas_drawing_pages
+          where id=${purgePage.id}::uuid
+        `;
+      }),
+      "P0001",
+    );
     await owner.begin(async (tx) => {
+      const [draftGuardSecurity] = await tx`
+        select p.prosecdef security_definer
+        from pg_catalog.pg_proc p
+        join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='private'
+          and p.proname='lukas_drawing_draft_child_guard'
+      `;
+      assert.deepEqual(draftGuardSecurity, { security_definer: false });
       const guardOwners = await tx`
         select c.relname,current_user,
           pg_catalog.pg_get_userbyid(c.relowner) table_owner
@@ -688,13 +717,17 @@ if (!databaseUrl) {
         join pg_catalog.pg_namespace n on n.oid=c.relnamespace
         where n.nspname='public'
           and c.relname in(
-            'lukas_drawing_layers','lukas_drawing_estimate_bindings'
+            'lukas_drawing_pages','lukas_drawing_layers',
+            'lukas_drawing_estimate_bindings'
           )
         order by c.relname
       `;
       assert.deepEqual(
         guardOwners.map(({ relname }) => relname),
-        ["lukas_drawing_estimate_bindings","lukas_drawing_layers"],
+        [
+          "lukas_drawing_estimate_bindings","lukas_drawing_layers",
+          "lukas_drawing_pages",
+        ],
       );
       assert.deepEqual(
         guardOwners.map(({ relname,current_user,table_owner }) => ({
@@ -710,6 +743,9 @@ if (!databaseUrl) {
         ) on commit drop;
         create temporary table m1_nested_binding_probe(
           binding_id uuid primary key
+        ) on commit drop;
+        create temporary table m1_nested_draft_probe(
+          page_id uuid primary key
         ) on commit drop;
         create function pg_temp.m1_nested_purge_delete()
         returns trigger language plpgsql set search_path='' as $m1$
@@ -732,6 +768,16 @@ if (!databaseUrl) {
         create trigger m1_nested_binding_delete
         before delete on m1_nested_binding_probe
         for each row execute function pg_temp.m1_nested_binding_delete();
+        create function pg_temp.m1_nested_draft_delete()
+        returns trigger language plpgsql set search_path='' as $m1$
+        begin
+          delete from public.lukas_drawing_pages where id=old.page_id;
+          return old;
+        end
+        $m1$;
+        create trigger m1_nested_draft_delete
+        before delete on m1_nested_draft_probe
+        for each row execute function pg_temp.m1_nested_draft_delete();
       `);
       await tx`
         insert into m1_nested_purge_probe(layer_id)
@@ -740,6 +786,10 @@ if (!databaseUrl) {
       await tx`
         insert into m1_nested_binding_probe(binding_id)
         values(${ids.bindings[4]}::uuid)
+      `;
+      await tx`
+        insert into m1_nested_draft_probe(page_id)
+        values(${purgePage.id}::uuid)
       `;
       await tx`select pg_catalog.set_config(
         'app.lukas_retention_purge_project',${ids.purgeProject},true
@@ -757,6 +807,13 @@ if (!databaseUrl) {
         `),
         "P1C01",
       );
+      await assertSqlState(
+        tx.savepoint((sp) => sp`
+          delete from m1_nested_draft_probe
+          where page_id=${purgePage.id}::uuid
+        `),
+        "P0001",
+      );
       const [attackResidue] = await tx`
         select
           (select pg_catalog.count(*)::integer
@@ -765,9 +822,14 @@ if (!databaseUrl) {
            from public.lukas_drawing_estimate_bindings
            where id=${ids.bindings[4]}::uuid) bindings,
           (select pg_catalog.count(*)::integer
+           from public.lukas_drawing_pages where id=${purgePage.id}::uuid) pages,
+          (select pg_catalog.count(*)::integer
            from public.lukas_qto_projects where id=${ids.purgeProject}::uuid) projects
       `;
-      assert.deepEqual(attackResidue, { layers: 1, bindings: 1, projects: 1 });
+      assert.deepEqual(
+        attackResidue,
+        { layers: 1, bindings: 1, pages: 1, projects: 1 },
+      );
     });
     await session(owner, "authenticated", ids.users.owner, async (tx) => {
       await tx`
@@ -799,9 +861,11 @@ if (!databaseUrl) {
         (select pg_catalog.count(*)::integer from public.lukas_qto_projects
           where id=${ids.purgeProject}::uuid) projects,
         (select pg_catalog.count(*)::integer from public.lukas_drawing_estimate_bindings
-          where id=${ids.bindings[4]}::uuid) bindings
+          where id=${ids.bindings[4]}::uuid) bindings,
+        (select pg_catalog.count(*)::integer from public.lukas_drawing_pages
+          where id=${purgePage.id}::uuid) pages
     `;
-    assert.deepEqual(counts, { projects: 0, bindings: 0 });
+    assert.deepEqual(counts, { projects: 0, bindings: 0, pages: 0 });
   }
 
   async function proveStarterRollback(owner, ids) {
