@@ -756,7 +756,8 @@ test.describe
           const result = await fixture.admin
             .from("lukas_drawing_objects")
             .select("id", { count: "exact", head: true })
-            .in("id", classificationOnlyObjectIds);
+            .in("id", classificationOnlyObjectIds)
+            .eq("status", "active");
           if (result.error) throw result.error;
           return result.count;
         })
@@ -799,7 +800,8 @@ test.describe
           const result = await fixture.admin
             .from("lukas_drawing_objects")
             .select("id", { count: "exact", head: true })
-            .eq("id", missingRateObjectId);
+            .eq("id", missingRateObjectId)
+            .eq("status", "active");
           if (result.error) throw result.error;
           return result.count;
         })
