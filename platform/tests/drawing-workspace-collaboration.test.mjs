@@ -41,6 +41,7 @@ const ids = {
   area: "00000000-0000-4000-8000-000000000612",
   semanticOperationA: "00000000-0000-4000-8000-000000000613",
   semanticOperationB: "00000000-0000-4000-8000-000000000614",
+  propertyValue: "00000000-0000-4000-8000-000000000615",
 };
 
 const operation = {
@@ -761,8 +762,19 @@ test("authoritative outcomes repair committed-unshared operations and clear the 
   ]);
 });
 
-test("workspace collaboration bootstrap is one authenticated transactional RPC", async () => {
+test("workspace collaboration bootstrap preserves deleted result tombstones", async () => {
   const calls = [];
+  const deletedOutcome = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    operationType: "mutate_objects_with_references",
+    baseVersions: { [ids.object]: 2, [ids.propertyValue]: 1 },
+    forward: {},
+    inverse: {},
+    sequence: 7,
+    resultVersions: { [ids.object]: null, [ids.propertyValue]: null },
+  };
   const client = {
     async rpc(name, args) {
       calls.push([name, args]);
@@ -797,7 +809,7 @@ test("workspace collaboration bootstrap is one authenticated transactional RPC",
           revisionStatus: "draft",
           capability: "editor",
           canWrite: true,
-          recentOutcomes: [],
+          recentOutcomes: [deletedOutcome],
         },
         error: null,
       };
@@ -812,6 +824,7 @@ test("workspace collaboration bootstrap is one authenticated transactional RPC",
   ]);
   assert.equal(bootstrap.operationSequence, 7);
   assert.equal(bootstrap.canonicalJson.revision.id, ids.revision);
+  assert.deepEqual(bootstrap.recentOutcomes, [deletedOutcome]);
 });
 
 test("snapshot bootstrap sources are strict canonical evidence before client hydration", async () => {

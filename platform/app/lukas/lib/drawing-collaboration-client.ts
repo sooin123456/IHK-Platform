@@ -39,7 +39,7 @@ export type DrawingCollaborationRecentOutcome = {
   originalOperationId?: string;
   historyAction?: "undo" | "redo";
   sequence: number;
-  resultVersions: Record<string, number>;
+  resultVersions: Record<string, number | null>;
 };
 
 export type DrawingCollaborationConnection = {

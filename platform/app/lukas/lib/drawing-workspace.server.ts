@@ -1322,7 +1322,7 @@ const CollaborationRecentOutcomeSchema = z
     originalOperationId: Uuid.optional(),
     historyAction: z.enum(["undo", "redo"]).optional(),
     sequence: z.number().int().positive(),
-    resultVersions: z.record(Uuid, z.number().int().positive()),
+    resultVersions: z.record(Uuid, z.number().int().positive().nullable()),
   })
   .strict()
   .superRefine((value, context) => {
