@@ -74,8 +74,6 @@ if (!databaseUrl) {
       create schema storage;
       create extension pgcrypto with schema extensions;
       alter default privileges in schema public
-        grant all on tables to anon,authenticated,service_role;
-      alter default privileges in schema public
         grant all on sequences to anon,authenticated,service_role;
       alter default privileges in schema public
         grant all on functions to anon,authenticated,service_role;
@@ -327,6 +325,53 @@ if (!databaseUrl) {
   }
 
   async function provePrivilegeMatrix(sql, ids) {
+    const dataApiTableMatrix = {
+      "public.lukas_qto_projects": {
+        select: true,insert: true,update: true,delete: false,
+      },
+      "public.lukas_qto_files": {
+        select: true,insert: true,update: false,delete: true,
+      },
+      "public.lukas_qto_reviews": {
+        select: true,insert: true,update: false,delete: false,
+      },
+      "public.lukas_qto_shares": {
+        select: true,insert: true,update: true,delete: true,
+      },
+      "public.profiles": {
+        select: true,insert: false,update: true,delete: true,
+      },
+      "public.payments": {
+        select: true,insert: false,update: false,delete: false,
+      },
+    };
+    for (const [table, expectedDml] of Object.entries(dataApiTableMatrix)) {
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        const [actual] = await sql`
+          select
+            pg_catalog.has_table_privilege(${role},${table},'SELECT') "select",
+            pg_catalog.has_table_privilege(${role},${table},'INSERT') "insert",
+            pg_catalog.has_table_privilege(${role},${table},'UPDATE') "update",
+            pg_catalog.has_table_privilege(${role},${table},'DELETE') "delete",
+            pg_catalog.has_table_privilege(${role},${table},'TRUNCATE') "truncate",
+            pg_catalog.has_table_privilege(${role},${table},'REFERENCES') "references",
+            pg_catalog.has_table_privilege(${role},${table},'TRIGGER') "trigger"
+        `;
+        assert.deepEqual(
+          actual,
+          role === "anon"
+            ? {
+                select: false,insert: false,update: false,delete: false,
+                truncate: false,references: false,trigger: false,
+              }
+            : {
+                ...expectedDml,
+                truncate: false,references: false,trigger: false,
+              },
+          `${role} ${table}`,
+        );
+      }
+    }
     const tableMatrix = {
       anon: {
         select: false,insert: false,update: false,delete: false,
