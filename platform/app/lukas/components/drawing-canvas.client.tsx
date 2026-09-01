@@ -3815,6 +3815,7 @@ export const DrawingCanvas = forwardRef<
           .length
       }
       data-remote-selection-count={remoteSelections.length}
+      data-selected-object-id={selectedObjects[0]?.id ?? ""}
       data-selected-object-name={selectedObjects[0]?.name ?? ""}
       data-selection-count={selectionState.selectedIds.length}
       data-viewport-x={viewport.x}

@@ -23,6 +23,9 @@ begin
      and pg_catalog.current_setting(
        'app.lukas_retention_purge_project', true
      ) = old.project_id::text
+     and current_user = pg_catalog.pg_get_userbyid(
+       (select c.relowner from pg_catalog.pg_class c where c.oid = tg_relid)
+     )
      and not exists (
        select 1 from public.lukas_qto_projects p
        where p.id = old.project_id
@@ -66,6 +69,9 @@ begin
     and pg_catalog.current_setting(
       'app.lukas_retention_purge_project',true
     )=old.project_id::text
+    and current_user=pg_catalog.pg_get_userbyid(
+      (select c.relowner from pg_catalog.pg_class c where c.oid=tg_relid)
+    )
     and not exists(
       select 1 from public.lukas_qto_projects p
       where p.id=old.project_id

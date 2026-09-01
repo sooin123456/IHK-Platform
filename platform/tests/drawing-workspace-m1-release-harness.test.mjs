@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   assertDisposableCleanupTarget,
@@ -294,6 +295,77 @@ test("signal state terminates the tracked child and blocks ordinary new work", (
   assert.deepEqual(killed, ["SIGTERM"]);
   assert.throws(() => lifecycle.assertCanStart(false), /SIGTERM/);
   assert.doesNotThrow(() => lifecycle.assertCanStart(true));
+});
+
+test("signal termination kills the isolated parent and grandchild process group before cleanup", async () => {
+  if (process.platform === "win32") return;
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-process-group-")),
+  );
+  const pidPath = path.join(root, "pids.json");
+  const readyPath = path.join(root, "grandchild-ready");
+  const grandchildSource = [
+    'const { writeFileSync } = require("node:fs");',
+    'process.on("SIGTERM", () => {});',
+    'writeFileSync(process.argv[1], "ready");',
+    "setInterval(() => {}, 1000);",
+  ].join("");
+  const parentSource = [
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    "const grandchild = spawn(process.execPath,",
+    `["-e", ${JSON.stringify(grandchildSource)}, process.argv[2]],`,
+    '{ stdio: "ignore" });',
+    "writeFileSync(process.argv[1], JSON.stringify({",
+    "  parent: process.pid, grandchild: grandchild.pid",
+    "}));",
+    "setInterval(() => {}, 1000);",
+  ].join("");
+  const lifecycle = createProcessLifecycle({ escalationMilliseconds: 100 });
+  const childRun = runChildProcess(
+    process.execPath,
+    ["-e", parentSource, pidPath, readyPath],
+    process.env,
+    { lifecycle },
+  );
+  try {
+    const deadline = Date.now() + 5_000;
+    while (
+      (!existsSync(pidPath) || !existsSync(readyPath)) &&
+      Date.now() < deadline
+    )
+      await delay(10);
+    assert.equal(
+      existsSync(pidPath) && existsSync(readyPath),
+      true,
+      "child hierarchy did not become signal-ready",
+    );
+    const pids = JSON.parse(readFileSync(pidPath, "utf8"));
+    const isAlive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        if (error?.code === "ESRCH") return false;
+        throw error;
+      }
+    };
+    assert.equal(isAlive(pids.parent), true);
+    assert.equal(isAlive(pids.grandchild), true);
+
+    lifecycle.requestSignal("SIGINT");
+    await assert.rejects(childRun, /signal SIGTERM|signal SIGKILL/);
+    await lifecycle.waitForTermination();
+
+    assert.equal(isAlive(pids.parent), false);
+    assert.equal(isAlive(pids.grandchild), false);
+    assert.equal(lifecycle.signal, "SIGINT");
+  } finally {
+    lifecycle.requestSignal("SIGTERM");
+    await childRun.catch(() => {});
+    await lifecycle.waitForTermination().catch(() => {});
+    rmSync(root, { recursive: true });
+  }
 });
 
 test("a child failure after SIGINT retains the interrupt exit identity", () => {

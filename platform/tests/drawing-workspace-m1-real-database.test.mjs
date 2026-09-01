@@ -681,9 +681,35 @@ if (!databaseUrl) {
       "P0001",
     );
     await owner.begin(async (tx) => {
+      const guardOwners = await tx`
+        select c.relname,current_user,
+          pg_catalog.pg_get_userbyid(c.relowner) table_owner
+        from pg_catalog.pg_class c
+        join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='public'
+          and c.relname in(
+            'lukas_drawing_layers','lukas_drawing_estimate_bindings'
+          )
+        order by c.relname
+      `;
+      assert.deepEqual(
+        guardOwners.map(({ relname }) => relname),
+        ["lukas_drawing_estimate_bindings","lukas_drawing_layers"],
+      );
+      assert.deepEqual(
+        guardOwners.map(({ relname,current_user,table_owner }) => ({
+          relname,current_user,table_owner,
+        })),
+        guardOwners.map(({ relname,current_user }) => ({
+          relname,current_user,table_owner:current_user,
+        })),
+      );
       await tx.unsafe(`
         create temporary table m1_nested_purge_probe(
           layer_id uuid primary key
+        ) on commit drop;
+        create temporary table m1_nested_binding_probe(
+          binding_id uuid primary key
         ) on commit drop;
         create function pg_temp.m1_nested_purge_delete()
         returns trigger language plpgsql set search_path='' as $m1$
@@ -695,10 +721,25 @@ if (!databaseUrl) {
         create trigger m1_nested_purge_delete
         before delete on m1_nested_purge_probe
         for each row execute function pg_temp.m1_nested_purge_delete();
+        create function pg_temp.m1_nested_binding_delete()
+        returns trigger language plpgsql set search_path='' as $m1$
+        begin
+          delete from public.lukas_drawing_estimate_bindings
+          where id=old.binding_id;
+          return old;
+        end
+        $m1$;
+        create trigger m1_nested_binding_delete
+        before delete on m1_nested_binding_probe
+        for each row execute function pg_temp.m1_nested_binding_delete();
       `);
       await tx`
         insert into m1_nested_purge_probe(layer_id)
         values(${purgeLayer.id}::uuid)
+      `;
+      await tx`
+        insert into m1_nested_binding_probe(binding_id)
+        values(${ids.bindings[4]}::uuid)
       `;
       await tx`select pg_catalog.set_config(
         'app.lukas_retention_purge_project',${ids.purgeProject},true
@@ -708,6 +749,13 @@ if (!databaseUrl) {
           delete from m1_nested_purge_probe where layer_id=${purgeLayer.id}::uuid
         `),
         "P0001",
+      );
+      await assertSqlState(
+        tx.savepoint((sp) => sp`
+          delete from m1_nested_binding_probe
+          where binding_id=${ids.bindings[4]}::uuid
+        `),
+        "P1C01",
       );
       const [attackResidue] = await tx`
         select

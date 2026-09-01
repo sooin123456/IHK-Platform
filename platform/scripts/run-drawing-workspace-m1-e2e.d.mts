@@ -39,14 +39,18 @@ export function verifyDisposableSupabaseAuthority(
 ): ReturnType<typeof assertM1LoopbackEnvironment>;
 
 type TrackedChild = {
+  pid?: number;
   kill(signal?: NodeJS.Signals): boolean;
 };
 
-export function createProcessLifecycle(): {
+export function createProcessLifecycle(options?: {
+  escalationMilliseconds?: number;
+}): {
   readonly signal: NodeJS.Signals | null;
   assertCanStart(allowAfterSignal?: boolean): void;
   requestSignal(signal: NodeJS.Signals): void;
-  track(child: TrackedChild): () => void;
+  track(child: TrackedChild, options?: { processGroup?: boolean }): () => void;
+  waitForTermination(): Promise<void>;
 };
 
 export function interruptedError<T extends Error>(

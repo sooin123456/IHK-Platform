@@ -20,6 +20,7 @@ import {
 } from "./utils/drawing-collaboration-fixture";
 import {
   createDrawingEstimatorFixture,
+  removeEstimatorNegativeLine,
   seedEstimatorBoqStructure,
   type DrawingEstimatorFixture,
 } from "./utils/drawing-estimator-fixture";
@@ -117,6 +118,59 @@ async function drawingSurfacePoint(
     x: box.x + Number(viewportX) + world.x * Number(viewportZoom),
     y: box.y + Number(viewportY) + world.y * Number(viewportZoom),
   };
+}
+
+async function drawingSurfaceState(surface: Locator) {
+  const [x, y, zoom, selectedObjectId, selectedObjectName] = await Promise.all([
+    surface.getAttribute("data-viewport-x"),
+    surface.getAttribute("data-viewport-y"),
+    surface.getAttribute("data-viewport-zoom"),
+    surface.getAttribute("data-selected-object-id"),
+    surface.getAttribute("data-selected-object-name"),
+  ]);
+  return {
+    x: Number(x),
+    y: Number(y),
+    zoom: Number(zoom),
+    selectedObjectId: selectedObjectId ?? "",
+    selectedObjectName: selectedObjectName ?? "",
+  };
+}
+
+async function recordInteractionFrames(
+  page: Page,
+  interact: () => Promise<void>,
+) {
+  await page.evaluate(() => {
+    const recording = {
+      complete: false,
+      frameTimesMilliseconds: [] as number[],
+    };
+    (globalThis as any).__m1InteractionRecording = recording;
+    let prior = performance.now();
+    const sample = (timestamp: number) => {
+      recording.frameTimesMilliseconds.push(timestamp - prior);
+      prior = timestamp;
+      if (recording.frameTimesMilliseconds.length < 24)
+        requestAnimationFrame(sample);
+      else recording.complete = true;
+    };
+    requestAnimationFrame(sample);
+  });
+  await interact();
+  return page.evaluate(async () => {
+    const recording = (globalThis as any).__m1InteractionRecording as {
+      complete: boolean;
+      frameTimesMilliseconds: number[];
+    };
+    if (!recording)
+      throw new Error("M1 interaction RAF recording was not initialized");
+    while (!recording.complete)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    return recording.frameTimesMilliseconds;
+  });
 }
 
 async function drawLine(
@@ -641,8 +695,8 @@ test.describe
         area: id("M1 F-001 바닥"),
         count: id("M1 D-001 문"),
       };
-      const temporaryObjectIds = [
-        id("M1 임시 천장"),
+      const missingRateObjectId = id("M1 임시 천장");
+      const classificationOnlyObjectIds = [
         id("M1 임시 창호"),
         id("M1 임시 가구"),
         id("M1 임시 철거"),
@@ -686,6 +740,22 @@ test.describe
         ),
       });
 
+      for (const objectId of classificationOnlyObjectIds) {
+        await selectObject(page, objectId);
+        await page.keyboard.press("Backspace");
+        await waitUntilSaved(page);
+      }
+      await expect
+        .poll(async () => {
+          const result = await fixture.admin
+            .from("lukas_drawing_objects")
+            .select("id", { count: "exact", head: true })
+            .in("id", classificationOnlyObjectIds);
+          if (result.error) throw result.error;
+          return result.count;
+        })
+        .toBe(0);
+
       await openResultRail(page);
       await importCompanyRatesAndCreateBoq(page, fixture);
       boqVersionId = new URL(page.url()).searchParams.get("version") ?? "";
@@ -698,30 +768,48 @@ test.describe
       ).toBeVisible();
       const missingRateRow = estimateRow(page, "M1-C-001");
       await expect(missingRateRow).toHaveCount(1);
+      await expect(page.getByLabel("단가 누락 1건")).toBeVisible();
+      await expect(page.getByLabel("근거 누락 1건")).toBeVisible();
       await expect(
         missingRateRow.getByText("근거 누락", { exact: true }),
       ).toBeVisible();
       await expect(missingRateRow).toContainText(
-        "검토 필요: BOQ 품목 코드가 없습니다",
+        "검토 필요: 단가 자원 연결이 없습니다",
       );
+      await expect(estimateValue(missingRateRow, "수량")).toHaveText("0.15 m");
       await expect(estimateValue(missingRateRow, "단가")).toHaveText("—");
       await expect(estimateValue(missingRateRow, "금액")).toHaveText("—");
+      await expect(missingRateRow).not.toContainText("0원");
+      await expect(
+        missingRateRow.getByText("확정", { exact: true }),
+      ).toHaveCount(0);
+      await expect(page.getByLabel("총 예상 금액")).toHaveText("153,600원");
 
-      for (const objectId of temporaryObjectIds) {
-        await selectObject(page, objectId);
-        await page.keyboard.press("Backspace");
-        await waitUntilSaved(page);
-      }
+      await selectObject(page, missingRateObjectId);
+      await page.keyboard.press("Backspace");
+      await waitUntilSaved(page);
       await expect
         .poll(async () => {
           const result = await fixture.admin
             .from("lukas_drawing_objects")
             .select("id", { count: "exact", head: true })
-            .in("id", temporaryObjectIds);
+            .eq("id", missingRateObjectId);
           if (result.error) throw result.error;
           return result.count;
         })
         .toBe(0);
+      await removeEstimatorNegativeLine(fixture, {
+        lineId: boqStructure.negativeLineId,
+        versionId: boqVersionId,
+      });
+      const removedNegativeLine = await fixture.admin
+        .from("lukas_qto_boq_lines")
+        .select("id", { count: "exact", head: true })
+        .eq("id", boqStructure.negativeLineId)
+        .eq("project_id", fixture.projectId)
+        .eq("version_id", boqVersionId);
+      if (removedNegativeLine.error) throw removedNegativeLine.error;
+      expect(removedNegativeLine.count).toBe(0);
       await openResultRail(page);
       await expect(page.getByText("M1-C-001", { exact: true })).toHaveCount(0);
       await expectExactEstimateRow(page, {
@@ -1094,6 +1182,16 @@ test.describe
         "Content-Type": "application/json",
         Prefer: "return=representation",
       };
+      const viewerBoqLineBefore = await fixture.admin
+        .from("lukas_qto_boq_lines")
+        .select(
+          "id,item_name,specification,unit,signed_adjustment,adjustment_reason",
+        )
+        .eq("id", boqStructure.lineIdsByCode["W-001"])
+        .eq("project_id", fixture.projectId)
+        .eq("version_id", boqVersionId)
+        .single();
+      if (viewerBoqLineBefore.error) throw viewerBoqLineBefore.error;
       const viewerBoqDatabaseMutation = await viewerContext.request.patch(
         `${process.env.SUPABASE_URL}/rest/v1/lukas_qto_boq_lines?id=eq.${boqStructure.lineIdsByCode["W-001"]}`,
         {
@@ -1101,7 +1199,20 @@ test.describe
           headers: restHeaders,
         },
       );
-      expect(viewerBoqDatabaseMutation.status()).toBe(403);
+      expect(viewerBoqDatabaseMutation.status()).toBe(200);
+      const viewerBoqReturnedRows = await viewerBoqDatabaseMutation.json();
+      expect(viewerBoqReturnedRows).toEqual([]);
+      const viewerBoqLineAfter = await fixture.admin
+        .from("lukas_qto_boq_lines")
+        .select(
+          "id,item_name,specification,unit,signed_adjustment,adjustment_reason",
+        )
+        .eq("id", boqStructure.lineIdsByCode["W-001"])
+        .eq("project_id", fixture.projectId)
+        .eq("version_id", boqVersionId)
+        .single();
+      if (viewerBoqLineAfter.error) throw viewerBoqLineAfter.error;
+      expect(viewerBoqLineAfter.data).toEqual(viewerBoqLineBefore.data);
       const viewerRateMutation = await viewerContext.request.post(
         `${process.env.SUPABASE_URL}/rest/v1/lukas_qto_price_resources`,
         {
@@ -1858,6 +1969,8 @@ test.describe
       const firstUsableMilliseconds = performance.now() - started;
       const selectedObjectId = performanceFixture.objects[0].id;
       const changedSelectionObjectId = performanceFixture.objects[1].id;
+      const selectedObjectName = performanceFixture.objects[0].name;
+      const changedSelectionObjectName = performanceFixture.objects[1].name;
       const surface = page.getByLabel(/도면 화면/);
       const stage = surface.locator(".konvajs-content");
       await expect(stage).toBeVisible();
@@ -1867,44 +1980,69 @@ test.describe
         x: stageBox.x + stageBox.width / 2,
         y: stageBox.y + stageBox.height / 2,
       };
-      await page.evaluate(() => {
-        const recording = {
-          complete: false,
-          samples: [] as number[],
-        };
-        (globalThis as any).__m1RafRecording = recording;
-        let prior = performance.now();
-        const sample = (timestamp: number) => {
-          recording.samples.push(timestamp - prior);
-          prior = timestamp;
-          if (recording.samples.length < 180) requestAnimationFrame(sample);
-          else recording.complete = true;
-        };
-        requestAnimationFrame(sample);
-      });
       await selectObject(page, selectedObjectId);
-      await page.mouse.move(stageCenter.x, stageCenter.y);
-      await page.mouse.wheel(0, -240);
+      await expect(surface).toHaveAttribute(
+        "data-selected-object-id",
+        selectedObjectId,
+      );
+      await expect(surface).toHaveAttribute(
+        "data-selected-object-name",
+        selectedObjectName,
+      );
+      const zoomBefore = await drawingSurfaceState(surface);
+      const zoomFrames = await recordInteractionFrames(page, async () => {
+        await page.mouse.move(stageCenter.x, stageCenter.y);
+        await page.mouse.wheel(0, -240);
+      });
+      await expect
+        .poll(async () => (await drawingSurfaceState(surface)).zoom)
+        .not.toBe(zoomBefore.zoom);
+      const zoomAfter = await drawingSurfaceState(surface);
       await page.getByRole("button", { name: "이동 도구" }).click();
-      await page.mouse.move(stageCenter.x, stageCenter.y);
-      await page.mouse.down();
-      await page.mouse.move(stageCenter.x + 80, stageCenter.y + 40, {
-        steps: 8,
+      const panBefore = await drawingSurfaceState(surface);
+      const panFrames = await recordInteractionFrames(page, async () => {
+        await page.mouse.move(stageCenter.x, stageCenter.y);
+        await page.mouse.down();
+        await page.mouse.move(stageCenter.x + 80, stageCenter.y + 40, {
+          steps: 8,
+        });
+        await page.mouse.up();
       });
-      await page.mouse.up();
-      await selectObject(page, changedSelectionObjectId);
-      const frameTimes = await page.evaluate(async () => {
-        const recording = (globalThis as any).__m1RafRecording as {
-          complete: boolean;
-          samples: number[];
-        };
-        if (!recording) throw new Error("M1 RAF recording was not initialized");
-        while (!recording.complete)
-          await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve()),
-          );
-        return recording.samples.slice(1);
-      });
+      await expect
+        .poll(async () => {
+          const current = await drawingSurfaceState(surface);
+          return `${current.x},${current.y}`;
+        })
+        .not.toBe(`${panBefore.x},${panBefore.y}`);
+      const panAfter = await drawingSurfaceState(surface);
+      await page.getByRole("button", { name: "선택 도구" }).click();
+      const changedSelectionPoint = await drawingSurfacePoint(
+        page,
+        await objectWorldPoint(changedSelectionObjectId),
+      );
+      const selectionBefore = await drawingSurfaceState(surface);
+      const selectionFrames = await recordInteractionFrames(page, () =>
+        page.mouse.click(changedSelectionPoint.x, changedSelectionPoint.y),
+      );
+      await expect(surface).toHaveAttribute(
+        "data-selected-object-id",
+        changedSelectionObjectId,
+      );
+      await expect(surface).toHaveAttribute(
+        "data-selected-object-name",
+        changedSelectionObjectName,
+      );
+      const selectionAfter = await drawingSurfaceState(surface);
+      expect(selectionBefore.selectedObjectId).toBe(selectedObjectId);
+      expect(selectionAfter.selectedObjectId).toBe(changedSelectionObjectId);
+      const interactionFrameTimesMilliseconds = {
+        zoom: zoomFrames,
+        pan: panFrames,
+        selection: selectionFrames,
+      };
+      const frameTimes = Object.values(
+        interactionFrameTimesMilliseconds,
+      ).flat();
       const p50FrameMilliseconds = percentile(frameTimes, 0.5);
       const p95FrameMilliseconds = percentile(frameTimes, 0.95);
       const calculatedFps = 1000 / p95FrameMilliseconds;
@@ -1927,8 +2065,17 @@ test.describe
         fixtureCounts: performanceFixture.counts,
         interactionSequence: {
           changedSelectionObjectId,
+          changedSelectionPoint,
           initialSelectionObjectId: selectedObjectId,
           stageCenter,
+          viewportState: {
+            panAfter,
+            panBefore,
+            selectionAfter,
+            selectionBefore,
+            zoomAfter,
+            zoomBefore,
+          },
           steps: [
             "select first object",
             "wheel zoom on Konva Stage",
@@ -1937,6 +2084,7 @@ test.describe
           ],
         },
         sampleCount: frameTimes.length,
+        interactionFrameTimesMilliseconds,
         frameTimesMilliseconds: frameTimes,
         p50FrameMilliseconds,
         p95FrameMilliseconds,

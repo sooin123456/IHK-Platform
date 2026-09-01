@@ -129,6 +129,47 @@ test("drawing workspace has one complete serial production contract", async () =
     canvas,
     /data-selection-count=\{selectionState\.selectedIds\.length\}/,
   );
+  assert.match(
+    canvas,
+    /data-selected-object-id=\{selectedObjects\[0\]\?\.id \?\? ""\}/,
+  );
+});
+
+test("M1 estimator journey locks negative rate, viewer RLS, and interaction evidence", async () => {
+  const spec = await read("e2e/drawing-workspace-m1-estimator.spec.ts");
+
+  assert.match(spec, /removeEstimatorNegativeLine/);
+  assert.match(spec, /getByLabel\("단가 누락 1건"\)/);
+  assert.match(spec, /getByLabel\("근거 누락 1건"\)/);
+  assert.match(spec, /검토 필요: 단가 자원 연결이 없습니다/);
+  assert.match(spec, /estimateValue\(missingRateRow, "수량"\)[\s\S]*"0\.15 m"/);
+  assert.match(spec, /missingRateRow[\s\S]*not\.toContainText\("0원"\)/);
+  assert.match(
+    spec,
+    /missingRateRow\.getByText\("확정", \{ exact: true \}\)[\s\S]*toHaveCount\(0\)/,
+  );
+
+  assert.match(spec, /Prefer: "return=representation"/);
+  assert.match(
+    spec,
+    /viewerBoqDatabaseMutation[\s\S]*\.status\(\)\)\.toBe\(200\)/,
+  );
+  assert.match(spec, /viewerBoqReturnedRows[\s\S]*toEqual\(\[\]\)/);
+  assert.match(
+    spec,
+    /viewerBoqLineBefore[\s\S]*viewerBoqLineAfter[\s\S]*toEqual/,
+  );
+
+  assert.match(spec, /data-selected-object-id/);
+  assert.match(spec, /zoomBefore[\s\S]*zoomAfter/);
+  assert.match(spec, /panBefore[\s\S]*panAfter/);
+  assert.match(spec, /selectionBefore[\s\S]*selectionAfter/);
+  assert.match(spec, /recordInteractionFrames/);
+  assert.match(spec, /interactionFrameTimesMilliseconds/);
+  assert.match(
+    spec,
+    /const changedSelectionPoint[\s\S]*recordInteractionFrames\([\s\S]*page\.mouse\.click\(changedSelectionPoint\.x, changedSelectionPoint\.y\)/,
+  );
 });
 
 test("release documentation keeps local evidence separate from external gates", async () => {

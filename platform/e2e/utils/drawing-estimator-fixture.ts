@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  authenticateApiClient,
   createDrawingFixture,
   type DrawingFixture,
 } from "./drawing-collaboration-fixture.ts";
@@ -266,6 +267,9 @@ export async function seedEstimatorBoqStructure(
     .single();
   if (version.error || !version.data?.price_book_id)
     throw version.error ?? new Error("M1 UI-created draft BOQ was not found");
+  if (version.data.created_by !== fixture.editor.id)
+    throw new Error("M1 UI-created draft BOQ has an unexpected maker");
+  const estimator = await authenticateApiClient(fixture, fixture.editor);
   const resources = await fixture.admin
     .from("lukas_qto_price_resources")
     .select(
@@ -296,7 +300,7 @@ export async function seedEstimatorBoqStructure(
       throw new Error("M1 browser rate import changed approved resource bytes");
   }
   const sectionId = randomUUID();
-  const section = await fixture.admin.from("lukas_qto_boq_sections").insert({
+  const section = await estimator.from("lukas_qto_boq_sections").insert({
     id: sectionId,
     project_id: fixture.projectId,
     version_id: versionId,
@@ -307,37 +311,40 @@ export async function seedEstimatorBoqStructure(
     created_by: version.data.created_by,
   });
   if (section.error) throw section.error;
-  const lines = ["W-001", "F-001", "D-001"].map((code, sortOrder) => ({
-    id: randomUUID(),
-    project_id: fixture.projectId,
-    version_id: versionId,
-    section_id: sectionId,
-    item_code: code,
-    item_name: expected.get(code)!.name,
-    specification: "",
-    unit: expected.get(code)!.unit,
-    signed_adjustment: 0,
-    adjustment_reason: "",
-    sort_order: sortOrder,
-    created_by: version.data.created_by,
-  }));
-  const lineInsert = await fixture.admin
-    .from("lukas_qto_boq_lines")
-    .insert(lines);
+  const lines = ["W-001", "F-001", "D-001", "M1-C-001"].map(
+    (code, sortOrder) => ({
+      id: randomUUID(),
+      project_id: fixture.projectId,
+      version_id: versionId,
+      section_id: sectionId,
+      item_code: code,
+      item_name:
+        code === "M1-C-001" ? "M1 임시 천장" : expected.get(code)!.name,
+      specification: "",
+      unit: code === "M1-C-001" ? "m" : expected.get(code)!.unit,
+      signed_adjustment: 0,
+      adjustment_reason: "",
+      sort_order: sortOrder,
+      created_by: version.data.created_by,
+    }),
+  );
+  const lineInsert = await estimator.from("lukas_qto_boq_lines").insert(lines);
   if (lineInsert.error) throw lineInsert.error;
   const resourceByCode = new Map(
     resources.data.map((resource) => [resource.resource_code, resource]),
   );
-  const components = lines.map((line) => ({
-    id: randomUUID(),
-    project_id: fixture.projectId,
-    version_id: versionId,
-    line_id: line.id,
-    resource_id: resourceByCode.get(line.item_code)!.id,
-    coefficient: 1,
-    created_by: version.data.created_by,
-  }));
-  const componentInsert = await fixture.admin
+  const components = lines
+    .filter((line) => line.item_code !== "M1-C-001")
+    .map((line) => ({
+      id: randomUUID(),
+      project_id: fixture.projectId,
+      version_id: versionId,
+      line_id: line.id,
+      resource_id: resourceByCode.get(line.item_code)!.id,
+      coefficient: 1,
+      created_by: version.data.created_by,
+    }));
+  const componentInsert = await estimator
     .from("lukas_qto_boq_rate_components")
     .insert(components);
   if (componentInsert.error) throw componentInsert.error;
@@ -351,10 +358,58 @@ export async function seedEstimatorBoqStructure(
     lineIdsByCode: Object.fromEntries(
       lines.map((line) => [line.item_code, line.id]),
     ),
+    negativeLineId: lines.find((line) => line.item_code === "M1-C-001")!.id,
     priceBookId: version.data.price_book_id,
     resourceIdsByCode: Object.fromEntries(
       resources.data.map((resource) => [resource.resource_code, resource.id]),
     ),
     sectionId,
   };
+}
+
+export async function removeEstimatorNegativeLine(
+  fixture: DrawingEstimatorFixture,
+  input: { lineId: string; versionId: string },
+) {
+  const { lineId, versionId } = input;
+  const version = await fixture.admin
+    .from("lukas_qto_boq_versions")
+    .select("id")
+    .eq("id", versionId)
+    .eq("project_id", fixture.projectId)
+    .eq("created_by", fixture.editor.id)
+    .eq("status", "draft")
+    .single();
+  if (version.error) throw version.error;
+  const estimator = await authenticateApiClient(fixture, fixture.editor);
+  const line = await fixture.admin
+    .from("lukas_qto_boq_lines")
+    .select("id,item_code,project_id,version_id")
+    .eq("id", lineId)
+    .eq("project_id", fixture.projectId)
+    .eq("version_id", versionId)
+    .eq("item_code", "M1-C-001")
+    .single();
+  if (line.error) throw line.error;
+  const components = await fixture.admin
+    .from("lukas_qto_boq_rate_components")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", fixture.projectId)
+    .eq("version_id", versionId)
+    .eq("line_id", lineId);
+  if (components.error) throw components.error;
+  if (components.count !== 0)
+    throw new Error("M1 negative BOQ line unexpectedly has rate components");
+  const removed = await estimator
+    .from("lukas_qto_boq_lines")
+    .delete()
+    .eq("id", lineId)
+    .eq("project_id", fixture.projectId)
+    .eq("version_id", versionId)
+    .eq("item_code", "M1-C-001")
+    .select("id");
+  if (removed.error || removed.data?.length !== 1)
+    throw (
+      removed.error ?? new Error("M1 negative BOQ line removal was not exact")
+    );
 }

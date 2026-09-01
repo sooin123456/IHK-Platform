@@ -213,15 +213,93 @@ export function assertDisposableCleanupTarget({ projectId, root }) {
   return { configPath, markerPath, resolved };
 }
 
-export function createProcessLifecycle() {
-  const children = new Set();
-  const escalationTimers = new Map();
+export function createProcessLifecycle({
+  escalationMilliseconds = 5_000,
+} = {}) {
+  if (!Number.isInteger(escalationMilliseconds) || escalationMilliseconds < 1)
+    throw new Error("M1 process escalation interval is invalid");
+  const children = new Map();
+  const terminationCompletions = new Set();
   let interruptedBy = null;
-  const untrack = (child) => {
-    children.delete(child);
-    const timer = escalationTimers.get(child);
-    if (timer) clearTimeout(timer);
-    escalationTimers.delete(child);
+  const settle = (entry, error) => {
+    if (!children.has(entry.child)) return;
+    children.delete(entry.child);
+    if (entry.escalationTimer) clearTimeout(entry.escalationTimer);
+    if (entry.probeTimer) clearTimeout(entry.probeTimer);
+    if (entry.hardStopTimer) clearTimeout(entry.hardStopTimer);
+    if (error) entry.reject(error);
+    else entry.resolve();
+  };
+  const groupAlive = (entry) => {
+    try {
+      process.kill(-entry.child.pid, 0);
+      return true;
+    } catch (error) {
+      if (error?.code === "ESRCH") return false;
+      if (error?.code === "EPERM") return true;
+      throw error;
+    }
+  };
+  const signalEntry = (entry, signal) => {
+    try {
+      if (entry.processGroup) process.kill(-entry.child.pid, signal);
+      else entry.child.kill(signal);
+    } catch (error) {
+      if (error?.code !== "ESRCH") {
+        settle(
+          entry,
+          new Error(`M1 could not terminate a tracked process group`, {
+            cause: error,
+          }),
+        );
+      }
+    }
+  };
+  const probeGroup = (entry) => {
+    if (!children.has(entry.child) || !entry.processGroup || entry.probeTimer)
+      return;
+    const check = () => {
+      entry.probeTimer = null;
+      if (!children.has(entry.child)) return;
+      try {
+        if (!groupAlive(entry)) {
+          settle(entry);
+          return;
+        }
+      } catch (error) {
+        settle(entry, error);
+        return;
+      }
+      entry.probeTimer = setTimeout(check, 20);
+    };
+    check();
+  };
+  const terminate = (entry) => {
+    if (entry.terminating) return;
+    entry.terminating = true;
+    terminationCompletions.add(entry.completion);
+    entry.completion.catch(() => {});
+    signalEntry(entry, "SIGTERM");
+    if (!children.has(entry.child)) return;
+    if (entry.processGroup) probeGroup(entry);
+    entry.escalationTimer = setTimeout(() => {
+      if (!children.has(entry.child)) return;
+      signalEntry(entry, "SIGKILL");
+      if (entry.processGroup) probeGroup(entry);
+    }, escalationMilliseconds);
+    if (!entry.processGroup) entry.escalationTimer.unref?.();
+    if (entry.processGroup) {
+      entry.hardStopTimer = setTimeout(
+        () =>
+          settle(
+            entry,
+            new Error(
+              "M1 tracked process group did not terminate after SIGKILL",
+            ),
+          ),
+        escalationMilliseconds + 5_000,
+      );
+    }
   };
   return {
     get signal() {
@@ -237,16 +315,48 @@ export function createProcessLifecycle() {
     requestSignal(signal) {
       if (interruptedBy) return;
       interruptedBy = signal;
-      for (const child of children) {
-        child.kill("SIGTERM");
-        const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-        timer.unref?.();
-        escalationTimers.set(child, timer);
-      }
+      for (const entry of children.values()) terminate(entry);
     },
-    track(child) {
-      children.add(child);
-      return () => untrack(child);
+    track(child, { processGroup = false } = {}) {
+      let resolve;
+      let reject;
+      const completion = new Promise((accept, decline) => {
+        resolve = accept;
+        reject = decline;
+      });
+      const entry = {
+        child,
+        completion,
+        escalationTimer: null,
+        hardStopTimer: null,
+        probeTimer: null,
+        processGroup:
+          processGroup &&
+          process.platform !== "win32" &&
+          Number.isInteger(child.pid) &&
+          child.pid > 0,
+        reject,
+        resolve,
+        terminating: false,
+      };
+      children.set(child, entry);
+      return () => {
+        if (!children.has(child)) return;
+        if (entry.terminating && entry.processGroup) {
+          probeGroup(entry);
+          return;
+        }
+        settle(entry);
+      };
+    },
+    async waitForTermination() {
+      const pending = [...terminationCompletions];
+      try {
+        await Promise.all(pending);
+      } finally {
+        for (const completion of pending)
+          terminationCompletions.delete(completion);
+      }
     },
   };
 }
@@ -277,13 +387,15 @@ export function runChildProcess(
 ) {
   lifecycle.assertCanStart(allowAfterSignal);
   return new Promise((resolve, reject) => {
+    const processGroup = process.platform !== "win32";
     const child = spawn(command, args, {
       cwd,
+      detached: processGroup,
       env: environment,
       shell: false,
       stdio: capture || sensitive ? ["ignore", "pipe", "pipe"] : "inherit",
     });
-    const untrack = lifecycle.track(child);
+    const untrack = lifecycle.track(child, { processGroup });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -610,6 +722,13 @@ async function main() {
     primaryError = error;
   } finally {
     const cleanupErrors = [];
+    if (lifecycle.signal) {
+      try {
+        await lifecycle.waitForTermination();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
     if (root && projectId) {
       try {
         await cleanupDisposableProject({

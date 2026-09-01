@@ -33,6 +33,10 @@ test("retention purge bypasses drawing child auth only for its marked nested cas
       definition,
       /not exists\s*\(\s*select 1 from public\.lukas_qto_projects p\s+where p\.id\s*=\s*old\.project_id\s*\)/i,
     );
+    assert.match(
+      definition,
+      /current_user\s*=\s*pg_catalog\.pg_get_userbyid\s*\(\s*\(select c\.relowner from pg_catalog\.pg_class c where c\.oid\s*=\s*tg_relid\)\s*\)/i,
+    );
     assert.match(definition, /if v_actor is null/i);
     assert.ok(
       definition.indexOf("app.lukas_retention_purge_project") <
