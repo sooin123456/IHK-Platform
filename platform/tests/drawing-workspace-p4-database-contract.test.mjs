@@ -62,6 +62,14 @@ async function p4FinalNameAuthorityMigration() {
   return readFile(new URL(names[0], migrationDirectory), "utf8");
 }
 
+async function primitiveDeterministicAuthorityMigration() {
+  const names = (await readdir(migrationDirectory)).filter((name) =>
+    name.endsWith("_drawing_primitive_deterministic_authority.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], migrationDirectory), "utf8");
+}
+
 test("P4 shared geometry corpus is mutation-resistant at the TypeScript authority", () => {
   for (const geometry of validP4Geometries)
     assert.equal(
@@ -124,6 +132,18 @@ test("P4 forward migration keeps semantic persistence private and additive", asy
   );
   assert.doesNotMatch(sql, /alter\s+table\s+(?:public\.)?lukas_qto_files/i);
   assert.doesNotMatch(sql, /realtime\./i);
+});
+
+test("primitive authority locks legacy writers before replace and preflight", async () => {
+  const sql = await primitiveDeterministicAuthorityMigration();
+  const lock = sql.search(
+    /lock table public\.lukas_drawing_objects,public\.lukas_drawing_blocks\s+in share row exclusive mode/i,
+  );
+  const replace = sql.search(
+    /create or replace function private\.lukas_drawing_geometry_valid/i,
+  );
+  const preflight = sql.search(/do \$\$/i);
+  assert.ok(lock >= 0 && lock < replace && replace < preflight);
 });
 
 test("P4 contract fixes stay private, additive, and behind the existing operation RPC", async () => {

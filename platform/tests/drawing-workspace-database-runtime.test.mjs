@@ -305,6 +305,14 @@ const m1CollaborationServiceStoreMigration = () =>
     ),
     "utf8",
   );
+const primitiveDeterministicAuthorityMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260901212715_drawing_primitive_deterministic_authority.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const p4SemanticObjectsMigration = () =>
   readFile(
     new URL(
@@ -832,6 +840,7 @@ before(async () => {
   await db.exec(await p5EvidenceAuthorityMigration());
   await db.exec(await p5RevisionRelinkAuthorityMigration());
   await db.exec(await p7OrganizationLibraryMigration());
+  await db.exec(await primitiveDeterministicAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -2116,6 +2125,438 @@ test("P4 final name authority rejects legacy-valid poison transactionally before
   } finally {
     await legacyDb.close();
   }
+});
+
+test("primitive geometry authority matches the six-decimal and range number helper", async () => {
+  const numberCases = [
+    ["negative boundary", -9_000_000_000, true],
+    ["positive boundary", 9_000_000_000, true],
+    ["six decimals", 1.123456, true],
+    ["seven decimals", 1.1234567, false],
+    ["below range", -9_000_000_001, false],
+    ["above range", 9_000_000_001, false],
+  ];
+  for (const [name, value, expected] of numberCases) {
+    const result = await db.query(
+      "select private.lukas_drawing_p4_number_valid($1::jsonb) valid",
+      [JSON.stringify(value)],
+    );
+    assert.equal(result.rows[0].valid, expected, name);
+  }
+  for (const literal of ["9000000000.000001", "-9000000000.000001"]) {
+    const result = await db.query(
+      "select private.lukas_drawing_p4_number_valid($1::jsonb) valid",
+      [literal],
+    );
+    assert.equal(result.rows[0].valid, false, `${literal} exact JSON lexeme`);
+  }
+
+  const primitiveCases = [
+    {
+      name: "line",
+      geometry: {
+        type: "line",
+        start: { x: 1.123456, y: 0 },
+        end: { x: 3, y: 4 },
+      },
+      numericPaths: [
+        ["start", "x"],
+        ["start", "y"],
+        ["end", "x"],
+        ["end", "y"],
+      ],
+    },
+    {
+      name: "polyline",
+      geometry: {
+        type: "polyline",
+        points: [
+          { x: 1.123456, y: 0 },
+          { x: 3, y: 4 },
+        ],
+        closed: false,
+      },
+      numericPaths: [
+        ["points", 0, "x"],
+        ["points", 0, "y"],
+        ["points", 1, "x"],
+        ["points", 1, "y"],
+      ],
+    },
+    {
+      name: "rectangle",
+      geometry: {
+        type: "rectangle",
+        origin: { x: 1.123456, y: 0 },
+        width: 3,
+        height: 4,
+        rotation: 0,
+      },
+      numericPaths: [
+        ["origin", "x"],
+        ["origin", "y"],
+        ["width"],
+        ["height"],
+        ["rotation"],
+      ],
+    },
+    {
+      name: "circle",
+      geometry: {
+        type: "circle",
+        center: { x: 1.123456, y: 0 },
+        radius: 4,
+      },
+      numericPaths: [["center", "x"], ["center", "y"], ["radius"]],
+    },
+    {
+      name: "text",
+      geometry: {
+        type: "text",
+        origin: { x: 1.123456, y: 0 },
+        width: 4,
+        text: "A",
+      },
+      numericPaths: [["origin", "x"], ["origin", "y"], ["width"]],
+    },
+    {
+      name: "dimension",
+      geometry: {
+        type: "dimension",
+        start: { x: 1.123456, y: 0 },
+        end: { x: 3, y: 4 },
+        offset: 0,
+        calibrationId: null,
+      },
+      numericPaths: [
+        ["start", "x"],
+        ["start", "y"],
+        ["end", "x"],
+        ["end", "y"],
+        ["offset"],
+      ],
+    },
+  ];
+  const validate = async (geometry) => {
+    const result = await db.query(
+      "select private.lukas_drawing_geometry_valid($1,$2::jsonb) valid",
+      [geometry.type, JSON.stringify(geometry)],
+    );
+    return result.rows[0].valid;
+  };
+  for (const { name, geometry, numericPaths } of primitiveCases) {
+    assert.equal(await validate(geometry), true, `${name} six-decimal geometry`);
+    for (const path of numericPaths) {
+      const invalid = structuredClone(geometry);
+      let target = invalid;
+      for (const key of path.slice(0, -1)) target = target[key];
+      target[path.at(-1)] = 1.1234567;
+      assert.equal(await validate(invalid), false, `${name} ${path.join(".")}`);
+    }
+    const outOfRange = structuredClone(geometry);
+    let target = outOfRange;
+    for (const key of numericPaths[0].slice(0, -1)) target = target[key];
+    target[numericPaths[0].at(-1)] = 9_000_000_001;
+    assert.equal(await validate(outOfRange), false, `${name} outside range`);
+  }
+});
+
+test("primitive authority migration rejects an existing off-grid row without rewriting it", async () => {
+  const legacyDb = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await legacyDb.exec(foundationSql);
+    await applyP0ThroughP3Migrations(legacyDb);
+    await legacyDb.exec(await p4SemanticObjectsMigration());
+    await legacyDb.exec(await p4SemanticContractFixesMigration());
+    await legacyDb.exec(await p4FinalContractFixesMigration());
+    await legacyDb.exec(await p4FinalNameAuthorityMigration());
+    await legacyDb.exec(await p5EvidenceAuthorityMigration());
+    await legacyDb.exec(await p5RevisionRelinkAuthorityMigration());
+    await legacyDb.exec(await p7OrganizationLibraryMigration());
+    await legacyDb.query("insert into auth.users(id) values ($1)", [OWNER]);
+    await legacyDb.query(
+      `insert into public.lukas_qto_organizations(id,name,owner_id)
+       values($1,'Legacy primitive organization',$2)`,
+      [ORGANIZATION, OWNER],
+    );
+    await legacyDb.query(
+      `insert into public.lukas_qto_organization_members(
+        organization_id,user_id,role
+      ) values($1,$2,'owner')`,
+      [ORGANIZATION, OWNER],
+    );
+    await legacyDb.query(
+      `insert into public.lukas_qto_projects(id,owner_id,organization_id)
+       values($1,$2,$3)`,
+      [PROJECT, OWNER, ORGANIZATION],
+    );
+    await legacyDb.exec("set role authenticated");
+    await legacyDb.query(
+      "select set_config('request.jwt.claim.sub',$1,false)",
+      [OWNER],
+    );
+    const created = await legacyDb.query(
+      `select public.lukas_drawing_create_document(
+        $1,null,'Legacy off-grid primitive',true
+      ) result`,
+      [PROJECT],
+    );
+    const ids = created.rows[0].result;
+    const objectId = randomUUID();
+    const clientOperationId = randomUUID();
+    const legacyGeometry = {
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 205.8749999, y: 295.625 },
+    };
+    const object = {
+      id: objectId,
+      name: "Legacy line",
+      layerId: ids.workLayerId,
+      geometry: legacyGeometry,
+      style: STYLE,
+      version: 1,
+    };
+    await legacyDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'add_objects','{}'::jsonb,$3::jsonb,$4::jsonb
+      )`,
+      [
+        ids.revisionId,
+        clientOperationId,
+        { type: "add_objects", objects: [object] },
+        { type: "delete_objects", objectIds: [objectId] },
+      ],
+    );
+    await legacyDb.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'delete_objects',$3::jsonb,$4::jsonb,$5::jsonb
+      )`,
+      [
+        ids.revisionId,
+        randomUUID(),
+        { [objectId]: 1 },
+        { type: "delete_objects", objectIds: [objectId] },
+        { type: "add_objects", objects: [{ ...object, version: 3 }] },
+      ],
+    );
+
+    await legacyDb.exec("reset role");
+    const before = await legacyDb.query(
+      `select o.geometry,o.status,o.version,
+        (select pg_catalog.jsonb_agg(
+          pg_catalog.jsonb_build_object(
+            'clientOperationId',op.client_operation_id,
+            'operationType',op.operation_type,
+            'baseVersions',op.base_versions,
+            'forward',op.forward,
+            'inverse',op.inverse,
+            'resultVersions',op.result_versions
+          ) order by op.sequence
+        ) from public.lukas_drawing_operations op
+          where op.revision_id=o.revision_id
+        ) operations
+       from public.lukas_drawing_objects o where o.id=$1`,
+      [objectId],
+    );
+    assert.equal(before.rows[0].status, "deleted");
+    assert.equal(before.rows[0].version, 2);
+    assert.equal(before.rows[0].operations.length, 2);
+
+    await assert.rejects(
+      legacyDb.exec(await primitiveDeterministicAuthorityMigration()),
+      (error) => {
+        assert.equal(error.code, "P1C01");
+        assert.equal(
+          error.message,
+          "Primitive geometry authority preflight failed",
+        );
+        return true;
+      },
+    );
+    await legacyDb.exec("rollback");
+
+    const after = await legacyDb.query(
+      `select o.geometry,o.status,o.version,
+        private.lukas_drawing_geometry_valid(object_type,geometry) valid,
+        (select pg_catalog.jsonb_agg(
+          pg_catalog.jsonb_build_object(
+            'clientOperationId',op.client_operation_id,
+            'operationType',op.operation_type,
+            'baseVersions',op.base_versions,
+            'forward',op.forward,
+            'inverse',op.inverse,
+            'resultVersions',op.result_versions
+          ) order by op.sequence
+        ) from public.lukas_drawing_operations op
+          where op.revision_id=o.revision_id
+        ) operations
+       from public.lukas_drawing_objects o where o.id=$1`,
+      [objectId],
+    );
+    assert.deepEqual(
+      {
+        geometry: after.rows[0].geometry,
+        status: after.rows[0].status,
+        version: after.rows[0].version,
+        operations: after.rows[0].operations,
+      },
+      before.rows[0],
+    );
+    assert.equal(after.rows[0].valid, true);
+  } finally {
+    await legacyDb.close();
+  }
+});
+
+test("authenticated editor RPC rejects off-grid primitive transactionally", async () => {
+  const ids = await createDocument("Primitive DB authority rejection");
+  const objectId = randomUUID();
+  const clientOperationId = randomUUID();
+  const object = {
+    id: objectId,
+    name: "Off-grid line",
+    layerId: ids.workLayerId,
+    geometry: {
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 205.8749999, y: 295.625 },
+    },
+    style: STYLE,
+    version: 1,
+  };
+
+  await asActor(EDITOR);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,$3,$4,$5,$6,null::text,null::uuid
+      ) result`,
+      [
+        ids.revisionId,
+        clientOperationId,
+        "add_objects",
+        {},
+        { type: "add_objects", objects: [object] },
+        { type: "delete_objects", objectIds: [objectId] },
+      ],
+    ),
+    (error) => {
+      assert.equal(error.code, "P1C01");
+      return true;
+    },
+  );
+  await db.exec("reset role");
+  const persisted = await db.query(
+    `select
+      (select pg_catalog.count(*)::integer from public.lukas_drawing_objects
+        where id=$1) objects,
+      (select pg_catalog.count(*)::integer from public.lukas_drawing_operations
+        where revision_id=$2 and client_operation_id=$3) operations`,
+    [objectId, ids.revisionId, clientOperationId],
+  );
+  assert.deepEqual(persisted.rows, [{ objects: 0, operations: 0 }]);
+});
+
+test("authenticated editor RPC persists six-decimal primitive geometry", async () => {
+  const ids = await createDocument("Primitive DB authority acceptance");
+  const objectId = randomUUID();
+  const object = {
+    id: objectId,
+    name: "Canonical line",
+    layerId: ids.workLayerId,
+    geometry: {
+      type: "line",
+      start: { x: -9_000_000_000, y: 0.000001 },
+      end: { x: 9_000_000_000, y: 1.123456 },
+    },
+    style: STYLE,
+    version: 1,
+  };
+
+  await asActor(EDITOR);
+  const applied = await applyOperationWithId(
+    ids.revisionId,
+    randomUUID(),
+    "add_objects",
+    {},
+    { type: "add_objects", objects: [object] },
+    { type: "delete_objects", objectIds: [objectId] },
+  );
+  assert.equal(applied.resultVersions[objectId], 1);
+  await db.exec("reset role");
+  const persisted = await db.query(
+    "select geometry from public.lukas_drawing_objects where id=$1",
+    [objectId],
+  );
+  assert.deepEqual(persisted.rows, [{ geometry: object.geometry }]);
+});
+
+test("primitive authority preserves unavailable revision classification and RPC exposure", async () => {
+  const missingRevisionId = randomUUID();
+  const layerId = randomUUID();
+
+  await asActor(EDITOR);
+  await assert.rejects(
+    db.query(
+      `select public.lukas_drawing_apply_operation(
+        $1,$2,'add_layer','{}'::jsonb,$3::jsonb,'{}'::jsonb,
+        null::text,null::uuid
+      ) result`,
+      [
+        missingRevisionId,
+        randomUUID(),
+        {
+          type: "add_layer",
+          layer: {
+            id: layerId,
+            name: "Missing revision probe",
+            visible: true,
+            locked: false,
+            version: 1,
+          },
+        },
+      ],
+    ),
+    (error) => {
+      assert.equal(error.code, "P1R01");
+      assert.equal(error.message, "Drawing revision target is unavailable");
+      return true;
+    },
+  );
+
+  await db.exec("reset role");
+  const exposure = await db.query(
+    `select
+      p.pronargs::integer "argumentCount",p.prosecdef "securityDefiner",
+      p.proconfig config,
+      has_function_privilege('authenticated',p.oid,'execute') authenticated,
+      has_function_privilege('service_role',p.oid,'execute') service,
+      has_function_privilege('anon',p.oid,'execute') anon
+     from pg_catalog.pg_proc p
+     join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.proname='lukas_drawing_apply_operation'
+       and p.pronargs in (6,8)
+     order by p.pronargs`,
+  );
+  assert.deepEqual(exposure.rows, [
+    {
+      argumentCount: 6,
+      securityDefiner: false,
+      config: ['search_path=""'],
+      authenticated: true,
+      service: true,
+      anon: false,
+    },
+    {
+      argumentCount: 8,
+      securityDefiner: true,
+      config: ['search_path=""'],
+      authenticated: true,
+      service: true,
+      anon: false,
+    },
+  ]);
 });
 
 test("P4 shared geometry corpus matches strict Zod and SQL authorities", async () => {
