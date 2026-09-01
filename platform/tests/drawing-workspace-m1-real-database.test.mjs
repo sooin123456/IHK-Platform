@@ -644,6 +644,83 @@ if (!databaseUrl) {
       id: ids.bindings[4],projectId: ids.purgeProject,
       revisionId: purgeDocument.revisionId,boqVersionId: ids.boqs[9],
     });
+    const [purgeLayer] = await owner`
+      select id from public.lukas_drawing_layers
+      where revision_id=${purgeDocument.revisionId}::uuid
+      order by sort_order,id limit 1
+    `;
+    assert.ok(purgeLayer?.id, "purge fixture layer is required");
+    await assertSqlState(
+      owner.begin(async (tx) => {
+        await tx`select pg_catalog.set_config(
+          'request.jwt.claims','{"role":"service_role"}',true
+        )`;
+        await tx`select pg_catalog.set_config(
+          'app.lukas_retention_purge_project',${ids.purgeProject},true
+        )`;
+        return tx`
+          delete from public.lukas_drawing_estimate_bindings
+          where id=${ids.bindings[4]}::uuid
+        `;
+      }),
+      "P1C01",
+    );
+    await assertSqlState(
+      owner.begin(async (tx) => {
+        await tx`select pg_catalog.set_config(
+          'request.jwt.claims','{"role":"service_role"}',true
+        )`;
+        await tx`select pg_catalog.set_config(
+          'app.lukas_retention_purge_project',${ids.purgeProject},true
+        )`;
+        return tx`
+          delete from public.lukas_drawing_layers
+          where id=${purgeLayer.id}::uuid
+        `;
+      }),
+      "P0001",
+    );
+    await owner.begin(async (tx) => {
+      await tx.unsafe(`
+        create temporary table m1_nested_purge_probe(
+          layer_id uuid primary key
+        ) on commit drop;
+        create function pg_temp.m1_nested_purge_delete()
+        returns trigger language plpgsql set search_path='' as $m1$
+        begin
+          delete from public.lukas_drawing_layers where id=old.layer_id;
+          return old;
+        end
+        $m1$;
+        create trigger m1_nested_purge_delete
+        before delete on m1_nested_purge_probe
+        for each row execute function pg_temp.m1_nested_purge_delete();
+      `);
+      await tx`
+        insert into m1_nested_purge_probe(layer_id)
+        values(${purgeLayer.id}::uuid)
+      `;
+      await tx`select pg_catalog.set_config(
+        'app.lukas_retention_purge_project',${ids.purgeProject},true
+      )`;
+      await assertSqlState(
+        tx.savepoint((sp) => sp`
+          delete from m1_nested_purge_probe where layer_id=${purgeLayer.id}::uuid
+        `),
+        "P0001",
+      );
+      const [attackResidue] = await tx`
+        select
+          (select pg_catalog.count(*)::integer
+           from public.lukas_drawing_layers where id=${purgeLayer.id}::uuid) layers,
+          (select pg_catalog.count(*)::integer
+           from public.lukas_drawing_estimate_bindings
+           where id=${ids.bindings[4]}::uuid) bindings,
+          (select pg_catalog.count(*)::integer
+           from public.lukas_qto_projects where id=${ids.purgeProject}::uuid) projects
+      `;
+      assert.deepEqual(attackResidue, { layers: 1, bindings: 1, projects: 1 });
+    });
     await session(owner, "authenticated", ids.users.owner, async (tx) => {
       await tx`
         select public.lukas_qto_set_retention_policy(

@@ -7,10 +7,9 @@ import {
 } from "../app/lukas/lib/drawing-commands.ts";
 import { resolveDrawingTable } from "../app/lukas/lib/drawing-tables.ts";
 
-const schedules =
-  await import("../app/lukas/lib/drawing-semantic-schedules.ts").catch(
-    () => ({}),
-  );
+const schedules = await import(
+  "../app/lukas/lib/drawing-semantic-schedules.ts"
+).catch(() => ({}));
 
 const ids = {
   revision: "50000000-0000-4000-8000-000000000001",
@@ -465,6 +464,70 @@ test("server evidence binds authorized revision checkpoint object IDs and rule v
       schedules.resolveDrawingServerEvidenceStatus(evidence, query).status,
       "stale",
     );
+});
+
+test("server evidence includes supported measurable primitives without treating them as schedules", () => {
+  const primitives = [
+    object("50000000-0000-4000-8000-000000000051", "Five metre line", {
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 5_000, y: 0 },
+    }),
+    object("50000000-0000-4000-8000-000000000052", "Closed polyline", {
+      type: "polyline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 2_000, y: 0 },
+        { x: 2_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+      closed: true,
+    }),
+    object("50000000-0000-4000-8000-000000000053", "Rectangle", {
+      type: "rectangle",
+      origin: { x: 0, y: 0 },
+      width: 2_000,
+      height: 1_000,
+      rotation: 0,
+    }),
+    object("50000000-0000-4000-8000-000000000054", "Circle", {
+      type: "circle",
+      center: { x: 0, y: 0 },
+      radius: 1_000,
+    }),
+  ];
+  const state = {
+    revisionId: ids.revision,
+    objects: Object.fromEntries(primitives.map((entry) => [entry.id, entry])),
+  };
+  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+    documentId: "50000000-0000-4000-8000-000000000040",
+    revisionId: ids.revision,
+    revisionVersion: 1,
+    snapshotSha256: "d".repeat(64),
+    operationCheckpoint: 1,
+    state,
+  });
+  assert.deepEqual(
+    evidence.objectIds,
+    primitives.map(({ id }) => id),
+  );
+  assert.equal(
+    evidence.measurements[primitives[0].id].measurement.lengthMillimeters,
+    "5000",
+  );
+  assert.equal(
+    evidence.measurements[primitives[1].id].measurement.areaSquareMillimeters,
+    "2000000",
+  );
+  assert.equal(
+    evidence.measurements[primitives[2].id].measurement.areaSquareMillimeters,
+    "2000000",
+  );
+  assert.equal(evidence.measurements[primitives[3].id].measurement.count, "1");
+  assert.deepEqual(evidence.schedules.room.rows, []);
+  assert.deepEqual(evidence.schedules.door.rows, []);
+  assert.deepEqual(evidence.schedules.finish.rows, []);
 });
 
 test("server evidence binds document snapshot revision and exact object versions", () => {

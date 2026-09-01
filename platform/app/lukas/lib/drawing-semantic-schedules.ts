@@ -1,6 +1,7 @@
 import type { DrawingDocumentState } from "./drawing-commands.ts";
 import {
   DRAWING_MEASUREMENT_RULE_VERSION,
+  drawingObjectSupportsMeasurement,
   formatDrawingMeasurement,
   measureDrawingObject,
   type DrawingMeasurement,
@@ -157,6 +158,10 @@ function isSemanticObject(object: DrawingObject) {
 
 function semanticObjects(state: ScheduleState) {
   return Object.values(state.objects).filter(isSemanticObject);
+}
+
+function measurableObjects(state: ScheduleState) {
+  return Object.values(state.objects).filter(drawingObjectSupportsMeasurement);
 }
 
 function fixedInteger(value: string, fractionalDigits: number): bigint {
@@ -387,7 +392,7 @@ export function deriveDrawingServerMeasurementEvidence({
     throw new Error("Drawing measurement snapshot is invalid.");
   if (!Number.isSafeInteger(operationCheckpoint) || operationCheckpoint < 0)
     throw new Error("Drawing measurement operation checkpoint is invalid.");
-  const objects = semanticObjects(state).sort((left, right) =>
+  const objects = measurableObjects(state).sort((left, right) =>
     compareText(left.id, right.id),
   );
   const objectIds = objects.map((object) => object.id);
@@ -443,7 +448,7 @@ export function drawingMeasurementEvidenceCurrent(
   hasUnconfirmedChanges: boolean,
 ): DrawingMeasurementEvidenceCurrent | null {
   if (!lineage) return null;
-  const objects = semanticObjects(state).sort((left, right) =>
+  const objects = measurableObjects(state).sort((left, right) =>
     compareText(left.id, right.id),
   );
   return {

@@ -11,6 +11,7 @@ import {
   Send,
   ShieldCheck,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Form, Link, data, redirect } from "react-router";
 import { z } from "zod";
 
@@ -547,6 +548,16 @@ export function verifiedBoqFocusedLineId(
   )
     ? parsedLine.data
     : null;
+}
+
+export function focusVerifiedBoqLine(
+  row: Pick<HTMLElement, "focus"> | null,
+  focusedLineId: string | null,
+  rowLineId: string,
+) {
+  if (!row || !focusedLineId || rowLineId !== focusedLineId) return false;
+  row.focus();
+  return true;
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -1788,6 +1799,15 @@ export default function VerifiedBoq({
     focusedLineId,
   } = loaderData;
   const draft = version?.status === "draft" && loaderData.mayEdit;
+  const focusedLineRef = useRef<HTMLTableRowElement>(null);
+  const focusedLineRendered = Boolean(
+    focusedLineId &&
+      result?.lines.some((line) => line.lineId === focusedLineId),
+  );
+  useEffect(() => {
+    if (!focusedLineId || !focusedLineRendered) return;
+    focusVerifiedBoqLine(focusedLineRef.current, focusedLineId, focusedLineId);
+  }, [focusedLineId, focusedLineRendered]);
   const activeBookId = version?.price_book_id ?? priceBooks[0]?.id ?? "";
   const currentResources = resources.filter(
     (resource) => resource.price_book_id === activeBookId,
@@ -2683,11 +2703,15 @@ export default function VerifiedBoq({
                 <tbody>
                   {result?.lines.map((line) => (
                     <tr
-                      autoFocus={line.lineId === focusedLineId}
                       className="border-b focus:outline focus:outline-2 focus:outline-primary"
                       data-focused={line.lineId === focusedLineId || undefined}
                       id={`boq-line-${line.lineId}`}
                       key={line.lineId}
+                      ref={
+                        line.lineId === focusedLineId
+                          ? focusedLineRef
+                          : undefined
+                      }
                       tabIndex={line.lineId === focusedLineId ? -1 : undefined}
                     >
                       <td className="py-4">

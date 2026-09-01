@@ -112,8 +112,29 @@ begin
 end;
 $$;
 
+create or replace function private.lukas_drawing_estimate_binding_guard()
+returns trigger language plpgsql security invoker set search_path='' as $$
+begin
+  if tg_op='DELETE'
+    and pg_catalog.pg_trigger_depth()>1
+    and pg_catalog.current_setting(
+      'app.lukas_retention_purge_project',true
+    )=old.project_id::text
+    and current_user=pg_catalog.pg_get_userbyid(
+      (select c.relowner from pg_catalog.pg_class c where c.oid=tg_relid)
+    )
+    and not exists(
+      select 1 from public.lukas_qto_projects p
+      where p.id=old.project_id
+    ) then return old; end if;
+  raise exception using errcode='P1C01',
+    message='Drawing estimate bindings are append-only';
+end;
+$$;
+
 revoke all on function private.lukas_drawing_draft_child_guard(),
-  private.lukas_drawing_layer_guard()
+  private.lukas_drawing_layer_guard(),
+  private.lukas_drawing_estimate_binding_guard()
 from public,anon,authenticated,service_role;
 
 commit;

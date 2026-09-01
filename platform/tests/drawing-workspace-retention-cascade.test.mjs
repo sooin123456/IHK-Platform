@@ -53,4 +53,17 @@ test("retention purge bypasses drawing child auth only for its marked nested cas
     sql,
     /drop trigger|disable trigger|alter table[^;]*retention/i,
   );
+
+  const binding = functionDefinition(
+    sql,
+    "lukas_drawing_estimate_binding_guard",
+  );
+  assert.match(binding, /pg_catalog\.pg_trigger_depth\(\)\s*>\s*1/i);
+  assert.match(binding, /app\.lukas_retention_purge_project/i);
+  assert.match(binding, /current_user\s*=\s*pg_catalog\.pg_get_userbyid/i);
+  assert.match(
+    binding,
+    /not exists\s*\(\s*select 1 from public\.lukas_qto_projects p\s+where p\.id=old\.project_id\s*\)/i,
+  );
+  assert.match(binding, /Drawing estimate bindings are append-only/i);
 });

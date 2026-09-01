@@ -235,6 +235,29 @@ test("verified BOQ focuses only a line that belongs to the selected version", ()
   assert.equal(focus(versionId, rows, "not-a-uuid"), null);
 });
 
+test("verified BOQ imperatively focuses only the server-validated row", () => {
+  const focusRow = verifiedBoqScreen.focusVerifiedBoqLine;
+  assert.equal(typeof focusRow, "function");
+  const focusedLineId = "40000000-0000-4000-8000-000000000006";
+  let focusCalls = 0;
+  const row = { focus: () => (focusCalls += 1) };
+  assert.equal(focusRow(row, focusedLineId, focusedLineId), true);
+  assert.equal(focusCalls, 1);
+  assert.equal(
+    focusRow(row, focusedLineId, "40000000-0000-4000-8000-000000000099"),
+    false,
+  );
+  assert.equal(focusRow(null, focusedLineId, focusedLineId), false);
+  assert.equal(focusCalls, 1);
+  const source = readFileSync(
+    new URL("../app/lukas/screens/verified-boq.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /<tr\s+autoFocus=/);
+  assert.match(source, /useEffect\([\s\S]*focusVerifiedBoqLine/);
+  assert.match(source, /\[focusedLineId, focusedLineRendered\]/);
+});
+
 test("verified BOQ redirect builder preserves one validated return path with version mutations", () => {
   const back = verifiedBoqScreen.verifiedBoqLocation;
   assert.equal(typeof back, "function");

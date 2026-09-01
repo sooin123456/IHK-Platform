@@ -16,6 +16,7 @@ import {
 import { DrawingPropertyFields } from "~/lukas/components/drawing-properties-panel";
 import { DrawingQuantityInspector } from "~/lukas/components/drawing-quantity-inspector";
 import { DrawingSemanticInspector } from "~/lukas/components/drawing-semantic-inspector";
+import { drawingObjectSupportsMeasurement } from "~/lukas/lib/drawing-measurements";
 
 import {
   applyDrawingStyleSelection,
@@ -178,6 +179,10 @@ export function DrawingInspector({
           geometry: Extract<DrawingObject["geometry"], { semanticVersion: 1 }>;
         })
       : null;
+  const selectedMeasurableObject =
+    selectedObject && drawingObjectSupportsMeasurement(selectedObject)
+      ? selectedObject
+      : null;
   const inspectorLeaseEntityId =
     selectedInstance?.id ?? selectedObject?.id ?? null;
   const lockConflict = selectedIds
@@ -197,13 +202,13 @@ export function DrawingInspector({
       state={state}
     />
   ) : null;
-  const quantityInspector = selectedSemanticObject ? (
+  const quantityInspector = selectedMeasurableObject ? (
     <DrawingQuantityInspector
       canCreateQuantity={canCreateQuantity}
       evidence={evidence}
       hasUnconfirmedChanges={hasUnconfirmedChanges}
       lineage={lineage}
-      object={selectedSemanticObject}
+      object={selectedMeasurableObject}
       projectId={projectId}
       quantityLineage={quantityLineage}
       revisionStatus={revisionStatus}

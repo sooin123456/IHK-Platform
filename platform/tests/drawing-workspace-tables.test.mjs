@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { createServer } from "vite";
 
 import {
@@ -570,8 +571,15 @@ const semanticTableComponents = await vite
 const semanticInspectorComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-semantic-inspector.tsx")
   .catch(() => ({}));
-const semanticSchedules =
-  await import("../app/lukas/lib/drawing-semantic-schedules.ts");
+const quantityInspectorComponents = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-quantity-inspector.tsx")
+  .catch(() => ({}));
+const drawingInspectorComponents = await vite
+  .ssrLoadModule("/app/lukas/components/drawing-inspector.tsx")
+  .catch(() => ({}));
+const semanticSchedules = await import(
+  "../app/lukas/lib/drawing-semantic-schedules.ts"
+);
 
 function semanticWall(overrides = {}) {
   return {
@@ -735,6 +743,141 @@ test("schedule panel renders semantic read-only DOM and native labeled editor ce
   assert.match(editor, /type="number"/);
   assert.match(editor, /일람표 저장/);
   assert.doesNotMatch(editor, /formula|수식|XLSX/i);
+});
+
+test("quantity inspector exposes exact confirmed primitive rows and buttons", () => {
+  const primitives = [
+    object("10000000-0000-4000-8000-000000000091", "Five metre line", "line"),
+    object("10000000-0000-4000-8000-000000000092", "Rectangle"),
+    object("10000000-0000-4000-8000-000000000093", "Circle", "circle"),
+    {
+      ...object("10000000-0000-4000-8000-000000000094", "Arc"),
+      geometry: {
+        type: "arc",
+        semanticVersion: 1,
+        center: { x: 0, y: 0 },
+        radius: 1_000,
+        startAngleDegrees: 0,
+        sweepAngleDegrees: 90,
+      },
+    },
+  ];
+  primitives[0].geometry = {
+    type: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 5_000, y: 0 },
+  };
+  primitives[1].geometry = {
+    type: "rectangle",
+    origin: { x: 0, y: 0 },
+    width: 2_000,
+    height: 1_000,
+    rotation: 0,
+  };
+  primitives[2].geometry = {
+    type: "circle",
+    center: { x: 0, y: 0 },
+    radius: 1_000,
+  };
+  const lineage = {
+    documentId: "10000000-0000-4000-8000-000000000095",
+    revisionId: ids.revision,
+    revisionVersion: 2,
+    snapshotSha256: "b".repeat(64),
+    operationCheckpoint: 12,
+  };
+  const current = {
+    revisionId: ids.revision,
+    objects: Object.fromEntries(primitives.map((entry) => [entry.id, entry])),
+  };
+  const evidence = semanticSchedules.deriveDrawingServerMeasurementEvidence({
+    ...lineage,
+    state: current,
+  });
+  const render = (entry) =>
+    renderToStaticMarkup(
+      createElement(RouterProvider, {
+        router: createMemoryRouter([
+          {
+            path: "/",
+            element: createElement(
+              quantityInspectorComponents.DrawingQuantityInspector,
+              {
+                canCreateQuantity: true,
+                evidence,
+                hasUnconfirmedChanges: false,
+                lineage,
+                object: entry,
+                projectId: "10000000-0000-4000-8000-000000000096",
+                quantityLineage: null,
+                revisionStatus: "approved",
+                state: current,
+              },
+            ),
+          },
+        ]),
+      }),
+    );
+  const line = render(primitives[0]);
+  assert.match(line, /5 m/);
+  assert.match(line, /aria-label="선택 객체 경계"[^>]*>X 0–5000 · Y 0–0</);
+  assert.match(line, /aria-label="길이 수량"/);
+  assert.match(line, /aria-label="길이 확정 근거 만들기"/);
+  assert.doesNotMatch(line, /aria-label="면적 수량"/);
+  const parentInspector = renderToStaticMarkup(
+    createElement(RouterProvider, {
+      router: createMemoryRouter([
+        {
+          path: "/",
+          element: createElement(drawingInspectorComponents.DrawingInspector, {
+            actorId: ids.actor,
+            canCreateQuantity: true,
+            canEdit: true,
+            canLinkIssues: false,
+            evidence,
+            issueLinks: [],
+            issues: [],
+            lineage,
+            onCommand() {},
+            projectId: "10000000-0000-4000-8000-000000000096",
+            quantityLineage: null,
+            revisionStatus: "approved",
+            selectedIds: [primitives[0].id],
+            state: {
+              ...current,
+              layers: {
+                [ids.layer]: {
+                  id: ids.layer,
+                  locked: false,
+                  name: "Work",
+                  systemKind: "work",
+                  version: 1,
+                  visible: true,
+                },
+              },
+              structure: { blockInstances: {}, styles: {} },
+            },
+          }),
+        },
+      ]),
+    }),
+  );
+  assert.match(parentInspector, /aria-label="길이 수량"/);
+  assert.match(parentInspector, /aria-label="길이 확정 근거 만들기"/);
+  for (const entry of primitives.slice(1, 3)) {
+    const markup = render(entry);
+    for (const label of ["길이", "면적", "개수"]) {
+      assert.match(markup, new RegExp(`aria-label="${label} 수량"`));
+      assert.match(
+        markup,
+        new RegExp(`aria-label="${label} 확정 근거 만들기"`),
+      );
+    }
+  }
+  const arc = render(primitives[3]);
+  assert.match(arc, /aria-label="길이 수량"/);
+  assert.match(arc, /aria-label="개수 수량"/);
+  assert.doesNotMatch(arc, /aria-label="면적 수량"/);
 });
 
 test("semantic schedules render read-only preview versus checkpoint-bound server evidence", () => {

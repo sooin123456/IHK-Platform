@@ -1,11 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -140,17 +142,37 @@ ${repositoryConfig.trim()}
 `;
 }
 
+function assertNoSymlinksBelow(root, label) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const child = path.join(root, entry.name);
+    if (entry.isSymbolicLink() || lstatSync(child).isSymbolicLink())
+      throw new Error(`M1 cleanup refuses a symlink below the ${label}`);
+    if (entry.isDirectory()) assertNoSymlinksBelow(child, label);
+  }
+}
+
 export function assertDisposableCleanupTarget({ projectId, root }) {
   const resolved = path.resolve(root);
   const repository = path.resolve(repositorySupabase);
+  const relativeToTemp = path.relative(disposableTempRoot, resolved);
   if (
-    !resolved.startsWith(`${disposableTempRoot}${path.sep}1hk-m1-supabase-`) ||
+    relativeToTemp.startsWith("..") ||
+    path.isAbsolute(relativeToTemp) ||
+    !path.basename(resolved).startsWith("1hk-m1-supabase-") ||
     resolved === repository ||
     resolved.startsWith(`${repository}${path.sep}`)
   )
     throw new Error(
       "M1 cleanup refuses a non-disposable root or repository Supabase",
     );
+  if (
+    !existsSync(resolved) ||
+    lstatSync(resolved).isSymbolicLink() ||
+    !lstatSync(resolved).isDirectory() ||
+    realpathSync(resolved) !== resolved
+  )
+    throw new Error("M1 cleanup refuses a symlinked disposable root");
+  assertNoSymlinksBelow(resolved, "disposable root");
   const markerPath = path.join(resolved, markerName);
   const configPath = path.join(resolved, "supabase", "config.toml");
   if (!existsSync(markerPath) || !existsSync(configPath))
@@ -162,15 +184,190 @@ export function assertDisposableCleanupTarget({ projectId, root }) {
     throw new Error("M1 cleanup refuses an invalid disposable marker");
   }
   if (
+    Object.keys(marker).sort().join(",") !== "projectId,root" ||
     marker.projectId !== projectId ||
-    path.resolve(marker.root) !== resolved ||
+    marker.root !== resolved ||
     !projectPattern.test(projectId)
   )
     throw new Error("M1 cleanup refuses a mismatched disposable marker");
   const config = readFileSync(configPath, "utf8");
-  if (!config.startsWith(`project_id = "${projectId}"`))
-    throw new Error("M1 cleanup refuses a mismatched Supabase project");
+  let expectedConfig;
+  try {
+    expectedConfig = renderDisposableSupabaseConfig({
+      projectId,
+      portBase: configPort(config, "api"),
+      repositoryConfig: readFileSync(
+        path.join(repositorySupabase, "config.toml"),
+        "utf8",
+      ),
+    });
+  } catch {
+    throw new Error("M1 cleanup refuses a mismatched Supabase config");
+  }
+  if (
+    !config.startsWith(`project_id = "${projectId}"\n`) ||
+    (config.match(/^project_id\s*=/gm) ?? []).length !== 1 ||
+    config !== expectedConfig
+  )
+    throw new Error("M1 cleanup refuses a mismatched Supabase config");
   return { configPath, markerPath, resolved };
+}
+
+export function createProcessLifecycle() {
+  const children = new Set();
+  const escalationTimers = new Map();
+  let interruptedBy = null;
+  const untrack = (child) => {
+    children.delete(child);
+    const timer = escalationTimers.get(child);
+    if (timer) clearTimeout(timer);
+    escalationTimers.delete(child);
+  };
+  return {
+    get signal() {
+      return interruptedBy;
+    },
+    assertCanStart(allowAfterSignal = false) {
+      if (interruptedBy && !allowAfterSignal)
+        throw Object.assign(
+          new Error(`M1 E2E interrupted by ${interruptedBy}`),
+          { signal: interruptedBy },
+        );
+    },
+    requestSignal(signal) {
+      if (interruptedBy) return;
+      interruptedBy = signal;
+      for (const child of children) {
+        child.kill("SIGTERM");
+        const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+        timer.unref?.();
+        escalationTimers.set(child, timer);
+      }
+    },
+    track(child) {
+      children.add(child);
+      return () => untrack(child);
+    },
+  };
+}
+
+export function interruptedError(error, signal) {
+  const result =
+    error instanceof Error ? error : new Error("M1 E2E was interrupted");
+  return Object.assign(result, { signal });
+}
+
+function boundedAppend(current, chunk) {
+  const limit = 4 * 1024 * 1024;
+  if (current.length >= limit) return current;
+  return `${current}${String(chunk)}`.slice(0, limit);
+}
+
+export function runChildProcess(
+  command,
+  args,
+  environment,
+  {
+    allowAfterSignal = false,
+    capture = false,
+    cwd = platformRoot,
+    lifecycle = createProcessLifecycle(),
+    sensitive = false,
+  } = {},
+) {
+  lifecycle.assertCanStart(allowAfterSignal);
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: environment,
+      shell: false,
+      stdio: capture || sensitive ? ["ignore", "pipe", "pipe"] : "inherit",
+    });
+    const untrack = lifecycle.track(child);
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout = boundedAppend(stdout, chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr = boundedAppend(stderr, chunk);
+    });
+    child.once("error", (error) => {
+      untrack();
+      reject(
+        new Error(`M1 child command ${command} could not start`, {
+          cause: sensitive ? undefined : error,
+        }),
+      );
+    });
+    child.once("close", (code, signal) => {
+      untrack();
+      if (code === 0) {
+        resolve(capture ? stdout : undefined);
+        return;
+      }
+      const suffix =
+        code === null ? `signal ${signal ?? "unknown"}` : `exit ${code}`;
+      const error = new Error(`M1 child command ${command} failed (${suffix})`);
+      if (!sensitive && stderr.trim()) error.cause = new Error(stderr.trim());
+      reject(error);
+    });
+  });
+}
+
+function assertPartialDisposableCleanupTarget({ projectId, root }) {
+  if (!projectPattern.test(projectId))
+    throw new Error("M1 cleanup refuses an invalid disposable project ID");
+  const resolved = path.resolve(root);
+  const relativeToTemp = path.relative(disposableTempRoot, resolved);
+  if (
+    relativeToTemp.startsWith("..") ||
+    path.isAbsolute(relativeToTemp) ||
+    !path.basename(resolved).startsWith("1hk-m1-supabase-") ||
+    !existsSync(resolved) ||
+    lstatSync(resolved).isSymbolicLink() ||
+    !lstatSync(resolved).isDirectory() ||
+    realpathSync(resolved) !== resolved
+  )
+    throw new Error("M1 cleanup refuses a non-canonical partial root");
+  assertNoSymlinksBelow(resolved, "partial root");
+  return resolved;
+}
+
+export async function cleanupDisposableProject({
+  projectId,
+  root,
+  projectReady,
+  remove = (target) => rmSync(target, { recursive: true }),
+  startAttempted,
+  stop,
+}) {
+  if (!existsSync(root)) return { removed: false, stopped: false };
+  if (!projectReady) {
+    const resolved = assertPartialDisposableCleanupTarget({ projectId, root });
+    if (startAttempted)
+      throw new Error(
+        `M1 partial stack recovery metadata is preserved at ${resolved}`,
+      );
+    remove(resolved);
+    return { removed: true, stopped: false };
+  }
+  const { resolved } = assertDisposableCleanupTarget({ projectId, root });
+  if (startAttempted) {
+    try {
+      if (typeof stop !== "function")
+        throw new Error("M1 cleanup requires a disposable stop operation");
+      await stop();
+    } catch (error) {
+      throw new Error(
+        `M1 Supabase stop failed; recovery metadata is preserved at ${resolved}`,
+        { cause: error },
+      );
+    }
+  }
+  assertDisposableCleanupTarget({ projectId, root: resolved });
+  remove(resolved);
+  return { removed: true, stopped: startAttempted };
 }
 
 function portAvailable(port) {
@@ -201,16 +398,7 @@ async function findFreePortBlock() {
   throw new Error("M1 E2E could not reserve a free Supabase port block");
 }
 
-function run(command, args, environment, capture = false) {
-  return execFileSync(command, args, {
-    cwd: platformRoot,
-    encoding: capture ? "utf8" : undefined,
-    env: environment,
-    stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
-  });
-}
-
-function parseSupabaseStatus(raw) {
+export function parseSupabaseStatus(raw) {
   const status = JSON.parse(raw);
   const value = (name) => {
     const result = status[name];
@@ -224,6 +412,68 @@ function parseSupabaseStatus(raw) {
     serviceRoleKey: value("SERVICE_ROLE_KEY"),
     databaseUrl: value("DB_URL"),
   };
+}
+
+function configPort(config, section) {
+  const match = config.match(
+    new RegExp(`\\[${section}\\][\\s\\S]*?\\nport\\s*=\\s*(\\d+)`),
+  );
+  if (!match) throw new Error(`M1 disposable config omitted ${section} port`);
+  return Number(match[1]);
+}
+
+function defaultStatusRunner(command, args, environment) {
+  try {
+    return execFileSync(command, args, {
+      cwd: platformRoot,
+      encoding: "utf8",
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    throw new Error("M1 E2E could not verify disposable Supabase status");
+  }
+}
+
+export function verifyDisposableSupabaseAuthority(
+  environment,
+  { statusRunner = defaultStatusRunner } = {},
+) {
+  const authority = assertM1LoopbackEnvironment(environment);
+  const { configPath } = assertDisposableCleanupTarget({
+    projectId: authority.projectId,
+    root: authority.workdir,
+  });
+  const raw = statusRunner(
+    "supabase",
+    ["status", "--workdir", authority.workdir, "-o", "json"],
+    environment,
+  );
+  const status = parseSupabaseStatus(raw);
+  const expected = {
+    anonKey: required(environment, "SUPABASE_ANON_KEY"),
+    databaseUrl: authority.databaseUrl,
+    serviceRoleKey: required(environment, "SUPABASE_SERVICE_ROLE_KEY"),
+    supabaseUrl: authority.supabaseUrl,
+  };
+  if (
+    status.anonKey !== expected.anonKey ||
+    status.databaseUrl !== expected.databaseUrl ||
+    status.serviceRoleKey !== expected.serviceRoleKey ||
+    status.supabaseUrl !== expected.supabaseUrl
+  )
+    throw new Error(
+      "M1 E2E Supabase status does not match the disposable environment",
+    );
+  const config = readFileSync(configPath, "utf8");
+  if (
+    Number(new URL(status.supabaseUrl).port) !== configPort(config, "api") ||
+    Number(new URL(status.databaseUrl).port) !== configPort(config, "db")
+  )
+    throw new Error(
+      "M1 E2E Supabase status does not match the disposable config ports",
+    );
+  return authority;
 }
 
 function exactRuntimeEnvironment(base, disposable, root, projectId) {
@@ -280,16 +530,30 @@ function createDisposableProject(root, projectId, portBase) {
 }
 
 async function main() {
-  await assertReleasePortsAvailable();
-  const projectId = `1hk-m1-${randomBytes(4).toString("hex")}`;
-  const portBase = await findFreePortBlock();
-  const root = mkdtempSync(path.join(disposableTempRoot, "1hk-m1-supabase-"));
+  const lifecycle = createProcessLifecycle();
+  const signalHandlers = new Map(
+    ["SIGINT", "SIGTERM"].map((signal) => [
+      signal,
+      () => lifecycle.requestSignal(signal),
+    ]),
+  );
+  for (const [signal, handler] of signalHandlers) process.on(signal, handler);
+  let root;
+  let projectId;
+  let projectReady = false;
   let startAttempted = false;
   let primaryError;
   try {
+    await assertReleasePortsAvailable();
+    lifecycle.assertCanStart(false);
+    projectId = `1hk-m1-${randomBytes(4).toString("hex")}`;
+    const portBase = await findFreePortBlock();
+    lifecycle.assertCanStart(false);
+    root = mkdtempSync(path.join(disposableTempRoot, "1hk-m1-supabase-"));
     createDisposableProject(root, projectId, portBase);
+    projectReady = true;
     startAttempted = true;
-    run(
+    await runChildProcess(
       "supabase",
       [
         "start",
@@ -299,13 +563,17 @@ async function main() {
         "studio,mailpit,imgproxy,edge-runtime,logflare,vector,supavisor",
       ],
       process.env,
+      { lifecycle, sensitive: true },
+    );
+    process.stdout.write(
+      "M1 disposable Supabase started in an isolated temporary project.\n",
     );
     const disposable = parseSupabaseStatus(
-      run(
+      await runChildProcess(
         "supabase",
         ["status", "--workdir", root, "-o", "json"],
         process.env,
-        true,
+        { capture: true, lifecycle, sensitive: true },
       ),
     );
     const environment = exactRuntimeEnvironment(
@@ -314,14 +582,19 @@ async function main() {
       root,
       projectId,
     );
-    run("npm", ["run", "build"], environment);
-    run("npm", ["run", "build:collaboration"], environment);
-    run(
+    await runChildProcess("npm", ["run", "build"], environment, {
+      lifecycle,
+    });
+    await runChildProcess("npm", ["run", "build:collaboration"], environment, {
+      lifecycle,
+    });
+    await runChildProcess(
       process.execPath,
       ["--test", "tests/drawing-workspace-m1-real-database.test.mjs"],
       { ...environment, M1_REAL_POSTGRES_REQUIRED: "1" },
+      { lifecycle },
     );
-    run(
+    await runChildProcess(
       path.join("node_modules", ".bin", "playwright"),
       [
         "test",
@@ -331,35 +604,52 @@ async function main() {
         "--workers=1",
       ],
       environment,
+      { lifecycle },
     );
   } catch (error) {
     primaryError = error;
   } finally {
     const cleanupErrors = [];
-    if (startAttempted) {
+    if (root && projectId) {
       try {
-        assertDisposableCleanupTarget({ projectId, root });
-        run(
-          "supabase",
-          ["stop", "--no-backup", "--project-id", projectId, "--workdir", root],
-          process.env,
-        );
+        await cleanupDisposableProject({
+          projectId,
+          root,
+          projectReady,
+          startAttempted,
+          stop: () =>
+            runChildProcess(
+              "supabase",
+              [
+                "stop",
+                "--no-backup",
+                "--project-id",
+                projectId,
+                "--workdir",
+                root,
+              ],
+              process.env,
+              { allowAfterSignal: true, lifecycle, sensitive: true },
+            ),
+        });
       } catch (error) {
         cleanupErrors.push(error);
       }
     }
-    try {
-      const { resolved } = assertDisposableCleanupTarget({ projectId, root });
-      if (realpathSync(resolved) !== resolved)
-        throw new Error("M1 cleanup refuses a symlinked disposable root");
-      rmSync(resolved, { recursive: true });
-    } catch (error) {
-      cleanupErrors.push(error);
-    }
+    for (const [signal, handler] of signalHandlers)
+      process.off(signal, handler);
+    if (lifecycle.signal)
+      primaryError = interruptedError(
+        primaryError ?? new Error(`M1 E2E interrupted by ${lifecycle.signal}`),
+        lifecycle.signal,
+      );
     if (primaryError && cleanupErrors.length)
-      throw new AggregateError(
-        [primaryError, ...cleanupErrors],
-        "M1 E2E failed and disposable cleanup was incomplete",
+      throw Object.assign(
+        new AggregateError(
+          [primaryError, ...cleanupErrors],
+          "M1 E2E failed and disposable cleanup was incomplete",
+        ),
+        lifecycle.signal ? { signal: lifecycle.signal } : {},
       );
     if (primaryError) throw primaryError;
     if (cleanupErrors.length)
@@ -372,5 +662,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])
     process.stderr.write(
       `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
     );
-    process.exitCode = 1;
+    process.exitCode =
+      error?.signal === "SIGINT" ? 130 : error?.signal === "SIGTERM" ? 143 : 1;
   });

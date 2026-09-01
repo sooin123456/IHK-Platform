@@ -3,6 +3,7 @@ import { Form, Link } from "react-router";
 
 import type { DrawingObjectQuantityLineageRow } from "../lib/drawing-quantity-lineage.server.ts";
 import type { DrawingDocumentState } from "../lib/drawing-commands.ts";
+import { geometryBounds } from "../lib/drawing-geometry.ts";
 import {
   formatDrawingMeasurement,
   measureDrawingObject,
@@ -11,17 +12,14 @@ import type {
   DrawingMeasurementEvidenceLineage,
   DrawingServerMeasurementEvidence,
 } from "../lib/drawing-semantic-schedules.ts";
-import type {
-  DrawingObject,
-  DrawingSemanticGeometry,
-} from "../lib/drawing-workspace.types.ts";
+import type { DrawingObject } from "../lib/drawing-workspace.types.ts";
 
 type Props = {
   canCreateQuantity: boolean;
   evidence?: DrawingServerMeasurementEvidence | null;
   hasUnconfirmedChanges: boolean;
   lineage?: DrawingMeasurementEvidenceLineage | null;
-  object: DrawingObject & { geometry: DrawingSemanticGeometry };
+  object: DrawingObject;
   projectId: string;
   quantityLineage?: {
     rows: DrawingObjectQuantityLineageRow[];
@@ -50,10 +48,16 @@ export function DrawingQuantityInspector({
     count: crypto.randomUUID(),
   }));
   let preview = null;
+  let boundsText: string | null = null;
   try {
     preview = measureDrawingObject(object, state.objects);
+    const bounds = geometryBounds(object.geometry, state.objects);
+    const coordinate = (value: number) =>
+      String(Object.is(value, -0) ? 0 : value);
+    boundsText = `X ${coordinate(bounds.x)}–${coordinate(bounds.x + bounds.width)} · Y ${coordinate(bounds.y)}–${coordinate(bounds.y + bounds.height)}`;
   } catch {
     preview = null;
+    boundsText = null;
   }
   const confirmed = evidence?.measurements[object.id];
   const current =
@@ -107,11 +111,20 @@ export function DrawingQuantityInspector({
       <p className="mt-1 break-all font-mono text-[10px] text-slate-500">
         객체 {object.id}
       </p>
+      {boundsText ? (
+        <p
+          aria-label="선택 객체 경계"
+          className="mt-1 font-mono text-[10px] text-slate-400"
+        >
+          {boundsText}
+        </p>
+      ) : null}
 
       {measurements.length ? (
         <ul className="mt-3 grid gap-2">
           {measurements.map((row) => (
             <li
+              aria-label={`${kindLabel[row.kind]} 수량`}
               className="rounded border border-white/10 p-2 text-xs"
               key={row.kind}
             >
@@ -153,6 +166,7 @@ export function DrawingQuantityInspector({
                     value={row.kind}
                   />
                   <button
+                    aria-label={`${kindLabel[row.kind]} 확정 근거 만들기`}
                     className="min-h-9 rounded border border-emerald-400/40 px-2 font-semibold text-emerald-200"
                     type="submit"
                   >

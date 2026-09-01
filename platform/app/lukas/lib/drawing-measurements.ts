@@ -4,6 +4,23 @@ import {
 } from "./drawing-semantic-geometry.ts";
 import type { DrawingObject, Point } from "./drawing-workspace.types.ts";
 
+const measurableGeometryTypes = new Set<DrawingObject["geometry"]["type"]>([
+  "line",
+  "polyline",
+  "rectangle",
+  "circle",
+  "wall",
+  "opening",
+  "space",
+  "area",
+  "grid",
+  "arc",
+]);
+
+export function drawingObjectSupportsMeasurement(object: DrawingObject) {
+  return measurableGeometryTypes.has(object.geometry.type);
+}
+
 export const DRAWING_MEASUREMENT_RULE_VERSION = "P4_MEASUREMENT_V1" as const;
 
 export const DRAWING_MEASUREMENT_PI_NUMERATOR = 3_141_592_653_589_793n;

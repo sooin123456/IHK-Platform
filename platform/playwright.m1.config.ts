@@ -1,16 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
 import base from "./playwright.config";
-import {
-  assertDisposableCleanupTarget,
-  assertM1LoopbackEnvironment,
-} from "./scripts/run-drawing-workspace-m1-e2e.mjs";
+import { verifyDisposableSupabaseAuthority } from "./scripts/run-drawing-workspace-m1-e2e.mjs";
 
-const authority = assertM1LoopbackEnvironment(process.env);
-assertDisposableCleanupTarget({
-  projectId: authority.projectId,
-  root: authority.workdir,
-});
+const authority = verifyDisposableSupabaseAuthority(process.env);
 
 const value = (name: string) => {
   const result = process.env[name]?.trim();
@@ -75,7 +68,7 @@ export default defineConfig({
       },
     },
     {
-      command: "NODE_ENV=production HOST=127.0.0.1 PORT=4000 npm run start",
+      command: "npm run start",
       url: "http://127.0.0.1:4000",
       reuseExistingServer: false,
       env: {

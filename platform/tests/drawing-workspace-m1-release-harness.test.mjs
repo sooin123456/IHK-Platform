@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +18,12 @@ import test from "node:test";
 import {
   assertDisposableCleanupTarget,
   assertM1LoopbackEnvironment,
+  cleanupDisposableProject,
+  createProcessLifecycle,
+  interruptedError,
   renderDisposableSupabaseConfig,
+  runChildProcess,
+  verifyDisposableSupabaseAuthority,
 } from "../scripts/run-drawing-workspace-m1-e2e.mjs";
 
 const validEnvironment = {
@@ -27,6 +36,12 @@ const validEnvironment = {
   M1_REAL_POSTGRES_DATABASE_URL:
     "postgresql://postgres:postgres@127.0.0.1:55432/postgres",
 };
+const repositoryConfig = readFileSync(
+  new URL("../supabase/config.toml", import.meta.url),
+  "utf8",
+);
+const ownedConfig = (projectId, portBase = 55431) =>
+  renderDisposableSupabaseConfig({ projectId, portBase, repositoryConfig });
 
 test("M1 authority accepts only its concrete loopback Supabase and PostgreSQL endpoints", () => {
   assert.deepEqual(assertM1LoopbackEnvironment(validEnvironment), {
@@ -67,6 +82,78 @@ test("disposable Supabase config uses the exact project and free port block", ()
   assert.doesNotMatch(rendered, /5432[0-9]/);
 });
 
+test("Playwright authority verifies status for the exact workdir and rejects endpoint or key drift", () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-status-")),
+  );
+  const projectId = "1hk-m1-deadbeef";
+  const environment = {
+    ...validEnvironment,
+    M1_E2E_DISPOSABLE_PROJECT_ID: projectId,
+    M1_E2E_DISPOSABLE_WORKDIR: root,
+  };
+  const calls = [];
+  const status = {
+    API_URL: environment.SUPABASE_URL,
+    DB_URL: environment.M1_REAL_POSTGRES_DATABASE_URL,
+    ANON_KEY: environment.SUPABASE_ANON_KEY,
+    SERVICE_ROLE_KEY: environment.SUPABASE_SERVICE_ROLE_KEY,
+  };
+  try {
+    mkdirSync(path.join(root, "supabase"));
+    writeFileSync(
+      path.join(root, ".m1-disposable-supabase.json"),
+      `${JSON.stringify({ projectId, root })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      renderDisposableSupabaseConfig({
+        projectId,
+        portBase: 55431,
+        repositoryConfig,
+      }),
+    );
+    assert.deepEqual(
+      verifyDisposableSupabaseAuthority(environment, {
+        statusRunner(command, args) {
+          calls.push({ command, args });
+          return JSON.stringify(status);
+        },
+      }),
+      {
+        databaseUrl: environment.M1_REAL_POSTGRES_DATABASE_URL,
+        projectId,
+        supabaseUrl: environment.SUPABASE_URL,
+        workdir: root,
+      },
+    );
+    assert.deepEqual(calls, [
+      {
+        command: "supabase",
+        args: ["status", "--workdir", root, "-o", "json"],
+      },
+    ]);
+
+    for (const mutation of [
+      { API_URL: "http://127.0.0.1:55441" },
+      {
+        DB_URL: "postgresql://postgres:postgres@127.0.0.1:55442/postgres",
+      },
+      { ANON_KEY: "x".repeat(40) },
+      { SERVICE_ROLE_KEY: "y".repeat(40) },
+    ])
+      assert.throws(
+        () =>
+          verifyDisposableSupabaseAuthority(environment, {
+            statusRunner: () => JSON.stringify({ ...status, ...mutation }),
+          }),
+        /status does not match the disposable environment/,
+      );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
 test("cleanup validation requires the owned marker and refuses repository Supabase", () => {
   const root = realpathSync(
     mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-test-")),
@@ -80,7 +167,7 @@ test("cleanup validation requires the owned marker and refuses repository Supaba
     );
     writeFileSync(
       path.join(root, "supabase", "config.toml"),
-      `project_id = "${projectId}"\n`,
+      ownedConfig(projectId),
     );
     assert.doesNotThrow(() =>
       assertDisposableCleanupTarget({ projectId, root }),
@@ -101,9 +188,144 @@ test("cleanup validation requires the owned marker and refuses repository Supaba
       () => assertDisposableCleanupTarget({ projectId, root }),
       /marker/,
     );
+    writeFileSync(
+      path.join(root, ".m1-disposable-supabase.json"),
+      `${JSON.stringify({ projectId, root })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      `${ownedConfig(projectId)}# self-authored drift\n`,
+    );
+    assert.throws(
+      () => assertDisposableCleanupTarget({ projectId, root }),
+      /mismatched Supabase project|config/,
+    );
   } finally {
     rmSync(root, { recursive: true });
   }
+});
+
+test("cleanup validation rejects a symlink anywhere below the owned root", () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-symlink-")),
+  );
+  const projectId = "1hk-m1-acde1234";
+  try {
+    mkdirSync(path.join(root, "supabase"));
+    writeFileSync(
+      path.join(root, ".m1-disposable-supabase.json"),
+      `${JSON.stringify({ projectId, root })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      ownedConfig(projectId),
+    );
+    symlinkSync(tmpdir(), path.join(root, "supabase", "foreign"));
+    assert.throws(
+      () => assertDisposableCleanupTarget({ projectId, root }),
+      /symlink/,
+    );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("cleanup preserves recovery metadata when stopping a partially started stack fails", async () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-stop-failure-")),
+  );
+  const projectId = "1hk-m1-a1b2c3d4";
+  let removed = false;
+  try {
+    mkdirSync(path.join(root, "supabase"));
+    writeFileSync(
+      path.join(root, ".m1-disposable-supabase.json"),
+      `${JSON.stringify({ projectId, root })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      ownedConfig(projectId),
+    );
+    await assert.rejects(
+      cleanupDisposableProject({
+        projectId,
+        root,
+        projectReady: true,
+        startAttempted: true,
+        stop: async () => {
+          throw new Error("stop failed");
+        },
+        remove: () => {
+          removed = true;
+        },
+      }),
+      /preserved.*recovery|recovery.*preserved/i,
+    );
+    assert.equal(removed, false);
+    assert.doesNotThrow(() =>
+      assertDisposableCleanupTarget({ projectId, root }),
+    );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("cleanup removes an exact partial owned root only before start", async () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-partial-")),
+  );
+  await cleanupDisposableProject({
+    projectId: "1hk-m1-bead1234",
+    root,
+    projectReady: false,
+    startAttempted: false,
+  });
+  assert.equal(existsSync(root), false);
+});
+
+test("signal state terminates the tracked child and blocks ordinary new work", () => {
+  const killed = [];
+  const lifecycle = createProcessLifecycle();
+  const child = { kill: (signal) => killed.push(signal) };
+  lifecycle.track(child);
+  lifecycle.requestSignal("SIGTERM");
+  lifecycle.requestSignal("SIGINT");
+  assert.equal(lifecycle.signal, "SIGTERM");
+  assert.deepEqual(killed, ["SIGTERM"]);
+  assert.throws(() => lifecycle.assertCanStart(false), /SIGTERM/);
+  assert.doesNotThrow(() => lifecycle.assertCanStart(true));
+});
+
+test("a child failure after SIGINT retains the interrupt exit identity", () => {
+  const childFailure = new Error("child exited after termination");
+  const result = interruptedError(childFailure, "SIGINT");
+  assert.equal(result, childFailure);
+  assert.equal(result.signal, "SIGINT");
+});
+
+test("sensitive child failures never expose captured keys or database URLs", async () => {
+  const secret = "service-role-key-secret";
+  const databaseUrl = "postgresql://postgres:secret@127.0.0.1:55432/postgres";
+  await assert.rejects(
+    runChildProcess(
+      process.execPath,
+      [
+        "-e",
+        `process.stdout.write(${JSON.stringify(secret)}); process.stderr.write(${JSON.stringify(databaseUrl)}); process.exit(7)`,
+      ],
+      process.env,
+      {
+        lifecycle: createProcessLifecycle(),
+        sensitive: true,
+      },
+    ),
+    (error) => {
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      assert.doesNotMatch(error.message, /postgresql:\/\//);
+      assert.match(error.message, /exit 7/);
+      return true;
+    },
+  );
 });
 
 test("direct Playwright invocation fails before fixture writes", () => {
@@ -123,4 +345,64 @@ test("direct Playwright invocation fails before fixture writes", () => {
     `${result.stdout}\n${result.stderr}`,
     /M1 E2E requires M1_E2E_DISPOSABLE=1/,
   );
+});
+
+test("direct Playwright rejects a self-authored root backed by another loopback stack", () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-fabricated-")),
+  );
+  const projectId = "1hk-m1-cafefeed";
+  try {
+    mkdirSync(path.join(root, "supabase"));
+    mkdirSync(path.join(root, "bin"));
+    writeFileSync(
+      path.join(root, ".m1-disposable-supabase.json"),
+      `${JSON.stringify({ projectId, root })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "supabase", "config.toml"),
+      renderDisposableSupabaseConfig({
+        projectId,
+        portBase: 55431,
+        repositoryConfig,
+      }),
+    );
+    const fakeSupabase = path.join(root, "bin", "supabase");
+    writeFileSync(
+      fakeSupabase,
+      `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(
+        JSON.stringify({
+          API_URL: "http://127.0.0.1:55441",
+          DB_URL: "postgresql://postgres:postgres@127.0.0.1:55442/postgres",
+          ANON_KEY: "x".repeat(40),
+          SERVICE_ROLE_KEY: "y".repeat(40),
+        }),
+      )});\n`,
+    );
+    chmodSync(fakeSupabase, 0o700);
+    const environment = {
+      ...process.env,
+      ...validEnvironment,
+      COLLABORATION_FREEZE_SECRET: "f".repeat(40),
+      COLLABORATION_INTERNAL_SECRET: "i".repeat(40),
+      M1_E2E_DISPOSABLE_PROJECT_ID: projectId,
+      M1_E2E_DISPOSABLE_WORKDIR: root,
+      PATH: `${path.join(root, "bin")}:${process.env.PATH}`,
+      VITE_DRAWING_COLLABORATION_URL: "ws://127.0.0.1:12349",
+      VITE_SUPABASE_ANON_KEY: validEnvironment.SUPABASE_ANON_KEY,
+      VITE_SUPABASE_URL: validEnvironment.SUPABASE_URL,
+    };
+    const result = spawnSync(
+      path.join("node_modules", ".bin", "playwright"),
+      ["test", "--list", "--config=playwright.m1.config.ts"],
+      { cwd: path.resolve("."), encoding: "utf8", env: environment },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /status does not match the disposable environment/,
+    );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
 });

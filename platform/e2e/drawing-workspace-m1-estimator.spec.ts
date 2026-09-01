@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
 import { performance } from "node:perf_hooks";
 
@@ -35,6 +35,7 @@ let collaborationWorkspaceId = "";
 let pdfWorkspaceId = "";
 let boqVersionId = "";
 let estimatorObjectIds: Record<"line" | "area" | "count", string>;
+let boqStructure: Awaited<ReturnType<typeof seedEstimatorBoqStructure>>;
 let immutableEvidenceBefore: DrawingEstimatorFixture["sourceEvidence"];
 
 type BrowserEvidence = {
@@ -44,13 +45,16 @@ type BrowserEvidence = {
   responseErrors: string[];
 };
 
-function trackEvidence(page: Page): BrowserEvidence {
-  const evidence: BrowserEvidence = {
+function newBrowserEvidence(): BrowserEvidence {
+  return {
     consoleErrors: [],
     pageErrors: [],
     requestFailures: [],
     responseErrors: [],
   };
+}
+
+function attachPageEvidence(page: Page, evidence: BrowserEvidence) {
   page.on("console", (message) => {
     if (message.type() === "error") evidence.consoleErrors.push(message.text());
   });
@@ -64,7 +68,24 @@ function trackEvidence(page: Page): BrowserEvidence {
     if (response.status() >= 500)
       evidence.responseErrors.push(`${response.status()} ${response.url()}`);
   });
+}
+
+function trackEvidence(page: Page): BrowserEvidence {
+  const evidence = newBrowserEvidence();
+  attachPageEvidence(page, evidence);
   return evidence;
+}
+
+function trackContextEvidence(context: BrowserContext): BrowserEvidence {
+  const evidence = newBrowserEvidence();
+  context.on("page", (page) => attachPageEvidence(page, evidence));
+  return evidence;
+}
+
+function snapshotEvidence(evidence: BrowserEvidence): BrowserEvidence {
+  return Object.fromEntries(
+    Object.entries(evidence).map(([key, values]) => [key, [...values]]),
+  ) as BrowserEvidence;
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: unknown) {
@@ -145,6 +166,10 @@ async function classifySelectedObject(
     .selectOption({ label: value.evidenceKind });
   if (value.evidenceKind === "가정값")
     await inspector.getByLabel("근거 사유").fill(value.evidenceReason ?? "");
+  if (value.evidenceKind === "가정값")
+    await expect(inspector.getByLabel("근거 사유")).toHaveValue(
+      value.evidenceReason ?? "",
+    );
   await inspector.getByRole("button", { name: "사용자 속성 적용" }).click();
   await waitUntilSaved(page);
 }
@@ -157,6 +182,64 @@ async function openResultRail(page: Page) {
 async function bindDraftBoq(page: Page, versionId: string) {
   await page.getByLabel("연결할 내역 버전").selectOption(versionId);
   await page.getByRole("button", { name: "내역 연결" }).click();
+}
+
+function estimateRow(page: Page, itemCode: string) {
+  return page
+    .getByRole("list", { name: "견적 항목" })
+    .getByRole("listitem")
+    .filter({ has: page.getByText(itemCode, { exact: true }) });
+}
+
+function estimateValue(row: Locator, label: "수량" | "단가" | "금액") {
+  return row
+    .getByText(label, { exact: true })
+    .locator("xpath=following-sibling::dd");
+}
+
+async function expectExactEstimateRow(
+  page: Page,
+  expected: {
+    amount: string;
+    code: string;
+    quantity: string;
+    rate: string;
+    state: string;
+  },
+) {
+  const row = estimateRow(page, expected.code);
+  await expect(row).toHaveCount(1);
+  await expect(estimateValue(row, "수량")).toHaveText(expected.quantity);
+  await expect(estimateValue(row, "단가")).toHaveText(expected.rate);
+  await expect(estimateValue(row, "금액")).toHaveText(expected.amount);
+  await expect(row.getByText(expected.state, { exact: true })).toBeVisible();
+}
+
+async function expectExactBoqLine(
+  page: Page,
+  lineId: string,
+  expected: {
+    amount: string;
+    finalQuantity: string;
+    itemCode: string;
+    rawQuantity: string;
+    rate: string;
+  },
+) {
+  const row = page.locator(`#boq-line-${lineId}`);
+  const cells = row.getByRole("cell");
+  await expect(row).toHaveCount(1);
+  await expect(cells).toHaveCount(8);
+  await expect(
+    cells.nth(0).getByText(expected.itemCode, { exact: true }),
+  ).toBeVisible();
+  await expect(cells.nth(1)).toHaveText(expected.rawQuantity);
+  await expect(cells.nth(4)).toHaveText(expected.finalQuantity);
+  await expect(cells.nth(5)).toHaveText(expected.rate);
+  await expect(cells.nth(6)).toHaveText(expected.amount);
+  await expect(
+    cells.nth(7).getByText("계산 가능", { exact: true }),
+  ).toBeAttached();
 }
 
 async function importCompanyRatesAndCreateBoq(
@@ -253,6 +336,17 @@ async function objectWorldPoint(objectId: string) {
   throw new Error(`Unsupported M1 selection geometry: ${geometry.type}`);
 }
 
+function lineBoundsText(value: unknown) {
+  const geometry = value as {
+    type?: string;
+    start?: { x: number; y: number };
+    end?: { x: number; y: number };
+  };
+  if (geometry.type !== "line" || !geometry.start || !geometry.end)
+    throw new Error("M1 collaborative geometry is not the created line");
+  return `X ${Math.min(geometry.start.x, geometry.end.x)}–${Math.max(geometry.start.x, geometry.end.x)} · Y ${Math.min(geometry.start.y, geometry.end.y)}–${Math.max(geometry.start.y, geometry.end.y)}`;
+}
+
 async function selectObject(page: Page, objectId: string) {
   await page.getByRole("button", { name: "선택 도구" }).click();
   const point = await drawingSurfacePoint(
@@ -322,6 +416,10 @@ function percentile(values: number[], fraction: number) {
   return sorted[
     Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)
   ];
+}
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 async function noOverlap(first: Locator, second: Locator) {
@@ -458,7 +556,6 @@ test.describe
         evidenceKind: "가정값",
         evidenceReason: "현장 실측 전 설계 치수 가정",
       });
-      await expect(page.getByText("현장 실측 전 설계 치수 가정")).toBeVisible();
       await drawTwoPointShape(page, "원 도구", {
         x1: 560,
         y1: 340,
@@ -473,13 +570,67 @@ test.describe
         evidenceKind: "수기 입력",
       });
 
+      await page.getByRole("button", { name: "선 도구" }).click();
+      await drawLine(page, { x1: 300, y1: 470, x2: 450, y2: 470 });
+      await classifySelectedObject(page, {
+        name: "M1 임시 천장",
+        classification: "천장",
+        trade: "마감",
+        itemCode: "M1-C-001",
+        evidenceKind: "현장 실측",
+      });
+      await page.getByRole("button", { name: "선 도구" }).click();
+      await drawLine(page, { x1: 500, y1: 470, x2: 650, y2: 470 });
+      await classifySelectedObject(page, {
+        name: "M1 임시 창호",
+        classification: "창호",
+        trade: "창호",
+        itemCode: "M1-WIN-001",
+        evidenceKind: "현장 실측",
+      });
+      await drawTwoPointShape(page, "원 도구", {
+        x1: 700,
+        y1: 350,
+        x2: 720,
+        y2: 350,
+      });
+      await classifySelectedObject(page, {
+        name: "M1 임시 가구",
+        classification: "가구",
+        trade: "가구",
+        itemCode: "M1-FUR-001",
+        evidenceKind: "수기 입력",
+      });
+      await drawTwoPointShape(page, "사각형 도구", {
+        x1: 680,
+        y1: 430,
+        x2: 760,
+        y2: 480,
+      });
+      await classifySelectedObject(page, {
+        name: "M1 임시 철거",
+        classification: "철거",
+        trade: "철거",
+        itemCode: "M1-DEM-001",
+        evidenceKind: "수기 입력",
+      });
+
       const revision = await revisionStatus(estimatorWorkspaceId);
+      const classifiedNames = [
+        "M1 W-001 기준선",
+        "M1 F-001 바닥",
+        "M1 D-001 문",
+        "M1 임시 천장",
+        "M1 임시 창호",
+        "M1 임시 가구",
+        "M1 임시 철거",
+      ];
       const objects = await fixture.admin
         .from("lukas_drawing_objects")
         .select("id,name")
         .eq("revision_id", revision.id)
-        .in("name", ["M1 W-001 기준선", "M1 F-001 바닥", "M1 D-001 문"]);
-      if (objects.error || objects.data?.length !== 3)
+        .in("name", classifiedNames);
+      if (objects.error || objects.data?.length !== classifiedNames.length)
         throw (
           objects.error ?? new Error("M1 classified objects did not persist")
         );
@@ -490,28 +641,120 @@ test.describe
         area: id("M1 F-001 바닥"),
         count: id("M1 D-001 문"),
       };
+      const temporaryObjectIds = [
+        id("M1 임시 천장"),
+        id("M1 임시 창호"),
+        id("M1 임시 가구"),
+        id("M1 임시 철거"),
+      ];
+      const classificationSchema = await fixture.admin
+        .from("lukas_drawing_property_schemas")
+        .select("id")
+        .eq("revision_id", revision.id)
+        .eq("name", "적산 분류")
+        .single();
+      if (classificationSchema.error) throw classificationSchema.error;
+      const classifications = await fixture.admin
+        .from("lukas_drawing_property_values")
+        .select("object_id,value")
+        .eq("schema_id", classificationSchema.data.id)
+        .in(
+          "object_id",
+          objects.data.map(({ id }) => id),
+        );
+      if (classifications.error) throw classifications.error;
+      const classificationByName = Object.fromEntries(
+        objects.data.map((object) => [
+          object.name,
+          classifications.data?.find((value) => value.object_id === object.id)
+            ?.value,
+        ]),
+      );
+      expect(classificationByName).toEqual({
+        "M1 D-001 문": "문",
+        "M1 F-001 바닥": "바닥",
+        "M1 W-001 기준선": "벽",
+        "M1 임시 가구": "가구",
+        "M1 임시 철거": "철거",
+        "M1 임시 천장": "천장",
+        "M1 임시 창호": "창호",
+      });
+      await attachJson(testInfo, "m1-seven-estimator-classifications", {
+        classificationByName,
+        objectIds: Object.fromEntries(
+          objects.data.map(({ id, name }) => [name, id]),
+        ),
+      });
 
       await openResultRail(page);
       await importCompanyRatesAndCreateBoq(page, fixture);
       boqVersionId = new URL(page.url()).searchParams.get("version") ?? "";
       if (!boqVersionId) throw new Error("Draft BOQ version was not returned");
-      await seedEstimatorBoqStructure(fixture, boqVersionId);
+      boqStructure = await seedEstimatorBoqStructure(fixture, boqVersionId);
       await page.getByRole("link", { name: "작업실로 돌아가기" }).click();
       await bindDraftBoq(page, boqVersionId);
       await expect(
         page.getByText("초안", { exact: true }).first(),
       ).toBeVisible();
-      const resultRows = page.getByRole("list", { name: "견적 항목" });
-      await expect(resultRows).toContainText(/0\.[0-9]+ m/);
-      await expect(resultRows).toContainText(/0\.[0-9]+ m2/);
-      await expect(resultRows).toContainText("1 EA");
-      await expect(page.getByLabel("총 예상 금액")).not.toHaveText(
-        /^(?:—|0원)$/,
+      const missingRateRow = estimateRow(page, "M1-C-001");
+      await expect(missingRateRow).toHaveCount(1);
+      await expect(
+        missingRateRow.getByText("근거 누락", { exact: true }),
+      ).toBeVisible();
+      await expect(missingRateRow).toContainText(
+        "검토 필요: BOQ 품목 코드가 없습니다",
       );
+      await expect(estimateValue(missingRateRow, "단가")).toHaveText("—");
+      await expect(estimateValue(missingRateRow, "금액")).toHaveText("—");
+
+      for (const objectId of temporaryObjectIds) {
+        await selectObject(page, objectId);
+        await page.keyboard.press("Backspace");
+        await waitUntilSaved(page);
+      }
+      await expect
+        .poll(async () => {
+          const result = await fixture.admin
+            .from("lukas_drawing_objects")
+            .select("id", { count: "exact", head: true })
+            .in("id", temporaryObjectIds);
+          if (result.error) throw result.error;
+          return result.count;
+        })
+        .toBe(0);
+      await openResultRail(page);
+      await expect(page.getByText("M1-C-001", { exact: true })).toHaveCount(0);
+      await expectExactEstimateRow(page, {
+        amount: "3,000원",
+        code: "W-001",
+        quantity: "0.3 m",
+        rate: "10,000원",
+        state: "초안",
+      });
+      await expectExactEstimateRow(page, {
+        amount: "600원",
+        code: "F-001",
+        quantity: "0.02 m2",
+        rate: "30,000원",
+        state: "가정값",
+      });
+      await expectExactEstimateRow(page, {
+        amount: "150,000원",
+        code: "D-001",
+        quantity: "1 EA",
+        rate: "150,000원",
+        state: "초안",
+      });
+      await expect(page.getByLabel("총 예상 금액")).toHaveText("153,600원");
       await page.reload();
-      await expect(resultRows).toContainText("W-001");
-      await expect(resultRows).toContainText("F-001");
-      await expect(resultRows).toContainText("D-001");
+      await openResultRail(page);
+      await expectExactEstimateRow(page, {
+        amount: "3,000원",
+        code: "W-001",
+        quantity: "0.3 m",
+        rate: "10,000원",
+        state: "초안",
+      });
       await context.close();
       context = null;
 
@@ -526,9 +769,20 @@ test.describe
         canonicalPath(fixture.projectId, estimatorWorkspaceId),
       );
       await openResultRail(page);
-      await expect(page.getByRole("list", { name: "견적 항목" })).toContainText(
-        /W-001[\s\S]*F-001[\s\S]*D-001/,
-      );
+      await expectExactEstimateRow(page, {
+        amount: "600원",
+        code: "F-001",
+        quantity: "0.02 m2",
+        rate: "30,000원",
+        state: "가정값",
+      });
+      await expectExactEstimateRow(page, {
+        amount: "150,000원",
+        code: "D-001",
+        quantity: "1 EA",
+        rate: "150,000원",
+        state: "초안",
+      });
       const binding = await fixture.admin
         .from("lukas_drawing_estimate_bindings")
         .select("drawing_revision_id,boq_version_id")
@@ -709,8 +963,11 @@ test.describe
       await waitUntilSaved(page);
       await page.getByRole("button", { name: "선 도구" }).click();
       await drawLine(page, reference);
+      await page.getByRole("tab", { name: "객체" }).click();
       await expect(
-        page.getByText("5 m", { exact: true }).first(),
+        page
+          .getByLabel("길이 수량")
+          .getByText("미리보기 · 5 m", { exact: true }),
       ).toBeVisible();
 
       const pdfRetry = await context.request.post(`${baseUrl}${startPath}`, {
@@ -798,20 +1055,71 @@ test.describe
         .update({ boq_version_id: boqVersionId })
         .eq("drawing_revision_id", estimatorRevision.id);
       expect(viewerBindingMutation.error).toBeTruthy();
-      const viewerRateMutation = await viewer
-        .from("lukas_qto_price_resources")
-        .insert({
-          id: randomUUID(),
-          project_id: fixture.projectId,
-          price_book_id: randomUUID(),
-          resource_code: "VIEWER-FORBIDDEN",
-          resource_type: "material",
-          resource_name: "forbidden",
-          unit: "EA",
-          unit_price_krw: "1",
-          created_by: fixture.viewer.id,
-        });
-      expect(viewerRateMutation.error).toBeTruthy();
+      await viewerPage.goto(
+        `${baseUrl}/projects/${fixture.projectId}/boq?version=${boqVersionId}`,
+      );
+      await expect(
+        viewerPage.getByRole("button", { name: "품목 추가" }),
+      ).toHaveCount(0);
+      await expect(
+        viewerPage.getByRole("button", { name: "승인 요청" }),
+      ).toHaveCount(0);
+      const viewerBoqAction = await viewerContext.request.post(
+        `${baseUrl}/projects/${fixture.projectId}/boq?version=${boqVersionId}`,
+        {
+          form: {
+            adjustment_reason: "",
+            intent: "line",
+            item_code: "VIEWER-FORBIDDEN",
+            item_name: "Viewer forbidden",
+            section_id: boqStructure.sectionId,
+            signed_adjustment: "0",
+            specification: "",
+            unit: "EA",
+            version_id: boqVersionId,
+          },
+          maxRedirects: 0,
+        },
+      );
+      expect(viewerBoqAction.status()).toBe(400);
+      expect(await viewerBoqAction.text()).toContain(
+        "적산 담당자만 이 항목을 작성할 수 있습니다.",
+      );
+      const viewerSession = await viewer.auth.getSession();
+      const accessToken = viewerSession.data.session?.access_token;
+      if (!accessToken) throw new Error("Viewer API session is unavailable");
+      const restHeaders = {
+        apikey: process.env.SUPABASE_ANON_KEY!,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      };
+      const viewerBoqDatabaseMutation = await viewerContext.request.patch(
+        `${process.env.SUPABASE_URL}/rest/v1/lukas_qto_boq_lines?id=eq.${boqStructure.lineIdsByCode["W-001"]}`,
+        {
+          data: { item_name: "Viewer forbidden" },
+          headers: restHeaders,
+        },
+      );
+      expect(viewerBoqDatabaseMutation.status()).toBe(403);
+      const viewerRateMutation = await viewerContext.request.post(
+        `${process.env.SUPABASE_URL}/rest/v1/lukas_qto_price_resources`,
+        {
+          data: {
+            created_by: fixture.viewer.id,
+            id: randomUUID(),
+            price_book_id: boqStructure.priceBookId,
+            project_id: fixture.projectId,
+            resource_code: "VIEWER-FORBIDDEN",
+            resource_name: "forbidden",
+            resource_type: "material",
+            unit: "EA",
+            unit_price_krw: "1",
+          },
+          headers: restHeaders,
+        },
+      );
+      expect(viewerRateMutation.status()).toBe(403);
 
       const editorPage = await authenticateContext(
         fixture,
@@ -876,39 +1184,103 @@ test.describe
       ).toBe(3);
 
       await editorPage.reload();
-      for (const objectId of [
-        estimatorObjectIds.line,
-        estimatorObjectIds.area,
-        estimatorObjectIds.count,
-      ]) {
+      const measurementByObject = new Map([
+        [
+          estimatorObjectIds.line,
+          {
+            button: "길이 확정 근거 만들기",
+            kind: "length",
+            quantity: "0.3",
+            unit: "m",
+          },
+        ],
+        [
+          estimatorObjectIds.area,
+          {
+            button: "면적 확정 근거 만들기",
+            kind: "area",
+            quantity: "0.02",
+            unit: "m2",
+          },
+        ],
+        [
+          estimatorObjectIds.count,
+          {
+            button: "개수 확정 근거 만들기",
+            kind: "count",
+            quantity: "1",
+            unit: "EA",
+          },
+        ],
+      ]);
+      for (const [objectId, expectedMeasurement] of measurementByObject) {
         await selectObject(editorPage, objectId);
         await editorPage.getByRole("tab", { name: "객체" }).click();
         await editorPage
-          .getByRole("button", { name: "확정 근거 만들기" })
-          .first()
+          .getByRole("button", {
+            name: expectedMeasurement.button,
+            exact: true,
+          })
           .click();
       }
       const snapshot = await approvedSnapshot(estimatorRevision.id);
       const quantities = await fixture.admin
         .from("lukas_drawing_quantity_links")
         .select(
-          "id,drawing_object_id,drawing_snapshot_sha256,measurement_kind,raw_quantity,unit",
+          "id,drawing_revision_id,drawing_revision_version,drawing_snapshot_sha256,drawing_object_id,drawing_object_lineage_id,drawing_object_version,object_fingerprint,measurement_kind,raw_quantity,unit,measurement_rule_version",
         )
         .eq("drawing_revision_id", estimatorRevision.id)
         .in("drawing_object_id", Object.values(estimatorObjectIds));
       if (quantities.error) throw quantities.error;
       expect(quantities.data).toHaveLength(3);
-      expect(
-        new Set(
-          quantities.data?.map(({ measurement_kind }) => measurement_kind),
-        ),
-      ).toEqual(new Set(["length", "area", "count"]));
-      expect(
-        quantities.data?.every(
-          ({ drawing_snapshot_sha256 }) =>
-            drawing_snapshot_sha256 === snapshot.snapshot_sha256,
-        ),
-      ).toBe(true);
+      for (const quantity of quantities.data ?? []) {
+        const expectedMeasurement = measurementByObject.get(
+          quantity.drawing_object_id,
+        );
+        if (!expectedMeasurement)
+          throw new Error("M1 quantity was created for an unknown object");
+        expect(quantity).toMatchObject({
+          drawing_revision_id: estimatorRevision.id,
+          drawing_revision_version: snapshot.subject_version,
+          drawing_snapshot_sha256: snapshot.snapshot_sha256,
+          measurement_kind: expectedMeasurement.kind,
+          measurement_rule_version: "P4_MEASUREMENT_V1",
+          raw_quantity: expectedMeasurement.quantity,
+          unit: expectedMeasurement.unit,
+        });
+        expect(quantity.drawing_object_lineage_id).toMatch(/^[0-9a-f-]{36}$/);
+        expect(Number(quantity.drawing_object_version)).toBeGreaterThan(0);
+        expect(quantity.object_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+      }
+      await openResultRail(editorPage);
+      for (const expected of [
+        {
+          amount: "3,000원",
+          code: "W-001",
+          quantity: "0.3 m",
+          rate: "10,000원",
+          state: "확정",
+        },
+        {
+          amount: "600원",
+          code: "F-001",
+          quantity: "0.02 m2",
+          rate: "30,000원",
+          state: "확정",
+        },
+        {
+          amount: "150,000원",
+          code: "D-001",
+          quantity: "1 EA",
+          rate: "150,000원",
+          state: "확정",
+        },
+      ]) {
+        await expectExactEstimateRow(editorPage, expected);
+        await expect(estimateRow(editorPage, expected.code)).toContainText(
+          "근거 1건",
+        );
+      }
 
       const boqPath = `/projects/${fixture.projectId}/boq?version=${boqVersionId}&returnTo=${encodeURIComponent(
         canonicalPath(fixture.projectId, estimatorWorkspaceId),
@@ -939,6 +1311,52 @@ test.describe
         await card.getByLabel("새 Drawing 배분 계수").fill("1");
         await card.getByRole("button", { name: "연결", exact: true }).click();
       }
+      const boqLinks = await fixture.admin
+        .from("lukas_drawing_boq_links")
+        .select(
+          "id,quantity_link_id,boq_version_id,boq_line_id,allocation_factor",
+        )
+        .eq("boq_version_id", boqVersionId);
+      if (boqLinks.error) throw boqLinks.error;
+      expect(boqLinks.data).toHaveLength(3);
+      for (const link of boqLinks.data ?? []) {
+        const quantity = quantities.data?.find(
+          (candidate) => candidate.id === link.quantity_link_id,
+        );
+        if (!quantity) throw new Error("M1 BOQ link lost its quantity source");
+        const code = codeByObject.get(quantity.drawing_object_id)!;
+        expect(link).toMatchObject({
+          allocation_factor: "1",
+          boq_line_id: boqStructure.lineIdsByCode[code],
+          boq_version_id: boqVersionId,
+          quantity_link_id: quantity.id,
+        });
+      }
+      for (const [code, expected] of Object.entries({
+        "D-001": {
+          amount: "150,000원",
+          finalQuantity: "1 EA",
+          rawQuantity: "1",
+          rate: "150000 / 0 / 0",
+        },
+        "F-001": {
+          amount: "600원",
+          finalQuantity: "0.02 m2",
+          rawQuantity: "0.02",
+          rate: "30000 / 0 / 0",
+        },
+        "W-001": {
+          amount: "3,000원",
+          finalQuantity: "0.3 m",
+          rawQuantity: "0.3",
+          rate: "10000 / 0 / 0",
+        },
+      })) {
+        await expectExactBoqLine(editorPage, boqStructure.lineIdsByCode[code], {
+          ...expected,
+          itemCode: code,
+        });
+      }
       await editorPage.getByRole("button", { name: "승인 요청" }).click();
       const boqReviewerPage = await authenticateContext(
         fixture,
@@ -967,21 +1385,169 @@ test.describe
       expect(xlsx.filename).toMatch(/\.xlsx$/i);
       const manifest = JSON.parse(manifestDownload.bytes.toString("utf8"));
       const calculation = manifest.calculationManifest;
-      expect(calculation.priceBook.sourceSha256).toBe(
-        fixture.rateBookEvidence.metadataSha256,
-      );
+      expect(calculation.priceBook).toEqual({
+        effectiveDate: "2026-08-31",
+        id: boqStructure.priceBookId,
+        rightsBasis: "customer_owned",
+        sourceFileId: fixture.rateBookFileId,
+        sourceSha256: fixture.rateBookEvidence.metadataSha256,
+      });
       expect(calculation.result.resultSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(calculation.boqVersionId).toBe(boqVersionId);
+      expect(calculation.projectId).toBe(fixture.projectId);
+      expect(calculation.result.directCostKrw).toBe("153600");
+      expect(calculation.resources).toHaveLength(3);
+      expect(
+        Object.fromEntries(
+          calculation.resources.map((resource: any) => [
+            resource.code,
+            resource,
+          ]),
+        ),
+      ).toEqual({
+        "D-001": {
+          code: "D-001",
+          id: boqStructure.resourceIdsByCode["D-001"],
+          type: "material",
+          unit: "EA",
+          unitPriceKrw: "150000",
+        },
+        "F-001": {
+          code: "F-001",
+          id: boqStructure.resourceIdsByCode["F-001"],
+          type: "material",
+          unit: "m2",
+          unitPriceKrw: "30000",
+        },
+        "W-001": {
+          code: "W-001",
+          id: boqStructure.resourceIdsByCode["W-001"],
+          type: "material",
+          unit: "m",
+          unitPriceKrw: "10000",
+        },
+      });
+      expect(calculation.rateComponents).toHaveLength(3);
+      expect(
+        Object.fromEntries(
+          calculation.rateComponents.map((component: any) => [
+            component.lineId,
+            component,
+          ]),
+        ),
+      ).toEqual(
+        Object.fromEntries(
+          ["D-001", "F-001", "W-001"].map((code) => [
+            boqStructure.lineIdsByCode[code],
+            {
+              coefficient: "1",
+              id: boqStructure.componentIdsByCode[code],
+              lineId: boqStructure.lineIdsByCode[code],
+              resourceId: boqStructure.resourceIdsByCode[code],
+            },
+          ]),
+        ),
+      );
       expect(calculation.drawingSources).toHaveLength(3);
       for (const source of calculation.drawingSources) {
-        expect(Object.values(estimatorObjectIds)).toContain(source.objectId);
-        expect(source.snapshotSha256).toBe(snapshot.snapshot_sha256);
-        expect(Number(source.quantity)).toBeGreaterThan(0);
+        const quantity = quantities.data?.find(
+          (candidate) => candidate.id === source.quantityLinkId,
+        );
+        if (!quantity) throw new Error("Manifest has an unknown quantity ID");
+        expect(source).toMatchObject({
+          lineageId: quantity.drawing_object_lineage_id,
+          measurementKind: quantity.measurement_kind,
+          measurementRuleVersion: "P4_MEASUREMENT_V1",
+          objectFingerprint: quantity.object_fingerprint,
+          objectId: quantity.drawing_object_id,
+          objectVersion: Number(quantity.drawing_object_version),
+          quantityLinkId: quantity.id,
+          rawQuantity: quantity.raw_quantity,
+          revisionId: estimatorRevision.id,
+          revisionVersion: snapshot.subject_version,
+          snapshotSha256: snapshot.snapshot_sha256,
+          unit: quantity.unit,
+        });
       }
       expect(calculation.result.canonicalLines).toHaveLength(3);
+      const expectedManifestLines = {
+        "D-001": {
+          amount: "150000",
+          quantity: "1",
+          rate: "150000",
+          unit: "EA",
+        },
+        "F-001": { amount: "600", quantity: "0.02", rate: "30000", unit: "m2" },
+        "W-001": { amount: "3000", quantity: "0.3", rate: "10000", unit: "m" },
+      };
       for (const line of calculation.result.canonicalLines) {
-        expect(Number(line.finalQuantity)).toBeGreaterThan(0);
-        expect(Number(line.amountKrw)).toBeGreaterThan(0);
+        const expected =
+          expectedManifestLines[
+            line.itemCode as keyof typeof expectedManifestLines
+          ];
+        expect(expected).toBeTruthy();
+        expect(line).toMatchObject({
+          amountKrw: expected.amount,
+          drawingQuantityLinkIds: [
+            quantities.data?.find(
+              (quantity) =>
+                codeByObject.get(quantity.drawing_object_id) === line.itemCode,
+            )!.id,
+          ],
+          finalQuantity: expected.quantity,
+          lineId: boqStructure.lineIdsByCode[line.itemCode],
+          materialUnitPriceKrw: expected.rate,
+          rawQuantity: expected.quantity,
+          status: "calculated",
+          totalUnitPriceKrw: expected.rate,
+          unit: expected.unit,
+        });
       }
+      const expectedMappings = (boqLinks.data ?? [])
+        .map((link) => ({
+          allocationFactor: "1",
+          lineId: link.boq_line_id,
+          sourceId: link.quantity_link_id,
+          sourceKind: "drawing",
+        }))
+        .sort((left, right) =>
+          JSON.stringify(left).localeCompare(JSON.stringify(right)),
+        );
+      expect(calculation.mappings).toHaveLength(3);
+      expect(
+        [...calculation.mappings].sort((left: any, right: any) =>
+          JSON.stringify(left).localeCompare(JSON.stringify(right)),
+        ),
+      ).toEqual(expectedMappings);
+      const expectedManifestSha256 = sha256Json(calculation);
+      expect(manifest.manifestSha256).toBe(expectedManifestSha256);
+      expect(manifest.resultSha256).toBe(calculation.result.resultSha256);
+      expect(manifest.approvalEnvelope).toMatchObject({
+        decidedBy: fixture.reviewer.id,
+        decision: "approved",
+        manifestSha256: expectedManifestSha256,
+        note: "M1 BOQ 수량·단가 검증",
+        resultSha256: calculation.result.resultSha256,
+        versionId: boqVersionId,
+      });
+      expect(manifest.approvalEnvelope.decidedAt).toMatch(
+        /^\d{4}-\d{2}-\d{2}T/,
+      );
+      expect(manifest.evidenceFiles).toEqual([
+        {
+          fileId: fixture.rateBookFileId,
+          sha256: fixture.rateBookEvidence.metadataSha256,
+        },
+      ]);
+      expect(manifest.handoffSha256).toBe(
+        sha256Json({
+          calculationManifest: calculation,
+          approvalEnvelope: manifest.approvalEnvelope,
+          resultSha256: manifest.resultSha256,
+          manifestSha256: manifest.manifestSha256,
+          evidenceFiles: manifest.evidenceFiles,
+        }),
+      );
 
       const drawingLink = boqReviewerPage
         .getByRole("link", {
@@ -1121,9 +1687,13 @@ test.describe
       );
       expect(movedObject.data.geometry).not.toEqual(sharedObject.data.geometry);
       await selectObject(editorPage, sharedObject.data.id);
+      await editorPage.getByRole("tab", { name: "객체" }).click();
       await expect(editorPage.getByLabel(/도면 화면/)).toHaveAttribute(
         "data-selected-object-name",
         collaborativeName,
+      );
+      await expect(editorPage.getByLabel("선택 객체 경계")).toHaveText(
+        lineBoundsText(movedObject.data.geometry),
       );
 
       const persistedBefore = await persistedCollaborationState(ownerPage);
@@ -1180,9 +1750,13 @@ test.describe
         .single();
       if (finalObject.error) throw finalObject.error;
       await selectObject(editorPage, sharedObject.data.id);
+      await editorPage.getByRole("tab", { name: "객체" }).click();
       await expect(editorPage.getByLabel(/도면 화면/)).toHaveAttribute(
         "data-selected-object-name",
         collaborativeName,
+      );
+      await expect(editorPage.getByLabel("선택 객체 경계")).toHaveText(
+        lineBoundsText(finalObject.data.geometry),
       );
       const [ownerPersistence, editorPersistence] = await Promise.all([
         persistedCollaborationState(ownerPage),
@@ -1263,14 +1837,19 @@ test.describe
       viewport: { width: 1440, height: 900 },
     });
     try {
-      const started = performance.now();
       const page = await authenticateContext(
         fixture,
         context,
         fixture.owner,
         baseUrl,
-        canonicalPath(fixture.projectId, fixture.blankWorkspace.documentId),
+        `/projects/${fixture.projectId}`,
       );
+      const workspaceUrl = `${baseUrl}${canonicalPath(
+        fixture.projectId,
+        fixture.blankWorkspace.documentId,
+      )}`;
+      const started = performance.now();
+      await page.goto(workspaceUrl);
       await expect(page.getByLabel(/도면 화면/)).toBeVisible();
       await expect(page.getByRole("tab", { name: "결과" })).toBeVisible();
       await expect(
@@ -1278,50 +1857,53 @@ test.describe
       ).toBeEnabled();
       const firstUsableMilliseconds = performance.now() - started;
       const selectedObjectId = performanceFixture.objects[0].id;
-      await selectObject(page, selectedObjectId);
-      const frameTimes = await page.evaluate(async () => {
-        const surface = document.querySelector<HTMLElement>(
-          "[aria-label*='도면 화면']",
-        );
-        if (!surface) throw new Error("M1 performance canvas is unavailable");
-        surface.focus();
-        const samples: number[] = [];
+      const changedSelectionObjectId = performanceFixture.objects[1].id;
+      const surface = page.getByLabel(/도면 화면/);
+      const stage = surface.locator(".konvajs-content");
+      await expect(stage).toBeVisible();
+      const stageBox = await stage.boundingBox();
+      if (!stageBox) throw new Error("M1 Konva Stage has no layout box");
+      const stageCenter = {
+        x: stageBox.x + stageBox.width / 2,
+        y: stageBox.y + stageBox.height / 2,
+      };
+      await page.evaluate(() => {
+        const recording = {
+          complete: false,
+          samples: [] as number[],
+        };
+        (globalThis as any).__m1RafRecording = recording;
         let prior = performance.now();
-        for (let index = 0; index < 180; index += 1) {
+        const sample = (timestamp: number) => {
+          recording.samples.push(timestamp - prior);
+          prior = timestamp;
+          if (recording.samples.length < 180) requestAnimationFrame(sample);
+          else recording.complete = true;
+        };
+        requestAnimationFrame(sample);
+      });
+      await selectObject(page, selectedObjectId);
+      await page.mouse.move(stageCenter.x, stageCenter.y);
+      await page.mouse.wheel(0, -240);
+      await page.getByRole("button", { name: "이동 도구" }).click();
+      await page.mouse.move(stageCenter.x, stageCenter.y);
+      await page.mouse.down();
+      await page.mouse.move(stageCenter.x + 80, stageCenter.y + 40, {
+        steps: 8,
+      });
+      await page.mouse.up();
+      await selectObject(page, changedSelectionObjectId);
+      const frameTimes = await page.evaluate(async () => {
+        const recording = (globalThis as any).__m1RafRecording as {
+          complete: boolean;
+          samples: number[];
+        };
+        if (!recording) throw new Error("M1 RAF recording was not initialized");
+        while (!recording.complete)
           await new Promise<void>((resolve) =>
-            requestAnimationFrame((timestamp) => {
-              samples.push(timestamp - prior);
-              prior = timestamp;
-              if (index % 3 === 0)
-                surface.dispatchEvent(
-                  new WheelEvent("wheel", {
-                    bubbles: true,
-                    clientX: surface.clientWidth / 2,
-                    clientY: surface.clientHeight / 2,
-                    deltaY: index % 6 === 0 ? -20 : 20,
-                  }),
-                );
-              else if (index % 3 === 1)
-                surface.dispatchEvent(
-                  new KeyboardEvent("keydown", {
-                    bubbles: true,
-                    key: index % 2 === 0 ? "ArrowLeft" : "ArrowRight",
-                  }),
-                );
-              else
-                surface.dispatchEvent(
-                  new PointerEvent("pointermove", {
-                    bubbles: true,
-                    clientX: 160 + (index % 40),
-                    clientY: 180 + (index % 30),
-                    pointerId: 1,
-                  }),
-                );
-              resolve();
-            }),
+            requestAnimationFrame(() => resolve()),
           );
-        }
-        return samples.slice(1);
+        return recording.samples.slice(1);
       });
       const p50FrameMilliseconds = percentile(frameTimes, 0.5);
       const p95FrameMilliseconds = percentile(frameTimes, 0.95);
@@ -1344,8 +1926,15 @@ test.describe
         },
         fixtureCounts: performanceFixture.counts,
         interactionSequence: {
-          selectedObjectId,
-          frameSamples: "zoom/pan/pointer-move",
+          changedSelectionObjectId,
+          initialSelectionObjectId: selectedObjectId,
+          stageCenter,
+          steps: [
+            "select first object",
+            "wheel zoom on Konva Stage",
+            "pointer drag pan on Konva Stage",
+            "select second object",
+          ],
         },
         sampleCount: frameTimes.length,
         frameTimesMilliseconds: frameTimes,
@@ -1366,6 +1955,9 @@ test.describe
             : "NOT MET",
       };
       await attachJson(testInfo, "m1-canonical-10k-performance-raw", evidence);
+      expect(firstUsableMilliseconds).toBeLessThanOrEqual(2_500);
+      expect(p95FrameMilliseconds).toBeLessThanOrEqual(16.7);
+      expect(calculatedFps).toBeGreaterThanOrEqual(60);
     } finally {
       await context.close();
     }
@@ -1379,6 +1971,7 @@ test.describe
       viewport: { width: number; height: number };
       page: string;
       evidence: BrowserEvidence;
+      focusOrder?: string[];
       layout?: Record<string, Awaited<ReturnType<Locator["boundingBox"]>>>;
     }> = [];
     for (const viewport of [
@@ -1387,6 +1980,7 @@ test.describe
     ]) {
       const context = await browser.newContext({ viewport });
       try {
+        const contextEvidence = trackContextEvidence(context);
         const startPath = `/projects/${fixture.projectId}/workspaces/new`;
         const page = await authenticateContext(
           fixture,
@@ -1395,7 +1989,6 @@ test.describe
           baseUrl,
           startPath,
         );
-        const startEvidence = trackEvidence(page);
         for (const heading of ["빈 작업실", "템플릿으로 시작", "PDF로 시작"])
           await expect(
             page.getByRole("heading", { name: heading }),
@@ -1412,6 +2005,23 @@ test.describe
         await expect(
           page.getByRole("button", { name: "1HK-test-drawing.pdf PDF로 시작" }),
         ).toBeVisible();
+        await page.locator("#start-blank-title").focus();
+        const focusOrder: string[] = [];
+        for (let index = 0; index < 24; index += 1) {
+          const card = await page.evaluate(() =>
+            document.activeElement
+              ?.closest("section")
+              ?.getAttribute("aria-labelledby"),
+          );
+          if (card && focusOrder.at(-1) !== card) focusOrder.push(card);
+          if (card === "pdf-workspace-title") break;
+          await page.keyboard.press("Tab");
+        }
+        expect(focusOrder.slice(0, 3)).toEqual([
+          "blank-workspace-title",
+          "starter-workspace-title",
+          "pdf-workspace-title",
+        ]);
         const startScreenshot = testInfo.outputPath(
           `m1-start-${viewport.width}x${viewport.height}.png`,
         );
@@ -1424,13 +2034,13 @@ test.describe
         browserEvidence.push({
           viewport,
           page: "start",
-          evidence: startEvidence,
+          evidence: snapshotEvidence(contextEvidence),
+          focusOrder,
         });
 
         await page.goto(
           `${baseUrl}${canonicalPath(fixture.projectId, estimatorWorkspaceId)}`,
         );
-        const workspaceEvidence = trackEvidence(page);
         await page.getByRole("tab", { name: "결과" }).click();
         const surface = page.getByLabel(/도면 화면/);
         const canvas = page.getByRole("region", { name: "도면 캔버스" });
@@ -1477,7 +2087,7 @@ test.describe
         browserEvidence.push({
           viewport,
           page: "workspace",
-          evidence: workspaceEvidence,
+          evidence: snapshotEvidence(contextEvidence),
           layout: {
             leftRail: await leftRail.boundingBox(),
             canvas: await canvas.boundingBox(),
@@ -1486,9 +2096,11 @@ test.describe
           },
         });
 
-        await page.route("**/storage/v1/object/sign/**", (route) =>
-          route.abort(),
-        );
+        let pdfSignRequestAborted = false;
+        await page.route("**/storage/v1/object/sign/**", (route) => {
+          pdfSignRequestAborted = true;
+          return route.abort();
+        });
         await page.goto(
           `${baseUrl}${canonicalPath(fixture.projectId, pdfWorkspaceId)}`,
         );
@@ -1497,6 +2109,7 @@ test.describe
           page.getByRole("button", { name: "선택 도구" }),
         ).toBeVisible();
         await expect(page.getByLabel(/도면 화면/)).toBeVisible();
+        expect(pdfSignRequestAborted).toBe(true);
         const pdfFailureScreenshot = testInfo.outputPath(
           `m1-pdf-failure-${viewport.width}x${viewport.height}.png`,
         );
@@ -1506,6 +2119,11 @@ test.describe
           { path: pdfFailureScreenshot, contentType: "image/png" },
         );
         screenshots.push(pdfFailureScreenshot);
+        browserEvidence.push({
+          viewport,
+          page: "pdf-failure",
+          evidence: snapshotEvidence(contextEvidence),
+        });
       } finally {
         await context.close();
       }

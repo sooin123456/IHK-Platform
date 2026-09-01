@@ -342,8 +342,19 @@ export async function seedEstimatorBoqStructure(
     .insert(components);
   if (componentInsert.error) throw componentInsert.error;
   return {
-    componentIds: components.map(({ id }) => id),
-    lineIds: lines.map(({ id }) => id),
+    componentIdsByCode: Object.fromEntries(
+      components.map((component, index) => [
+        lines[index].item_code,
+        component.id,
+      ]),
+    ),
+    lineIdsByCode: Object.fromEntries(
+      lines.map((line) => [line.item_code, line.id]),
+    ),
+    priceBookId: version.data.price_book_id,
+    resourceIdsByCode: Object.fromEntries(
+      resources.data.map((resource) => [resource.resource_code, resource.id]),
+    ),
     sectionId,
   };
 }
