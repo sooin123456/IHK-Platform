@@ -4,7 +4,7 @@
 
 Task 8 now contains a fail-closed disposable-Supabase controller, status-bound Playwright preflight, process-group and partial-failure-safe cleanup, exact estimator journey assertions, measurable primitive quantity UI, server-validated BOQ reverse focus, and executable real-PostgreSQL purge attacks.
 
-The tested behavior commit is `819e88fd6d533e63a769d9f37d04b1268ab6543b` (`fix: close M1 authority proof gaps`). Every final command was run after that clean commit existed and before this report/evidence-only change. The later documentation-only commit does not become the behavior SHA.
+The tested behavior commit is `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`). Every final command was run after that clean commit existed and before this report/evidence-only change. The later documentation-only commit does not become the behavior SHA.
 
 M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and Finch are absent, so disposable Supabase never started and the canonical browser, Hocuspocus, visual, source-integrity, and M1 10k gates did not run. No local preview, P7 result, static test, or standalone PostgreSQL run is presented as replacement authority.
 
@@ -16,14 +16,14 @@ M1 remains **UNEXECUTED**, not complete. Docker, Podman, Colima, OrbStack, and F
   - Export exact authority/status/config/cleanup/lifecycle helpers for mutation tests.
   - Create only a canonical OS-temp `mkdtemp` project, with generated marker, project ID, copied migrations/config, and free loopback ports.
   - Capture and sanitize sensitive Supabase start/status/stop output; spawn without a shell.
-  - Start long-running POSIX children in isolated process groups, terminate and escalate the entire group before owned cleanup, retain a Windows child-process fallback, and preserve 130/143 identity.
+  - Start long-running POSIX children in isolated process groups, retain a group when its leader exits but descendants remain, terminate and escalate the entire group before owned cleanup, refuse the runner's own PGID, retain a Windows child-process fallback, and preserve 130/143 identity.
   - Validate canonical containment, marker, project/config equality, and recursive `lstat`; reject child symlinks.
   - Preserve the root/config when `supabase stop` fails. Remove an exact empty/partial owned root only before a start attempt.
 - `platform/playwright.m1.config.ts`
   - At config import, calls `supabase status --workdir <exact-root> -o json` and matches API URL, DB URL, anon key, service key, API/DB ports, marker, project ID, and exact generated config before fixture writes.
   - Keeps production `npm run start`, production collaboration, fixed loopback endpoints, one worker, and no dev/preview route.
 - `platform/tests/drawing-workspace-m1-release-harness.test.mjs`
-  - Covers mismatched/fake status, appended config drift, direct invocation, repository-root refusal, symlink children, stop failure recovery, partial start, signal termination/idempotence, interrupt exit identity, secret redaction, and a real POSIX parent/grandchild tree whose grandchild ignores `SIGTERM` and is killed before cleanup.
+  - Covers mismatched/fake status, appended config drift, direct invocation, repository-root refusal, symlink children, stop failure recovery, partial start, signal termination/idempotence, interrupt exit identity, secret redaction, own-PGID refusal, a signaled real POSIX parent/grandchild tree, and a second real tree whose leader exits normally while its `SIGTERM`-ignoring grandchild is retained and killed before cleanup.
 
 Production `platform/build/`, `platform/collaboration/dist/`, and typegen output remain the approved build architecture. Only the Supabase authority is `mkdtemp`-isolated.
 
@@ -68,7 +68,7 @@ The route still validates that the requested line belongs to the selected versio
 - `platform/tests/drawing-workspace-retention-cascade.test.mjs`
 - `platform/tests/drawing-workspace-m1-real-database.test.mjs`
 
-The additive migration permits each draft/layer/binding child bypass only when `DELETE`, trigger depth >1, exact purge-project GUC, table-owner current user, and absent parent all hold. Execute remains revoked from public/Data API/service roles. The real matrix verifies owner context, attacks a forged binding marker at depth 1, a forged direct layer deletion, and test-only nested layer and binding deletes at depth >1 while the parent exists; it proves the layer, binding, and project all remain before a legitimate service parent cascade succeeds. No applied migration was rewritten and no retention interval/hold/dependency was weakened.
+The additive migration permits each draft/layer/binding child bypass only when `DELETE`, trigger depth >1, exact purge-project GUC equality, table-owner current user, and absent parent all hold. The draft trigger is now `SECURITY INVOKER`, so its table-owner predicate describes the actual caller rather than the function owner. Execute remains revoked from public/Data API/service roles. Mutation tests lock the binding guard's entire AND conjunction and append-only rejection. The real matrix verifies `prosecdef=false`, owner context, attacks forged depth-1 binding/layer/page deletes, and test-only nested layer/binding/page deletes at depth >1 while the parent exists; it proves every attacked row and the project remain before a legitimate service parent cascade removes them. No retention interval/hold/dependency was weakened.
 
 ### Existing bounded Task 8 product/legacy work retained
 
@@ -84,10 +84,10 @@ These are the only files changed by the evidence-only commit.
 ## Independent review closure
 
 1. Direct Playwright can no longer self-author a root and target another loopback stack: exact `supabase status` values/keys/ports/config are verified before fixture writes.
-2. SIGINT/SIGTERM, tracked-child termination, partial start, stop failure, and symlink-child cases are covered; recovery metadata survives a failed stop.
+2. SIGINT/SIGTERM, tracked-child termination, independently exiting group leaders, own-PGID refusal, partial start, stop failure, and symlink-child cases are covered; recovery metadata survives a failed stop.
 3. Supabase CLI secrets/DB URLs are captured, bounded, and sanitized rather than streamed.
 4. Existing `build/` and collaboration `dist/` remain intentional; no alternate build architecture was invented.
-5. Real PG adds forged depth-1 GUC and depth>1-with-parent attacks, while legitimate service cascade still passes.
+5. Real PG adds forged depth-1 GUC and depth>1-with-parent attacks for draft, layer, and binding guards, proves the draft guard is invoker-mode, and still passes the legitimate service cascade.
 6. Evidence reason is asserted as an input value.
 7. Supported measurable primitives expose deterministic quantity rows and confirmation; PDF calibration checks a visible real 5 m path.
 8. All seven required classifications are created and persisted.
@@ -108,6 +108,13 @@ These are the only files changed by the evidence-only commit.
 4. POSIX long-running children now own an isolated process group. The real harness starts a parent and `SIGTERM`-ignoring grandchild, requests `SIGINT`, exercises group escalation, and proves both PIDs are gone before cleanup; Windows retains the direct-child fallback.
 5. Draft and layer purge guards now include the same table-owner predicate as the binding guard. Static tests lock every conjunct. UTF-8 real PostgreSQL executes owner-context nested layer and binding attacks with forged marker and live parent, proves both rows remain, and then proves the legal service parent cascade.
 
+## Final security review closure
+
+1. A normal group-leader close now probes the immutable PGID captured at spawn. If descendants remain, the lifecycle retains and polls that group until `terminateTracked()` sends `SIGTERM`, escalates to `SIGKILL`, and observes group disappearance before Supabase cleanup. A normal command with no descendants still settles promptly.
+2. Negative group signaling uses only the captured detached-child PGID. The lifecycle resolves its own POSIX PGID before work, refuses equality with either the runner PID or PGID, and has an executable refusal test; Windows never uses negative signaling.
+3. `lukas_drawing_draft_child_guard` is `SECURITY INVOKER`. The UTF-8 catalog assertion proves `prosecdef=false`; normal editor protection, forged direct/nested draft deletion denial, and the legitimate owner-context service cascade all pass.
+4. The binding mutation lock rejects changes to exact `tg_op='DELETE'`, the AND conjunction, depth, GUC name/equality, table-owner expression, absent-parent test, and `P1C01` append-only rejection. The executable matrix separately proves binding depth-1 and depth>1-with-parent attacks leave the row intact.
+
 ## Strict TDD record
 
 ### Harness/security RED → GREEN
@@ -117,7 +124,8 @@ These are the only files changed by the evidence-only commit.
 - RED: lifecycle helpers did not preserve interrupt exit identity or make repeated signals idempotent.
 - RED: appended generated config drift was accepted.
 - RED in the second round: the process-tree test failed because `waitForTermination` did not exist and the immediate-PID lifecycle could not prove a surviving grandchild was gone.
-- GREEN: harness 13/13, including two real direct-Playwright refusal subprocesses and the real parent/grandchild process group. The final post-commit focused union passed 151/151.
+- RED in the final security round: a normally exiting detached leader made `runChildProcess` resolve while the `SIGTERM`-ignoring grandchild survived, and the requested `terminateTracked()` lifecycle operation did not exist. A second RED required the lifecycle to reject its own POSIX process group.
+- GREEN: the final harness retains and reaps the independently surviving group, proves a no-descendant command settles promptly, refuses its own PGID, preserves the earlier signal/tree cases, and passes inside the final post-commit focused union of 155/155.
 
 ### Measurable primitives RED → GREEN
 
@@ -133,6 +141,7 @@ These are the only files changed by the evidence-only commit.
 
 - The earlier Task 8 real-PG run exposed the legitimate service purge being rejected by child editor capability. The additive migration fixed only the exact nested cascade.
 - New RED attacks proved a forged GUC/depth condition must not be sufficient. Final UTF-8 real PG passed 1/1 with all attacks and legal cascade.
+- Final RED: the draft guard's table-owner predicate was caller-vacuous under `SECURITY DEFINER`, the executable matrix had no draft/page nested counterexample, and the binding static test did not mutation-lock its complete conjunction. GREEN: `SECURITY INVOKER`, catalog `prosecdef=false`, direct/nested page attacks with exact residue, legal cascade, and every binding mutation all pass.
 - A post-commit diagnostic invocation without `--encoding=UTF8` created SQL_ASCII and failed the Korean fixture before the authority matrix. It exited 1, stopped, and removed its root. The corrected UTF-8 command is separately recorded as PASS; the first is not counted as authority.
 
 ### Second-round contract RED → GREEN
@@ -148,20 +157,21 @@ The spec/config/fixture typecheck and static contracts are GREEN. Canonical brow
 
 ## Post-commit command evidence
 
-Exact command/timestamp/exit/artifact rows are in `docs/superpowers/evidence/2026-08-31-universal-workspace-m1.md`. Summary for behavior SHA `819e88fd6d533e63a769d9f37d04b1268ab6543b`:
+Exact command/timestamp/exit/artifact rows are in `docs/superpowers/evidence/2026-08-31-universal-workspace-m1.md`. Summary for behavior SHA `f60998d5b430427817f8e8ec2ae8d2c1f787172d`:
 
-- `PASS`: focused union 151/151; app and collaboration typechecks; production app and collaboration builds.
-- `PASS`: corrected UTF-8 isolated real PostgreSQL 1/1; exact cluster stopped/removed, no residue.
-- `UNEXECUTED`: canonical M1 command exit 1 before build/fixture/browser because no container engine. Stop also failed, so the new recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-VvWi6t` was intentionally retained with valid marker/config and no symlink; the prior disclosed recovery root also remains.
-- `PASS`: P0–P2 4/4, P3 1/1, P4 14/14, P5 13/13, P7 release 3/3, P7 local performance 3/3.
-- `NOT MET`: full drawing suite exit 1; 1,061 total / 1,052 pass / 7 skip / 2 fail. The only failures are committed legacy P7 evidence SHA `6bf871c...` versus tested code SHA `819e88f...`. No evidence was hand-edited.
-- `PASS`: scoped Prettier on format-managed changed files and diff checks. One broader check is separately `NOT MET` because the intentionally compact legacy real-PG executable is not repository-Prettier-clean; no formatting churn was introduced. Generated P4/P5/P6/P7 artifacts were restored and Playwright/Vite scratch was removed.
+- `PASS`: focused union 155/155, including all lifecycle and exact guard mutation tests; app and collaboration typechecks; production app and collaboration builds.
+- `PASS`: corrected UTF-8 isolated real PostgreSQL 1/1; catalog/attack/legal-cascade assertions executed, and exact cluster stopped/removed with its port closed.
+- `UNEXECUTED`: canonical M1 command exit 1 before build/fixture/browser because no container engine. The new recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` was intentionally retained; its exact marker/config validates and its API/DB ports are closed. Two previously disclosed recovery roots also remain.
+- `NOT MET`: full drawing suite exit 1; 1,065 total / 1,056 pass / 7 skip / 2 fail. The only failures are committed legacy P7 evidence SHA `6bf871c...` versus tested code SHA `f60998d...`. No evidence was hand-edited.
+- `PASS`: scoped Prettier on all format-managed final-round files, `git diff --check`, generated P6 evidence restoration, and Playwright/Vite scratch removal.
+
+The previously accepted P0–P5/P7 browser and P7 performance results were produced on behavior SHA `819e88fd6d533e63a769d9f37d04b1268ab6543b`. The final security-only delta did not touch those product/browser surfaces, but those commands were not re-labeled as executions on `f60998d`.
 
 ## Performance and visual evidence
 
 Canonical M1 raw 10k, 1440×900, 1024×768, console/network, source before/after, and production Hocuspocus/outbox attachments: absent, `UNEXECUTED`.
 
-Separate P7 local run `ac29beda-af96-4b58-8bf8-3b0604216fae` is `PASS` only for legacy regression: 10,000 authoritative / 2,384 projected / 2,382 accessible, cold 2307.899999976158 ms, first usable 1707.7000000476837 ms, p95 zoom/pan/selection 0.1000000238 / 0.2000000477 / 7.6000000238 ms. Targets were not lowered. Raw generated artifacts were inspected, recorded in release evidence, and restored.
+Earlier accepted P7 local run `ac29beda-af96-4b58-8bf8-3b0604216fae` on `819e88f` is `PASS` only for legacy regression: 10,000 authoritative / 2,384 projected / 2,382 accessible, cold 2307.899999976158 ms, first usable 1707.7000000476837 ms, p95 zoom/pan/selection 0.1000000238 / 0.2000000477 / 7.6000000238 ms. Targets were not lowered. Raw generated artifacts were inspected, recorded in release evidence, and restored.
 
 ## Ponytail review
 
@@ -173,13 +183,14 @@ The BOQ focus effect originally depended on the whole loader result. It now depe
 
 ## Cleanup and blockers
 
-- Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-819e88f.dkBUWf` on loopback port 55610 was stopped and removed; root absence and closed port were verified.
-- New Supabase recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-VvWi6t` is retained because start and stop both lacked a container engine. Marker/config project `1hk-m1-9cb85afd`, API port 53965, DB port 53966, and symlink-free containment were verified. The earlier disclosed root `.../1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remains. Deleting either after stop failure would violate the approved recovery rule.
+- Post-commit PostgreSQL root `/private/tmp/1hk-m1-real-pg-f60998d.GOxeAa` on loopback port 57822 was stopped and removed; root absence and closed port were independently verified.
+- New Supabase recovery root `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` is retained because start and stop lacked a container engine. Exact cleanup-target validation passed for project `1hk-m1-a9fe0b64`, API port 52549, and DB port 52550; both ports are closed. Previously disclosed roots `.../1hk-m1-supabase-VvWi6t` (`1hk-m1-9cb85afd`, 53965/53966) and `.../1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remain. Deleting them after failed starts/stops would violate the approved recovery rule.
 - The exact blocker is a missing supported container runtime. Install/start one and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged.
 
 ## Commit identity
 
 - Original Task 8 implementation: `4a7c68960315b60a693456d55c2bcb937b53a2fb` (`test: prove universal estimator workspace M1`).
 - First hardening behavior SHA: `21765f53a171992a9837bbcddbc0ac07244cb91d` (`fix: harden M1 acceptance authority`).
-- Final code/tests/harness behavior SHA: `819e88fd6d533e63a769d9f37d04b1268ab6543b` (`fix: close M1 authority proof gaps`).
-- Evidence-only subject: `docs: update M1 authority evidence`; its Git SHA is intentionally not presented as the behavior SHA.
+- Second-round code/tests/harness behavior SHA: `819e88fd6d533e63a769d9f37d04b1268ab6543b` (`fix: close M1 authority proof gaps`).
+- Final security behavior SHA: `f60998d5b430427817f8e8ec2ae8d2c1f787172d` (`fix: reap M1 process groups safely`).
+- Evidence-only subject: `docs: finalize M1 security evidence`; its Git SHA is intentionally not presented as the behavior SHA.
